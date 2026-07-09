@@ -6,114 +6,213 @@
   <meta name="description" content="Yan Agent — Yanxi Code 的桌面端 Agent 伴侣，让想法真正落地。" />
   <title>Yan Agent · Yanxi Code 桌面伴侣</title>
   <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-      --bg: #141414;
-      --bg-elev: #1c1c1c;
-      --bg-card: #222;
-      --border: #2e2e2e;
-      --text: #ececec;
-      --text-dim: #a8a8a8;
-      --text-faint: #707070;
+      --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-serif: "Instrument Serif", "Times New Roman", Georgia, serif;
+      --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+      --bg: #0c0b0a;
+      --bg-elev: #141312;
+      --bg-card: #1a1917;
+      --bg-card-hi: #211f1c;
+      --border: #2a2825;
+      --border-hi: #3a3633;
+
+      --text: #f5f1ea;
+      --text-dim: #a8a39b;
+      --text-faint: #6b665e;
+
       --accent: #d97757;
-      --accent-hover: #e08868;
-      --accent-soft: rgba(217, 119, 87, 0.14);
-      --accent-glow: rgba(217, 119, 87, 0.25);
+      --accent-hover: #e8896a;
+      --accent-deep: #b85d3f;
+      --accent-soft: rgba(217, 119, 87, 0.12);
+      --accent-glow: rgba(217, 119, 87, 0.35);
+      --accent-line: rgba(217, 119, 87, 0.4);
+
+      --r-sm: 8px;
       --r: 14px;
-      --max: 1080px;
+      --r-lg: 20px;
+      --max: 1120px;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body {
-      font-family: var(--font);
+      font-family: var(--font-sans);
       background: var(--bg);
       color: var(--text);
       line-height: 1.65;
       -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+      font-weight: 400;
     }
 
-    a { color: var(--accent-hover); text-decoration: none; transition: color 0.15s; }
+    /* Atmospheric grain overlay */
+    body::before {
+      content: "";
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 200;
+      opacity: 0.035;
+      mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    a { color: var(--accent-hover); text-decoration: none; transition: color 0.2s; }
     a:hover { color: #f0a48a; }
 
-    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 28px; }
 
+    /* ---------- Nav ---------- */
     nav {
       position: sticky; top: 0; z-index: 100;
-      backdrop-filter: blur(12px);
-      background: rgba(20, 20, 20, 0.85);
-      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(18px) saturate(1.2);
+      -webkit-backdrop-filter: blur(18px) saturate(1.2);
+      background: rgba(12, 11, 10, 0.72);
+      border-bottom: 1px solid rgba(42, 40, 37, 0.6);
     }
     .nav-inner {
       display: flex; align-items: center; justify-content: space-between;
-      height: 56px;
+      height: 62px;
     }
     .brand {
-      display: flex; align-items: center; gap: 10px;
-      font-weight: 600; font-size: 15px; color: var(--text);
+      display: flex; align-items: center; gap: 11px;
+      font-weight: 700; font-size: 15px; color: var(--text);
+      letter-spacing: -0.01em;
     }
-    .brand img { width: 28px; height: 28px; filter: invert(1); }
-    .nav-links { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .brand-logo {
+      width: 30px; height: 30px;
+      border-radius: 7px;
+      box-shadow: 0 0 0 1px rgba(217,119,87,0.25), 0 4px 14px rgba(217,119,87,0.18);
+    }
+    .nav-links { display: flex; align-items: center; gap: 4px; font-size: 14px; }
     .nav-links a {
       color: var(--text-dim);
-      padding: 6px 12px;
-      border-radius: 8px;
-      transition: color 0.15s, background 0.15s;
+      padding: 8px 14px;
+      border-radius: var(--r-sm);
+      font-weight: 500;
+      transition: color 0.2s, background 0.2s;
     }
     .nav-links a:hover { color: var(--text); background: var(--bg-elev); }
     .nav-links a.nav-dl {
       color: #fff;
       background: var(--accent);
+      box-shadow: 0 2px 12px rgba(217, 119, 87, 0.3);
     }
     .nav-links a.nav-dl:hover {
       color: #fff;
       background: var(--accent-hover);
+      box-shadow: 0 4px 18px rgba(217, 119, 87, 0.45);
     }
 
+    /* ---------- Hero ---------- */
     .hero {
-      padding: 88px 0 72px;
+      padding: 110px 0 90px;
       text-align: center;
       position: relative;
       overflow: hidden;
     }
     .hero::before {
       content: "";
-      position: absolute; inset: -40% -20% auto;
-      height: 520px;
-      background: radial-gradient(ellipse at 50% 0%, var(--accent-glow) 0%, transparent 65%);
+      position: absolute; inset: -30% -30% auto;
+      height: 720px;
+      background:
+        radial-gradient(ellipse 60% 50% at 50% 0%, var(--accent-glow) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 40% at 20% 30%, rgba(217, 119, 87, 0.18) 0%, transparent 50%),
+        radial-gradient(ellipse 40% 40% at 80% 20%, rgba(184, 93, 63, 0.15) 0%, transparent 50%);
       pointer-events: none;
+      animation: hero-drift 18s ease-in-out infinite alternate;
+    }
+    @keyframes hero-drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(-2%, 1%) scale(1.05); }
+    }
+    .hero::after {
+      content: "";
+      position: absolute; left: 0; right: 0; bottom: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+      opacity: 0.6;
+    }
+
+    .hero-logo-wrap {
+      position: relative;
+      width: 96px; height: 96px;
+      margin: 0 auto 32px;
+    }
+    .hero-logo-wrap::before {
+      content: "";
+      position: absolute; inset: -12px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      animation: logo-pulse 3.5s ease-in-out infinite;
+    }
+    @keyframes logo-pulse {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.08); }
     }
     .hero-logo {
-      width: 88px; height: 88px;
-      margin: 0 auto 28px;
-      filter: invert(1);
-      opacity: 0.95;
+      position: relative;
+      width: 96px; height: 96px;
+      border-radius: 22px;
+      box-shadow:
+        0 0 0 1px rgba(217,119,87,0.3),
+        0 8px 32px rgba(0,0,0,0.4),
+        0 0 60px rgba(217,119,87,0.15);
     }
+
     .badge {
-      display: inline-block;
-      padding: 5px 14px;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
       border-radius: 999px;
       font-size: 12px;
-      font-weight: 500;
+      font-weight: 600;
       color: var(--accent-hover);
       background: var(--accent-soft);
-      border: 1px solid rgba(217, 119, 87, 0.25);
-      margin-bottom: 20px;
+      border: 1px solid var(--accent-line);
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
     }
+    .badge::before {
+      content: "";
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
     .hero h1 {
-      font-size: clamp(32px, 5vw, 48px);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.15;
-      margin-bottom: 18px;
+      font-family: var(--font-serif);
+      font-size: clamp(40px, 6.5vw, 68px);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+      margin-bottom: 24px;
     }
-    .hero h1 em { font-style: normal; color: var(--accent-hover); }
+    .hero h1 em {
+      font-style: italic;
+      background: linear-gradient(135deg, var(--accent-hover) 0%, #f0a48a 50%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
     .hero-lead {
-      font-size: clamp(16px, 2.5vw, 19px);
+      font-size: clamp(16px, 2.2vw, 18px);
       color: var(--text-dim);
-      max-width: 560px;
-      margin: 0 auto 36px;
+      max-width: 580px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+      font-weight: 400;
     }
     .hero-actions {
       display: flex; flex-wrap: wrap; gap: 12px;
@@ -121,139 +220,240 @@
     }
     .btn {
       display: inline-flex; align-items: center; gap: 8px;
-      padding: 12px 22px;
-      border-radius: 10px;
-      font-size: 14px; font-weight: 500;
-      transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+      padding: 13px 24px;
+      border-radius: var(--r-sm);
+      font-size: 14px; font-weight: 600;
+      letter-spacing: -0.005em;
+      transition: transform 0.15s, background 0.2s, box-shadow 0.2s, border-color 0.2s;
     }
-    .btn:active { transform: scale(0.98); }
+    .btn:active { transform: scale(0.97); }
     .btn-primary {
       background: var(--accent);
       color: #fff;
-      box-shadow: 0 4px 24px var(--accent-glow);
+      box-shadow: 0 4px 24px rgba(217, 119, 87, 0.3), inset 0 1px 0 rgba(255,255,255,0.15);
     }
     .btn-primary:hover {
       background: var(--accent-hover);
       color: #fff;
-      box-shadow: 0 6px 32px var(--accent-glow);
+      box-shadow: 0 8px 32px rgba(217, 119, 87, 0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+      transform: translateY(-1px);
     }
     .btn-ghost {
-      background: var(--bg-elev);
+      background: rgba(26, 25, 23, 0.6);
       color: var(--text);
       border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
     }
-    .btn-ghost:hover { background: var(--bg-card); color: var(--text); border-color: #444; }
+    .btn-ghost:hover {
+      background: var(--bg-card-hi);
+      color: var(--text);
+      border-color: var(--border-hi);
+      transform: translateY(-1px);
+    }
 
-    .section { padding: 72px 0; }
-    .section-head { text-align: center; margin-bottom: 40px; }
+    /* ---------- Sections ---------- */
+    .section { padding: 80px 0; position: relative; }
+    .section-head { text-align: center; margin-bottom: 48px; }
     .section-head h2 {
-      font-size: 28px; font-weight: 650;
-      letter-spacing: -0.02em; margin-bottom: 10px;
+      font-family: var(--font-serif);
+      font-size: clamp(30px, 4vw, 42px);
+      font-weight: 400;
+      letter-spacing: -0.015em;
+      margin-bottom: 12px;
+      line-height: 1.1;
     }
     .section-head p { color: var(--text-dim); font-size: 15px; }
 
-    /* Changelog */
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+
+    /* ---------- Changelog ---------- */
+    #changelog { padding-top: 24px; }
     .changelog {
-      max-width: 720px;
+      max-width: 760px;
       margin: 0 auto;
-      padding: 28px 32px;
-      border-radius: var(--r);
+      padding: 36px 40px;
+      border-radius: var(--r-lg);
       border: 1px solid var(--border);
-      background: var(--bg-elev);
+      background: linear-gradient(180deg, var(--bg-elev) 0%, var(--bg-card) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .changelog::before {
+      content: "";
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
     }
     .changelog-meta {
-      display: flex; align-items: center; gap: 12px;
-      margin-bottom: 20px; flex-wrap: wrap;
+      display: flex; align-items: center; gap: 14px;
+      margin-bottom: 24px; flex-wrap: wrap;
     }
     .version-tag {
-      font-size: 13px; font-weight: 600;
+      font-family: var(--font-mono);
+      font-size: 13px; font-weight: 500;
       color: var(--accent-hover);
       background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
       padding: 4px 10px; border-radius: 6px;
     }
-    .changelog-date { font-size: 13px; color: var(--text-faint); }
-    .changelog h3 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+    .changelog-date {
+      font-family: var(--font-mono);
+      font-size: 13px; color: var(--text-faint);
+    }
+    .changelog h3 {
+      font-family: var(--font-serif);
+      font-size: 22px; font-weight: 400;
+      margin-bottom: 18px;
+      letter-spacing: -0.01em;
+    }
     .changelog ul {
       list-style: none;
-      display: flex; flex-direction: column; gap: 8px;
+      display: flex; flex-direction: column; gap: 10px;
     }
     .changelog li {
       font-size: 14px; color: var(--text-dim);
-      padding-left: 18px; position: relative;
+      padding-left: 22px; position: relative;
+      line-height: 1.6;
     }
     .changelog li::before {
-      content: "·";
-      position: absolute; left: 4px;
-      color: var(--accent); font-weight: bold;
+      content: "";
+      position: absolute; left: 0; top: 10px;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent-glow);
     }
+    .changelog li strong { color: var(--text); font-weight: 600; }
     .changelog-more {
-      margin-top: 20px;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
       font-size: 13px;
     }
 
-    /* Download */
+    /* ---------- Download ---------- */
     .download-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      max-width: 640px;
+      gap: 18px;
+      max-width: 720px;
       margin: 0 auto;
     }
     @media (max-width: 560px) {
       .download-grid { grid-template-columns: 1fr; }
     }
     .dl-card {
-      padding: 28px;
-      border-radius: var(--r);
+      padding: 32px;
+      border-radius: var(--r-lg);
       border: 1px solid var(--border);
       background: var(--bg-elev);
       text-align: center;
-      transition: border-color 0.2s;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.25s, border-color 0.25s, background 0.25s;
     }
-    .dl-card:hover { border-color: rgba(217, 119, 87, 0.35); }
+    .dl-card:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-hi);
+    }
     .dl-card.recommended {
-      border-color: rgba(217, 119, 87, 0.35);
-      background: linear-gradient(145deg, rgba(217,119,87,0.08) 0%, var(--bg-elev) 60%);
+      border-color: var(--accent-line);
+      background: linear-gradient(155deg, rgba(217,119,87,0.1) 0%, var(--bg-elev) 55%);
+    }
+    .dl-card.recommended::before {
+      content: "";
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
     }
     .dl-badge {
-      font-size: 11px; font-weight: 600;
+      font-size: 11px; font-weight: 700;
       color: var(--accent-hover);
-      margin-bottom: 10px;
+      margin-bottom: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
-    .dl-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
-    .dl-card p { font-size: 13px; color: var(--text-dim); margin-bottom: 18px; }
+    .dl-card h3 {
+      font-family: var(--font-serif);
+      font-size: 22px; font-weight: 400;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .dl-card p { font-size: 13px; color: var(--text-dim); margin-bottom: 22px; }
     .dl-card .btn { width: 100%; justify-content: center; }
     .dl-note {
       text-align: center;
-      margin-top: 20px;
+      margin-top: 24px;
       font-size: 13px;
       color: var(--text-faint);
     }
 
-    .duo { padding: 64px 0; border-top: 1px solid var(--border); }
-    .duo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    @media (max-width: 720px) {
+    /* ---------- Duo ---------- */
+    .duo {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    .duo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 760px) {
       .duo-grid { grid-template-columns: 1fr; }
       .nav-links .nav-extra { display: none; }
     }
     .duo-card {
-      padding: 28px;
-      border-radius: var(--r);
+      padding: 36px 32px;
+      border-radius: var(--r-lg);
       border: 1px solid var(--border);
       background: var(--bg-elev);
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.3s, border-color 0.3s;
     }
+    .duo-card:hover { transform: translateY(-2px); border-color: var(--border-hi); }
     .duo-card.highlight {
-      border-color: rgba(217, 119, 87, 0.35);
-      background: linear-gradient(145deg, rgba(217,119,87,0.08) 0%, var(--bg-elev) 60%);
+      border-color: var(--accent-line);
+      background:
+        radial-gradient(ellipse 80% 50% at 100% 0%, rgba(217,119,87,0.12) 0%, transparent 60%),
+        var(--bg-elev);
+    }
+    .duo-card.highlight::after {
+      content: "";
+      position: absolute; top: 0; right: 0;
+      width: 120px; height: 120px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0.5;
+      pointer-events: none;
     }
     .duo-label {
-      font-size: 11px; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.08em;
-      color: var(--text-faint); margin-bottom: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text-faint); margin-bottom: 14px;
     }
-    .duo-card h3 { font-size: 20px; font-weight: 600; margin-bottom: 10px; }
-    .duo-card p { color: var(--text-dim); font-size: 14px; }
+    .duo-card.highlight .duo-label { color: var(--accent); }
+    .duo-card h3 {
+      font-family: var(--font-serif);
+      font-size: 26px; font-weight: 400;
+      margin-bottom: 14px;
+      letter-spacing: -0.015em;
+      line-height: 1.2;
+    }
+    .duo-card p { color: var(--text-dim); font-size: 14px; line-height: 1.7; }
+    .duo-link { margin-top: 16px; font-size: 13px; font-weight: 600; }
 
+    /* ---------- Features ---------- */
     .features {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -262,55 +462,123 @@
     @media (max-width: 860px) { .features { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 520px) { .features { grid-template-columns: 1fr; } }
     .feat {
-      padding: 22px;
-      border-radius: var(--r);
+      padding: 26px 24px;
+      border-radius: var(--r-lg);
       border: 1px solid var(--border);
       background: var(--bg-elev);
+      transition: transform 0.3s, border-color 0.3s, background 0.3s;
+      position: relative;
+      overflow: hidden;
     }
-    .feat-icon { font-size: 22px; margin-bottom: 12px; }
-    .feat h4 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
-    .feat p { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .feat::before {
+      content: "";
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .feat:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-hi);
+      background: var(--bg-card-hi);
+    }
+    .feat:hover::before { opacity: 1; }
+    .feat-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
+      color: var(--accent-hover);
+    }
+    .feat-icon svg { width: 20px; height: 20px; }
+    .feat h4 { font-size: 15px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.01em; }
+    .feat p { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
 
+    /* ---------- Flow ---------- */
+    #flow { padding-top: 0; padding-bottom: 90px; }
     .flow {
       display: flex; flex-wrap: wrap;
       justify-content: center; align-items: stretch;
+      gap: 8px;
+      position: relative;
     }
     .flow-step {
-      flex: 1 1 160px; max-width: 200px;
-      text-align: center; padding: 20px 12px;
+      flex: 1 1 170px; max-width: 220px;
+      text-align: center; padding: 24px 16px;
       position: relative;
     }
     .flow-step:not(:last-child)::after {
-      content: "→";
-      position: absolute; right: -8px; top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-faint); font-size: 18px;
+      content: "";
+      position: absolute; right: -10px; top: 42px;
+      width: 24px; height: 1px;
+      background: linear-gradient(90deg, var(--accent-line), transparent);
     }
-    @media (max-width: 640px) {
+    @media (max-width: 720px) {
       .flow-step:not(:last-child)::after { display: none; }
     }
     .flow-num {
-      width: 36px; height: 36px; border-radius: 50%;
-      background: var(--accent-soft); color: var(--accent-hover);
-      font-weight: 700; font-size: 14px;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--bg-elev);
+      border: 1px solid var(--accent-line);
+      color: var(--accent-hover);
+      font-family: var(--font-serif);
+      font-size: 20px;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 12px;
+      margin: 0 auto 16px;
+      box-shadow: 0 0 0 4px var(--bg), 0 0 24px rgba(217,119,87,0.2);
     }
-    .flow-step h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-    .flow-step p { font-size: 12px; color: var(--text-faint); }
+    .flow-step h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.01em; }
+    .flow-step p { font-size: 12px; color: var(--text-faint); line-height: 1.5; }
 
+    /* ---------- Footer ---------- */
     footer {
       border-top: 1px solid var(--border);
-      padding: 32px 0;
+      padding: 40px 0;
       text-align: center;
       font-size: 13px;
       color: var(--text-faint);
+      position: relative;
+    }
+    footer::before {
+      content: "";
+      position: absolute; top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 200px; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
     }
     footer .links {
-      display: flex; flex-wrap: wrap; gap: 20px;
-      justify-content: center; margin-bottom: 12px;
+      display: flex; flex-wrap: wrap; gap: 24px;
+      justify-content: center; margin-bottom: 16px;
     }
-    footer a { color: var(--text-dim); }
+    footer a { color: var(--text-dim); font-weight: 500; }
+    footer a:hover { color: var(--accent-hover); }
+    footer .credit {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ---------- Entrance animations ---------- */
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .hero-logo-wrap { animation: rise 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .badge { animation: rise 0.8s 0.1s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .hero h1 { animation: rise 0.8s 0.2s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .hero-lead { animation: rise 0.8s 0.35s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .hero-actions { animation: rise 0.8s 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -318,7 +586,7 @@
   <nav>
     <div class="wrap nav-inner">
       <a class="brand" href="#">
-        <img src="assets/logo.png" alt="" width="28" height="28" />
+        <img class="brand-logo" src="assets/logo.png" alt="" width="30" height="30" />
         Yan Agent
       </a>
       <div class="nav-links">
@@ -331,7 +599,9 @@
 
   <header class="hero">
     <div class="wrap">
-      <img class="hero-logo" src="assets/logo.png" alt="Yan Agent" width="88" height="88" />
+      <div class="hero-logo-wrap">
+        <img class="hero-logo" src="assets/logo.png" alt="Yan Agent" width="96" height="96" />
+      </div>
       <div class="badge">Yanxi Code 桌面端 Agent 伴侣</div>
       <h1>不只是聊天<br /><em>让想法真正落地</em></h1>
       <p class="hero-lead">
@@ -352,9 +622,10 @@
     </div>
   </header>
 
-  <section class="section" id="changelog" style="padding-top:0">
+  <section class="section" id="changelog">
     <div class="wrap">
       <div class="section-head">
+        <span class="eyebrow">Changelog</span>
         <h2>更新公告</h2>
         <p>Yan Agent 1.0.0 正式发布</p>
       </div>
@@ -365,14 +636,14 @@
         </div>
         <h3>本版本亮点</h3>
         <ul>
-          <li>完整 Agent 内核 — 最多 40 轮工具循环，todo 计划、写后验证、失败重试</li>
-          <li>17 个内置工具 — 文件读写/编辑、Shell、Git 全套、内置浏览器预览</li>
-          <li>MCP 扩展 — 预装 Playwright、Windows-MCP，支持自定义 MCP 服务</li>
-          <li>Skill 市场 — 51 个精选 Skill（代码 / UI / 网站），一键注入对话</li>
-          <li>定时自动化 — 后台并行运行，不抢占当前会话</li>
-          <li>会话持久化 — 工具调用时间线 + apiTrace 跨轮回放</li>
-          <li>上下文压缩 & 长期记忆 — 长对话不丢工具链，跨会话记住关键事实</li>
-          <li>现代化 UI — 暗/亮主题、四页侧边栏、系统托盘保活</li>
+          <li><strong>完整 Agent 内核</strong> — 最多 40 轮工具循环，todo 计划、写后验证、失败重试</li>
+          <li><strong>17 个内置工具</strong> — 文件读写/编辑、Shell、Git 全套、内置浏览器预览</li>
+          <li><strong>MCP 扩展</strong> — 预装 Playwright、Windows-MCP，支持自定义 MCP 服务</li>
+          <li><strong>Skill 市场</strong> — 51 个精选 Skill（代码 / UI / 网站），一键注入对话</li>
+          <li><strong>定时自动化</strong> — 后台并行运行，不抢占当前会话</li>
+          <li><strong>会话持久化</strong> — 工具调用时间线 + apiTrace 跨轮回放</li>
+          <li><strong>上下文压缩 & 长期记忆</strong> — 长对话不丢工具链，跨会话记住关键事实</li>
+          <li><strong>现代化 UI</strong> — 暗/亮主题、四页侧边栏、系统托盘保活</li>
         </ul>
         <p class="changelog-more">
           <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">查看完整 README →</a>
@@ -384,6 +655,7 @@
   <section class="section" id="download">
     <div class="wrap">
       <div class="section-head">
+        <span class="eyebrow">Download</span>
         <h2>下载</h2>
         <p>Windows 10/11 · 需要 DeepSeek API Key</p>
       </div>
@@ -414,6 +686,7 @@
   <section class="duo" id="duo">
     <div class="wrap">
       <div class="section-head">
+        <span class="eyebrow">A Pair</span>
         <h2>读与写，一对搭档</h2>
         <p>Yanxi Code 帮你理解代码，Yan Agent 帮你实现代码</p>
       </div>
@@ -422,7 +695,7 @@
           <div class="duo-label">Yanxi Code · IDE</div>
           <h3>边写边译，读懂每一行</h3>
           <p>面向初学者的代码编辑器。在编辑器内实时解释代码含义，降低阅读门槛，让你敢写、能懂。</p>
-          <p style="margin-top:12px"><a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">了解 Yanxi Code →</a></p>
+          <p class="duo-link"><a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">了解 Yanxi Code →</a></p>
         </div>
         <div class="duo-card highlight">
           <div class="duo-label">Yan Agent · 桌面伴侣</div>
@@ -436,37 +709,38 @@
   <section class="section" id="features">
     <div class="wrap">
       <div class="section-head">
+        <span class="eyebrow">Capabilities</span>
         <h2>Agent 能做什么</h2>
         <p>完整的工具调用循环，最多 40 轮迭代直到任务完成</p>
       </div>
       <div class="features">
         <div class="feat">
-          <div class="feat-icon">📁</div>
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
           <h4>读写代码</h4>
           <p>读取、编辑、创建项目文件，写后自动回读验证，改动可靠落地。</p>
         </div>
         <div class="feat">
-          <div class="feat-icon">⚡</div>
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
           <h4>Shell & Git</h4>
           <p>执行命令、查看 diff、提交推送，完整的 Git 工作流内建。</p>
         </div>
         <div class="feat">
-          <div class="feat-icon">🔌</div>
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 5-3.5 7.5-8.5 9.5C7.5 19.5 4 17 4 12V6l8.5-3.5L21 6z"/></svg></div>
           <h4>MCP 扩展</h4>
           <p>Playwright 浏览器自动化、Windows 桌面操控，接入任意 MCP 服务。</p>
         </div>
         <div class="feat">
-          <div class="feat-icon">🌐</div>
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
           <h4>内置浏览器</h4>
           <p>写完网页或小游戏，Agent 自动打开预览 — 所见即所得。</p>
         </div>
         <div class="feat">
-          <div class="feat-icon">⏰</div>
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
           <h4>定时自动化</h4>
           <p>间隔、每日、一次性任务，后台并行运行，不打扰当前对话。</p>
         </div>
         <div class="feat">
-          <div class="feat-icon">🧠</div>
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a3 3 0 0 0-3 3v1H7a3 3 0 0 0-3 3v1H3v4h1v1a3 3 0 0 0 3 3h2v1a3 3 0 0 0 6 0v-1h2a3 3 0 0 0 3-3v-1h1V9h-1V8a3 3 0 0 0-3-3h-2V4a3 3 0 0 0-3-3z"/></svg></div>
           <h4>记忆 & 压缩</h4>
           <p>跨会话长期记忆，长对话自动压缩，工具调用链完整保留。</p>
         </div>
@@ -474,9 +748,10 @@
     </div>
   </section>
 
-  <section class="section" id="flow" style="padding-top:0; padding-bottom:72px">
+  <section class="section" id="flow">
     <div class="wrap">
       <div class="section-head">
+        <span class="eyebrow">Workflow</span>
         <h2>从想法到结果</h2>
         <p>你说目标，Agent 自己规划、执行、验证</p>
       </div>
@@ -512,7 +787,7 @@
         <a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">Yanxi Code</a>
         <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">文档</a>
       </div>
-      <p>MIT License · Built with Electron & DeepSeek</p>
+      <p class="credit">MIT License · Built with Electron & DeepSeek</p>
     </div>
   </footer>
 
