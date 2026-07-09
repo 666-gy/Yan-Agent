@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.deepseek.com; frame-src https: http: file:;" />
+  <title>Yan Agent</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- ===== Title bar (custom, draggable) ===== -->
+    <div class="titlebar">
+      <div class="titlebar-drag"></div>
+      <div class="titlebar-left">
+        <button id="sidebarToggle" class="titlebar-sidebar-btn" title="切换侧边栏 (Ctrl+B)" aria-label="切换侧边栏">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9.5" y1="3" x2="9.5" y2="21"/></svg>
+        </button>
+      </div>
+      <div class="titlebar-right">
+        <button id="themeToggle" class="win-btn icon-btn" title="切换主题" aria-label="切换主题">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <span class="win-sep"></span>
+        <button id="winMin" class="win-btn" title="最小化" aria-label="最小化">
+          <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="5.5" width="9" height="1" fill="currentColor"/></svg>
+        </button>
+        <button id="winMax" class="win-btn" title="最大化" aria-label="最大化">
+          <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="winClose" class="win-btn win-close" title="关闭" aria-label="关闭">
+          <svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="layout">
+
+      <!-- ===== Sidebar ===== -->
+      <aside id="sidebar" class="sidebar">
+        <nav class="sidebar-nav">
+          <button class="sidebar-nav-item active" data-nav="tasks" title="任务列表">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <span>任务列表</span>
+          </button>
+          <button class="sidebar-nav-item" data-nav="skills" title="Skill 市场">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>Skill 市场</span>
+          </button>
+          <button class="sidebar-nav-item" data-nav="mcp" title="MCP 服务">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>MCP 服务</span>
+          </button>
+          <button class="sidebar-nav-item" data-nav="automation" title="自动化">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>自动化</span>
+          </button>
+        </nav>
+
+        <div id="sidebarTasksPanel" class="sidebar-panel">
+          <div class="sidebar-top">
+            <button id="newChatBtn" class="primary-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>新对话</span>
+            </button>
+          </div>
+          <div class="sidebar-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input id="searchInput" type="text" placeholder="搜索任务…" />
+          </div>
+          <div id="sessionList" class="session-list"></div>
+        </div>
+
+        <div class="sidebar-bottom">
+          <button id="workspaceBtn" class="bottom-btn" title="工作区">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span class="bottom-btn-label">工作区</span>
+          </button>
+          <button id="settingsBtn" class="bottom-btn" title="设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span class="bottom-btn-label">设置</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- ===== Resize handle (left sidebar) ===== -->
+      <div id="leftResizeHandle" class="resize-handle resize-handle-left"></div>
+
+      <!-- ===== Main: Chat ===== -->
+      <main id="pageChat" class="main page-view empty">
+        <!-- Task top bar -->
+        <div id="taskBar" class="task-bar hidden">
+          <div class="task-bar-left">
+            <span id="taskBarTitle" class="task-bar-title">New chat</span>
+            <span class="task-bar-sep">·</span>
+            <button id="taskBarFolder" class="task-bar-folder" title="选择工作区文件夹">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span id="taskBarFolderName" class="task-bar-folder-name">选择文件夹</span>
+            </button>
+          </div>
+          <div class="task-bar-right">
+            <button id="taskBarBrowser" class="task-bar-icon-btn" title="内置浏览器">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            </button>
+            <button id="taskBarOpenFolder" class="task-bar-icon-btn" title="在文件资源管理器中打开" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </button>
+            <button id="rightSidebarToggleBtn" class="task-bar-icon-btn" title="右侧面板">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="chatScroll" class="chat-scroll">
+          <div id="messages" class="messages"></div>
+          <div id="typingIndicator" class="typing-indicator hidden">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+        </div>
+
+        <!-- ===== Composer stage (empty: centered; chat: docked bottom) ===== -->
+        <div id="composerStage" class="composer-stage">
+          <div id="emptyHeader" class="empty-header">
+            <div class="welcome-logo">
+              <img src="assets/logo.png" alt="Yan Agent" width="72" height="72" />
+            </div>
+            <h1 id="greeting">Good evening, Yanxi</h1>
+          </div>
+
+          <div class="composer-wrap">
+            <div id="attachments" class="attachments hidden"></div>
+            <div id="composer" class="composer">
+              <!-- Pills: float out of top-left edge together -->
+              <div class="composer-pills">
+                <button id="wsPill" class="ws-pill" type="button" title="选择工作区">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  <span id="wsPillName" class="ws-pill-name">未设置工作区</span>
+                  <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <button id="modelPill" class="ws-pill model-pill" type="button" title="切换模型">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v1H7a3 3 0 0 0-3 3v1H3v4h1v1a3 3 0 0 0 3 3h2v1a3 3 0 0 0 6 0v-1h2a3 3 0 0 0 3-3v-1h1V9h-1V8a3 3 0 0 0-3-3h-2V4a3 3 0 0 0-3-3z"/></svg>
+                  <span id="modelPillName" class="ws-pill-name">—</span>
+                  <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <button id="thinkPill" class="ws-pill think-pill" type="button" title="深度思考：回答前先进行思维链推理，更聪明但更慢">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+                  <span class="ws-pill-name">深度思考</span>
+                </button>
+              </div>
+
+              <div class="composer-inner">
+                <textarea id="composerInput" class="composer-input" rows="1"
+                  placeholder="你负责想象，我负责写"></textarea>
+                <div class="composer-actions">
+                  <button id="attachBtn" class="composer-icon-btn" title="上传文件" aria-label="上传文件">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  </button>
+                  <input id="fileInput" type="file" multiple hidden />
+                  <button id="sendBtn" class="send-btn" title="发送" aria-label="发送" disabled>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="composer-hint">
+                <span class="kbd-hint">Enter 发送 · Shift+Enter 换行 · 按 / 调用技能</span>
+              </div>
+            </div>
+
+            <!-- Quick starts (empty state only, below composer) -->
+            <div id="quickStarts" class="quick-starts">
+              <div class="hint-card" data-prompt="帮我写一个 Python 贪吃蛇游戏，写到工作区里">
+                <span class="hint-icon">🎮</span><span>写一个游戏</span>
+              </div>
+              <div class="hint-card" data-prompt="列出当前工作区的文件，帮我了解项目结构">
+                <span class="hint-icon">📁</span><span>查看项目结构</span>
+              </div>
+              <div class="hint-card" data-prompt="帮我在工作区创建一个 Express 服务器，带路由和中间件">
+                <span class="hint-icon">⚡</span><span>搭建项目</span>
+              </div>
+              <div class="hint-card" data-prompt="读取工作区里的文件，审查代码并给出优化建议">
+                <span class="hint-icon">🔍</span><span>代码审查</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ===== Main: Skill Market ===== -->
+      <section id="pageSkills" class="page-view page-panel hidden">
+        <div class="page-header">
+          <div>
+            <h2>Skill 市场</h2>
+            <p class="page-sub">安装热门 Skill 扩展 Agent 能力，或导入你自己的 Skill</p>
+          </div>
+        </div>
+        <div class="page-body">
+          <div class="page-section">
+            <div class="skill-market-head">
+              <h3>Skill 市场</h3>
+              <div id="skillTagFilters" class="skill-tag-filters"></div>
+            </div>
+            <div id="skillMarketGrid" class="skill-market-grid"></div>
+          </div>
+          <div class="page-section">
+            <h3>已安装的自定义 Skill</h3>
+            <div id="customSkillList" class="skill-custom-list"></div>
+          </div>
+          <div class="page-section import-guide">
+            <h3>导入自定义 Skill</h3>
+            <p class="page-desc">Skill 是一个 JSON 文件，包含 <code>id</code>、<code>name</code>、<code>desc</code>、<code>prompt</code> 字段，可选 <code>tags</code>（code / ui / web）。导入后可在对话中按 <kbd>/</kbd> 调用。</p>
+            <pre class="code-sample">{
+  "id": "my-skill",
+  "name": "My Skill",
+  "desc": "一句话描述",
+  "tags": ["code"],
+  "prompt": "请帮我完成以下任务：\n\n{{cursor}}"
+}</pre>
+            <div class="page-actions">
+              <button id="skillImportBtn" class="primary-btn">从 JSON 文件导入</button>
+              <input id="skillImportInput" type="file" accept=".json,application/json" hidden />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Main: MCP Services ===== -->
+      <section id="pageMcp" class="page-view page-panel hidden">
+        <div class="page-header">
+          <div>
+            <h2>MCP 服务</h2>
+            <p class="page-sub">通过 Model Context Protocol 扩展 Agent 工具能力</p>
+          </div>
+          <div class="page-header-stats" id="mcpStats"></div>
+        </div>
+        <div class="page-body">
+          <div class="mgmt-layout">
+            <div class="mgmt-list-col">
+              <div class="mgmt-col-head">
+                <h3>已安装服务</h3>
+              </div>
+              <div id="mcpPageList" class="mgmt-list"></div>
+            </div>
+            <aside class="mgmt-form-col">
+              <div class="form-panel">
+                <div class="form-panel-head">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <h3>添加服务器</h3>
+                </div>
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label for="mcpNewName">名称</label>
+                    <input id="mcpNewName" class="input" type="text" placeholder="例如 OCR、数据库" />
+                  </div>
+                  <div class="form-field">
+                    <label for="mcpNewCmd">启动命令</label>
+                    <input id="mcpNewCmd" class="input" type="text" placeholder="npx 或 uvx" />
+                  </div>
+                  <div class="form-field form-field-full">
+                    <label for="mcpNewArgs">命令参数</label>
+                    <input id="mcpNewArgs" class="input" type="text" placeholder="-y @playwright/mcp@latest" />
+                    <span class="form-hint">多个参数用空格分隔，含空格的路径用引号包裹</span>
+                  </div>
+                </div>
+                <button id="mcpAddBtn" class="primary-btn block">添加并测试连接</button>
+                <div class="form-callout">
+                  <strong>预装服务</strong>
+                  <p>Playwright（浏览器自动化）、Windows-MCP（桌面操控）。添加后点击「测试连接」验证是否正常。</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Main: Automation ===== -->
+      <section id="pageAutomation" class="page-view page-panel hidden">
+        <div class="page-header">
+          <div>
+            <h2>自动化</h2>
+            <p class="page-sub">定时运行 Agent 任务，窗口最小化到托盘时也会照常执行</p>
+          </div>
+          <div class="page-header-stats" id="autoStats"></div>
+        </div>
+        <div class="page-body">
+          <div class="mgmt-layout">
+            <div class="mgmt-list-col">
+              <div class="mgmt-col-head">
+                <h3>任务列表</h3>
+              </div>
+              <div id="autoList" class="mgmt-list"></div>
+            </div>
+            <aside class="mgmt-form-col">
+              <div class="form-panel">
+                <div class="form-panel-head">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <h3>新建任务</h3>
+                </div>
+                <div class="form-grid">
+                  <div class="form-field form-field-full">
+                    <label for="autoNewName">任务名称</label>
+                    <input id="autoNewName" class="input" type="text" placeholder="例如：每日代码审查" />
+                  </div>
+                  <div class="form-field form-field-full">
+                    <label for="autoNewPrompt">提示词</label>
+                    <textarea id="autoNewPrompt" class="input form-textarea" rows="4"
+                      placeholder="到点后会自动新建对话，将此提示词发送给 Agent"></textarea>
+                  </div>
+                  <div class="form-field form-field-full">
+                    <label for="autoNewType">调度方式</label>
+                    <select id="autoNewType" class="input">
+                      <option value="interval">每隔 N 分钟</option>
+                      <option value="daily">每天定时</option>
+                      <option value="once">指定时间运行一次</option>
+                    </select>
+                  </div>
+                  <div id="autoScheduleFields" class="form-schedule-fields form-field-full">
+                    <div class="form-field" id="autoFieldEvery">
+                      <label for="autoNewEvery">间隔（分钟）</label>
+                      <input id="autoNewEvery" class="input" type="number" min="1" step="1" value="60" />
+                    </div>
+                    <div class="form-field hidden" id="autoFieldTime">
+                      <label for="autoNewTime">每天时间</label>
+                      <input id="autoNewTime" class="input" type="time" value="09:00" />
+                    </div>
+                    <div class="form-field hidden" id="autoFieldDatetime">
+                      <label for="autoNewDatetime">运行时间</label>
+                      <input id="autoNewDatetime" class="input" type="datetime-local" />
+                    </div>
+                  </div>
+                </div>
+                <button id="autoAddBtn" class="primary-btn block">添加任务</button>
+                <div class="form-callout">
+                  <strong>运行说明</strong>
+                  <p>任务触发时会新建独立对话执行，不影响当前任务。一次性任务运行后自动禁用。</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Browser panel ===== -->
+      <div id="browserPanel" class="tool-panel hidden">
+        <div class="tool-panel-header">
+          <div class="tool-panel-nav">
+            <button id="browserBack" class="tool-panel-nav-btn" title="后退"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button id="browserForward" class="tool-panel-nav-btn" title="前进"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>
+            <button id="browserReload" class="tool-panel-nav-btn" title="刷新"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+          </div>
+          <input id="browserUrl" class="tool-panel-url" type="text" placeholder="输入网址或搜索..." />
+          <button id="browserGo" class="tool-panel-go">前往</button>
+          <button id="browserClose" class="tool-panel-close" title="关闭浏览器">×</button>
+        </div>
+        <webview id="browserWebview" class="browser-webview" src="about:blank" allowpopups></webview>
+      </div>
+
+
+      <!-- ===== Resize handle (right sidebar) ===== -->
+      <div id="rightResizeHandle" class="resize-handle resize-handle-right"></div>
+
+      <!-- ===== Right Sidebar ===== -->
+      <aside id="rightSidebar" class="right-sidebar">
+        <div class="rs-tabs">
+          <button class="rs-tab active" data-rs-tab="todo">待办</button>
+          <button class="rs-tab" data-rs-tab="context">上下文</button>
+          <button class="rs-tab" data-rs-tab="files">文件</button>
+        </div>
+        <div class="rs-content">
+          <!-- Todo tab -->
+          <div id="rs-todo" class="rs-panel active">
+            <div id="todoList" class="todo-list">
+              <div class="rs-empty">Agent 执行任务时，任务计划会显示在这里</div>
+            </div>
+          </div>
+          <!-- Context tab -->
+          <div id="rs-context" class="rs-panel">
+            <div id="contextInfo" class="context-info">
+              <div class="ctx-row"><span class="ctx-label">模型</span><span id="ctxModel" class="ctx-val">—</span></div>
+              <div class="ctx-row"><span class="ctx-label">迭代轮次</span><span id="ctxIteration" class="ctx-val">0</span></div>
+              <div class="ctx-row"><span class="ctx-label">工具调用</span><span id="ctxToolCalls" class="ctx-val">0</span></div>
+              <div class="ctx-row"><span class="ctx-label">消息数</span><span id="ctxMsgCount" class="ctx-val">0</span></div>
+              <div class="ctx-row"><span class="ctx-label">状态</span><span id="ctxStatus" class="ctx-val">空闲</span></div>
+            </div>
+          </div>
+          <!-- Files tab -->
+          <div id="rs-files" class="rs-panel">
+            <div id="rsFileTree" class="rs-file-tree">
+              <div class="rs-empty">未设置工作区</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ===== Slash command popover ===== -->
+    <div id="slashMenu" class="slash-menu hidden">
+      <div class="slash-menu-header">
+        <span>技能</span>
+        <span class="slash-menu-sub">选择一个技能，或继续输入筛选</span>
+      </div>
+      <div id="slashList" class="slash-list"></div>
+    </div>
+
+    <!-- ===== Settings sheet ===== -->
+    <div id="settingsOverlay" class="overlay hidden">
+      <div class="sheet" role="dialog" aria-modal="true">
+        <div class="sheet-header">
+          <h2>设置</h2>
+          <button id="closeSettings" class="icon-btn" aria-label="关闭">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="sheet-body">
+          <nav class="sheet-nav">
+            <button class="sheet-nav-btn" data-tab="api">API 配置</button>
+            <button class="sheet-nav-btn" data-tab="model">模型</button>
+            <button class="sheet-nav-btn" data-tab="workspace">工作区</button>
+            <button class="sheet-nav-btn" data-tab="permissions">权限</button>
+            <button class="sheet-nav-btn" data-tab="files">文件</button>
+            <button class="sheet-nav-btn active" data-tab="about">关于</button>
+          </nav>
+          <div class="sheet-content">
+            <!-- API -->
+            <section id="tab-api" class="tab-panel">
+              <p class="tab-desc">DeepSeek API 配置（OpenAI 兼容协议），填写 API Key 即可使用。</p>
+              <div class="field"><label>Base URL（已锁定为 DeepSeek）</label>
+                <input id="cfgBaseUrl" class="input" type="text" placeholder="https://api.deepseek.com/v1" readonly title="本应用固定使用 DeepSeek 接口，不可修改" />
+              </div>
+              <div class="field"><label>API Key</label>
+                <div class="input-with-action">
+                  <input id="cfgApiKey" class="input" type="password" placeholder="sk-..." />
+                  <button id="toggleKey" class="ghost-btn" type="button">显示</button>
+                </div>
+              </div>
+              <button id="saveApi" class="primary-btn">保存配置</button>
+            </section>
+
+            <!-- Model -->
+            <section id="tab-model" class="tab-panel">
+              <p class="tab-desc">选择当前使用的模型。</p>
+              <div id="modelGrid" class="model-grid"></div>
+            </section>
+
+            <!-- Workspace -->
+            <section id="tab-workspace" class="tab-panel">
+              <div class="field"><label>当前工作区</label>
+                <div class="input-with-action">
+                  <input id="wsPath" class="input" type="text" readonly />
+                  <button id="wsChoose" class="ghost-btn">选择…</button>
+                </div>
+              </div>
+              <p class="tab-desc">工作区文件浏览：</p>
+              <div id="wsTree" class="ws-tree"></div>
+            </section>
+
+            <!-- Permissions -->
+            <section id="tab-permissions" class="tab-panel">
+              <p class="tab-desc">控制 Agent 可执行的操作权限。</p>
+              <div class="toggle-list">
+                <label class="toggle-row">
+                  <div><div class="toggle-title">读取文件</div><div class="toggle-sub">允许读取工作区与上传的文件</div></div>
+                  <input type="checkbox" id="permRead" class="switch" />
+                </label>
+                <label class="toggle-row">
+                  <div><div class="toggle-title">写入文件</div><div class="toggle-sub">允许创建或修改文件</div></div>
+                  <input type="checkbox" id="permWrite" class="switch" />
+                </label>
+                <label class="toggle-row">
+                  <div><div class="toggle-title">执行命令</div><div class="toggle-sub">允许运行 Shell 命令（谨慎）</div></div>
+                  <input type="checkbox" id="permShell" class="switch" />
+                </label>
+                <label class="toggle-row">
+                  <div><div class="toggle-title">网络访问</div><div class="toggle-sub">允许调用外部 API</div></div>
+                  <input type="checkbox" id="permNet" class="switch" />
+                </label>
+              </div>
+            </section>
+
+            <!-- Files -->
+            <section id="tab-files" class="tab-panel">
+              <div class="row between">
+                <p class="tab-desc">读取或写入本地文件。</p>
+                <div class="row" style="gap:8px">
+                  <button id="openFileBtn" class="ghost-btn">打开文件…</button>
+                  <button id="saveFileBtn" class="ghost-btn">另存为…</button>
+                </div>
+              </div>
+              <div class="field"><label>文件路径</label>
+                <input id="filePathInput" class="input" type="text" placeholder="绝对路径…" />
+              </div>
+              <div class="field"><label>内容</label>
+                <textarea id="fileContentInput" class="input mono" rows="10" placeholder="文件内容…"></textarea>
+              </div>
+              <div class="row" style="gap:8px">
+                <button id="readFileBtn" class="primary-btn">读取</button>
+                <button id="writeFileBtn" class="primary-btn">写入</button>
+              </div>
+              <p id="fileStatus" class="file-status"></p>
+            </section>
+
+            <!-- About -->
+            <section id="tab-about" class="tab-panel active">
+              <div class="about">
+                <div class="welcome-logo small"><img src="assets/logo.png" alt="Yan Agent" width="56" height="56" /></div>
+                <h2>Yan Agent</h2>
+                <p class="muted">v1.0.0 · Yanxi Code 配套智能助手</p>
+                <p class="muted">Yanxi Code 的桌面端 Agent 伴侣——支持函数调用、文件操作、命令执行、上下文压缩、长期记忆、内置浏览器、MCP 扩展、定时自动化任务，与 Yanxi Code 无缝协作。基于 Electron 构建。</p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Toast ===== -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="skill-market.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
