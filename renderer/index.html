@@ -515,8 +515,37 @@
 
     <!-- ===== Toast ===== -->
     <div id="toast" class="toast hidden"></div>
+
+    <!-- ===== Shell permission dialog ===== -->
+    <div id="shellPermModal" class="overlay hidden">
+      <div class="perm-dialog" role="dialog" aria-modal="true">
+        <h3 class="perm-dialog-title">Shell / PowerShell 执行请求</h3>
+        <p class="perm-dialog-desc">Agent 需要运行以下命令。请选择是否允许：</p>
+        <pre id="shellPermCommand" class="perm-dialog-cmd"></pre>
+        <div class="perm-dialog-actions">
+          <button type="button" id="shellPermAlways" class="primary-btn">总是允许</button>
+          <button type="button" id="shellPermOnce" class="secondary-btn">本次允许</button>
+          <button type="button" id="shellPermDeny" class="ghost-btn">拒绝</button>
+        </div>
+      </div>
+    </div>
   </div>
 
+  <script src="kernel/index.js"></script>
+  <script src="kernel/constants.js"></script>
+  <script src="kernel/tool-protocol.js"></script>
+  <script src="kernel/path.js"></script>
+  <script src="kernel/edits.js"></script>
+  <script src="kernel/tools-registry.js"></script>
+  <script src="kernel/prompt.js"></script>
+  <script src="kernel/context.js"></script>
+  <script src="kernel/policies.js"></script>
+  <script src="kernel/run-state.js"></script>
+  <script src="kernel/tool-executor.js"></script>
+  <script src="kernel/tool-retry.js"></script>
+  <script src="kernel/subagent.js"></script>
+  <script src="kernel/stream.js"></script>
+  <script src="kernel/agent-loop.js"></script>
   <script src="skill-market.js"></script>
   <script src="renderer.js"></script>
 </body>

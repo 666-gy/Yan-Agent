@@ -15,14 +15,40 @@ const state = {
   slashActive: false,
   slashIndex: 0,
   slashFilter: '',
-  isResponding: false,
-  abortController: null,   // 用于中止 fetch 请求
-  shouldAbort: false,        // 中断标志，用于工具执行循环
-  backgroundRuns: new Set(),  // 后台并行任务（自动化等）的 sessionId
+  activeRuns: new Map(),    // sessionId -> { sessionRef, runCtx, assistantEl } 所有运行中的任务（完全独立）
   automationRuns: new Set()   // 正在执行的自动化 id
 };
 
-const MAX_BACKGROUND_RUNS = 3;
+const MAX_CONCURRENT_RUNS = 5;
+
+// --- 并发任务辅助函数 ---
+function isSessionRunning(sessionId) {
+  return !!(sessionId && state.activeRuns.has(sessionId));
+}
+
+function isCurrentSessionResponding() {
+  return isSessionRunning(state.currentSession?.id);
+}
+
+function getRunCtx(sessionId) {
+  return state.activeRuns.get(sessionId)?.runCtx;
+}
+
+function getCurrentAgentState() {
+  const sessionId = state.currentSession?.id;
+  const runCtx = sessionId ? getRunCtx(sessionId) : null;
+  return runCtx?.agentState || { todos: [], todosFromTool: false, iteration: 0, toolCallCount: 0, status: 'idle' };
+}
+
+function canStartRun() {
+  return state.activeRuns.size < MAX_CONCURRENT_RUNS;
+}
+
+// 切换会话时，旧会话的任务停止 DOM 渲染（任务继续后台运行，互不影响）
+function pauseUiForSession(sessionId) {
+  const entry = state.activeRuns.get(sessionId);
+  if (entry) entry.runCtx.ui = false;
+}
 
 // ============================================================
 // Icons (inline SVG strings)
@@ -38,7 +64,8 @@ const ICONS = {
   user: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
   copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-  clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+  clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  undo: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>'
 };
 
 // Skill prompt templates — click a skill to insert this into the composer.
@@ -72,6 +99,7 @@ function skillGlyph(skill) {
 // Init
 // ============================================================
 async function init() {
+  initKernelBridge();
   state.config = await api.getConfig();
   await refreshSkillPrompts();
 
@@ -151,12 +179,15 @@ function renderSessionList() {
     return;
   }
 
-  list.innerHTML = items.map(s => `
-    <div class="session-item ${state.currentSession && s.id === state.currentSession.id ? 'active' : ''}" data-id="${s.id}">
+  list.innerHTML = items.map(s => {
+    const running = isSessionRunning(s.id);
+    return `
+    <div class="session-item ${state.currentSession && s.id === state.currentSession.id ? 'active' : ''} ${running ? 'running' : ''}" data-id="${s.id}">
+      ${running ? '<span class="session-spinner"></span>' : ''}
       <span class="session-title">${escapeHtml(s.title || 'New chat')}</span>
       <button class="session-del" data-del="${s.id}" title="删除">${ICONS.trash}</button>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   list.querySelectorAll('.session-item').forEach(el => {
     el.addEventListener('click', (e) => {
@@ -192,22 +223,22 @@ $('#searchInput').addEventListener('input', renderSessionList);
 $('#newChatBtn').addEventListener('click', newSession);
 
 async function newSession() {
+  if (state.currentSession?.id) pauseUiForSession(state.currentSession.id);
   switchSidebarNav('tasks');
   const s = await api.createSession();
   state.currentSession = s;
   clearMessages();
   setEmptyState(true);
-  // 新会话从空工作区开始：必须同步清空全局 config.workspace，
-  // 否则文件树/系统提示词/终端（走 getWorkspace 读全局）仍停留在上一个任务的工作区。
-  // 各会话自己的工作区存在会话对象里，切换会话时会同步回全局，互不影响。
   state.config = await api.setConfig({ workspace: '' });
   await renderWorkspacePill();
   await renderRightSidebarFiles();
   updateTaskBar();
+  updateSendState();
   await refreshSessions();
 }
 
 async function loadSession(id) {
+  if (state.currentSession?.id && state.currentSession.id !== id) pauseUiForSession(state.currentSession.id);
   const s = await api.getSession(id);
   if (!s) return;
   state.currentSession = s;
@@ -215,48 +246,52 @@ async function loadSession(id) {
   renderMessages(s.messages || []);
   setEmptyState((s.messages || []).length === 0);
 
-  const lastAssistant = [...(s.messages || [])].reverse().find(m => m.role === 'assistant' && m.agentRun);
-  if (lastAssistant?.agentRun?.todos?.length) {
-    agentState.todos = lastAssistant.agentRun.todos.map(t => ({
-      text: t.text,
-      done: !!t.done,
-      inProgress: !!t.inProgress
-    }));
-    agentState.todosFromTool = !!lastAssistant.agentRun.todosFromTool;
-    agentState.status = lastAssistant.agentRun.status || 'done';
-    agentState.iteration = lastAssistant.agentRun.iteration || 0;
-    agentState.toolCallCount = lastAssistant.agentRun.toolCallCount || 0;
+  // 如果该会话有运行中的任务，从 runCtx 获取实时状态；否则从历史恢复
+  const runCtx = getRunCtx(s.id);
+  if (runCtx) {
+    renderTodos(runCtx.agentState);
+    updateContextInfo(runCtx.agentState);
+    showTyping(true);
   } else {
-    agentState.todos = [];
-    agentState.todosFromTool = false;
-    agentState.status = 'idle';
-    agentState.iteration = 0;
-    agentState.toolCallCount = 0;
+    const lastAssistant = [...(s.messages || [])].reverse().find(m => m.role === 'assistant' && m.agentRun);
+    const as = { todos: [], todosFromTool: false, iteration: 0, toolCallCount: 0, status: 'idle' };
+    if (lastAssistant?.agentRun?.todos?.length) {
+      as.todos = lastAssistant.agentRun.todos.map(t => ({
+        text: t.text,
+        done: !!t.done,
+        inProgress: !!t.inProgress
+      }));
+      as.todosFromTool = !!lastAssistant.agentRun.todosFromTool;
+      as.status = lastAssistant.agentRun.status || 'done';
+      as.iteration = lastAssistant.agentRun.iteration || 0;
+      as.toolCallCount = lastAssistant.agentRun.toolCallCount || 0;
+    }
+    renderTodos(as);
+    updateContextInfo(as);
+    showTyping(false);
   }
-  renderTodos();
-  updateContextInfo();
 
   await renderWorkspacePill();
   await renderRightSidebarFiles();
   updateTaskBar();
+  updateSendState();
   renderSessionList();
 }
 
-async function saveCurrentSession() {
-  if (!state.currentSession) return;
-  // Auto-title from first user message
-  if ((!state.currentSession.title || state.currentSession.title === 'New chat') &&
-      state.currentSession.messages && state.currentSession.messages.length) {
-    const firstUser = state.currentSession.messages.find(m => m.role === 'user');
+async function saveCurrentSession(session = state.currentSession) {
+  if (!session) return;
+  if ((!session.title || session.title === 'New chat') &&
+      session.messages && session.messages.length) {
+    const firstUser = session.messages.find(m => m.role === 'user');
     if (firstUser) {
       const title = deriveTitle(firstUser.content);
-      state.currentSession.title = title;
-      await api.renameSession(state.currentSession.id, title);
+      session.title = title;
+      await api.renameSession(session.id, title);
     }
   }
-  await api.saveSession(state.currentSession);
+  await api.saveSession(session);
   await refreshSessions();
-  updateTaskBar();
+  if (state.currentSession?.id === session.id) updateTaskBar();
 }
 
 function deriveTitle(text) {
@@ -603,7 +638,7 @@ async function renderAutomationPage() {
         await api.autoUpdate(id, { enabled: !a.enabled });
         await renderAutomationPage();
       } else if (act === 'run') {
-        if (state.backgroundRuns.size >= MAX_BACKGROUND_RUNS) { toast('后台任务已满，请稍后再试'); return; }
+        if (!canStartRun()) { toast('并发任务已达上限（5个），请稍后再试'); return; }
         toast('已在后台开始运行');
         runAutomation(a, { manual: true }).then(() => renderAutomationPage());
       }
@@ -647,12 +682,7 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
         <button class="msg-action-btn" data-act="delete" title="删除">${ICONS.trash}</button>
       </div>`;
   } else if (role === 'assistant' && (hasContent || duration != null)) {
-    const durHtml = duration != null ? `<span class="msg-duration" title="任务耗时">${ICONS.clock} ${formatDuration(duration)}</span>` : '';
-    actionsHtml = `
-      <div class="msg-actions">
-        ${durHtml}
-        <button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>
-      </div>`;
+    actionsHtml = `<div class="msg-actions">${buildAssistantActionsHtml(agentRun, duration)}</div>`;
   }
 
   el.innerHTML = avatar + bodyHtml + actionsHtml;
@@ -723,6 +753,8 @@ async function handleMessageAction(action, el) {
     const end = input.value.length;
     input.setSelectionRange(end, end);
     toast('已撤回，可编辑后重发');
+  } else if (action === 'rollback') {
+    await rollbackMessageRun(msg, el);
   }
 }
 
@@ -765,8 +797,9 @@ const STOP_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="current
 // 发送按钮图标（纸飞机）
 const SEND_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
 
+
 function updateSendState() {
-  if (state.isResponding) {
+  if (isCurrentSessionResponding()) {
     // Agent 正在输出/工作：按钮变为中止按钮
     sendBtn.classList.add('stop-mode');
     sendBtn.classList.remove('send-mode');
@@ -783,19 +816,19 @@ function updateSendState() {
 }
 
 sendBtn.addEventListener('click', () => {
-  if (state.isResponding) {
+  if (isCurrentSessionResponding()) {
     abortTask();
   } else {
     sendMessage();
   }
 });
 
-// 中止当前任务
 function abortTask() {
-  if (!state.isResponding) return;
-  state.shouldAbort = true;
-  if (state.abortController) {
-    try { state.abortController.abort(); } catch {}
+  const runCtx = getRunCtx(state.currentSession?.id);
+  if (!runCtx) return;
+  runCtx.shouldAbort = true;
+  if (runCtx.abortController) {
+    try { runCtx.abortController.abort(); } catch {}
   }
   // Windows 通知
   if (window.Notification && Notification.permission === 'granted') {
@@ -1004,27 +1037,28 @@ composer.addEventListener('drop', async (e) => {
 async function sendMessage() {
   const text = input.value.trim();
   if (!text && state.attachments.length === 0) return;
-  if (state.isResponding) return;
+  if (isCurrentSessionResponding()) return;
 
   const attachments = state.attachments.slice();
-  // 清空输入区
+  // 清空输入区（不调 updateSendState，submitMessage 会立即设置停止按钮）
   input.value = '';
   state.attachments = [];
   renderAttachments();
   autoGrow();
-  updateSendState();
   closeSlash();
 
   await submitMessage(text, attachments);
 }
 
-// 后台运行：不切换 UI、不占用前台 isResponding，支持多任务并行
+// 后台运行（自动化任务等）：不渲染 UI，与前台任务完全独立
 async function submitMessageBackground(session, text) {
   if (!text) return { ok: false, error: 'empty' };
-  if (state.backgroundRuns.size >= MAX_BACKGROUND_RUNS) return { ok: false, error: 'busy' };
+  if (isSessionRunning(session.id)) return { ok: false, error: 'busy' };
+  if (!canStartRun()) return { ok: false, error: 'busy' };
 
-  const runCtx = createBackgroundRunCtx(session.id);
-  state.backgroundRuns.add(session.id);
+  const runCtx = createRunCtx(session.id, false);
+  state.activeRuns.set(session.id, { sessionRef: session, runCtx, assistantEl: null });
+  renderSessionList();
   const taskStart = Date.now();
 
   try {
@@ -1046,34 +1080,37 @@ async function submitMessageBackground(session, text) {
   } catch (e) {
     return { ok: false, error: e.message };
   } finally {
-    state.backgroundRuns.delete(session.id);
+    state.activeRuns.delete(session.id);
+    renderSessionList();
   }
 }
 
-// 核心发送流程：手动发送与自动化任务共用。返回 { ok, error }
+// 核心发送流程：每个任务完全独立，互不影响。返回 { ok, error }
 async function submitMessage(text, attachments = []) {
   if (!text && attachments.length === 0) return { ok: false, error: 'empty' };
-  if (state.isResponding) return { ok: false, error: 'busy' };
+  if (isCurrentSessionResponding()) return { ok: false, error: 'busy' };
+  if (!canStartRun()) { toast('并发任务已达上限（5个），请稍后再试'); return { ok: false, error: 'busy' }; }
 
-  // Ensure session exists
   if (!state.currentSession) await newSession();
 
-  const userMsg = { role: 'user', content: text, attachments, ts: Date.now() };
-  state.currentSession.messages = state.currentSession.messages || [];
-  state.currentSession.messages.push(userMsg);
+  const runSession = state.currentSession;
+  const runCtx = createRunCtx(runSession.id, true);
+  state.activeRuns.set(runSession.id, { sessionRef: runSession, runCtx, assistantEl: null });
 
-  const userMsgIndex = state.currentSession.messages.length - 1;
+  // 立即切换为停止按钮 + typing 指示 + 侧边栏 spinner
+  updateSendState();
+  showTyping(true);
+  renderSessionList();
+
+  const userMsg = { role: 'user', content: text, attachments, ts: Date.now() };
+  runSession.messages = runSession.messages || [];
+  runSession.messages.push(userMsg);
+
+  const userMsgIndex = runSession.messages.length - 1;
   appendMessage('user', text, attachments, true, userMsgIndex, userMsg.ts);
   setEmptyState(false);
 
-  await saveCurrentSession();
-
-  // Respond
-  state.isResponding = true;
-  state.shouldAbort = false;
-  state.abortController = null;
-  updateSendState();
-  showTyping(true);
+  await saveCurrentSession(runSession);
   const taskStartTime = Date.now();
   let taskOk = true;
   let taskErr = null;
@@ -1081,23 +1118,17 @@ async function submitMessage(text, attachments = []) {
 
   try {
     assistantEl = appendMessage('assistant', '');
-    const loopResult = await runAgentLoop(state.currentSession.messages, assistantEl, getForegroundRunCtx());
+    state.activeRuns.get(runSession.id).assistantEl = assistantEl;
+    const loopResult = await runAgentLoop(runSession.messages, assistantEl, runCtx);
     const reply = loopResult.content;
     const agentRun = loopResult.agentRun;
     const taskDuration = Date.now() - taskStartTime;
-    showTyping(false);
+    const ui = runCtx.ui && assistantEl?.isConnected;
+    if (ui) showTyping(false);
 
-    if (agentRun) renderAgentRunHeader(assistantEl.querySelector('.msg-body'), agentRun);
-
-    const assistantMsgIndex = state.currentSession.messages.length;
-    assistantEl.dataset.msgIndex = assistantMsgIndex;
-    const actionsContainer = document.createElement('div');
-    actionsContainer.className = 'msg-actions';
-    actionsContainer.innerHTML = `<span class="msg-duration" title="任务耗时">${ICONS.clock} ${formatDuration(taskDuration)}</span><button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>`;
-    actionsContainer.querySelectorAll('.msg-action-btn').forEach(btn => {
-      btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, assistantEl));
-    });
-    assistantEl.appendChild(actionsContainer);
+    if (ui && agentRun) {
+      renderAgentRunHeader(assistantEl.querySelector('.msg-body'), agentRun);
+    }
 
     const assistantMsg = {
       role: 'assistant',
@@ -1106,12 +1137,23 @@ async function submitMessage(text, attachments = []) {
       duration: taskDuration,
       agentRun
     };
-    state.currentSession.messages.push(assistantMsg);
-    await saveCurrentSession();
-    // 后台提取长期记忆（不阻塞 UI）
-    // 仅在对话有一定长度时提取，避免每次琐碎回复都额外发一次 API 请求
-    if ((state.currentSession.messages || []).length >= 4) {
-      extractMemoryFacts(state.currentSession.messages).then(facts => {
+    runSession.messages.push(assistantMsg);
+
+    if (ui) {
+      assistantEl.dataset.msgIndex = runSession.messages.length - 1;
+      const actionsContainer = document.createElement('div');
+      actionsContainer.className = 'msg-actions';
+      actionsContainer.innerHTML = buildAssistantActionsHtml(agentRun, taskDuration);
+      actionsContainer.querySelectorAll('.msg-action-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, assistantEl));
+      });
+      assistantEl.appendChild(actionsContainer);
+    }
+
+    await saveCurrentSession(runSession);
+
+    if ((runSession.messages || []).length >= 4) {
+      extractMemoryFacts(runSession.messages).then(facts => {
         if (facts.length > 0) {
           facts.forEach(content => {
             api.addMemoryFact({ content });
@@ -1119,944 +1161,235 @@ async function submitMessage(text, attachments = []) {
         }
       }).catch(() => {});
     }
-    // 任务完成通知（中断时不弹）
     if (window.Notification && Notification.permission === 'granted' && agentRun?.status !== 'interrupted') {
       try {
-        new Notification('Yan Agent', { body: '任务已完成 · 耗时 ' + formatDuration(taskDuration), icon: 'assets/logo.png' });
+        new Notification('Yan Agent', { body: `「${runSession.title || '任务'}」已完成 · 耗时 ${formatDuration(taskDuration)}`, icon: 'assets/logo.png' });
       } catch {}
     }
   } catch (err) {
-    if (err && (err.name === 'AbortError' || state.shouldAbort)) {
-      showTyping(false);
-      if (assistantEl) {
+    const ui = runCtx.ui && assistantEl?.isConnected;
+    if (err && (err.name === 'AbortError' || runCtx.shouldAbort)) {
+      if (ui) showTyping(false);
+      if (ui) {
         const taskDuration = Date.now() - taskStartTime;
         const body = assistantEl.querySelector('.msg-body');
         const partialContent = collectAssistantText(body) || '⚠️ **任务已被用户中断**';
-        const agentRun = finalizeAgentRun(partialContent, 'interrupted', getActiveRun(getForegroundRunCtx()), body, null, getForegroundRunCtx());
+        const agentRun = finalizeAgentRun(partialContent, 'interrupted', getActiveRun(runCtx), body, null, runCtx);
         if (agentRun) renderAgentRunHeader(body, agentRun);
 
-        assistantEl.dataset.msgIndex = state.currentSession.messages.length;
+        assistantEl.dataset.msgIndex = runSession.messages.length;
         const actionsContainer = document.createElement('div');
         actionsContainer.className = 'msg-actions';
-        actionsContainer.innerHTML = `<span class="msg-duration" title="任务耗时">${ICONS.clock} ${formatDuration(taskDuration)}</span><button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>`;
-        actionsContainer.querySelector('.msg-action-btn').forEach(btn => {
+        actionsContainer.innerHTML = buildAssistantActionsHtml(agentRun, taskDuration);
+        actionsContainer.querySelectorAll('.msg-action-btn').forEach(btn => {
           btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, assistantEl));
         });
         assistantEl.appendChild(actionsContainer);
 
-        state.currentSession.messages.push({
+        runSession.messages.push({
           role: 'assistant',
           content: partialContent,
           ts: Date.now(),
           duration: taskDuration,
           agentRun
         });
-        await saveCurrentSession();
+        await saveCurrentSession(runSession);
+      } else {
+        const partialContent = '⚠️ **任务已被用户中断**';
+        const agentRun = finalizeAgentRun(partialContent, 'interrupted', getActiveRun(runCtx), null, null, runCtx);
+        runSession.messages.push({
+          role: 'assistant',
+          content: partialContent,
+          ts: Date.now(),
+          agentRun
+        });
+        await saveCurrentSession(runSession);
       }
     } else {
-    taskOk = false;
-    taskErr = err.message;
-    showTyping(false);
-    // 保留原 assistantEl 中的部分流式内容，在其上追加错误信息，而非新建气泡
-    const errHtml = renderMarkdown(`⚠️ **出错了**\n\n${err.message}`);
-    const lastMsg = $('#messages').lastElementChild;
-    if (lastMsg && lastMsg.classList.contains('assistant')) {
-      let body = lastMsg.querySelector('.msg-body');
-      if (!body) {
-        body = document.createElement('div');
-        body.className = 'msg-body';
-        lastMsg.appendChild(body);
+      taskOk = false;
+      taskErr = err.message;
+      if (ui) showTyping(false);
+      if (ui) {
+        const errHtml = renderMarkdown(`⚠️ **出错了**\n\n${err.message}`);
+        const lastMsg = $('#messages').lastElementChild;
+        if (lastMsg && lastMsg.classList.contains('assistant')) {
+          let body = lastMsg.querySelector('.msg-body');
+          if (!body) {
+            body = document.createElement('div');
+            body.className = 'msg-body';
+            lastMsg.appendChild(body);
+          }
+          const errEl = document.createElement('div');
+          errEl.className = 'msg-error';
+          errEl.innerHTML = errHtml;
+          body.appendChild(errEl);
+        } else {
+          appendMessage('assistant', `⚠️ **出错了**\n\n${err.message}`);
+        }
       }
-      const errEl = document.createElement('div');
-      errEl.className = 'msg-error';
-      errEl.innerHTML = errHtml;
-      body.appendChild(errEl);
-    } else {
-      appendMessage('assistant', `⚠️ **出错了**\n\n${err.message}`);
-    }
     }
   } finally {
-    state.isResponding = false;
-    updateSendState();
+    state.activeRuns.delete(runSession.id);
+    renderSessionList();
+    if (state.currentSession?.id === runSession.id) {
+      showTyping(false);
+      updateSendState();
+    }
   }
   return { ok: taskOk, error: taskErr };
 }
 
-// ============================================================
-// Agent kernel: tools, system prompt, agentic loop, SSE streaming
-// ============================================================
+function buildAssistantActionsHtml(agentRun, duration) {
+  const durHtml = duration != null
+    ? `<span class="msg-duration" title="任务耗时">${ICONS.clock} ${formatDuration(duration)}</span>`
+    : '';
+  const canRollback = agentRun?.runId && (agentRun?.changeCount > 0) && !agentRun?.rolledBack;
+  const rollbackHtml = canRollback
+    ? `<button class="msg-action-btn" data-act="rollback" title="撤销本轮 ${agentRun.changeCount} 处文件改动">${ICONS.undo}</button>`
+    : (agentRun?.rolledBack ? '<span class="msg-rollback-badge">已撤销改动</span>' : '');
+  return `${durHtml}<button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>${rollbackHtml}`;
+}
 
-const BUILT_IN_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'todo_write',
-      description: '创建或更新任务计划清单（会实时展示给用户）。任何需要 3 步以上的任务，动手前先调用它列出计划；之后每完成一步就再次调用更新状态。每次必须传完整清单。同一时刻只能有一项 in_progress。',
-      parameters: {
-        type: 'object',
-        properties: {
-          todos: {
-            type: 'array',
-            description: '完整的任务清单',
-            items: {
-              type: 'object',
-              properties: {
-                text: { type: 'string', description: '任务描述（简短）' },
-                status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: '任务状态' }
-              },
-              required: ['text', 'status']
-            }
-          }
-        },
-        required: ['todos']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: '读取文件内容。可以传入绝对路径或相对于工作区的路径。编辑文件前必须先读取它。',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '文件路径' }
-        },
-        required: ['path']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'edit_file',
-      description: '精确编辑已存在的文件：把 old_string 替换为 new_string。old_string 必须与文件内容逐字符完全一致（含缩进/换行），且在文件中只出现一次。单点修改用它；多处修改优先用 apply_patch。',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '文件路径' },
-          old_string: { type: 'string', description: '要被替换的原文（必须唯一匹配）' },
-          new_string: { type: 'string', description: '替换后的新文本' }
-        },
-        required: ['path', 'old_string', 'new_string']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'apply_patch',
-      description: '对同一个已存在文件执行多段精确替换。每个 edit 都是 old_string -> new_string，按顺序应用；每个 old_string 在应用时必须唯一匹配。适合一次完成同一文件的多处修改，写入后会自动回读校验。',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '文件路径' },
-          edits: {
-            type: 'array',
-            description: '按顺序执行的替换列表',
-            items: {
-              type: 'object',
-              properties: {
-                old_string: { type: 'string', description: '要被替换的原文（必须唯一匹配）' },
-                new_string: { type: 'string', description: '替换后的新文本' }
-              },
-              required: ['old_string', 'new_string']
-            }
-          }
-        },
-        required: ['path', 'edits']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'write_file',
-      description: '将内容写入文件（不存在则创建，存在则整体覆盖，自动创建目录）。仅用于新建文件或彻底重写；修改已有文件请用 edit_file 或 apply_patch。写入后会自动回读校验。',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '文件路径' },
-          content: { type: 'string', description: '要写入的内容' }
-        },
-        required: ['path', 'content']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_directory',
-      description: '列出指定目录下的文件和子目录。不传 path 则列出工作区根目录。',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '目录路径（默认为工作区根目录）' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'execute_shell',
-      description: '执行 Shell 命令并返回输出。可用于运行脚本、安装依赖、编译代码等。',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: '要执行的命令' }
-        },
-        required: ['command']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_files',
-      description: '在工作区文件中搜索包含指定文本的行。返回匹配的文件路径、行号和内容。',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: '要搜索的文本' }
-        },
-        required: ['query']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_status',
-      description: '查看当前工作区的 Git 状态（修改、暂存、未跟踪的文件等）。',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_diff',
-      description: '查看 Git 差异（未暂存或已暂存的改动）。',
-      parameters: {
-        type: 'object',
-        properties: {
-          staged: { type: 'boolean', description: '是否查看已暂存的差异' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_log',
-      description: '查看 Git 提交历史。',
-      parameters: {
-        type: 'object',
-        properties: {
-          limit: { type: 'number', description: '显示的提交数量（默认20）' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_commit',
-      description: '将所有改动添加到暂存区并提交。',
-      parameters: {
-        type: 'object',
-        properties: {
-          message: { type: 'string', description: '提交信息' }
-        },
-        required: ['message']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_push',
-      description: '将本地提交推送到远程仓库。',
-      parameters: {
-        type: 'object',
-        properties: {
-          remote: { type: 'string', description: '远程仓库名（默认 origin）' },
-          branch: { type: 'string', description: '分支名（可选）' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_pull',
-      description: '从远程仓库拉取最新代码。',
-      parameters: {
-        type: 'object',
-        properties: {
-          remote: { type: 'string', description: '远程仓库名（默认 origin）' },
-          branch: { type: 'string', description: '分支名（可选）' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_clone',
-      description: '克隆远程仓库到当前工作区。',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: { type: 'string', description: '仓库 URL' }
-        },
-        required: ['url']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_branch',
-      description: '列出所有本地和远程分支。',
-      parameters: { type: 'object', properties: {}, required: [] }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'open_builtin_browser',
-      description: '打开 Yan Agent 内置浏览器面板并导航到 URL 或本地 HTML 文件，供用户预览。写完 HTML/网页/Canvas 游戏等前端页面后，必须调用此工具在内置浏览器中打开验证；不要只用 read_file 代替视觉测试。支持 https URL 或文件路径（相对工作区或绝对路径，如 snake.html）。',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: { type: 'string', description: '网址 (https://...) 或 HTML 文件路径' }
-        },
-        required: ['url']
-      }
-    }
+async function rollbackMessageRun(msg, el) {
+  const ws = state.config?.workspace;
+  const sid = state.currentSession?.id;
+  const runId = msg.agentRun?.runId;
+  const count = msg.agentRun?.changeCount || 0;
+  if (!ws) { toast('请先选择工作区'); return; }
+  if (!runId || count <= 0) { toast('该轮对话没有可撤销的文件改动'); return; }
+  if (msg.agentRun?.rolledBack) { toast('该轮改动已撤销'); return; }
+  if (isCurrentSessionResponding()) { toast('任务执行中，请稍后再撤销'); return; }
+
+  if (!confirm(`撤销本轮对话对 ${count} 个文件的改动？\n仅回滚这一轮，不影响之前对话的修改。`)) return;
+
+  const res = await api.yanagentRollbackRun(sid, runId, ws);
+  if (!res.ok) {
+    toast('撤销失败: ' + (res.error || '未知错误'));
+    return;
   }
-];
+  msg.agentRun.rolledBack = true;
+  await saveCurrentSession();
+  const okN = (res.results || []).filter(r => r.ok).length;
+  toast(`已撤销本轮 ${okN}/${res.count} 处文件改动`);
 
-// Dynamic TOOLS: built-in + MCP tools (refreshed at the start of each agent run)
-let TOOLS = [...BUILT_IN_TOOLS];
-// Map: full tool name -> { serverId, toolName } for MCP tool routing
-const mcpToolMap = new Map();
+  const actions = el.querySelector('.msg-actions');
+  if (actions) {
+    actions.innerHTML = buildAssistantActionsHtml(msg.agentRun, msg.duration);
+    actions.querySelectorAll('.msg-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, el));
+    });
+  }
+  await renderRightSidebarFiles();
+}
 
-// 加载所有已启用的 MCP 服务器工具，合并进 TOOLS
-async function refreshMcpTools() {
-  mcpToolMap.clear();
-  const errors = []; // 收集启动失败的服务器
-  try {
-    const mcpTools = await api.mcpListTools();
-    if (!mcpTools || mcpTools.length === 0) {
-      TOOLS = [...BUILT_IN_TOOLS];
+// ============================================================
+// Agent kernel → renderer/kernel/*.js (backup: backup/pre-kernel-split-v1.0.0)
+// ============================================================
+function initKernelBridge() {
+  YanKernel.init({
+    api,
+    getConfig: () => state.config,
+    getCurrentSession: () => state.currentSession,
+    getRunCtx,
+    getCurrentAgentState,
+    toast,
+    hooks: {
+      renderTodos,
+      updateContextInfo,
+      renderAgentRunHeader,
+      buildToolStepElement,
+      renderRightSidebarFiles,
+      updateTodos,
+      agentOpenBuiltinBrowser,
+      renderMarkdown,
+      scrollChatToBottom,
+      collectTimelineFromDom,
+      requestShellPermission,
+      deferPendingTodos,
+      clearDeferredTodosIfDone
+    }
+  });
+}
+
+const createRunCtx = (...a) => YanKernel.createRunCtx(...a);
+const runAgentLoop = (...a) => YanKernel.runAgentLoop(...a);
+const executeTool = (...a) => YanKernel.executeTool(...a);
+const extractMemoryFacts = (...a) => YanKernel.extractMemoryFacts(...a);
+const compressContextIfNeeded = (...a) => YanKernel.compressContextIfNeeded(...a);
+const parseToolOutputOk = (...a) => YanKernel.parseToolOutputOk(...a);
+const makeLoopResult = (...a) => YanKernel.makeLoopResult(...a);
+const finalizeAgentRun = (...a) => YanKernel.finalizeAgentRun(...a);
+const refreshMcpTools = (...a) => YanKernel.refreshMcpTools(...a);
+const snapshotTools = (...a) => YanKernel.snapshotTools(...a);
+const TOOL_ICONS = YanKernel.TOOL_ICONS;
+const BUILT_IN_TOOLS = YanKernel.BUILT_IN_TOOLS;
+
+// ============================================================
+// Shell permission prompt (always / once / deny)
+// ============================================================
+let shellPermResolver = null;
+
+function requestShellPermission({ command, sessionId }) {
+  return new Promise((resolve) => {
+    if (shellPermResolver) {
+      shellPermResolver('deny');
+      shellPermResolver = null;
+    }
+    const modal = $('#shellPermModal');
+    const cmdEl = $('#shellPermCommand');
+    if (!modal || !cmdEl) {
+      resolve('deny');
       return;
     }
-    const mcpToolDefs = [];
-    for (const t of mcpTools) {
-      // 错误条目：服务器启动失败
-      if (t.error) {
-        errors.push(`${t.serverName}: ${t.error}`);
-        continue;
+    cmdEl.textContent = command || '(empty command)';
+    modal.classList.remove('hidden');
+    shellPermResolver = (decision) => {
+      modal.classList.add('hidden');
+      shellPermResolver = null;
+      if (decision === 'always') {
+        toast('已开启 Shell 权限（总是允许）');
+      } else if (decision === 'once') {
+        toast('已允许本次 Shell 执行');
+      } else {
+        toast('已拒绝 Shell 执行，Agent 将尝试其他方式');
       }
-      if (!t.tool) continue;
-      const fullName = `mcp__${t.serverId}__${t.tool.name}`;
-      mcpToolMap.set(fullName, { serverId: t.serverId, toolName: t.tool.name });
-      mcpToolDefs.push({
-        type: 'function',
-        function: {
-          name: fullName,
-          description: `[MCP:${t.serverName}] ${t.tool.description || t.tool.name}`,
-          parameters: t.tool.inputSchema || { type: 'object', properties: {} }
-        }
-      });
-    }
-    TOOLS = [...BUILT_IN_TOOLS, ...mcpToolDefs];
-    console.log(`[MCP] 已加载 ${mcpToolDefs.length} 个 MCP 工具${errors.length ? '，' + errors.length + ' 个服务器失败' : ''}`);
-    // 将错误信息通过 toast 反馈给用户
-    if (errors.length > 0) {
-      toast('MCP 启动失败: ' + errors[0] + (errors.length > 1 ? ` 等 ${errors.length} 个` : ''));
-    }
-  } catch (e) {
-    console.log('[MCP] 加载工具失败:', e.message);
-    TOOLS = [...BUILT_IN_TOOLS];
-    toast('MCP 加载失败: ' + e.message);
-  }
-}
-
-const TOOL_ICONS = {
-  todo_write: '📋', read_file: '📄', edit_file: '🪄', apply_patch: '🧩', write_file: '✏️',
-  list_directory: '📁', execute_shell: '⚡', search_files: '🔍',
-  open_builtin_browser: '🌐',
-  git_status: '📊', git_diff: '📋', git_log: '📝', git_commit: '✅',
-  git_push: '⬆️', git_pull: '⬇️', git_clone: '📦', git_branch: '🌿'
-};
-
-// --- System prompt with workspace context ---
-// 原创撰写的行为准则，复刻现代 Agent 内核（任务管理/精确编辑/写后验证/简洁输出）的设计思路
-async function buildSystemPrompt() {
-  const ws = await api.getWorkspace();
-  const model = state.config.api.model;
-  const modelName = (state.config.models || []).find(m => m.id === model)?.name || model;
-  const now = new Date();
-
-  let prompt = `You are Yan Agent, an autonomous coding and task agent running inside a Windows desktop client. You operate on the user's real file system with real shell access. Your job is to COMPLETE tasks end-to-end, not to describe how they could be done.
-
-# Tone and style
-- Be direct and concise. Lead with the result, not the process. No filler, no restating the question, no "好的，我将为您…" preambles.
-- Keep responses short. One-sentence answers are fine for simple questions. Never pad with unnecessary summaries of what you just did — the user watched the tool calls happen.
-- Use Markdown. Put code in fenced blocks with a language tag. Use tables for enumerable facts.
-- Always respond in the user's language (Chinese if they write Chinese). Code, identifiers and commit messages stay in English unless asked otherwise.
-- Never use emojis unless the user does first.
-
-# Proactiveness
-- When the user asks you to do something, DO it — including obvious follow-up actions required to finish the job. Do not stop halfway to ask for permission the user already implied.
-- But do not surprise the user: if they ask a question, answer it first instead of jumping to edit files.
-- If a step fails, read the error, fix the cause, and retry. Do not give up after one attempt, and do not silently swallow failures. After repeated failures (3+), stop and report exactly what blocks you.
-
-# Task management (todo_write)
-- For any task that needs 3 or more steps, FIRST call todo_write with the full plan, THEN execute step by step.
-- Keep exactly one item in_progress at a time. The moment a step finishes, call todo_write again marking it done and the next one in_progress.
-- Skip todos entirely for trivial one-step tasks.
-
-# Doing work
-- Understand before changing: use list_directory / search_files / read_file to learn the relevant code BEFORE editing. Never guess file contents.
-- Prefer edit_file for one exact replacement and apply_patch for multiple replacements in the same file. Use write_file only for new files or full rewrites. Always read_file before editing.
-- Tool results are structured JSON: { ok, output, error, meta }. Always read ok and output first; use meta for exitCode, verification, path, and edit stats.
-- Match the existing code style, naming and conventions of the project. Reuse what is already there instead of inventing parallel structures.
-- VERIFY your work: after writing code, run it, compile it, or at minimum read the result back. After shell commands, check the exit code and output. A task is not done until verified.
-- **Built-in browser (open_builtin_browser)**: Yan Agent has an embedded browser panel in the UI (right side of chat). After creating or modifying any HTML page, web game, or frontend UI, you MUST call \`open_builtin_browser\` with the file path or URL so the user can see it running. Example: after writing \`snake.html\`, call \`open_builtin_browser({ url: "snake.html" })\`. Do not skip this step. For local static files prefer the built-in browser; use MCP Playwright only when you need automated interaction (click, form fill, E2E).
-- Do exactly what was asked — no scope creep, no drive-by refactors, no extra features. Simple and correct beats clever.
-- Do not add comments that merely narrate the code. Comment only non-obvious intent.
-- When running shell commands, remember this is Windows PowerShell/cmd: use Windows path separators and Windows-appropriate commands.
-- Git: review with git_status/git_diff before committing. Never push unless the user asked.
-- If MCP tools are available (names starting with "mcp__"), use them for advanced browser automation (click, fill forms, E2E). For previewing local HTML you wrote, always use open_builtin_browser first.
-
-# Environment
-- OS: Windows (shell commands run via cmd/PowerShell)
-- Date: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}
-- Model: ${modelName}
-- Workspace root: ${ws || '(not set — ask the user to pick one if the task needs files)'}
-- Resolve relative paths against the workspace root.`;
-
-  // Inject workspace file tree for context
-  if (ws) {
-    try {
-      const tree = await api.getWorkspaceTree(ws, 2);
-      if (tree.length > 0) {
-        const fileList = tree.slice(0, 80).map(f =>
-          f.isDirectory ? `[DIR]  ${f.relPath}` : `       ${f.relPath}`
-        ).join('\n');
-        prompt += `\n\n# Workspace structure (top 2 levels)\n\`\`\`\n${fileList}\n\`\`\``;
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  return prompt;
-}
-
-function clipToolText(text, max = 12000) {
-  const s = String(text ?? '');
-  if (s.length <= max) return s;
-  return s.slice(0, max) + `\n...(${s.length - max} chars truncated)...`;
-}
-
-// 相对路径统一解析到 workspace root，避免模型传 src/foo.ts 时读写失败
-async function resolveWorkspacePath(filePath) {
-  const p = String(filePath || '').trim();
-  if (!p) return p;
-  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return p;
-  const ws = await api.getWorkspace();
-  if (!ws) return p;
-  const sep = ws.includes('\\') ? '\\' : '/';
-  const base = ws.replace(/[\\/]+$/, '');
-  const rel = p.replace(/^[\\/]+/, '').replace(/\//g, sep);
-  return `${base}${sep}${rel}`;
-}
-
-// 统一工具返回协议：{ ok, tool, output, error, meta }
-function toolResult(ok, tool, { output = '', error = null, meta = {} } = {}) {
-  return JSON.stringify({ ok, tool, output, error: ok ? null : (error || 'Tool failed'), meta }, null, 2);
-}
-
-function toolSuccess(tool, output, meta = {}) {
-  return toolResult(true, tool, { output, meta });
-}
-
-function toolError(tool, error, meta = {}) {
-  return toolResult(false, tool, { output: '', error: String(error || 'Unknown error'), meta });
-}
-
-function execToolResult(tool, res, fallbackOutput = '') {
-  const stdout = clipToolText(res.stdout || '');
-  const stderr = clipToolText(res.stderr || '');
-  const exitCode = Number.isFinite(res.exitCode) ? res.exitCode : (res.error ? 1 : 0);
-  // git diff 有改动时 exit code 为 1，不是失败
-  const gitDiffHasChanges = tool === 'git_diff' && !res.error && exitCode === 1;
-  const ok = !res.error && (exitCode === 0 || gitDiffHasChanges);
-  const output = stdout || stderr || fallbackOutput;
-  return toolResult(ok, tool, {
-    output,
-    error: res.error || (ok ? null : (stderr || `exit code ${exitCode}`)),
-    meta: { exitCode, stderr: stderr || undefined, hasChanges: gitDiffHasChanges || undefined }
+      resolve(decision);
+    };
   });
 }
 
-function normalizeEdits(args) {
-  if (Array.isArray(args.edits)) return args.edits;
-  if (Array.isArray(args.replacements)) return args.replacements;
-  return [{ old_string: args.old_string, new_string: args.new_string }];
-}
-
-function applyExactEdits(content, edits) {
-  let updated = content;
-  const stats = [];
-
-  for (let i = 0; i < edits.length; i++) {
-    const oldStr = String(edits[i]?.old_string ?? '');
-    const newStr = String(edits[i]?.new_string ?? '');
-    if (!oldStr) {
-      return { error: `edit ${i + 1}: old_string is empty.` };
-    }
-
-    const first = updated.indexOf(oldStr);
-    if (first < 0) {
-      return {
-        error: `edit ${i + 1}: old_string not found. Read the file again and copy the exact text, including whitespace and indentation.`,
-        applied: stats.length
-      };
-    }
-    if (updated.indexOf(oldStr, first + 1) >= 0) {
-      return {
-        error: `edit ${i + 1}: old_string matches multiple locations. Include more surrounding lines to make it unique.`,
-        applied: stats.length
-      };
-    }
-
-    updated = updated.slice(0, first) + newStr + updated.slice(first + oldStr.length);
-    stats.push({
-      index: i + 1,
-      offset: first,
-      removedChars: oldStr.length,
-      addedChars: newStr.length
-    });
-  }
-
-  return { updated, stats };
-}
-
-async function verifyTextFile(path, expectedContent) {
-  const check = await api.readFile(path);
-  if (check.error) return { ok: false, error: check.error };
-  if (check.isBinary) return { ok: false, error: 'file became binary after write' };
-  return {
-    ok: check.content === expectedContent,
-    size: check.size,
-    error: check.content === expectedContent ? null : 'read-back content differs from expected content'
-  };
-}
-
-async function editTextFile(tool, args) {
-  const path = await resolveWorkspacePath(args.path);
-  const edits = normalizeEdits(args);
-  if (!path) return toolError(tool, 'path is required.');
-  if (!edits.length) return toolError(tool, 'at least one edit is required.');
-
-  const res = await api.readFile(path);
-  if (res.error) return toolError(tool, res.error, { path });
-  if (res.isBinary) return toolError(tool, 'cannot edit a binary file.', { path, size: res.size });
-
-  const content = res.content ?? '';
-  const applied = applyExactEdits(content, edits);
-  if (applied.error) {
-    return toolError(tool, applied.error, { path, applied: applied.applied || 0 });
-  }
-
-  const w = await api.writeFile(path, applied.updated);
-  if (w.error) return toolError(tool, w.error, { path });
-
-  const verification = await verifyTextFile(path, applied.updated);
-  const removed = applied.stats.reduce((n, s) => n + s.removedChars, 0);
-  const added = applied.stats.reduce((n, s) => n + s.addedChars, 0);
-  const output = verification.ok
-    ? `Applied ${applied.stats.length} edit(s) to ${path}. -${removed} +${added} chars, now ${w.size} bytes. Read-back verified.`
-    : `Wrote ${path} but read-back verification failed.`;
-  return toolResult(verification.ok, tool, {
-    output,
-    error: verification.ok ? null : verification.error,
-    meta: { path, edits: applied.stats, size: w.size, verification }
+function bindShellPermDialog() {
+  $('#shellPermAlways')?.addEventListener('click', () => shellPermResolver?.('always'));
+  $('#shellPermOnce')?.addEventListener('click', () => shellPermResolver?.('once'));
+  $('#shellPermDeny')?.addEventListener('click', () => shellPermResolver?.('deny'));
+  $('#shellPermModal')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'shellPermModal') shellPermResolver?.('deny');
   });
 }
 
-// --- Tool execution ---
-async function executeTool(name, args, runCtx) {
-  const as = runCtx?.agentState || agentState;
-  const ui = runCtx?.ui !== false;
-  switch (name) {
-    case 'todo_write': {
-      const todos = Array.isArray(args.todos) ? args.todos : [];
-      as.todos = todos.map(t => ({
-        text: String(t.text || ''),
-        done: t.status === 'done',
-        inProgress: t.status === 'in_progress'
-      }));
-      as.todosFromTool = true;
-      if (ui) {
-        renderTodos(as);
-        updateContextInfo(as);
-      }
-      const doneCount = as.todos.filter(t => t.done).length;
-      return toolSuccess(name, `Todo list updated: ${doneCount}/${as.todos.length} done.`, {
-        doneCount,
-        total: as.todos.length
-      });
-    }
-    case 'edit_file': {
-      return editTextFile(name, args);
-    }
-    case 'apply_patch': {
-      return editTextFile(name, args);
-    }
-    case 'read_file': {
-      const path = await resolveWorkspacePath(args.path);
-      const res = await api.readFile(path);
-      if (res.error) return toolError(name, res.error, { path });
-      if (res.isBinary) {
-        return toolSuccess(name, `(binary file, ${res.size} bytes)`, { path, isBinary: true, size: res.size, mtime: res.mtime });
-      }
-      return toolSuccess(name, clipToolText(res.content), { path, size: res.size, mtime: res.mtime });
-    }
-    case 'write_file': {
-      const path = await resolveWorkspacePath(args.path);
-      const res = await api.writeFile(path, args.content);
-      if (res.error) return toolError(name, res.error, { path });
-      const verification = await verifyTextFile(path, String(args.content ?? ''));
-      const output = verification.ok
-        ? `Wrote ${path} (${res.size} bytes). Read-back verified.`
-        : `Wrote ${path} but read-back verification failed.`;
-      return toolResult(verification.ok, name, {
-        output,
-        error: verification.ok ? null : verification.error,
-        meta: { path, size: res.size, verification }
-      });
-    }
-    case 'list_directory': {
-      const ws = await api.getWorkspace();
-      const dir = args.path ? await resolveWorkspacePath(args.path) : ws;
-      const entries = await api.listWorkspace(dir);
-      const listing = entries.map(e =>
-        `${e.isDirectory ? '[DIR]  ' : '       '}${e.name}`
-      ).join('\n');
-      return toolSuccess(name, listing || '(empty directory)', { path: dir, count: entries.length });
-    }
-    case 'execute_shell': {
-      const res = await api.executeShell(args.command);
-      return execToolResult(name, res, '(no output)');
-    }
-    case 'search_files': {
-      const results = await api.searchFiles(args.query);
-      const output = results.length
-        ? results.map(r => `${r.path}:${r.line}: ${r.content}`).join('\n')
-        : 'No matches found.';
-      return toolSuccess(name, output, { query: args.query, count: results.length });
-    }
-    case 'git_status': {
-      const res = await api.gitStatus();
-      return execToolResult(name, res, '(no output)');
-    }
-    case 'git_diff': {
-      const res = await api.gitDiff(args.staged || false);
-      return execToolResult(name, res, '(no changes)');
-    }
-    case 'git_log': {
-      const res = await api.gitLog(args.limit || 20);
-      return execToolResult(name, res, '(no commits)');
-    }
-    case 'git_commit': {
-      const res = await api.gitCommit(args.message);
-      return execToolResult(name, res, 'Committed.');
-    }
-    case 'git_push': {
-      const res = await api.gitPush(args.remote, args.branch);
-      return execToolResult(name, res, 'Pushed.');
-    }
-    case 'git_pull': {
-      const res = await api.gitPull(args.remote, args.branch);
-      return execToolResult(name, res, 'Pulled.');
-    }
-    case 'git_clone': {
-      const res = await api.gitClone(args.url);
-      return execToolResult(name, res, 'Cloned.');
-    }
-    case 'git_branch': {
-      const res = await api.gitBranch();
-      return execToolResult(name, res, '(no branches)');
-    }
-    case 'open_builtin_browser': {
-      const res = await agentOpenBuiltinBrowser(args.url);
-      if (!res.ok) return toolError(name, res.error, { url: args.url });
-      return toolSuccess(name, `已在内置浏览器打开：${res.url}`, { url: res.url });
-    }
-    default: {
-      // MCP 工具路由：检查是否为 MCP 工具
-      const mcpInfo = mcpToolMap.get(name);
-      if (mcpInfo) {
-        const res = await api.mcpCallTool(mcpInfo.serverId, mcpInfo.toolName, args);
-        if (res.error) return toolError(name, res.error, { serverId: mcpInfo.serverId, toolName: mcpInfo.toolName });
-        const output = clipToolText(res.result || '(无输出)');
-        return toolResult(!res.isError, name, {
-          output,
-          error: res.isError ? 'MCP tool returned isError=true' : null,
-          meta: { serverId: mcpInfo.serverId, toolName: mcpInfo.toolName, isError: !!res.isError }
-        });
-      }
-      return toolError(name, `Unknown tool: ${name}`);
-    }
+async function deferPendingTodos(runCtx, pending) {
+  const session = state.currentSession;
+  if (!session || session.id !== runCtx?.sessionId) return;
+  session.deferredTodos = pending.map(t => ({ text: t.text }));
+  await api.saveSession(session);
+  toast(`已推迟 ${pending.length} 项非必要 todo，将在后续对话中提醒`);
+}
+
+async function clearDeferredTodosIfDone(as) {
+  const session = state.currentSession;
+  if (!session?.deferredTodos?.length || !as?.todosFromTool) return;
+  const texts = new Set(as.todos.filter(t => t.done).map(t => t.text));
+  const remaining = session.deferredTodos.filter(d => !texts.has(d.text));
+  if (remaining.length !== session.deferredTodos.length) {
+    session.deferredTodos = remaining.length ? remaining : undefined;
+    if (!session.deferredTodos) delete session.deferredTodos;
+    await api.saveSession(session);
   }
 }
 
-// --- Context compression ---
-// 当对话历史超过 token 阈值时，压缩早期消息为摘要
-// DeepSeek V4 支持 1M 上下文，阈值主要为控制成本与延迟
-const CONTEXT_TOKEN_THRESHOLD = 60000; // 约 60K tokens 触发压缩
-const CONTEXT_KEEP_RECENT = 12; // 保留最近 12 条消息不压缩
-
-function estimateTokens(messages) {
-  let chars = 0;
-  for (const m of messages) {
-    chars += (m.content || '').length;
-  }
-  return Math.ceil(chars * 1.8);
-}
-
-function clipTraceForStorage(trace) {
-  return (trace || []).map(tm => {
-    if (tm.role === 'tool') return { ...tm, content: clipToolText(tm.content, 8000) };
-    if (tm.role === 'assistant' && tm.content) return { ...tm, content: clipToolText(tm.content, 4000) };
-    return tm;
-  });
-}
-
-async function compressContextIfNeeded(messages) {
-  const estTokens = estimateTokens(messages);
-  if (estTokens <= CONTEXT_TOKEN_THRESHOLD) {
-    return messages;
-  }
-
-  let splitIdx = messages.length - CONTEXT_KEEP_RECENT;
-  if (splitIdx <= 2) return messages;
-
-  while (splitIdx < messages.length && messages[splitIdx]?.role === 'tool') {
-    splitIdx++;
-  }
-  if (splitIdx >= messages.length) return messages;
-
-  const toCompress = messages.slice(0, splitIdx);
-  const toKeep = messages.slice(splitIdx);
-
-  // 保留含 apiTrace 的 assistant 消息（工具调用链），只压缩普通文本
-  const traceKeepers = [];
-  const toSummarize = [];
-  for (const m of toCompress) {
-    if (m.role === 'assistant' && m.agentRun?.apiTrace?.length) {
-      traceKeepers.push({
-        role: 'assistant',
-        content: m.content || '',
-        agentRun: {
-          status: m.agentRun.status,
-          iteration: m.agentRun.iteration,
-          toolCallCount: m.agentRun.toolCallCount,
-          todos: m.agentRun.todos,
-          todosFromTool: m.agentRun.todosFromTool,
-          timeline: m.agentRun.timeline,
-          apiTrace: clipTraceForStorage(m.agentRun.apiTrace)
-        }
-      });
-    } else {
-      toSummarize.push(m);
-    }
-  }
-
-  if (!toSummarize.length) {
-    return [...traceKeepers, ...toKeep];
-  }
-
-  const { baseUrl, apiKey, model } = state.config.api;
-  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-
-  const compressPrompt = `请将以下对话历史压缩为简洁的上下文摘要。保留：
-1. 用户的任务意图和关键需求
-2. 已完成的操作和创建/修改的文件
-3. 遇到的问题和解决方案
-4. 任何用户偏好或约束
-
-删除冗余的工具输出细节，只保留关键信息。输出为简洁的要点列表。`;
-
-  const compressMessages = [
-    { role: 'system', content: compressPrompt },
-    { role: 'user', content: toSummarize.map(m => `[${m.role}]: ${m.content}`).join('\n\n') }
-  ];
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({ model, messages: compressMessages, stream: false })
-    });
-    const data = await res.json();
-    const summary = data.choices?.[0]?.message?.content || '';
-
-    return [
-      { role: 'system', content: `## Previous Context (已压缩的早期对话摘要)\n${summary}` },
-      ...traceKeepers,
-      ...toKeep
-    ];
-  } catch (e) {
-    return [
-      ...traceKeepers,
-      ...toSummarize.map(m => {
-        if ((m.content || '').length > 4000) {
-          return { ...m, content: m.content.slice(0, 2000) + '\n...(已截断)...' };
-        }
-        return m;
-      }),
-      ...toKeep
-    ];
-  }
-}
-
-// --- Memory extraction ---
-// 任务完成后从对话中提取关键事实存入长期记忆
-async function extractMemoryFacts(messages) {
-  const { baseUrl, apiKey, model } = state.config.api;
-  if (!apiKey) return []; // 无 Key 时不发起额外请求
-  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-
-  const extractPrompt = `请从以下对话中提取值得长期记住的关键事实（用户偏好、项目约定、重要决策、技术栈选择等）。
-只提取跨会话有用的事实，不要提取具体任务细节。
-每条事实一行，格式为简洁陈述句。如果没有值得提取的内容，回复"无"。`;
-
-  // 只看最近 12 条消息，避免 token 过多
-  const recentMsgs = messages.slice(-12);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: extractPrompt },
-          { role: 'user', content: recentMsgs.map(m => `[${m.role}]: ${(m.content || '').slice(0, 500)}`).join('\n\n') }
-        ],
-        stream: false
-      })
-    });
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    if (!content || content.trim() === '无') return [];
-
-    // 按行分割为事实列表
-    return content.split('\n')
-      .map(line => line.replace(/^[-*•]\s*/, '').trim())
-      .filter(line => line.length > 3 && line.length < 200);
-  } catch (e) {
-    return [];
-  }
-}
-
-// --- Agent run persistence (Package C) ---
-const agentState = { todos: [], todosFromTool: false, iteration: 0, toolCallCount: 0, status: 'idle' };
-let activeAgentRun = null;
-
-function getForegroundRunCtx() {
-  return { background: false, ui: true, agentState, get shouldAbort() { return state.shouldAbort; } };
-}
-
-function createBackgroundRunCtx(sessionId) {
-  return {
-    background: true,
-    sessionId,
-    ui: false,
-    shouldAbort: false,
-    abortController: null,
-    agentState: { todos: [], todosFromTool: false, iteration: 0, toolCallCount: 0, status: 'idle' },
-    activeAgentRun: null
-  };
-}
-
-function getActiveRun(runCtx) {
-  return runCtx?.background ? runCtx.activeAgentRun : activeAgentRun;
-}
-
-function startAgentRun(runCtx) {
-  const run = { timeline: [], runStartIndex: 0 };
-  if (runCtx?.background) runCtx.activeAgentRun = run;
-  else activeAgentRun = run;
-  return run;
-}
-
-function recordTimelineEvent(entry, runCtx) {
-  const run = getActiveRun(runCtx);
-  if (!run) return;
-  run.timeline.push({ ...entry, ts: Date.now() });
-}
-
-function clipApiTrace(trace) {
-  return trace.map(m => {
-    if (m.role === 'tool') {
-      return { ...m, content: clipToolText(m.content, 8000) };
-    }
-    if (m.role === 'assistant' && m.content) {
-      return { ...m, content: clipToolText(m.content, 4000) };
-    }
-    return m;
-  });
-}
-
-function finalizeAgentRun(content, status, run, bodyEl, apiMessages, runCtx) {
-  const as = runCtx?.agentState || agentState;
-  const timeline = run?.timeline?.length
-    ? run.timeline
-    : (bodyEl ? collectTimelineFromDom(bodyEl) : []);
-  let apiTrace = [];
-  if (apiMessages && run?.runStartIndex != null) {
-    apiTrace = clipApiTrace(apiMessages.slice(run.runStartIndex));
-  }
-  return {
-    status,
-    iteration: as.iteration,
-    toolCallCount: as.toolCallCount,
-    todos: as.todos.map(t => ({ text: t.text, done: t.done, inProgress: t.inProgress })),
-    todosFromTool: as.todosFromTool,
-    timeline,
-    apiTrace
-  };
-}
-
-function makeLoopResult(content, status, apiMessages, runCtx) {
-  const run = getActiveRun(runCtx);
-  const agentRun = finalizeAgentRun(content, status, run, null, apiMessages, runCtx);
-  if (runCtx?.background) runCtx.activeAgentRun = null;
-  else activeAgentRun = null;
-  return { content, agentRun };
-}
-
-function parseToolOutputOk(raw) {
-  try { return !!JSON.parse(raw).ok; } catch { return null; }
-}
+// ============================================================
+// Per-run rollback — see rollbackMessageRun() on assistant messages
+// ============================================================
 
 function collectAssistantText(bodyEl) {
   if (!bodyEl) return '';
@@ -2134,13 +1467,12 @@ function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
     bodyEl.appendChild(buildTextRoundElement(fallbackContent));
   }
   if (agentRun.todos?.length) {
-    agentState.todos = agentRun.todos.map(t => ({
+    const as = { todos: agentRun.todos.map(t => ({
       text: t.text,
       done: !!t.done,
       inProgress: !!t.inProgress
-    }));
-    agentState.todosFromTool = !!agentRun.todosFromTool;
-    renderTodos();
+    })), todosFromTool: !!agentRun.todosFromTool };
+    renderTodos(as);
   }
 }
 
@@ -2222,301 +1554,6 @@ function buildToolStepElement(toolName, args, resultRaw = '', ok = null) {
   return step;
 }
 
-// --- Agentic loop ---
-async function runAgentLoop(sessionMessages, assistantEl, runCtx = getForegroundRunCtx()) {
-  const as = runCtx.agentState;
-  const shouldAbort = () => runCtx.background ? runCtx.shouldAbort : state.shouldAbort;
-  const ui = runCtx.ui && assistantEl;
-  const cfg = state.config;
-  const perm = await api.getPermissions();
-
-  if (!perm.allowNetwork) {
-    return makeLoopResult(`⚠️ **网络权限已关闭**，无法调用 AI 接口。\n\n请在「设置 → 权限」中开启「允许网络访问」。`, 'error', null, runCtx);
-  }
-  if (!cfg.api?.apiKey) {
-    return makeLoopResult(`⚠️ **未配置 API Key**\n\n请在「设置 → API 配置」中填入你的 DeepSeek API Key。`, 'error', null, runCtx);
-  }
-
-  const systemPrompt = await buildSystemPrompt();
-  await refreshMcpTools();
-
-  let memoryContext = '';
-  try {
-    const mem = await api.getMemory();
-    if (mem.facts && mem.facts.length > 0) {
-      memoryContext = '\n\n## Long-term Memory (跨会话记忆)\n以下是关于用户和项目的长期记忆，请始终遵循：\n' +
-        mem.facts.map(f => `- ${f.content}`).join('\n');
-    }
-  } catch {}
-
-  const compressedMessages = await compressContextIfNeeded(sessionMessages);
-  const apiMessages = [{ role: 'system', content: systemPrompt + memoryContext }];
-  for (const m of compressedMessages) {
-    if (m.role === 'assistant' && m.agentRun?.apiTrace?.length) {
-      apiMessages.push(...m.agentRun.apiTrace);
-      continue;
-    }
-    let content = m.content || '';
-    if (m.role === 'user' && Array.isArray(m.attachments) && m.attachments.length) {
-      const parts = [];
-      for (const a of m.attachments) {
-        try {
-          const res = await api.readFile(a.path);
-          if (res && res.error) parts.push(`【附件: ${a.name}】(无法读取: ${res.error})`);
-          else if (res && res.isBinary) parts.push(`【附件: ${a.name}】(二进制文件，${res.size} 字节，未内联)`);
-          else if (res && res.content != null) {
-            const clipped = res.content.length > 8000 ? res.content.slice(0, 8000) + '\n...(内容过长已截断)...' : res.content;
-            parts.push(`【附件: ${a.name}】\n\`\`\`\n${clipped}\n\`\`\``);
-          }
-        } catch {}
-      }
-      if (parts.length) content = (content ? content + '\n\n' : '') + parts.join('\n\n');
-    }
-    apiMessages.push({ role: m.role, content });
-  }
-
-  const run = startAgentRun(runCtx);
-  run.runStartIndex = apiMessages.length;
-
-  let iteration = 0;
-  const maxIterations = 40;
-  let fullContent = '';
-  let finalStatus = 'done';
-
-  as.todos = [];
-  as.todosFromTool = false;
-  as.iteration = 0;
-  as.toolCallCount = 0;
-  as.status = 'working';
-  if (ui) {
-    renderTodos(as);
-    updateContextInfo(as);
-  }
-
-  const bodyEl = ui ? assistantEl.querySelector('.msg-body') : null;
-  if (bodyEl) renderAgentRunHeader(bodyEl, { status: 'working', iteration: 0, toolCallCount: 0 });
-
-  while (iteration < maxIterations) {
-    if (shouldAbort()) {
-      fullContent += (fullContent ? '\n\n' : '') + '⚠️ **任务已被用户中断**';
-      finalStatus = 'interrupted';
-      break;
-    }
-    iteration++;
-    as.iteration = iteration;
-    if (ui) {
-      updateContextInfo(as);
-      renderAgentRunHeader(bodyEl, { status: 'working', iteration, toolCallCount: as.toolCallCount });
-    }
-
-    const result = await callApiStream(apiMessages, assistantEl, runCtx);
-
-    if (result.reasoning_content) {
-      recordTimelineEvent({ type: 'thinking', content: result.reasoning_content }, runCtx);
-    }
-    if (result.content) {
-      fullContent += (fullContent ? '\n\n' : '') + result.content;
-      updateTodos(result.content, as, ui);
-      recordTimelineEvent({ type: 'text', content: result.content }, runCtx);
-    }
-
-    if (shouldAbort()) {
-      fullContent += (fullContent ? '\n\n' : '') + '⚠️ **任务已被用户中断**';
-      finalStatus = 'interrupted';
-      break;
-    }
-
-    if (!result.tool_calls || result.tool_calls.length === 0) {
-      if (result.content || result.reasoning_content) {
-        const finalTurn = { role: 'assistant', content: result.content || '' };
-        if (result.reasoning_content) finalTurn.reasoning_content = result.reasoning_content;
-        apiMessages.push(finalTurn);
-      }
-      as.status = 'done';
-      if (!as.todosFromTool) as.todos.forEach(t => t.done = true);
-      if (ui) {
-        renderTodos(as);
-        updateContextInfo(as);
-      }
-      return makeLoopResult(fullContent || result.content || '(无回复)', finalStatus, apiMessages, runCtx);
-    }
-
-    const assistantTurn = {
-      role: 'assistant',
-      content: result.content || '',
-      tool_calls: result.tool_calls
-    };
-    if (result.reasoning_content) assistantTurn.reasoning_content = result.reasoning_content;
-    apiMessages.push(assistantTurn);
-
-    for (const toolCall of result.tool_calls) {
-      if (shouldAbort()) break;
-      const fnName = toolCall.function.name;
-      let fnArgs = {};
-      try { fnArgs = JSON.parse(toolCall.function.arguments || '{}'); } catch {}
-
-      recordTimelineEvent({ type: 'tool_call', name: fnName, args: fnArgs }, runCtx);
-      const toolOutput = await executeTool(fnName, fnArgs, runCtx);
-      const toolOk = parseToolOutputOk(toolOutput);
-      recordTimelineEvent({ type: 'tool_result', name: fnName, output: toolOutput, ok: toolOk }, runCtx);
-
-      if (bodyEl) bodyEl.appendChild(buildToolStepElement(fnName, fnArgs, toolOutput, toolOk));
-
-      as.toolCallCount++;
-      if (ui) {
-        updateContextInfo(as);
-        renderAgentRunHeader(bodyEl, { status: 'working', iteration, toolCallCount: as.toolCallCount });
-      }
-
-      apiMessages.push({
-        role: 'tool',
-        tool_call_id: toolCall.id,
-        content: toolOutput
-      });
-    }
-
-    if (shouldAbort()) {
-      fullContent += (fullContent ? '\n\n' : '') + '⚠️ **任务已被用户中断**';
-      finalStatus = 'interrupted';
-      break;
-    }
-    if (ui) renderRightSidebarFiles();
-  }
-
-  as.status = 'done';
-  if (ui) updateContextInfo(as);
-  return makeLoopResult(fullContent || '⚠️ 达到最大迭代次数限制。', finalStatus, apiMessages, runCtx);
-}
-
-// --- SSE streaming API call with tool support ---
-async function callApiStream(messages, assistantEl, runCtx = getForegroundRunCtx()) {
-  const shouldAbort = () => runCtx.background ? runCtx.shouldAbort : state.shouldAbort;
-  const { baseUrl, apiKey, model, thinking } = state.config.api;
-  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-
-  const body = {
-    model,
-    messages,
-    stream: true,
-    tools: TOOLS,
-    tool_choice: 'auto'
-  };
-  if (thinking) body.thinking = { type: 'enabled' };
-
-  const abortController = new AbortController();
-  if (runCtx.background) runCtx.abortController = abortController;
-  else state.abortController = abortController;
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(body),
-    signal: abortController.signal
-  });
-
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`HTTP ${res.status}: ${t.slice(0, 300)}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let content = '';
-  let reasoning = '';
-  let toolCalls = [];
-  const bodyEl = assistantEl ? assistantEl.querySelector('.msg-body') : null;
-  let roundEl = null;
-  let thinkEl = null;
-  let thinkTextEl = null;
-
-  try {
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') continue;
-
-      try {
-        const json = JSON.parse(data);
-        const delta = json.choices?.[0]?.delta;
-        if (!delta) continue;
-
-        if (delta.reasoning_content) {
-          reasoning += delta.reasoning_content;
-          if (bodyEl) {
-            if (!thinkEl) {
-              thinkEl = document.createElement('details');
-              thinkEl.className = 'thinking-block';
-              thinkEl.open = true;
-              thinkEl.innerHTML = '<summary>深度思考中…</summary><div class="thinking-text"></div>';
-              bodyEl.appendChild(thinkEl);
-              thinkTextEl = thinkEl.querySelector('.thinking-text');
-            }
-            thinkTextEl.textContent = reasoning;
-            thinkTextEl.scrollTop = thinkTextEl.scrollHeight;
-            scrollChatToBottom();
-          }
-        }
-
-        if (delta.content) {
-          content += delta.content;
-          if (bodyEl) {
-            if (thinkEl && thinkEl.open) {
-              thinkEl.open = false;
-              thinkEl.querySelector('summary').textContent = '深度思考';
-            }
-            if (!roundEl) {
-              roundEl = document.createElement('div');
-              roundEl.className = 'msg-round';
-              bodyEl.appendChild(roundEl);
-            }
-            roundEl.innerHTML = renderMarkdown(content);
-            scrollChatToBottom();
-          }
-        }
-
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
-            if (!toolCalls[idx]) {
-              toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
-            }
-            if (tc.id) toolCalls[idx].id = tc.id;
-            if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
-            if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
-          }
-        }
-      } catch (e) { /* skip parse errors */ }
-    }
-  }
-  } catch (e) {
-    if (!(e && e.name === 'AbortError') && !shouldAbort()) throw e;
-  }
-
-  if (thinkEl && thinkEl.open) {
-    thinkEl.open = false;
-    thinkEl.querySelector('summary').textContent = '深度思考';
-  }
-
-  const filteredToolCalls = toolCalls.filter(tc => tc.function.name);
-  return {
-    content: content || '',
-    reasoning_content: reasoning || undefined,
-    tool_calls: filteredToolCalls.length > 0 ? filteredToolCalls : null
-  };
-}
-
 // --- Tool call UI rendering ---
 function formatToolResultForUi(raw) {
   try {
@@ -2543,7 +1580,8 @@ function showTyping(show) {
 // Right sidebar: todo, context, files
 // ============================================================
 
-function updateContextInfo(as = agentState) {
+function updateContextInfo(as) {
+  if (!as) as = getCurrentAgentState();
   const m = state.config.api.model;
   const modelName = (state.config.models || []).find(x => x.id === m)?.name || m;
   const el = id => $('#' + id);
@@ -2571,7 +1609,8 @@ function parseTodos(content) {
   return todos;
 }
 
-function updateTodos(content, as = agentState, ui = true) {
+function updateTodos(content, as, ui = true) {
+  if (!as) as = getCurrentAgentState();
   if (as.todosFromTool) return;
   const newTodos = parseTodos(content);
   if (newTodos.length > 0) {
@@ -2580,7 +1619,8 @@ function updateTodos(content, as = agentState, ui = true) {
   }
 }
 
-function renderTodos(as = agentState) {
+function renderTodos(as) {
+  if (!as) as = getCurrentAgentState();
   const list = $('#todoList');
   if (!list) return;
   if (as.todos.length === 0) {
@@ -2857,7 +1897,7 @@ async function automationTick() {
   let autos = [];
   try { autos = await api.autoList(); } catch { return; }
   const now = Date.now();
-  const slots = MAX_BACKGROUND_RUNS - state.backgroundRuns.size;
+  const slots = MAX_CONCURRENT_RUNS - state.activeRuns.size;
   if (slots <= 0) return;
 
   const due = autos.filter(a =>
@@ -2871,19 +1911,30 @@ async function automationTick() {
 
 async function runAutomation(auto, { manual = false } = {}) {
   if (state.automationRuns.has(auto.id)) return { ok: false, error: 'already_running' };
-  if (state.backgroundRuns.size >= MAX_BACKGROUND_RUNS) return { ok: false, error: 'busy' };
+  if (!canStartRun()) return { ok: false, error: 'busy' };
 
   state.automationRuns.add(auto.id);
+  let createdSessionId = null;
   try {
     await api.autoUpdate(auto.id, { lastRun: Date.now(), lastStatus: 'running' });
 
     const s = await api.createSession();
+    createdSessionId = s.id;
     const title = `[自动] ${auto.name}`;
     s.title = title;
     await api.renameSession(s.id, title);
     await refreshSessions();
 
     const res = await submitMessageBackground(s, auto.prompt);
+
+    if (res.error === 'busy' && createdSessionId) {
+      try { await api.deleteSession(createdSessionId); } catch {}
+      createdSessionId = null;
+      await refreshSessions();
+      if (manual) toast('并发任务已达上限（5个），请稍后再试');
+      await api.autoUpdate(auto.id, { lastStatus: 'skipped' });
+      return res;
+    }
 
     const patch = { lastStatus: res && res.ok ? 'ok' : 'error' };
     if ((auto.schedule || {}).type === 'once') patch.enabled = false;
@@ -3175,6 +2226,7 @@ function updateTaskBar() {
   if (ws) {
     folderName.textContent = ws.split(/[\\/]/).filter(Boolean).pop() || ws;
     openBtn.disabled = false;
+    api.yanagentEnsure?.(ws);
   } else {
     folderName.textContent = '选择文件夹';
     openBtn.disabled = true;
@@ -3314,6 +2366,7 @@ function setupResizeHandles() {
 // ============================================================
 function bindUI() {
   bindPermissions();
+  bindShellPermDialog();
 
   // Workspace pill click → choose workspace
   $('#wsPill').addEventListener('click', async () => {
@@ -3426,11 +2479,16 @@ async function resolveBrowserUrl(input) {
   return 'file:///' + encodeURI(norm.replace(/^([a-zA-Z]:)/, '$1'));
 }
 
-async function agentOpenBuiltinBrowser(urlOrPath) {
+async function agentOpenBuiltinBrowser(urlOrPath, { background = false } = {}) {
   const panel = $('#browserPanel');
   if (!panel) return { ok: false, error: '内置浏览器面板不可用' };
   const url = await resolveBrowserUrl(urlOrPath);
   if (!url) return { ok: false, error: '请提供 URL 或文件路径' };
+
+  if (background) {
+    return { ok: true, url };
+  }
+
   if (!_browserNavigate) return { ok: false, error: '浏览器尚未初始化，请稍后重试' };
 
   switchSidebarNav('tasks');

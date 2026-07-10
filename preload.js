@@ -44,7 +44,14 @@ contextBridge.exposeInMainWorld('yan', {
   deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
 
   // Shell execution
-  executeShell: (command, cwd) => ipcRenderer.invoke('shell:execute', { command, cwd }),
+  executeShell: (command, cwd, oneShot) => ipcRenderer.invoke('shell:execute', { command, cwd, oneShot }),
+
+  // .yanagent (memory/logs/snapshots in workspace)
+  yanagentEnsure: (workspace) => ipcRenderer.invoke('yanagent:ensure', workspace),
+  yanagentLog: (message, workspace) => ipcRenderer.invoke('yanagent:log', { message, workspace }),
+  yanagentRecordChange: (payload) => ipcRenderer.invoke('yanagent:record-change', payload),
+  yanagentRunChanges: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:run-changes', { sessionId, runId, workspace }),
+  yanagentRollbackRun: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:rollback-run', { sessionId, runId, workspace }),
 
   // Search
   searchFiles: (query, directory, extensions) => ipcRenderer.invoke('search:files', { query, directory, extensions }),

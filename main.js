@@ -34,6 +34,99 @@ const configPath = path.join(dataDir, 'config.json');
 const sessionsDir = path.join(dataDir, 'sessions');
 const filesDir = path.join(dataDir, 'uploads');
 const memoryPath = path.join(dataDir, 'memory.json');
+const YANAGENT_DIR = '.yanagent';
+// ---------------------------------------------------------------------------
+// .yanagent — workspace-local memory, logs, session snapshots (safe to delete)
+// ---------------------------------------------------------------------------
+function yanagentRoot(workspace) {
+  if (!workspace) return null;
+  return path.join(workspace, YANAGENT_DIR);
+}
+
+function ensureYanagent(workspace) {
+  const root = yanagentRoot(workspace);
+  if (!root) return null;
+  for (const sub of ['logs', 'snapshots']) {
+    const d = path.join(root, sub);
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
+  const readme = path.join(root, 'README.txt');
+  if (!fs.existsSync(readme)) {
+    fs.writeFileSync(readme,
+      'Yan Agent 数据目录（记忆、日志、会话快照）。\n' +
+      '可随时删除，不影响项目代码；删除后记忆与日志会丢失。\n',
+      'utf8');
+  }
+  return root;
+}
+
+function resolveMemoryPath() {
+  const ws = loadConfig().workspace;
+  if (ws) {
+    ensureYanagent(ws);
+    return path.join(yanagentRoot(ws), 'memory.json');
+  }
+  return memoryPath;
+}
+
+function migrateMemoryToWorkspace(workspace) {
+  if (!workspace) return;
+  ensureYanagent(workspace);
+  const target = path.join(yanagentRoot(workspace), 'memory.json');
+  if (fs.existsSync(target)) return;
+  try {
+    if (fs.existsSync(memoryPath)) {
+      fs.copyFileSync(memoryPath, target);
+    }
+  } catch (e) { console.error('migrateMemoryToWorkspace:', e.message); }
+}
+
+function runSnapshotPath(workspace, sessionId, runId) {
+  ensureYanagent(workspace);
+  const dir = path.join(yanagentRoot(workspace), 'snapshots', sessionId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${runId}.json`);
+}
+
+async function applySnapshotRollback(changes) {
+  const results = [];
+  for (const ch of [...(changes || [])].reverse()) {
+    if (ch.before === null || ch.before === undefined) {
+      try {
+        if (fs.existsSync(ch.path)) await fsp.unlink(ch.path);
+        results.push({ path: ch.path, ok: true, action: 'deleted' });
+      } catch (e) {
+        results.push({ path: ch.path, ok: false, error: e.message });
+      }
+    } else {
+      try {
+        await fsp.mkdir(path.dirname(ch.path), { recursive: true });
+        await fsp.writeFile(ch.path, ch.before, 'utf8');
+        results.push({ path: ch.path, ok: true, action: 'restored' });
+      } catch (e) {
+        results.push({ path: ch.path, ok: false, error: e.message });
+      }
+    }
+  }
+  return results;
+}
+
+function appendYanagentLog(workspace, line) {
+  const root = ensureYanagent(workspace);
+  if (!root) return;
+  const logFile = path.join(root, 'logs', new Date().toISOString().slice(0, 10) + '.log');
+  const ts = new Date().toISOString();
+  try {
+    fs.appendFileSync(logFile, `[${ts}] ${line}\n`, 'utf8');
+  } catch (e) { console.error('appendYanagentLog:', e.message); }
+}
+
+function isYanagentPath(filePath) {
+  if (!filePath) return false;
+  const norm = filePath.replace(/\\/g, '/').toLowerCase();
+  return norm.includes('/.yanagent/') || norm.endsWith('/.yanagent');
+}
+
 
 // 删除不属于当前构建的历史数据目录（旧版 YanData 及其它构建的 YanData-*）
 function cleanupStaleData() {
@@ -385,7 +478,7 @@ ipcMain.handle('workspace:list', async (_e, dirPath) => {
       name: e.name,
       path: path.join(root, e.name),
       isDirectory: e.isDirectory()
-    })).sort((a, b) => {
+    })).filter(e => e.name !== YANAGENT_DIR).sort((a, b) => {
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
@@ -451,10 +544,13 @@ ipcMain.handle('session:set-workspace', async (_e, { id, workspace }) => {
   data.workspace = workspace || '';
   data.updatedAt = Date.now();
   await fsp.writeFile(p, JSON.stringify(data, null, 2));
-  // 同步更新全局 config（供文件树、PowerShell 等读取当前工作区）
   const cfg = loadConfig();
   cfg.workspace = workspace || '';
   saveConfig(cfg);
+  if (workspace) {
+    migrateMemoryToWorkspace(workspace);
+    ensureYanagent(workspace);
+  }
   return data;
 });
 
@@ -479,8 +575,9 @@ ipcMain.handle('session:delete', async (_e, id) => {
 // ---------------------------------------------------------------------------
 function loadMemory() {
   try {
-    if (fs.existsSync(memoryPath)) {
-      return JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+    const p = resolveMemoryPath();
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, 'utf8'));
     }
   } catch (e) { console.error('loadMemory error:', e); }
   return { facts: [], updatedAt: 0 };
@@ -488,8 +585,12 @@ function loadMemory() {
 
 function saveMemory(mem) {
   ensureDirs();
+  const ws = loadConfig().workspace;
+  if (ws) migrateMemoryToWorkspace(ws);
   mem.updatedAt = Date.now();
-  fs.writeFileSync(memoryPath, JSON.stringify(mem, null, 2));
+  const p = resolveMemoryPath();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(mem, null, 2));
   return mem;
 }
 
@@ -509,6 +610,80 @@ ipcMain.handle('memory:add-fact', (_e, fact) => {
 ipcMain.handle('memory:clear', () => {
   saveMemory({ facts: [], updatedAt: 0 });
   return true;
+});
+
+// ---------------------------------------------------------------------------
+// IPC: .yanagent (snapshots, rollback, logs)
+// ---------------------------------------------------------------------------
+ipcMain.handle('yanagent:ensure', async (_e, workspace) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws) return { ok: false, error: '未设置工作区' };
+  const root = ensureYanagent(ws);
+  return { ok: true, path: root };
+});
+
+ipcMain.handle('yanagent:log', async (_e, { message, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws) return { ok: false };
+  appendYanagentLog(ws, String(message || ''));
+  return { ok: true };
+});
+
+ipcMain.handle('yanagent:record-change', async (_e, { sessionId, runId, filePath, before, op, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !sessionId || !runId || !filePath) return { ok: false, error: 'missing params' };
+  if (isYanagentPath(filePath)) return { ok: true, skipped: true };
+  const snapPath = runSnapshotPath(ws, sessionId, runId);
+  let data = { sessionId, runId, changes: [] };
+  try {
+    if (fs.existsSync(snapPath)) {
+      data = JSON.parse(await fsp.readFile(snapPath, 'utf8'));
+    }
+  } catch {}
+  const key = filePath.toLowerCase();
+  if (data.changes.some(c => c.path.toLowerCase() === key)) {
+    return { ok: true, count: data.changes.length, deduped: true };
+  }
+  data.changes.push({
+    path: filePath,
+    before: before !== undefined ? before : null,
+    op: op || 'write',
+    ts: Date.now()
+  });
+  await fsp.writeFile(snapPath, JSON.stringify(data, null, 2));
+  appendYanagentLog(ws, `[snapshot] ${op || 'write'} ${filePath} (run ${runId})`);
+  return { ok: true, count: data.changes.length };
+});
+
+ipcMain.handle('yanagent:run-changes', async (_e, { sessionId, runId, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !sessionId || !runId) return { count: 0, changes: [] };
+  const snapPath = runSnapshotPath(ws, sessionId, runId);
+  if (!fs.existsSync(snapPath)) return { count: 0, changes: [] };
+  try {
+    const data = JSON.parse(await fsp.readFile(snapPath, 'utf8'));
+    return { count: (data.changes || []).length, changes: data.changes || [] };
+  } catch {
+    return { count: 0, changes: [] };
+  }
+});
+
+ipcMain.handle('yanagent:rollback-run', async (_e, { sessionId, runId, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !sessionId || !runId) return { ok: false, error: '未设置工作区、会话或 runId' };
+  const snapPath = runSnapshotPath(ws, sessionId, runId);
+  if (!fs.existsSync(snapPath)) return { ok: false, error: '该轮对话没有可撤销的文件改动' };
+  let data;
+  try {
+    data = JSON.parse(await fsp.readFile(snapPath, 'utf8'));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const changes = data.changes || [];
+  const results = await applySnapshotRollback(changes);
+  try { await fsp.unlink(snapPath); } catch {}
+  appendYanagentLog(ws, `[rollback] run ${runId} (session ${sessionId}): ${results.length} file(s)`);
+  return { ok: true, results, count: changes.length, runId };
 });
 
 // ---------------------------------------------------------------------------
@@ -602,11 +777,13 @@ ipcMain.handle('file:delete', async (_e, filePath) => {
 // ---------------------------------------------------------------------------
 // IPC: Shell execution
 // ---------------------------------------------------------------------------
-ipcMain.handle('shell:execute', async (_e, { command, cwd }) => {
+ipcMain.handle('shell:execute', async (_e, { command, cwd, oneShot }) => {
   const cfg = loadConfig();
-  if (!cfg.permissions.allowShell) {
-    return { error: 'Shell execution is disabled in permissions.' };
+  if (!cfg.permissions.allowShell && !oneShot) {
+    return { error: 'Shell execution is disabled in permissions.', needsPermission: true };
   }
+  const ws = cfg.workspace;
+  if (ws) appendYanagentLog(ws, `[shell] ${String(command || '').slice(0, 200)}`);
   return new Promise((resolve) => {
     const options = {
       timeout: 30000,
@@ -963,7 +1140,7 @@ ipcMain.handle('workspace:tree', async (_e, { directory, maxDepth }) => {
     try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
     catch { return; }
     for (const entry of entries) {
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === YANAGENT_DIR) continue;
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         files.push({ name: entry.name, path: path.join(dir, entry.name), relPath, isDirectory: true });

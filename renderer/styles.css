@@ -24,6 +24,10 @@
   /* Sidebar widths (adjustable via drag) */
   --sidebar-w: 256px;
   --rs-w: 300px;
+
+  /* Chat column — fill main area; only small side gutters */
+  --chat-max-w: calc(100% - 24px);
+  --chat-pad-x: 12px;
 }
 
 /* ---------- Dark (default) ---------- */
@@ -31,6 +35,7 @@
   --bg: #1a1a1a;
   --bg-elev: #212121;
   --bg-elev2: #262626;
+  --bg-soft: #1c1c1c;
   --bg-hover: #2c2c2c;
   --bg-active: #323232;
   --sidebar-bg: #161616;
@@ -62,6 +67,7 @@
   --bg: #fafaf8;
   --bg-elev: #ffffff;
   --bg-elev2: #f4f4f1;
+  --bg-soft: #f7f7f4;
   --bg-hover: #f0f0ec;
   --bg-active: #e8e8e3;
   --sidebar-bg: #f2f2ee;
@@ -340,6 +346,17 @@ kbd {
 }
 .session-item:hover .session-del { opacity: 1; }
 .session-item .session-del:hover { background: var(--danger); color: #fff; }
+
+.session-spinner {
+  width: 12px; height: 12px;
+  border: 2px solid var(--text-faint);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: session-spin 0.7s linear infinite;
+}
+.session-item.running .session-title { color: var(--accent); }
+@keyframes session-spin { to { transform: rotate(360deg); } }
 
 .session-empty {
   padding: 20px 14px;
@@ -912,9 +929,9 @@ kbd {
 /* ---------- Messages ---------- */
 .messages { padding-bottom: 24px; }
 .msg {
-  max-width: 860px;
+  max-width: var(--chat-max-w);
   margin: 0 auto;
-  padding: 4px 28px;
+  padding: 4px var(--chat-pad-x);
   display: flex;
   gap: 14px;
   animation: msgIn 240ms var(--ease);
@@ -1094,9 +1111,9 @@ kbd {
 
 /* ---------- Typing indicator ---------- */
 .typing-indicator {
-  max-width: 860px;
+  max-width: var(--chat-max-w);
   margin: 0 auto;
-  padding: 0 28px 16px;
+  padding: 0 var(--chat-pad-x) 16px;
   display: flex; gap: 14px;
 }
 .typing-indicator .msg-avatar {
@@ -1121,10 +1138,10 @@ kbd {
    ============================================================ */
 /* ---------- Composer stage (two-state: empty centered / chat docked) ---------- */
 .composer-stage {
-  max-width: 860px;
+  max-width: var(--chat-max-w);
   width: 100%;
   margin: 0 auto;
-  padding: 0 28px 18px;
+  padding: 0 var(--chat-pad-x) 18px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1330,6 +1347,52 @@ kbd {
   backdrop-filter: blur(2px);
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.overlay.hidden { display: none; }
+
+.perm-dialog {
+  width: min(520px, 92vw);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
+  padding: 20px 22px;
+  animation: sheetIn 220ms var(--ease);
+}
+.perm-dialog-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.perm-dialog-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
+.perm-dialog-cmd {
+  background: var(--bg-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 16px;
+}
+.perm-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.secondary-btn {
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.secondary-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+
+.msg-duration { font-size: 11px; color: var(--text-muted); margin-right: 4px; }
+.msg-rollback-badge { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
 
 .sheet {
   width: min(820px, 92vw);
@@ -2285,6 +2348,13 @@ body.resizing .right-sidebar { transition: none !important; }
 /* ============================================================
    Responsive nudge
    ============================================================ */
+@media (max-width: 900px) {
+  :root {
+    --chat-max-w: calc(100% - 12px);
+    --chat-pad-x: 10px;
+  }
+}
+
 @media (max-width: 720px) {
   .quick-starts { justify-content: flex-start; }
   .sheet-nav { width: 130px; }

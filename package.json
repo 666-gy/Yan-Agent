@@ -1,6 +1,6 @@
 {
   "name": "yan-agent",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Yan Agent — a modern, minimalist Agent desktop client built with Electron",
   "main": "main.js",
   "scripts": {
@@ -44,7 +44,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Yan Agent"
+      "shortcutName": "Yan Agent",
+      "artifactName": "Yan.Agent.Setup.${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Yan.Agent.Portable.${version}.${ext}"
     }
   }
 }
