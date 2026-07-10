@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Yan Agent — 桌面端自主 Agent，5 任务独立并行，18 个内置工具，内核模块化架构。" />
+  <title>Yan Agent · 桌面端自主 Agent</title>
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-serif: "Instrument Serif", "Times New Roman", Georgia, serif;
+      --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+      --bg: #0c0b0a;
+      --bg-elev: #141312;
+      --bg-card: #1a1917;
+      --bg-card-hi: #211f1c;
+      --border: #2a2825;
+      --border-hi: #3a3633;
+
+      --text: #f5f1ea;
+      --text-dim: #a8a39b;
+      --text-faint: #6b665e;
+
+      --accent: #d97757;
+      --accent-hover: #e8896a;
+      --accent-deep: #b85d3f;
+      --accent-soft: rgba(217, 119, 87, 0.12);
+      --accent-glow: rgba(217, 119, 87, 0.35);
+      --accent-line: rgba(217, 119, 87, 0.4);
+
+      --r-sm: 8px;
+      --r: 14px;
+      --r-lg: 20px;
+      --max: 1120px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+      font-weight: 400;
+    }
+
+    /* Atmospheric grain overlay */
+    body::before {
+      content: "";
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 200;
+      opacity: 0.035;
+      mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    a { color: var(--accent-hover); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: #f0a48a; }
+
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 28px; }
+
+    /* ---------- Nav ---------- */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(18px) saturate(1.2);
+      -webkit-backdrop-filter: blur(18px) saturate(1.2);
+      background: rgba(12, 11, 10, 0.72);
+      border-bottom: 1px solid rgba(42, 40, 37, 0.6);
+    }
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 62px;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 11px;
+      font-weight: 700; font-size: 15px; color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .brand-logo {
+      width: 30px; height: 30px;
+      border-radius: 7px;
+      box-shadow: 0 0 0 1px rgba(217,119,87,0.25), 0 4px 14px rgba(217,119,87,0.18);
+    }
+    .nav-links { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+    .nav-links a {
+      color: var(--text-dim);
+      padding: 8px 14px;
+      border-radius: var(--r-sm);
+      font-weight: 500;
+      transition: color 0.2s, background 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); background: var(--bg-elev); }
+    .nav-links a.nav-dl {
+      color: #fff;
+      background: var(--accent);
+      box-shadow: 0 2px 12px rgba(217, 119, 87, 0.3);
+    }
+    .nav-links a.nav-dl:hover {
+      color: #fff;
+      background: var(--accent-hover);
+      box-shadow: 0 4px 18px rgba(217, 119, 87, 0.45);
+    }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      padding: 110px 0 90px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute; inset: -30% -30% auto;
+      height: 720px;
+      background:
+        radial-gradient(ellipse 60% 50% at 50% 0%, var(--accent-glow) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 40% at 20% 30%, rgba(217, 119, 87, 0.18) 0%, transparent 50%),
+        radial-gradient(ellipse 40% 40% at 80% 20%, rgba(184, 93, 63, 0.15) 0%, transparent 50%);
+      pointer-events: none;
+      animation: hero-drift 18s ease-in-out infinite alternate;
+    }
+    @keyframes hero-drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(-2%, 1%) scale(1.05); }
+    }
+    .hero::after {
+      content: "";
+      position: absolute; left: 0; right: 0; bottom: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+      opacity: 0.6;
+    }
+
+    .hero-logo-wrap {
+      position: relative;
+      width: 96px; height: 96px;
+      margin: 0 auto 32px;
+    }
+    .hero-logo-wrap::before {
+      content: "";
+      position: absolute; inset: -12px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      animation: logo-pulse 3.5s ease-in-out infinite;
+    }
+    @keyframes logo-pulse {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.08); }
+    }
+    .hero-logo {
+      position: relative;
+      width: 96px; height: 96px;
+      border-radius: 22px;
+      box-shadow:
+        0 0 0 1px rgba(217,119,87,0.3),
+        0 8px 32px rgba(0,0,0,0.4),
+        0 0 60px rgba(217,119,87,0.15);
+    }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent-hover);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
+    }
+    .badge::before {
+      content: "";
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .hero h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(40px, 6.5vw, 68px);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+      margin-bottom: 24px;
+    }
+    .hero h1 em {
+      font-style: italic;
+      background: linear-gradient(135deg, var(--accent-hover) 0%, #f0a48a 50%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-lead {
+      font-size: clamp(16px, 2.2vw, 18px);
+      color: var(--text-dim);
+      max-width: 580px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+      font-weight: 400;
+    }
+    .hero-actions {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      justify-content: center;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 13px 24px;
+      border-radius: var(--r-sm);
+      font-size: 14px; font-weight: 600;
+      letter-spacing: -0.005em;
+      transition: transform 0.15s, background 0.2s, box-shadow 0.2s, border-color 0.2s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 24px rgba(217, 119, 87, 0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      color: #fff;
+      box-shadow: 0 8px 32px rgba(217, 119, 87, 0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      background: rgba(26, 25, 23, 0.6);
+      color: var(--text);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+    }
+    .btn-ghost:hover {
+      background: var(--bg-card-hi);
+      color: var(--text);
+      border-color: var(--border-hi);
+      transform: translateY(-1px);
+    }
+
+    /* ---------- Sections ---------- */
+    .section { padding: 80px 0; position: relative; }
+    .section-head { text-align: center; margin-bottom: 48px; }
+    .section-head h2 {
+      font-family: var(--font-serif);
+      font-size: clamp(30px, 4vw, 42px);
+      font-weight: 400;
+      letter-spacing: -0.015em;
+      margin-bottom: 12px;
+      line-height: 1.1;
+    }
+    .section-head p { color: var(--text-dim); font-size: 15px; }
+
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+
+    /* ---------- Changelog ---------- */
+    #changelog { padding-top: 24px; }
+    .changelog {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 36px 40px;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--bg-elev) 0%, var(--bg-card) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .changelog::before {
+      content: "";
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+    }
+    .changelog-meta {
+      display: flex; align-items: center; gap: 14px;
+      margin-bottom: 24px; flex-wrap: wrap;
+    }
+    .version-tag {
+      font-family: var(--font-mono);
+      font-size: 13px; font-weight: 500;
+      color: var(--accent-hover);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
+      padding: 4px 10px; border-radius: 6px;
+    }
+    .changelog-date {
+      font-family: var(--font-mono);
+      font-size: 13px; color: var(--text-faint);
+    }
+    .changelog h3 {
+      font-family: var(--font-serif);
+      font-size: 22px; font-weight: 400;
+      margin-bottom: 18px;
+      letter-spacing: -0.01em;
+    }
+    .changelog ul {
+      list-style: none;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .changelog li {
+      font-size: 14px; color: var(--text-dim);
+      padding-left: 22px; position: relative;
+      line-height: 1.6;
+    }
+    .changelog li::before {
+      content: "";
+      position: absolute; left: 0; top: 10px;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent-glow);
+    }
+    .changelog li strong { color: var(--text); font-weight: 600; }
+    .changelog-more {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    /* ---------- Download ---------- */
+    .download-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    @media (max-width: 560px) {
+      .download-grid { grid-template-columns: 1fr; }
+    }
+    .dl-card {
+      padding: 32px;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--border);
+      background: var(--bg-elev);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.25s, border-color 0.25s, background 0.25s;
+    }
+    .dl-card:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-hi);
+    }
+    .dl-card.recommended {
+      border-color: var(--accent-line);
+      background: linear-gradient(155deg, rgba(217,119,87,0.1) 0%, var(--bg-elev) 55%);
+    }
+    .dl-card.recommended::before {
+      content: "";
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+    .dl-badge {
+      font-size: 11px; font-weight: 700;
+      color: var(--accent-hover);
+      margin-bottom: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .dl-card h3 {
+      font-family: var(--font-serif);
+      font-size: 22px; font-weight: 400;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .dl-card p { font-size: 13px; color: var(--text-dim); margin-bottom: 22px; }
+    .dl-card .btn { width: 100%; justify-content: center; }
+    .dl-note {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 13px;
+      color: var(--text-faint);
+    }
+
+    /* ---------- Duo ---------- */
+    .duo {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    .duo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 760px) {
+      .duo-grid { grid-template-columns: 1fr; }
+      .nav-links .nav-extra { display: none; }
+    }
+    .duo-card {
+      padding: 36px 32px;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--border);
+      background: var(--bg-elev);
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.3s, border-color 0.3s;
+    }
+    .duo-card:hover { transform: translateY(-2px); border-color: var(--border-hi); }
+    .duo-card.highlight {
+      border-color: var(--accent-line);
+      background:
+        radial-gradient(ellipse 80% 50% at 100% 0%, rgba(217,119,87,0.12) 0%, transparent 60%),
+        var(--bg-elev);
+    }
+    .duo-card.highlight::after {
+      content: "";
+      position: absolute; top: 0; right: 0;
+      width: 120px; height: 120px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .duo-label {
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text-faint); margin-bottom: 14px;
+    }
+    .duo-card.highlight .duo-label { color: var(--accent); }
+    .duo-card h3 {
+      font-family: var(--font-serif);
+      font-size: 26px; font-weight: 400;
+      margin-bottom: 14px;
+      letter-spacing: -0.015em;
+      line-height: 1.2;
+    }
+    .duo-card p { color: var(--text-dim); font-size: 14px; line-height: 1.7; }
+    .duo-link { margin-top: 16px; font-size: 13px; font-weight: 600; }
+
+    /* ---------- Features ---------- */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 860px) { .features { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px) { .features { grid-template-columns: 1fr; } }
+    .feat {
+      padding: 26px 24px;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--border);
+      background: var(--bg-elev);
+      transition: transform 0.3s, border-color 0.3s, background 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .feat::before {
+      content: "";
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .feat:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-hi);
+      background: var(--bg-card-hi);
+    }
+    .feat:hover::before { opacity: 1; }
+    .feat-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
+      color: var(--accent-hover);
+    }
+    .feat-icon svg { width: 20px; height: 20px; }
+    .feat h4 { font-size: 15px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.01em; }
+    .feat p { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+
+    /* ---------- Flow ---------- */
+    #flow { padding-top: 0; padding-bottom: 90px; }
+    .flow {
+      display: flex; flex-wrap: wrap;
+      justify-content: center; align-items: stretch;
+      gap: 8px;
+      position: relative;
+    }
+    .flow-step {
+      flex: 1 1 170px; max-width: 220px;
+      text-align: center; padding: 24px 16px;
+      position: relative;
+    }
+    .flow-step:not(:last-child)::after {
+      content: "";
+      position: absolute; right: -10px; top: 42px;
+      width: 24px; height: 1px;
+      background: linear-gradient(90deg, var(--accent-line), transparent);
+    }
+    @media (max-width: 720px) {
+      .flow-step:not(:last-child)::after { display: none; }
+    }
+    .flow-num {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--bg-elev);
+      border: 1px solid var(--accent-line);
+      color: var(--accent-hover);
+      font-family: var(--font-serif);
+      font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 16px;
+      box-shadow: 0 0 0 4px var(--bg), 0 0 24px rgba(217,119,87,0.2);
+    }
+    .flow-step h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.01em; }
+    .flow-step p { font-size: 12px; color: var(--text-faint); line-height: 1.5; }
+
+    /* ---------- Footer ---------- */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 0;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-faint);
+      position: relative;
+    }
+    footer::before {
+      content: "";
+      position: absolute; top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 200px; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+    }
+    footer .links {
+      display: flex; flex-wrap: wrap; gap: 24px;
+      justify-content: center; margin-bottom: 16px;
+    }
+    footer a { color: var(--text-dim); font-weight: 500; }
+    footer a:hover { color: var(--accent-hover); }
+    footer .credit {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ---------- Entrance animations ---------- */
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .hero-logo-wrap { animation: rise 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .badge { animation: rise 0.8s 0.1s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .hero h1 { animation: rise 0.8s 0.2s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .hero-lead { animation: rise 0.8s 0.35s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    .hero-actions { animation: rise 0.8s 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="wrap nav-inner">
+      <a class="brand" href="#">
+        <img class="brand-logo" src="assets/logo.png" alt="" width="30" height="30" />
+        Yan Agent
+      </a>
+      <div class="nav-links">
+        <a href="#changelog">更新公告</a>
+        <a href="#download" class="nav-dl">下载</a>
+        <a href="https://github.com/666-gy/Yan-Agent" class="nav-extra" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap">
+      <div class="hero-logo-wrap">
+        <img class="hero-logo" src="assets/logo.png" alt="Yan Agent" width="96" height="96" />
+      </div>
+      <div class="badge">v1.1.0 · 内核重构 · 5 任务并行</div>
+      <h1>不只是聊天<br /><em>让想法真正落地</em></h1>
+      <p class="hero-lead">
+        Yan Agent 在你的 Windows 桌面上自主读写代码、执行命令、操作浏览器、管理 Git。
+        5 个任务完全独立并行，互不影响 — 从「有个想法」到「跑起来了」，全程由 Agent 动手完成。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.1.0.exe">
+          下载安装版
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.1.0.exe">
+          下载便携版
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">
+          查看源码
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <section class="section" id="changelog">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Changelog</span>
+        <h2>更新公告</h2>
+        <p>内核重构 · 5 任务独立并行 · 子 Agent 系统</p>
+      </div>
+      <div class="changelog">
+        <div class="changelog-meta">
+          <span class="version-tag">v1.1.0</span>
+          <span class="changelog-date">2026-07-10</span>
+        </div>
+        <h3>本次更新亮点</h3>
+        <ul>
+          <li><strong>5 任务完全独立并行</strong> — 每个任务拥有独立 agentState、AbortController、MCP 快照，切换会话不中断运行中的任务</li>
+          <li><strong>内核模块化拆分</strong> — 单文件内核拆分为 15 个独立模块（agent-loop / tool-executor / subagent / policies / edits / stream…）</li>
+          <li><strong>子 Agent 系统</strong> — 新增 spawn_subagent 工具，支持 explore（只读调研）和 shell（命令执行）两种专家模式</li>
+          <li><strong>运行时策略引擎</strong> — 读后编辑强制校验、完成门控（in_progress 的 todo 不允许提前结束）、非必要 todo 自动延迟</li>
+          <li><strong>工具自动重试</strong> — 工具失败自动重试最多 4 次（250ms 指数退避），策略/权限错误不重试</li>
+          <li><strong>侧边栏实时状态</strong> — 运行中的任务显示转圈动画 + 标题高亮</li>
+          <li><strong>18 个内置工具</strong> — 新增 spawn_subagent，覆盖文件读写/编辑、Shell、Git 全套、浏览器预览</li>
+          <li><strong>Windows 通知修复</strong> — 后台任务完成后无论当前在哪个会话都会弹出系统通知</li>
+        </ul>
+        <p class="changelog-more">
+          <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">查看完整 README →</a>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="download">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Download</span>
+        <h2>下载</h2>
+        <p>Windows 10/11 · 需要 DeepSeek API Key</p>
+      </div>
+      <div class="download-grid">
+        <div class="dl-card recommended">
+          <div class="dl-badge">推荐</div>
+          <h3>安装版</h3>
+          <p>NSIS 安装包，创建快捷方式，适合日常使用</p>
+          <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.1.0.exe">
+            Yan.Agent.Setup.1.1.0.exe
+          </a>
+        </div>
+        <div class="dl-card">
+          <div class="dl-badge">&nbsp;</div>
+          <h3>便携版</h3>
+          <p>免安装，双击即用，适合 U 盘或临时使用</p>
+          <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.1.0.exe">
+            Yan.Agent.Portable.1.1.0.exe
+          </a>
+        </div>
+      </div>
+      <p class="dl-note">
+        <a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">查看全部 Releases</a>
+      </p>
+    </div>
+  </section>
+
+  <section class="duo" id="duo">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">A Pair</span>
+        <h2>读与写，一对搭档</h2>
+        <p>Yanxi Code 帮你理解代码，Yan Agent 帮你实现代码</p>
+      </div>
+      <div class="duo-grid">
+        <div class="duo-card">
+          <div class="duo-label">Yanxi Code · IDE</div>
+          <h3>边写边译，读懂每一行</h3>
+          <p>面向初学者的代码编辑器。在编辑器内实时解释代码含义，降低阅读门槛，让你敢写、能懂。</p>
+          <p class="duo-link"><a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">了解 Yanxi Code →</a></p>
+        </div>
+        <div class="duo-card highlight">
+          <div class="duo-label">Yan Agent · 桌面 Agent</div>
+          <h3>动手执行，交付结果</h3>
+          <p>5 个任务完全独立并行，18 个内置工具 + 子 Agent 系统 + 运行时策略引擎。当任务需要 AI 真正去改文件、跑命令、做自动化时，Yan Agent 在本地工作区端到端完成 — 不是给建议，是直接做完。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Capabilities</span>
+        <h2>Agent 能做什么</h2>
+        <p>5 任务独立并行 · 18 个内置工具 · 最多 40 轮迭代直到任务完成</p>
+      </div>
+      <div class="features">
+        <div class="feat">
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+          <h4>5 任务并行</h4>
+          <p>每个任务完全独立隔离 — agentState、中止控制、MCP 快照互不干扰，切换会话不中断。</p>
+        </div>
+        <div class="feat">
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+          <h4>精确编辑引擎</h4>
+          <p>old_string 逐字符匹配 + 唯一性校验 + 写后回读验证，改动可靠落地。</p>
+        </div>
+        <div class="feat">
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><line x1="12" y1="9" x2="6" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg></div>
+          <h4>子 Agent 系统</h4>
+          <p>spawn_subagent 委派 explore（只读调研）或 shell（命令执行）专家，主流程不被阻塞。</p>
+        </div>
+        <div class="feat">
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 5-3.5 7.5-8.5 9.5C7.5 19.5 4 17 4 12V6l8.5-3.5L21 6z"/></svg></div>
+          <h4>运行时策略</h4>
+          <p>读后编辑强制校验、完成门控、工具自动重试 — 规则不是建议，是硬约束。</p>
+        </div>
+        <div class="feat">
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+          <h4>MCP 扩展</h4>
+          <p>Playwright 浏览器自动化、Windows 桌面操控，接入任意 MCP 服务。</p>
+        </div>
+        <div class="feat">
+          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a3 3 0 0 0-3 3v1H7a3 3 0 0 0-3 3v1H3v4h1v1a3 3 0 0 0 3 3h2v1a3 3 0 0 0 6 0v-1h2a3 3 0 0 0 3-3v-1h1V9h-1V8a3 3 0 0 0-3-3h-2V4a3 3 0 0 0-3-3z"/></svg></div>
+          <h4>记忆 & 压缩</h4>
+          <p>跨会话长期记忆，长对话自动压缩（60K 阈值），工具调用链完整保留。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="flow">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Workflow</span>
+        <h2>从想法到结果</h2>
+        <p>你说目标，Agent 自己规划、执行、验证 — 5 个任务同时开工</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <h4>描述想法</h4>
+          <p>用自然语言说出你要什么</p>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <h4>制定计划</h4>
+          <p>自动拆解步骤，Todo 实时可见</p>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <h4>逐步执行</h4>
+          <p>读文件、改代码、跑命令，工具失败自动重试</p>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <h4>验证交付</h4>
+          <p>写后回读校验，预览或提交 Git</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div class="links">
+        <a href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">Yan Agent</a>
+        <a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">Yanxi Code</a>
+        <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">文档</a>
+      </div>
+      <p class="credit">MIT License · Built with Electron & DeepSeek</p>
+    </div>
+  </footer>
+
+</body>
+</html>
