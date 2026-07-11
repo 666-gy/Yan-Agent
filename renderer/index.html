@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.deepseek.com; frame-src https: http: file:;" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.deepseek.com https://dashscope.aliyuncs.com https://open.bigmodel.cn https://ark.cn-beijing.volces.com https://api.moonshot.cn https://api.stepfun.com https://api.minimaxi.com https://*; frame-src https: http: file:;" />
   <title>Yan Agent</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -423,15 +423,16 @@
           <div class="sheet-content">
             <!-- API -->
             <section id="tab-api" class="tab-panel">
-              <p class="tab-desc">DeepSeek API 配置（OpenAI 兼容协议），填写 API Key 即可使用。</p>
-              <div class="field"><label>Base URL（已锁定为 DeepSeek）</label>
-                <input id="cfgBaseUrl" class="input" type="text" placeholder="https://api.deepseek.com/v1" readonly title="本应用固定使用 DeepSeek 接口，不可修改" />
+              <p class="tab-desc">选择模型厂商并填入对应的 API Key（均兼容 OpenAI 协议）。</p>
+              <div class="field"><label>选择厂商</label>
+                <div id="providerList" class="provider-list"></div>
               </div>
-              <div class="field"><label>API Key</label>
+              <div class="field"><label id="cfgApiKeyLabel">API Key</label>
                 <div class="input-with-action">
                   <input id="cfgApiKey" class="input" type="password" placeholder="sk-..." />
                   <button id="toggleKey" class="ghost-btn" type="button">显示</button>
                 </div>
+                <p id="cfgBaseUrlHint" class="field-hint"></p>
               </div>
               <button id="saveApi" class="primary-btn">保存配置</button>
             </section>
@@ -504,8 +505,51 @@
               <div class="about">
                 <div class="welcome-logo small"><img src="assets/logo.png" alt="Yan Agent" width="56" height="56" /></div>
                 <h2>Yan Agent</h2>
-                <p class="muted">v1.0.0 · Yanxi Code 配套智能助手</p>
-                <p class="muted">Yanxi Code 的桌面端 Agent 伴侣——支持函数调用、文件操作、命令执行、上下文压缩、长期记忆、内置浏览器、MCP 扩展、定时自动化任务，与 Yanxi Code 无缝协作。基于 Electron 构建。</p>
+                <p class="about-version">v1.2.0</p>
+                <p class="muted">桌面端自主 Agent — 读写文件、执行命令、理解代码、操作浏览器</p>
+                <div class="about-changelog">
+                  <h3>v1.2.0 更新内容</h3>
+                  <div class="about-group">
+                    <h4>国产模型兼容</h4>
+                    <ul>
+                      <li>新增 7 大厂商：DeepSeek、通义千问、智谱、豆包、Kimi、StepFun、MiniMax</li>
+                      <li>设置页按厂商切换 API Key 与模型列表</li>
+                    </ul>
+                  </div>
+                  <div class="about-group">
+                    <h4>代码理解</h4>
+                    <ul>
+                      <li>新增符号索引、大纲、引用追踪、import 分析等 10+ 工具</li>
+                      <li><code>search_files</code> 支持正则、扩展名过滤与上下文行</li>
+                      <li>代码索引持久化至 <code>.yanagent/code-index.json</code></li>
+                    </ul>
+                  </div>
+                  <div class="about-group">
+                    <h4>子 Agent</h4>
+                    <ul>
+                      <li><code>spawn_subagents</code> 最多 3 路并行委派</li>
+                      <li>6 类专家：explore / shell / review / edit / ui / doc</li>
+                    </ul>
+                  </div>
+                  <div class="about-group">
+                    <h4>界面修复</h4>
+                    <ul>
+                      <li>主题按钮：浅色模式显示月亮，深色模式显示太阳</li>
+                      <li>右侧边栏文件列表支持工作区实时同步（外部删改文件自动刷新）</li>
+                      <li>切换模型后上下文面板即时更新</li>
+                      <li>Agent 输出 UI 对齐 Claude/Codex 时间线风格</li>
+                    </ul>
+                  </div>
+                  <div class="about-group">
+                    <h4>MCP 扩展</h4>
+                    <ul>
+                      <li>预装 Fetch（uvx）、Context7、GitHub（Docker）模板</li>
+                      <li>支持 per-server 环境变量（如 GitHub Token）</li>
+                      <li>修复 Fetch npm 404 与 GitHub 废弃包问题</li>
+                    </ul>
+                  </div>
+                </div>
+                <p class="about-footer muted">基于 Electron 构建 · MIT License</p>
               </div>
             </section>
           </div>
@@ -537,6 +581,7 @@
   <script src="kernel/path.js"></script>
   <script src="kernel/edits.js"></script>
   <script src="kernel/tools-registry.js"></script>
+  <script src="kernel/code-understanding.js"></script>
   <script src="kernel/prompt.js"></script>
   <script src="kernel/context.js"></script>
   <script src="kernel/policies.js"></script>

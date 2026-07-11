@@ -4,20 +4,98 @@
   const deps = () => K._deps;
   const api = () => deps().api;
 
+function applyProviderOptions(body, apiConfig = {}) {
+  const provider = String(apiConfig.provider || '');
+  const model = String(apiConfig.model || '');
+  const thinking = !!apiConfig.thinking;
+
+  switch (provider) {
+    case 'deepseek':
+      body.thinking = { type: thinking ? 'enabled' : 'disabled' };
+      break;
+
+    case 'qwen': {
+      const mixedThinking = /^(?:qwen3\.7-(?:max|plus)|qwen3\.6-(?:flash|max-preview|plus)|qwen3-max|qwen-(?:plus|turbo))$/;
+      if (mixedThinking.test(model)) {
+        body.enable_thinking = thinking;
+      }
+      break;
+    }
+
+    case 'glm':
+      if (/^glm-(?:5(?:[.-]|$)|4\.(?:5|6|7)(?:[.-]|$))/.test(model)) {
+        body.thinking = { type: thinking ? 'enabled' : 'disabled' };
+      }
+      break;
+
+    case 'doubao':
+      body.thinking = { type: thinking ? 'enabled' : 'disabled' };
+      break;
+
+    case 'moonshot':
+      if (/^kimi-k2\.7-code(?:-highspeed)?$/.test(model)) {
+        // K2.7 Code is thinking-only; sending disabled is an API error.
+        body.thinking = { type: 'enabled' };
+      } else if (/^kimi-k2\.(?:6|5)$/.test(model)) {
+        body.thinking = { type: thinking ? 'enabled' : 'disabled' };
+      }
+      break;
+
+    case 'stepfun':
+      // StepFun exposes low/medium/high rather than a true on/off switch.
+      body.reasoning_effort = thinking ? 'high' : 'low';
+      break;
+
+    case 'minimax':
+      // Do not leak another vendor's non-standard thinking field into
+      // MiniMax's OpenAI-compatible endpoint.
+      break;
+  }
+
+  return body;
+}
+
+
+function extractReasoningText(delta) {
+  if (!delta || typeof delta !== 'object') return '';
+
+  for (const key of ['reasoning_content', 'reasoning']) {
+    if (typeof delta[key] === 'string') return delta[key];
+  }
+
+  if (Array.isArray(delta.reasoning_details)) {
+    return delta.reasoning_details.map(item => {
+      if (typeof item === 'string') return item;
+      if (!item || typeof item !== 'object') return '';
+      for (const key of ['text', 'content', 'thinking']) {
+        if (typeof item[key] === 'string') return item[key];
+      }
+      return '';
+    }).join('');
+  }
+
+  return '';
+}
+
 async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTools()) {
   if (!runCtx) runCtx = K.createRunCtx(deps().getCurrentSession()?.id, true);
   const shouldAbort = () => !!runCtx.shouldAbort;
-  const { baseUrl, apiKey, model, thinking } = deps().getConfig().api;
+  const apiConfig = deps().getConfig().api;
+  const { baseUrl, apiKey, model } = apiConfig;
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
 
   const body = {
     model,
     messages,
-    stream: true,
-    tools,
-    tool_choice: 'auto'
+    stream: true
   };
-  if (thinking) body.thinking = { type: 'enabled' };
+
+  if (Array.isArray(tools) && tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
+  }
+
+  applyProviderOptions(body, apiConfig);
 
   const abortController = new AbortController();
   runCtx.abortController = abortController;
@@ -58,23 +136,24 @@ async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTo
     buffer = lines.pop();
 
     for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') continue;
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
 
       try {
         const json = JSON.parse(data);
         const delta = json.choices?.[0]?.delta;
         if (!delta) continue;
 
-        if (delta.reasoning_content) {
-          reasoning += delta.reasoning_content;
+        const reasoningDelta = extractReasoningText(delta);
+        if (reasoningDelta) {
+          reasoning += reasoningDelta;
           if (bodyEl) {
             if (!thinkEl) {
               thinkEl = document.createElement('details');
               thinkEl.className = 'thinking-block';
               thinkEl.open = true;
-              thinkEl.innerHTML = '<summary>深度思考中…</summary><div class="thinking-text"></div>';
+              thinkEl.innerHTML = '<summary><span class="think-icon" aria-hidden="true"></span>思考中…</summary><div class="thinking-text"></div>';
               bodyEl.appendChild(thinkEl);
               thinkTextEl = thinkEl.querySelector('.thinking-text');
             }
@@ -84,19 +163,19 @@ async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTo
           }
         }
 
-        if (delta.content) {
+        if (typeof delta.content === 'string' && delta.content) {
           content += delta.content;
           if (bodyEl) {
             if (thinkEl && thinkEl.open) {
               thinkEl.open = false;
-              thinkEl.querySelector('summary').textContent = '深度思考';
+              thinkEl.querySelector('summary').innerHTML = '<span class="think-icon" aria-hidden="true"></span>思考过程';
             }
             if (!roundEl) {
               roundEl = document.createElement('div');
-              roundEl.className = 'msg-round';
+              roundEl.className = 'msg-round streaming';
               bodyEl.appendChild(roundEl);
             }
-            roundEl.innerHTML = deps().hooks.renderMarkdown(content);
+            roundEl.innerHTML = deps().hooks.renderMarkdown(content) + '<span class="stream-cursor" aria-hidden="true"></span>';
             deps().hooks.scrollChatToBottom();
           }
         }
@@ -121,8 +200,10 @@ async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTo
 
   if (thinkEl && thinkEl.open) {
     thinkEl.open = false;
-    thinkEl.querySelector('summary').textContent = '深度思考';
+    const sum = thinkEl.querySelector('summary');
+    if (sum) sum.innerHTML = '<span class="think-icon" aria-hidden="true"></span>思考过程';
   }
+  if (roundEl) roundEl.classList.remove('streaming');
 
   const filteredToolCalls = toolCalls.filter(tc => tc.function.name);
   return {
@@ -132,5 +213,7 @@ async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTo
   };
 }
 
+  K.applyProviderOptions = applyProviderOptions;
+  K.extractReasoningText = extractReasoningText;
   K.callApiStream = callApiStream;
 })(window.YanKernel);

@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('yan', {
   // Config / API / models / skills
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (partial) => ipcRenderer.invoke('config:set', partial),
+  listProviders: () => ipcRenderer.invoke('providers:list'),
+  setProvider: (providerId) => ipcRenderer.invoke('provider:set', providerId),
   listModels: () => ipcRenderer.invoke('models:list'),
   setModel: (modelId) => ipcRenderer.invoke('model:set', modelId),
   listSkills: () => ipcRenderer.invoke('skills:list'),
@@ -36,6 +38,8 @@ contextBridge.exposeInMainWorld('yan', {
 
   // Files
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
+  readFileRange: (filePath, start_line, end_line) =>
+    ipcRenderer.invoke('file:read-range', { filePath, start_line, end_line }),
   writeFile: (filePath, content) => ipcRenderer.invoke('file:write', { filePath, content }),
   chooseOpenFile: () => ipcRenderer.invoke('file:choose-open'),
   chooseSaveFile: () => ipcRenderer.invoke('file:choose-save'),
@@ -53,8 +57,24 @@ contextBridge.exposeInMainWorld('yan', {
   yanagentRunChanges: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:run-changes', { sessionId, runId, workspace }),
   yanagentRollbackRun: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:rollback-run', { sessionId, runId, workspace }),
 
-  // Search
-  searchFiles: (query, directory, extensions) => ipcRenderer.invoke('search:files', { query, directory, extensions }),
+  // Search (supports options object or legacy positional args)
+  searchFiles: (query, directory, extensions) => {
+    if (query && typeof query === 'object') {
+      return ipcRenderer.invoke('search:files', query);
+    }
+    return ipcRenderer.invoke('search:files', { query, directory, extensions });
+  },
+
+  // Code understanding
+  buildCodeIndex: (opts) => ipcRenderer.invoke('code:build-index', opts || {}),
+  codeIndexStatus: (workspace) => ipcRenderer.invoke('code:index-status', workspace),
+  codeSearchSymbols: (opts) => ipcRenderer.invoke('code:search-symbols', opts || {}),
+  codeFindSymbol: (opts) => ipcRenderer.invoke('code:find-symbol', opts || {}),
+  codeFindReferences: (opts) => ipcRenderer.invoke('code:find-references', opts || {}),
+  codeFindRelated: (opts) => ipcRenderer.invoke('code:find-related', opts || {}),
+  codeFileImports: (filePath) => ipcRenderer.invoke('code:file-imports', { path: filePath }),
+  codeScanProject: (workspace) => ipcRenderer.invoke('code:scan-project', { workspace }),
+  codeTraceSymbol: (opts) => ipcRenderer.invoke('code:trace-symbol', opts || {}),
 
   // Workspace tree
   getWorkspaceTree: (directory, maxDepth) => ipcRenderer.invoke('workspace:tree', { directory, maxDepth }),
@@ -126,6 +146,12 @@ contextBridge.exposeInMainWorld('yan', {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('mcp:status', handler);
     return () => ipcRenderer.removeListener('mcp:status', handler);
+  },
+
+  onWorkspaceChanged: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('workspace:changed', handler);
+    return () => ipcRenderer.removeListener('workspace:changed', handler);
   },
 
   // Platform

@@ -132,13 +132,167 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'search_files',
-      description: '在工作区文件中搜索包含指定文本的行。返回匹配的文件路径、行号和内容。',
+      description: '在工作区搜索代码文本。支持正则、扩展名过滤、目录范围。改代码前先用它定位相关文件，再配合 get_file_outline / find_symbol 理解结构。',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '要搜索的文本' }
+          query: { type: 'string', description: '搜索文本或正则表达式' },
+          path: { type: 'string', description: '限定搜索目录（默认工作区根目录）' },
+          extensions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '扩展名过滤，如 ["js","ts","py"]，不含点号'
+          },
+          regex: { type: 'boolean', description: '将 query 视为正则表达式（默认 false）' },
+          case_sensitive: { type: 'boolean', description: '区分大小写（默认 false）' },
+          context_lines: { type: 'number', description: '匹配行前后附加上下文行数（0-5，默认 0）' }
         },
         required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_file_outline',
+      description: '提取单个源文件的符号大纲（函数、类、常量、接口等）及行号。大文件或陌生文件请先调此工具再 read_file，避免盲目通读。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '文件路径' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_symbol',
+      description: '在工作区查找符号（函数/类/变量等）的定义位置，返回路径与行号。用于追踪调用链、定位实现，比纯文本搜索更精准。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '符号名，如 initKernel、UserService' },
+          path: { type: 'string', description: '限定搜索目录（可选）' },
+          extensions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '扩展名过滤（可选）'
+          }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_file_range',
+      description: '按行号范围读取文件（1-based）。大文件请先 get_file_outline 定位，再精读相关行，避免一次 read_file 全文。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '文件路径' },
+          start_line: { type: 'number', description: '起始行（含）' },
+          end_line: { type: 'number', description: '结束行（含），单次最多 250 行' }
+        },
+        required: ['path', 'start_line', 'end_line']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_file_imports',
+      description: '分析单文件的 import/require 与 export 列表，理解模块依赖时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '文件路径' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_references',
+      description: '查找符号在代码库中的引用位置（非定义）。改函数签名或重命名前必用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '符号名' },
+          max_results: { type: 'number', description: '最大结果数（默认 50）' }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_related_files',
+      description: '根据 import 关系查找与某文件相关的上下游模块（它 import 谁、谁 import 它）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '文件路径' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_symbols',
+      description: '在代码索引中模糊搜索符号名（函数/类/常量）。比 search_files 更快更准，需先 build_code_index（会自动构建）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '符号名片段，如 Agent、execute' },
+          kind: { type: 'string', description: '过滤类型：function/class/const/interface 等' },
+          limit: { type: 'number', description: '最大结果数（默认 40）' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'build_code_index',
+      description: '构建/刷新工作区代码索引（符号表 + import 图），存入 .yanagent/code-index.json。大项目首次理解代码时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          force: { type: 'boolean', description: '强制重建（默认 false，5 分钟内用缓存）' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scan_project',
+      description: '扫描项目结构：入口文件、技术栈、目录分布、npm scripts。接手新项目时第一步调用。',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'trace_symbol',
+      description: '一次性追踪符号：列出所有定义 + 引用样本。比分别调 find_symbol + find_references 更高效。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '符号名' }
+        },
+        required: ['name']
       }
     }
   },
@@ -248,15 +402,45 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'spawn_subagent',
-      description: '委派子 Agent 快速完成子任务，返回摘要给主 Agent 继续。explore=只读调研（读文件/搜代码/git）；shell=专注跑命令。适合大范围摸底、与主流程并行的耗时探索。子 Agent 不能再嵌套 spawn_subagent。',
+      description: '委派子 Agent 完成子任务，结果以摘要返回主 Agent。类型：explore(只读调研)、shell(命令)、review(代码审查)、edit(专注改动)、ui(前端/HTML)、doc(文档/报告)。子 Agent 不能嵌套。',
       parameters: {
         type: 'object',
         properties: {
-          type: { type: 'string', enum: ['explore', 'shell'], description: '子 Agent 类型' },
-          task: { type: 'string', description: '子任务描述（要查什么、跑什么命令）' },
+          type: {
+            type: 'string',
+            enum: ['explore', 'shell', 'review', 'edit', 'ui', 'doc'],
+            description: '子 Agent 类型'
+          },
+          task: { type: 'string', description: '子任务描述' },
           context: { type: 'string', description: '可选补充上下文' }
         },
         required: ['type', 'task']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'spawn_subagents',
+      description: '并行启动多个辅助子 Agent（最多 3 个），适合同时摸底不同目录/模块。返回合并摘要。不能嵌套。',
+      parameters: {
+        type: 'object',
+        properties: {
+          agents: {
+            type: 'array',
+            description: '子 Agent 列表',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['explore', 'shell', 'review', 'edit', 'ui', 'doc'] },
+                task: { type: 'string' },
+                context: { type: 'string' }
+              },
+              required: ['type', 'task']
+            }
+          }
+        },
+        required: ['agents']
       }
     }
   },
@@ -336,10 +520,14 @@ function snapshotTools() {
 const TOOL_ICONS = {
   todo_write: '📋', read_file: '📄', edit_file: '🪄', apply_patch: '🧩', write_file: '✏️',
   list_directory: '📁', execute_shell: '⚡', search_files: '🔍',
+  get_file_outline: '📑', find_symbol: '🔗',
+  read_file_range: '📖', get_file_imports: '🔀', find_references: '↩️',
+  find_related_files: '🕸️', search_symbols: '🔎', build_code_index: '🗂️',
+  scan_project: '🗺️', trace_symbol: '🧵',
   open_builtin_browser: '🌐',
   git_status: '📊', git_diff: '📋', git_log: '📝', git_commit: '✅',
   git_push: '⬆️', git_pull: '⬇️', git_clone: '📦', git_branch: '🌿',
-  spawn_subagent: '🧭'
+  spawn_subagent: '🧭', spawn_subagents: '🧭',
 };
 
   K.BUILT_IN_TOOLS = BUILT_IN_TOOLS;

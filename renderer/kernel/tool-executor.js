@@ -99,7 +99,7 @@ async function executeTool(name, args, runCtx) {
           runCtx.shellAllowedOnce = true;
         } else {
           return K.toolError(name,
-            '用户拒绝了 Shell/PowerShell 执行权限。请改用 read_file、edit_file、apply_patch、write_file、search_files、list_directory 等工具完成任务，不要再次调用 execute_shell。',
+            '用户拒绝了 Shell/PowerShell 执行权限。请改用 read_file、read_file_range、edit_file、apply_patch、write_file、search_files、get_file_outline、find_symbol、find_references、search_symbols、list_directory 等工具完成任务，不要再次调用 execute_shell。',
             { denied: true, noRetry: true, command: args.command }
           );
         }
@@ -111,11 +111,96 @@ async function executeTool(name, args, runCtx) {
       return K.execToolResult(name, res, '(no output)');
     }
     case 'search_files': {
-      const results = await api().searchFiles(args.query);
-      const output = results.length
-        ? results.map(r => `${r.path}:${r.line}: ${r.content}`).join('\n')
-        : 'No matches found.';
-      return K.toolSuccess(name, output, { query: args.query, count: results.length });
+      const ws = await api().getWorkspace();
+      const directory = args.path ? await K.resolveWorkspacePath(args.path) : ws;
+      const results = await api().searchFiles({
+        query: args.query,
+        directory,
+        extensions: args.extensions,
+        regex: !!args.regex,
+        caseSensitive: !!args.case_sensitive,
+        contextLines: args.context_lines
+      });
+      const output = K.formatSearchResults(results);
+      return K.toolSuccess(name, output, { query: args.query, count: results.length, directory });
+    }
+    case 'get_file_outline': {
+      const path = await K.resolveWorkspacePath(args.path);
+      const res = await api().readFile(path);
+      if (res.error) return K.toolError(name, res.error, { path });
+      if (res.isBinary) return K.toolError(name, 'Cannot outline binary file.', { path, isBinary: true });
+      if (runCtx && K.recordFileRead) K.recordFileRead(runCtx, path);
+      const outline = K.outlineFile(res.content, path);
+      const output = K.formatOutline(path, outline);
+      return K.toolSuccess(name, output, { path, ...outline });
+    }
+    case 'find_symbol': {
+      const { hits, error } = await K.findSymbolDefinitions(args.name, { kind: args.kind });
+      if (error) return K.toolError(name, error);
+      const output = K.formatSymbolHits(args.name, hits);
+      return K.toolSuccess(name, output, { name: args.name, count: hits.length, hits });
+    }
+    case 'read_file_range': {
+      const path = await K.resolveWorkspacePath(args.path);
+      const res = await api().readFileRange(path, args.start_line, args.end_line);
+      if (res.error) return K.toolError(name, res.error, { path });
+      if (runCtx && K.recordFileRead) K.recordFileRead(runCtx, path);
+      const header = `## ${path} (lines ${res.start}-${res.end} of ${res.lineCount})`;
+      return K.toolSuccess(name, `${header}\n${res.content}`, { path, ...res });
+    }
+    case 'get_file_imports': {
+      const path = await K.resolveWorkspacePath(args.path);
+      const data = await api().codeFileImports(path);
+      if (data.error) return K.toolError(name, data.error, { path });
+      if (runCtx && K.recordFileRead) K.recordFileRead(runCtx, path);
+      return K.toolSuccess(name, K.formatImports(path, data), { path, ...data });
+    }
+    case 'find_references': {
+      const res = await api().codeFindReferences({ name: args.name, max_results: args.max_results });
+      if (res.error) return K.toolError(name, res.error);
+      const output = K.formatReferenceHits(args.name, res.hits || []);
+      return K.toolSuccess(name, output, { name: args.name, count: res.count || 0, hits: res.hits });
+    }
+    case 'find_related_files': {
+      const path = await K.resolveWorkspacePath(args.path);
+      const data = await api().codeFindRelated({ path });
+      if (data.error) return K.toolError(name, data.error, { path });
+      return K.toolSuccess(name, K.formatRelated(data), { path, ...data });
+    }
+    case 'search_symbols': {
+      const res = await api().codeSearchSymbols({
+        query: args.query,
+        kind: args.kind,
+        limit: args.limit
+      });
+      const hits = res.hits || [];
+      const output = K.formatSymbolSearch(hits, args.query);
+      return K.toolSuccess(name, output, {
+        query: args.query,
+        count: hits.length,
+        indexAge: res.indexAge,
+        fileCount: res.fileCount,
+        symbolCount: res.symbolCount
+      });
+    }
+    case 'build_code_index': {
+      const res = await api().buildCodeIndex({ force: !!args.force });
+      if (res.error) return K.toolError(name, res.error);
+      const msg = res.cached
+        ? `Code index ready (cached). ${res.fileCount} files, ${res.symbolCount} symbols.`
+        : `Code index built. ${res.fileCount} files, ${res.symbolCount} symbols saved to .yanagent/code-index.json`;
+      return K.toolSuccess(name, msg, res);
+    }
+    case 'scan_project': {
+      const res = await api().codeScanProject();
+      if (res.error) return K.toolError(name, res.error);
+      return K.toolSuccess(name, res.summary, { meta: res.meta });
+    }
+    case 'trace_symbol': {
+      const res = await api().codeTraceSymbol({ name: args.name });
+      if (res.error) return K.toolError(name, res.error);
+      const output = K.formatTrace(res);
+      return K.toolSuccess(name, output, res);
     }
     case 'git_status': {
       const res = await api().gitStatus();
@@ -154,6 +239,12 @@ async function executeTool(name, args, runCtx) {
         return K.toolError(name, 'Nested subagents are not allowed.', { noRetry: true });
       }
       return K.runSubagent(args.type, args.task, args.context, runCtx);
+    }
+    case 'spawn_subagents': {
+      if (runCtx?.isSubagent) {
+        return K.toolError(name, 'Nested subagents are not allowed.', { noRetry: true });
+      }
+      return K.runSubagentsParallel(args.agents, runCtx);
     }
     case 'open_builtin_browser': {
       const isBg = !runCtx?.ui;

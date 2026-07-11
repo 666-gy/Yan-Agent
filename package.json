@@ -1,6 +1,6 @@
 {
   "name": "yan-agent",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Yan Agent — a modern, minimalist Agent desktop client built with Electron",
   "main": "main.js",
   "scripts": {
@@ -24,6 +24,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**/*",
       "renderer/**/*"
     ],
     "win": {

@@ -65,7 +65,9 @@ const ICONS = {
   copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
-  undo: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>'
+  undo: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
+  moon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  sun: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
 };
 
 // Skill prompt templates — click a skill to insert this into the composer.
@@ -127,6 +129,13 @@ async function init() {
     }
   });
 
+  api.onWorkspaceChanged?.(() => scheduleRightSidebarRefresh());
+
+  window.addEventListener('focus', () => {
+    renderRightSidebarFiles();
+    updateContextInfo();
+  });
+
   // Auto-create first session if none
   if (state.sessions.length === 0) {
     await newSession();
@@ -151,7 +160,16 @@ function updateGreeting() {
 // Theme
 // ============================================================
 function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme || 'dark');
+  const t = theme || 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  updateThemeToggleIcon(t);
+}
+
+function updateThemeToggleIcon(theme) {
+  const btn = $('#themeToggle');
+  if (!btn) return;
+  // 浅色模式显示月亮（切换到深色）；深色模式显示太阳（切换到浅色）
+  btn.innerHTML = theme === 'light' ? ICONS.moon : ICONS.sun;
 }
 $('#themeToggle').addEventListener('click', async () => {
   const next = state.config.theme === 'dark' ? 'light' : 'dark';
@@ -1298,6 +1316,7 @@ function initKernelBridge() {
       updateContextInfo,
       renderAgentRunHeader,
       buildToolStepElement,
+      finishToolStepElement,
       renderRightSidebarFiles,
       updateTodos,
       agentOpenBuiltinBrowser,
@@ -1306,7 +1325,8 @@ function initKernelBridge() {
       collectTimelineFromDom,
       requestShellPermission,
       deferPendingTodos,
-      clearDeferredTodosIfDone
+      clearDeferredTodosIfDone,
+      onSubagentEvent: null
     }
   });
 }
@@ -1433,14 +1453,18 @@ function renderAgentRunHeader(bodyEl, agentRun) {
     header.className = 'agent-run-header';
     bodyEl.insertBefore(header, bodyEl.firstChild);
   }
+  const status = agentRun.status || 'working';
+  header.className = 'agent-run-header status-' + status;
   const statusLabel = {
-    done: '完成',
+    done: '已完成',
     interrupted: '已中断',
     error: '出错',
     working: '执行中'
-  }[agentRun.status] || agentRun.status;
+  }[status] || status;
+  const pulse = status === 'working' ? '<span class="run-pulse" aria-hidden="true"></span>' : '';
   header.innerHTML = `
-    <span class="run-status ${escapeAttr(agentRun.status)}">${escapeHtml(statusLabel)}</span>
+    ${pulse}
+    <span class="run-status ${escapeAttr(status)}">${escapeHtml(statusLabel)}</span>
     <span class="run-meta">${agentRun.iteration || 0} 轮 · ${agentRun.toolCallCount || 0} 工具</span>
   `;
 }
@@ -1487,13 +1511,140 @@ function buildThinkingElement(content, open = false) {
   const thinkEl = document.createElement('details');
   thinkEl.className = 'thinking-block';
   thinkEl.open = open;
-  thinkEl.innerHTML = `<summary>${open ? '深度思考中…' : '深度思考'}</summary><div class="thinking-text"></div>`;
+  const label = open ? '思考中…' : '思考过程';
+  thinkEl.innerHTML = `<summary><span class="think-icon" aria-hidden="true"></span>${label}</summary><div class="thinking-text"></div>`;
   thinkEl.querySelector('.thinking-text').textContent = content || '';
   return thinkEl;
 }
 
+const TOOL_UI = {
+  read_file: { label: '读取文件', icon: 'file' },
+  read_file_range: { label: '读取片段', icon: 'file' },
+  write_file: { label: '写入文件', icon: 'write' },
+  edit_file: { label: '编辑文件', icon: 'edit' },
+  apply_patch: { label: '应用补丁', icon: 'edit' },
+  list_directory: { label: '列出目录', icon: 'folder' },
+  search_files: { label: '搜索代码', icon: 'search' },
+  search_symbols: { label: '搜索符号', icon: 'search' },
+  get_file_outline: { label: '文件大纲', icon: 'file' },
+  get_file_imports: { label: '分析依赖', icon: 'link' },
+  find_symbol: { label: '查找符号', icon: 'search' },
+  find_references: { label: '查找引用', icon: 'link' },
+  find_related_files: { label: '关联文件', icon: 'link' },
+  build_code_index: { label: '构建索引', icon: 'index' },
+  scan_project: { label: '扫描项目', icon: 'folder' },
+  trace_symbol: { label: '追踪符号', icon: 'search' },
+  execute_shell: { label: '执行命令', icon: 'terminal' },
+  todo_write: { label: '更新计划', icon: 'list' },
+  spawn_subagent: { label: '子 Agent', icon: 'agent' },
+  spawn_subagents: { label: '并行子 Agent', icon: 'agent' },
+  open_builtin_browser: { label: '打开预览', icon: 'browser' },
+  git_status: { label: 'Git 状态', icon: 'git' },
+  git_diff: { label: 'Git 差异', icon: 'git' },
+  git_log: { label: 'Git 日志', icon: 'git' },
+  git_commit: { label: 'Git 提交', icon: 'git' },
+  git_push: { label: 'Git 推送', icon: 'git' },
+  git_pull: { label: 'Git 拉取', icon: 'git' },
+  git_clone: { label: 'Git 克隆', icon: 'git' },
+  git_branch: { label: 'Git 分支', icon: 'git' }
+};
+
+const TOOL_ICON_SVG = {
+  file: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  write: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+  edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+  folder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  link: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  index: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
+  terminal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  list: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
+  agent: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
+  browser: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+  git: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>',
+  tool: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+  mcp: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>'
+};
+
+function resolveToolUi(toolName) {
+  const mcpMatch = toolName.match(/^mcp__(.+)__(.+)$/);
+  if (mcpMatch) {
+    return { label: 'MCP · ' + mcpMatch[2], icon: TOOL_ICON_SVG.mcp, iconKey: 'mcp' };
+  }
+  if (toolName === 'spawn_subagent') return null;
+  if (toolName === 'spawn_subagents') return { label: '并行子 Agent', icon: TOOL_ICON_SVG.agent, iconKey: 'agent' };
+  const ui = TOOL_UI[toolName];
+  if (ui) return { label: ui.label, icon: TOOL_ICON_SVG[ui.icon] || TOOL_ICON_SVG.tool, iconKey: ui.icon };
+  return { label: toolName, icon: TOOL_ICON_SVG.tool, iconKey: 'tool' };
+}
+
+function finishToolStepElement(step, resultRaw, ok) {
+  if (!step) return;
+  step.classList.remove('is-running');
+  if (ok != null) step.dataset.ok = String(!!ok);
+  const parsedOk = ok != null ? ok : (resultRaw ? parseToolOutputOk(resultRaw) : null);
+  const header = step.querySelector('.tc-header');
+  if (header) {
+    const oldBadge = header.querySelector('.tc-badge');
+    if (oldBadge) oldBadge.remove();
+    if (parsedOk != null) {
+      const badge = document.createElement('span');
+      badge.className = 'tc-badge ' + (parsedOk ? 'ok' : 'fail');
+      badge.textContent = parsedOk ? '✓' : '✕';
+      header.prepend(badge);
+    }
+  }
+  const body = step.querySelector('.tc-body');
+  if (!body || !resultRaw) return;
+  if (!body.querySelector('.tc-args-block') && step.dataset.args) {
+    try {
+      const args = JSON.parse(step.dataset.args);
+      const argLines = Object.entries(args).map(([k, v]) =>
+        `<div class="tc-arg-line"><span class="tc-arg-key">${escapeHtml(k)}</span><span class="tc-arg-val">${escapeHtml(String(v).slice(0, 500))}</span></div>`
+      ).join('');
+      if (argLines) {
+        const argsEl = document.createElement('div');
+        argsEl.className = 'tc-args-block';
+        argsEl.innerHTML = argLines;
+        body.prepend(argsEl);
+      }
+    } catch { /* ignore */ }
+  }
+  let resultEl = body.querySelector('.tc-result');
+  if (!resultEl) {
+    resultEl = document.createElement('div');
+    resultEl.className = 'tc-result';
+    body.appendChild(resultEl);
+  }
+  const toolName = step.dataset.tool;
+  if (toolName === 'spawn_subagent' || toolName === 'spawn_subagents') {
+    try {
+      const o = JSON.parse(resultRaw);
+      const meta = o.meta || {};
+      if (!body.querySelector('.tc-subagent-stats')) {
+        const stats = document.createElement('div');
+        stats.className = 'tc-subagent-stats';
+        if (meta.parallel) stats.textContent = `并行 ${meta.count} 个 · 共 ${meta.totalToolCalls || 0} 次工具`;
+        else stats.textContent = `${meta.label || meta.type || ''} · ${meta.tier === 'specialist' ? '专项' : '辅助'} · ${meta.iterations ?? '?'} 轮 · ${meta.toolCalls ?? 0} 工具`;
+        body.prepend(stats);
+      }
+    } catch { /* ignore */ }
+  }
+  resultEl.innerHTML = `<pre class="tc-output">${escapeHtml(formatToolResultForUi(resultRaw))}</pre>`;
+}
+
 function summarizeToolArgs(toolName, args) {
   if (!args || typeof args !== 'object') return '';
+  if (toolName === 'spawn_subagent' && args.type) {
+    const prof = YanKernel.SUBAGENT_PROFILES?.[args.type];
+    const tag = prof ? `${prof.label || args.type}` : args.type;
+    const task = String(args.task || '').slice(0, 56);
+    return task ? `${tag} · ${task}` : tag;
+  }
+  if (toolName === 'spawn_subagents' && Array.isArray(args.agents)) {
+    const types = args.agents.map(a => a.type || 'explore').join('+');
+    return `并行 ×${args.agents.length} (${types})`;
+  }
   if (args.path) return String(args.path);
   if (args.command) return String(args.command).slice(0, 80);
   if (args.query) return String(args.query);
@@ -1502,30 +1653,46 @@ function summarizeToolArgs(toolName, args) {
   return first != null ? String(first).slice(0, 60) : '';
 }
 
-function buildToolStepElement(toolName, args, resultRaw = '', ok = null) {
+function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase = 'done') {
   const step = document.createElement('details');
   step.className = 'tool-step';
+  if (phase === 'running') step.classList.add('is-running');
+  if (toolName === 'spawn_subagent' || toolName === 'spawn_subagents') {
+    step.classList.add('subagent-step');
+    const tier = args?.type && YanKernel.SUBAGENT_PROFILES?.[args.type]?.tier;
+    if (tier === 'specialist') step.classList.add('subagent-specialist');
+    if (toolName === 'spawn_subagents') step.classList.add('subagent-parallel');
+  }
   step.open = ok === false;
   step.dataset.tool = toolName;
   step.dataset.args = JSON.stringify(args || {});
   if (ok != null) step.dataset.ok = String(!!ok);
 
-  let displayName = toolName;
-  let icon = TOOL_ICONS[toolName] || '🔧';
-  const mcpMatch = toolName.match(/^mcp__(.+)__(.+)$/);
-  if (mcpMatch) {
-    displayName = `MCP · ${mcpMatch[2]}`;
-    icon = '🔌';
+  let displayName;
+  let iconSvg;
+  if (toolName === 'spawn_subagent' && args?.type) {
+    const prof = YanKernel.SUBAGENT_PROFILES?.[args.type];
+    displayName = prof ? `子 Agent · ${prof.label}` : `子 Agent · ${args.type}`;
+    iconSvg = TOOL_ICON_SVG.agent;
+  } else {
+    const ui = resolveToolUi(toolName);
+    displayName = ui.label;
+    iconSvg = ui.icon;
   }
 
-  const parsedOk = ok != null ? ok : (resultRaw ? parseToolOutputOk(resultRaw) : null);
-  const badge = parsedOk == null ? '' : (parsedOk ? '<span class="tc-badge ok">OK</span>' : '<span class="tc-badge fail">FAIL</span>');
+  const parsedOk = phase === 'running' ? null : (ok != null ? ok : (resultRaw ? parseToolOutputOk(resultRaw) : null));
+  let badge = '';
+  if (phase === 'running') {
+    badge = '<span class="tc-badge running" aria-label="运行中"></span>';
+  } else if (parsedOk != null) {
+    badge = parsedOk ? '<span class="tc-badge ok">✓</span>' : '<span class="tc-badge fail">✕</span>';
+  }
   const preview = summarizeToolArgs(toolName, args);
 
   step.innerHTML = `
     <summary class="tc-header">
       ${badge}
-      <span class="tc-icon">${icon}</span>
+      <span class="tc-icon-svg">${iconSvg}</span>
       <span class="tc-name">${escapeHtml(displayName)}</span>
       <span class="tc-preview">${escapeHtml(preview)}</span>
     </summary>
@@ -1533,23 +1700,17 @@ function buildToolStepElement(toolName, args, resultRaw = '', ok = null) {
   `;
 
   const body = step.querySelector('.tc-body');
-  const argLines = Object.entries(args || {}).map(([k, v]) =>
-    `<div class="tc-arg-line"><span class="tc-arg-key">${escapeHtml(k)}</span><span class="tc-arg-val">${escapeHtml(String(v).slice(0, 500))}</span></div>`
-  ).join('');
-  if (argLines) {
+  if (phase !== 'running' && args && Object.keys(args).length) {
+    const argLines = Object.entries(args).map(([k, v]) =>
+      `<div class="tc-arg-line"><span class="tc-arg-key">${escapeHtml(k)}</span><span class="tc-arg-val">${escapeHtml(String(v).slice(0, 500))}</span></div>`
+    ).join('');
     const argsEl = document.createElement('div');
     argsEl.className = 'tc-args-block';
     argsEl.innerHTML = argLines;
     body.appendChild(argsEl);
   }
 
-  if (resultRaw) {
-    const resultEl = document.createElement('div');
-    resultEl.className = 'tc-result';
-    const formatted = formatToolResultForUi(resultRaw);
-    resultEl.innerHTML = `<pre class="tc-output">${escapeHtml(formatted)}</pre>`;
-    body.appendChild(resultEl);
-  }
+  if (resultRaw) finishToolStepElement(step, resultRaw, ok);
 
   return step;
 }
@@ -1590,6 +1751,16 @@ function updateContextInfo(as) {
   if (el('ctxToolCalls')) el('ctxToolCalls').textContent = as.toolCallCount;
   if (el('ctxMsgCount')) el('ctxMsgCount').textContent = state.currentSession?.messages?.length || 0;
   if (el('ctxStatus')) el('ctxStatus').textContent = { idle: '空闲', working: '执行中', done: '完成', error: '错误' }[as.status] || as.status;
+}
+
+let rsRefreshTimer = null;
+function scheduleRightSidebarRefresh() {
+  if (rsRefreshTimer) clearTimeout(rsRefreshTimer);
+  rsRefreshTimer = setTimeout(async () => {
+    rsRefreshTimer = null;
+    await renderRightSidebarFiles();
+    updateContextInfo();
+  }, 250);
 }
 
 function parseTodos(content) {
@@ -1761,6 +1932,9 @@ $$('.rs-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     $$('.rs-tab').forEach(b => b.classList.toggle('active', b === btn));
     $$('.rs-panel').forEach(p => p.classList.toggle('active', p.id === `rs-${btn.dataset.rsTab}`));
+    const tab = btn.dataset.rsTab;
+    if (tab === 'files') renderRightSidebarFiles();
+    else if (tab === 'context') updateContextInfo();
   });
 });
 
@@ -1812,13 +1986,19 @@ function switchTab(tab) {
   $$('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
 }
 
+let currentProviderId = 'deepseek';
+let providerCache = [];
+
 async function populateSettings() {
   const cfg = await api.getConfig();
   const perm = await api.getPermissions();
   const ws = await api.getWorkspace();
 
-  $('#cfgBaseUrl').value = cfg.api.baseUrl;
-  $('#cfgApiKey').value = cfg.api.apiKey;
+  currentProviderId = cfg.api.provider || 'deepseek';
+  await renderProviderList(currentProviderId);
+  $('#cfgApiKey').value = cfg.api.apiKey || '';
+  updateApiKeyField(currentProviderId);
+
   $('#wsPath').value = ws;
 
   $('#permRead').checked = perm.allowFileRead;
@@ -1828,6 +2008,49 @@ async function populateSettings() {
 
   renderModelGrid(cfg);
   await renderWsTree(ws);
+}
+
+async function renderProviderList(selectedId) {
+  if (!providerCache.length) {
+    providerCache = await api.listProviders();
+  }
+  const list = $('#providerList');
+  if (!list) return;
+  list.innerHTML = providerCache.map(p => `
+    <div class="provider-item ${p.id === selectedId ? 'active' : ''}" data-provider="${p.id}">
+      <div class="provider-info">
+        <div class="provider-name">${escapeHtml(p.name)}</div>
+        <div class="provider-models">${p.modelCount} 个模型</div>
+      </div>
+      <div class="provider-check">${p.id === selectedId ? ICONS.check : ''}</div>
+    </div>
+  `).join('');
+  list.querySelectorAll('.provider-item').forEach(el => {
+    el.addEventListener('click', async () => {
+      const pid = el.dataset.provider;
+      currentProviderId = pid;
+      renderProviderList(pid);
+      updateApiKeyField(pid);
+    });
+  });
+}
+
+function updateApiKeyField(providerId) {
+  const p = providerCache.find(x => x.id === providerId);
+  if (!p) return;
+  const inp = $('#cfgApiKey');
+  if (inp) {
+    inp.placeholder = p.apiKeyPlaceholder || 'sk-...';
+    inp.value = state.config?.api?.apiKeys?.[providerId] || '';
+  }
+  const hint = $('#cfgBaseUrlHint');
+  if (hint) {
+    hint.textContent = 'Base URL: ' + p.baseUrl;
+  }
+  const label = $('#cfgApiKeyLabel');
+  if (label) {
+    label.textContent = p.name + ' API Key';
+  }
 }
 
 // ============================================================
@@ -2016,15 +2239,20 @@ $('#autoAddBtn')?.addEventListener('click', async () => {
 
 // API save
 $('#saveApi').addEventListener('click', async () => {
-  // Base URL 固定为 DeepSeek（主进程会强制覆盖），此处只保存 API Key
+  const apiKeyValue = $('#cfgApiKey').value.trim();
   const partial = {
     api: {
-      apiKey: $('#cfgApiKey').value.trim()
+      provider: currentProviderId,
+      apiKeys: {}
     }
   };
+  partial.api.apiKeys[currentProviderId] = apiKeyValue;
   state.config = await api.setConfig(partial);
+  currentProviderId = state.config.api.provider;
+  renderModelGrid(state.config);
   renderModelBadge();
-  toast('API 配置已保存');
+  const providerName = providerCache.find(p => p.id === currentProviderId)?.name || currentProviderId;
+  toast(`${providerName} 配置已保存`);
 });
 
 $('#toggleKey').addEventListener('click', () => {
@@ -2189,6 +2417,7 @@ function renderModelBadge() {
   const name = (state.config.models || []).find(x => x.id === m)?.name || m;
   const pillName = $('#modelPillName');
   if (pillName) pillName.textContent = name;
+  updateContextInfo();
 }
 
 function renderThinkPill() {

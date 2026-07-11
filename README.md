@@ -6,6 +6,62 @@
 
 ---
 
+## v1.2.0 — 体验修复与能力补强
+
+### 国产模型兼容
+
+设置页支持 **7 大厂商**一键切换，各自独立 API Key：
+
+| 厂商       | 代表模型                       |
+| -------- | -------------------------- |
+| DeepSeek | V4 Flash / V4 Pro          |
+| 通义千问     | Qwen3.7 Max / Plus / Flash |
+| 智谱清言     | GLM-5.2 / GLM-4.7 Flash    |
+| 豆包       | Seed 2.1 Pro / Turbo       |
+| Kimi     | K2.7 Code / K2.6           |
+| StepFun  | Step 3.7 Flash             |
+| MiniMax  | M3 / M2.7                  |
+
+### 代码理解增强
+
+新增 **10+ 代码分析工具**，支持符号索引与项目扫描：
+
+- `get_file_outline` / `read_file_range` — 大文件精读
+- `find_symbol` / `find_references` / `trace_symbol` — 符号追踪
+- `get_file_imports` / `find_related_files` — 依赖分析
+- `search_symbols` / `build_code_index` — 索引搜索
+- `scan_project` — 项目结构与技术栈扫描
+- `search_files` 增强：正则、扩展名过滤、上下文行
+
+索引持久化至 `.yanagent/code-index.json`。
+
+### 子 Agent 强化
+
+- **`spawn_subagents`** — 最多 3 路并行委派
+- **6 类专家**：explore / shell / review / edit / ui / doc
+
+### 界面修复
+
+- **主题按钮** — 浅色模式显示月亮，深色模式显示太阳
+- **右侧边栏实时同步** — 工作区文件变更自动刷新；切换模型后上下文面板即时更新
+- **Agent 输出 UI** — Claude/Codex 风格时间线工具展示、SVG 图标、流式光标
+
+### MCP 扩展重构
+
+| 服务          | 状态   | 启动方式                        |
+| ----------- | ---- | --------------------------- |
+| Fetch       | 默认启用 | `uvx mcp-server-fetch`      |
+| Playwright  | 默认启用 | `npx @playwright/mcp`       |
+| Windows-MCP | 默认启用 | `uvx windows-mcp`           |
+| Context7    | 按需启用 | `npx @upstash/context7-mcp` |
+| GitHub      | 按需启用 | Docker + Token              |
+
+- 支持 per-server **环境变量**配置（GitHub Token 等）
+- 修复 Fetch npm 404 与 GitHub 废弃包问题
+- 预装服务自动迁移旧配置
+
+---
+
 ## v1.1.0 — 内核重构
 
 本次更新对 Agent 内核进行了全面拆分与重构，核心变化：
@@ -36,7 +92,7 @@ renderer/kernel/
 ├── tool-protocol.js    # 统一工具返回协议 { ok, output, error, meta }
 ├── path.js             # 工作区路径解析
 ├── edits.js            # 精确编辑引擎 + 写后验证
-├── tools-registry.js   # 18 个内置工具 + MCP 动态注册
+├── tools-registry.js   # 30+ 内置工具 + MCP 动态注册
 ├── prompt.js           # 系统提示词构建
 ├── context.js          # 上下文压缩 + 长期记忆提取
 ├── policies.js         # 运行时策略（读后编辑、完成门控）
@@ -83,23 +139,16 @@ renderer/kernel/
 - 每轮支持多工具并行调用
 - 三处中止检查点（API 调用前、工具执行前、循环体内）
 
-### 18 个内置工具
+### 30+ 个内置工具
 
-| 工具                                     | 说明                            |
-| -------------------------------------- | ----------------------------- |
-| `todo_write`                           | 任务计划清单（实时展示，单 in_progress 约束） |
-| `read_file`                            | 读取文件（二进制检测、编辑前必须先读）           |
-| `edit_file`                            | 精确单点编辑（old_string 必须唯一匹配）     |
-| `apply_patch`                          | 多段精确替换（按顺序应用，写后回读验证）          |
-| `write_file`                           | 写入文件（写后回读验证）                  |
-| `list_directory`                       | 目录浏览                          |
-| `search_files`                         | 文本搜索（扩展名过滤）                   |
-| `execute_shell`                        | Shell 执行（30s 超时、权限控制）         |
-| `spawn_subagent`                       | 委派子 Agent（explore / shell）    |
-| `git_status` / `git_diff` / `git_log`  | Git 查看                        |
-| `git_commit` / `git_push` / `git_pull` | Git 操作                        |
-| `git_clone` / `git_branch`             | Git 仓库管理                      |
-| `open_builtin_browser`                 | 内置浏览器预览                       |
+| 类别   | 工具                                                                                                                                                                                                                |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 任务计划 | `todo_write`                                                                                                                                                                                                      |
+| 文件操作 | `read_file` · `edit_file` · `apply_patch` · `write_file` · `list_directory`                                                                                                                                       |
+| 代码理解 | `search_files` · `get_file_outline` · `find_symbol` · `read_file_range` · `get_file_imports` · `find_references` · `find_related_files` · `search_symbols` · `build_code_index` · `scan_project` · `trace_symbol` |
+| 执行   | `execute_shell` · `spawn_subagent` · `spawn_subagents`                                                                                                                                                            |
+| Git  | `git_status` · `git_diff` · `git_log` · `git_commit` · `git_push` · `git_pull` · `git_clone` · `git_branch`                                                                                                       |
+| 预览   | `open_builtin_browser`                                                                                                                                                                                            |
 
 ### 精确编辑引擎
 
@@ -113,8 +162,10 @@ renderer/kernel/
 支持 JSON-RPC 2.0 over stdio 协议接入任意 MCP Server：
 
 - **Playwright** — 浏览器自动化（点击、填表、E2E）
-- **Windows-MCP** — Windows 桌面操控
-- **Filesystem** — 文件系统访问
+- **Fetch** — 抓取网页/API 文档并转为 Markdown（需 uvx）
+- **Windows-MCP** — Windows 桌面操控（需 uvx）
+- **Context7** — 第三方库最新文档（默认关闭）
+- **GitHub** — Issue/PR 管理（默认关闭，需 Docker + Token）
 - 自定义 MCP Server 即插即用
 
 工具命名格式：`mcp__{serverId}__{toolName}`，每个 runCtx 持有独立快照防止并发竞态。
@@ -144,7 +195,7 @@ renderer/kernel/
 ## 快速开始
 
 1. 下载并运行 Yan Agent
-2. **设置 → API 配置** — 填入 [DeepSeek API Key](https://platform.deepseek.com/api_keys)
+2. **设置 → API 配置** — 选择厂商并填入 API Key（支持 DeepSeek、通义千问、智谱等）
 3. **工作区** — 选择你的项目文件夹
 4. 输入指令，Agent 开始自主执行
 
@@ -152,8 +203,8 @@ renderer/kernel/
 
 | 版本      | 说明              | 下载                                                                                                                        |
 | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **安装版** | NSIS 安装包，推荐日常使用 | [Yan.Agent.Setup.1.1.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.1.0.exe)       |
-| **便携版** | 免安装，双击即用        | [Yan.Agent.Portable.1.1.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.1.0.exe) |
+| **安装版** | NSIS 安装包，推荐日常使用 | [Yan.Agent.Setup.1.2.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.2.0.exe)       |
+| **便携版** | 免安装，双击即用        | [Yan.Agent.Portable.1.2.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.2.0.exe) |
 
 [查看全部 Releases →](https://github.com/666-gy/Yan-Agent/releases)
 
@@ -258,7 +309,7 @@ Yan-Agent/
 
 ## 技术栈
 
-Electron 31 · DeepSeek V4 (Flash / Pro) · MCP (JSON-RPC 2.0) · electron-builder
+Electron 31 · 多厂商 OpenAI 兼容 API · MCP (JSON-RPC 2.0) · electron-builder
 
 ---
 

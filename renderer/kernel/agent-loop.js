@@ -165,11 +165,21 @@ async function runAgentLoop(sessionMessages, assistantEl, runCtx) {
       try { fnArgs = JSON.parse(toolCall.function.arguments || '{}'); } catch {}
 
       K.recordTimelineEvent({ type: 'tool_call', name: fnName, args: fnArgs }, runCtx);
+      let stepEl = null;
+      if (bodyEl) {
+        stepEl = deps().hooks.buildToolStepElement(fnName, fnArgs, '', null, 'running');
+        bodyEl.appendChild(stepEl);
+        deps().hooks.scrollChatToBottom?.();
+      }
       const toolOutput = await K.executeToolWithRetry(fnName, fnArgs, runCtx);
       const toolOk = K.parseToolOutputOk(toolOutput);
       K.recordTimelineEvent({ type: 'tool_result', name: fnName, output: toolOutput, ok: toolOk }, runCtx);
 
-      if (bodyEl) bodyEl.appendChild(deps().hooks.buildToolStepElement(fnName, fnArgs, toolOutput, toolOk));
+      if (stepEl) {
+        deps().hooks.finishToolStepElement(stepEl, toolOutput, toolOk);
+      } else if (bodyEl) {
+        bodyEl.appendChild(deps().hooks.buildToolStepElement(fnName, fnArgs, toolOutput, toolOk));
+      }
 
       as.toolCallCount++;
       if (ui) {

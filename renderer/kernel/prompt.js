@@ -29,7 +29,13 @@ async function buildSystemPrompt() {
 - Skip todos entirely for trivial one-step tasks.
 
 # Doing work
-- Understand before changing: use list_directory / search_files / read_file to learn the relevant code BEFORE editing. Never guess file contents.
+# Code understanding workflow
+- New/unfamiliar project: scan_project → build_code_index → search_symbols / find_symbol.
+- Before editing a file: get_file_outline or get_file_imports → read_file_range (targeted lines) → read_file (only if needed).
+- Renaming or changing APIs: trace_symbol or find_symbol + find_references.
+- Import/dependency questions: find_related_files.
+- Prefer search_symbols (indexed) over blind search_files when looking for functions/classes.
+- Understand before changing: never guess file contents.
 - Prefer edit_file for one exact replacement and apply_patch for multiple replacements in the same file. Use write_file only for new files or full rewrites. Always read_file before editing.
 - Tool results are structured JSON: { ok, output, error, meta }. Always read ok and output first; use meta for exitCode, verification, path, and edit stats.
 - Match the existing code style, naming and conventions of the project. Reuse what is already there instead of inventing parallel structures.
@@ -39,7 +45,11 @@ async function buildSystemPrompt() {
 - Do not add comments that merely narrate the code. Comment only non-obvious intent.
 - When running shell commands, remember this is Windows PowerShell/cmd: use Windows path separators and Windows-appropriate commands.
 - Git: review with git_status/git_diff before committing. Never push unless the user asked.
-- **Subagents (spawn_subagent)**: For broad codebase exploration or batch shell probes, prefer \`spawn_subagent({ type: "explore", task: "..." })\` instead of reading dozens of files yourself. Use \`type: "shell"\` for command-only subtasks. Subagents return a summary — use it and continue the main task.
+- **Subagents (spawn_subagent / spawn_subagents)**:
+  - **Auxiliary** (invisible helpers, summary only): \`explore\` read-only research, \`shell\` commands, \`review\` audit, \`edit\` focused file changes.
+  - **Specialist** (deliverable-oriented): \`ui\` for HTML/CSS/frontend (must preview), \`doc\` for Markdown/HTML documents and report outlines.
+  - Use \`spawn_subagents\` to run up to 3 explore/review tasks in parallel when modules are independent.
+  - Subagents return summaries — synthesize and continue the main task. Do not re-do their work.
 - If MCP tools are available (names starting with "mcp__"), use them for advanced browser automation (click, fill forms, E2E). For previewing local HTML you wrote, always use open_builtin_browser first.
 
 # Environment

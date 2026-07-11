@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const { exec, execFile, spawn } = require('child_process');
+const codeIndex = require('./lib/code-index');
 
 let mainWindow = null;
 let tray = null;
@@ -11,25 +12,44 @@ let isQuiting = false;
 // ---------------------------------------------------------------------------
 // Paths & storage
 // ---------------------------------------------------------------------------
-// 数据目录按「构建」隔离：每次打包生成的可执行文件（app.asar）的修改时间不同，
-// 据此派生唯一的数据文件夹名。这样每个打包版本首次运行时都是全新状态，
-// 且启动时会清除其它构建（含旧的全局 YanData）遗留的数据 —— 实现「打包后无残留」。
-// 开发模式使用固定标签，避免每次改代码都清空本地调试数据。
+// 用户数据统一存放在固定目录 YanData，更新/重装后保留会话、配置与记忆。
+// 首次从旧版「按构建隔离」目录（YanData-*）自动迁移。
 const userDataDir = app.getPath('userData');
+const STABLE_DATA_DIR = path.join(userDataDir, 'YanData');
 
-function currentBuildTag() {
-  if (!app.isPackaged) return 'dev';
+function migrateLegacyDataDir() {
+  if (fs.existsSync(path.join(STABLE_DATA_DIR, 'config.json'))) return;
+
+  let names = [];
+  try { names = fs.readdirSync(userDataDir); } catch { return; }
+
+  let bestDir = null;
+  let bestMtime = 0;
+  for (const name of names) {
+    if (!name.startsWith('YanData-')) continue;
+    const candidate = path.join(userDataDir, name);
+    const cfg = path.join(candidate, 'config.json');
+    if (!fs.existsSync(cfg)) continue;
+    try {
+      const mtime = fs.statSync(cfg).mtimeMs;
+      if (mtime > bestMtime) {
+        bestMtime = mtime;
+        bestDir = candidate;
+      }
+    } catch { /* skip */ }
+  }
+
+  if (!bestDir) return;
   try {
-    const target = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
-    const stat = fs.statSync(target);
-    return 'build-' + Math.floor(stat.mtimeMs).toString(36);
-  } catch {
-    return 'build-unknown';
+    fs.mkdirSync(STABLE_DATA_DIR, { recursive: true });
+    fs.cpSync(bestDir, STABLE_DATA_DIR, { recursive: true, force: true });
+    console.log('[data] migrated legacy data from', path.basename(bestDir), 'to YanData');
+  } catch (e) {
+    console.error('[data] migrate legacy data failed:', e.message);
   }
 }
 
-const BUILD_TAG = currentBuildTag();
-const dataDir = path.join(userDataDir, 'YanData-' + BUILD_TAG);
+const dataDir = STABLE_DATA_DIR;
 const configPath = path.join(dataDir, 'config.json');
 const sessionsDir = path.join(dataDir, 'sessions');
 const filesDir = path.join(dataDir, 'uploads');
@@ -41,6 +61,34 @@ const YANAGENT_DIR = '.yanagent';
 function yanagentRoot(workspace) {
   if (!workspace) return null;
   return path.join(workspace, YANAGENT_DIR);
+}
+
+const workspaceIndexCache = new Map();
+
+function codeIndexPath(workspace) {
+  return path.join(yanagentRoot(workspace), 'code-index.json');
+}
+
+async function loadPersistedCodeIndex(workspace) {
+  if (workspaceIndexCache.has(workspace)) return workspaceIndexCache.get(workspace);
+  const p = codeIndexPath(workspace);
+  try {
+    const raw = await fsp.readFile(p, 'utf8');
+    const index = JSON.parse(raw);
+    if (index.workspace === workspace) {
+      workspaceIndexCache.set(workspace, index);
+      return index;
+    }
+  } catch { /* no index yet */ }
+  return null;
+}
+
+async function persistCodeIndex(index) {
+  const ws = index.workspace;
+  await ensureYanagent(ws);
+  await fsp.writeFile(codeIndexPath(ws), JSON.stringify(index), 'utf8');
+  workspaceIndexCache.set(ws, index);
+  return index;
 }
 
 function ensureYanagent(workspace) {
@@ -128,30 +176,112 @@ function isYanagentPath(filePath) {
 }
 
 
-// 删除不属于当前构建的历史数据目录（旧版 YanData 及其它构建的 YanData-*）
-function cleanupStaleData() {
-  const keep = path.basename(dataDir);
-  let names = [];
-  try { names = fs.readdirSync(userDataDir); } catch { return; }
-  for (const name of names) {
-    if (name === keep) continue;
-    if (name === 'YanData' || name.startsWith('YanData-')) {
-      try { fs.rmSync(path.join(userDataDir, name), { recursive: true, force: true }); }
-      catch (e) { console.error('cleanupStaleData error:', name, e.message); }
-    }
-  }
-}
-
 function ensureDirs() {
   for (const dir of [dataDir, sessionsDir, filesDir]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-const DEFAULT_MODELS = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', price: '¥0.27/百万 tokens' },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', price: '¥2.7/百万 tokens' }
-];
+// Verified against each vendor's official API documentation on 2026-07-11.
+// Prices are mainland-China pay-as-you-go API prices per 1M tokens unless noted.
+// Promotions and tiered prices can change; see MODEL_VENDOR_AUDIT_2026-07-11.md.
+const MODEL_PROVIDERS = {
+  deepseek: {
+    id: 'deepseek',
+    name: 'DeepSeek (深度求索)',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', price: '缓存命中 ¥0.02 · 输入 ¥1 · 输出 ¥2 / 1M' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', price: '缓存命中 ¥0.025 · 输入 ¥3 · 输出 ¥6 / 1M' }
+    ]
+  },
+  qwen: {
+    id: 'qwen',
+    name: '通义千问 (阿里云百炼)',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'qwen3.7-max', name: 'Qwen3.7 Max (旗舰)', price: '限时输入 ¥6 · 输出 ¥18 / 1M（原价 ¥12/¥36）' },
+      { id: 'qwen3.7-plus', name: 'Qwen3.7 Plus (均衡)', price: '≤256K ¥1.6/¥6.4；>256K ¥4.8/¥19.2 / 1M（输入/输出，限时）' },
+      { id: 'qwen3.6-flash', name: 'Qwen3.6 Flash (轻量)', price: '≤256K ¥1.2/¥7.2；>256K ¥4.8/¥28.8 / 1M（输入/输出）' },
+      { id: 'qwen3.6-max-preview', name: 'Qwen3.6 Max Preview', price: '≤128K ¥9/¥54；128–256K ¥15/¥90 / 1M（输入/输出）' },
+      { id: 'qwen3.6-plus', name: 'Qwen3.6 Plus', price: '≤256K ¥2/¥12；>256K ¥8/¥48 / 1M（输入/输出）' },
+      { id: 'qwen3-max', name: 'Qwen3 Max', price: '≤32K ¥2.5/¥10；32–128K ¥4/¥16；128–256K ¥7/¥28 / 1M' },
+      { id: 'qwen-plus', name: 'Qwen Plus', price: '≤128K 输入 ¥0.8 · 输出 ¥2(非思考)/¥8(思考)；长上下文阶梯价' },
+      { id: 'qwen-turbo', name: 'Qwen Turbo', price: '输入 ¥0.3 · 输出 ¥0.6(非思考)/¥3(思考) / 1M' },
+      { id: 'qwen-long', name: 'Qwen Long (长文本)', price: '输入 ¥0.5 · 输出 ¥2 / 1M' }
+    ]
+  },
+  glm: {
+    id: 'glm',
+    name: '智谱 GLM (智谱AI)',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKeyPlaceholder: '...',
+    models: [
+      { id: 'glm-5.2', name: 'GLM-5.2 (1M 旗舰)', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-5.1', name: 'GLM-5.1', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-5-turbo', name: 'GLM-5 Turbo', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-5', name: 'GLM-5', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-4.7', name: 'GLM-4.7', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-4.7-flashx', name: 'GLM-4.7 FlashX', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', price: '免费' },
+      { id: 'glm-4.6', name: 'GLM-4.6', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-4.5-air', name: 'GLM-4.5 Air', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-4.5-airx', name: 'GLM-4.5 AirX', price: '按官方实时按量价（输入/输出分项）' },
+      { id: 'glm-4-flashx-250414', name: 'GLM-4 FlashX 250414', price: '¥0.1 / 1M tokens（官方统一 Token 价）' },
+      { id: 'glm-4-flash-250414', name: 'GLM-4 Flash 250414', price: '免费' }
+    ]
+  },
+  doubao: {
+    id: 'doubao',
+    name: '豆包 (火山引擎方舟)',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiKeyPlaceholder: '...',
+    models: [
+      { id: 'doubao-seed-2-1-pro-260628', name: 'Doubao Seed 2.1 Pro 260628', price: '阶梯计费：输入长度/缓存/推理方式，见方舟实时价格页' },
+      { id: 'doubao-seed-2-1-turbo-260628', name: 'Doubao Seed 2.1 Turbo 260628', price: '阶梯计费：输入长度/缓存/推理方式，见方舟实时价格页' },
+      { id: 'doubao-seed-2-0-lite-260428', name: 'Doubao Seed 2.0 Lite 260428', price: '阶梯计费：输入长度/缓存/推理方式，见方舟实时价格页' },
+      { id: 'doubao-seed-2-0-mini-260428', name: 'Doubao Seed 2.0 Mini 260428', price: '阶梯计费：输入长度/缓存/推理方式，见方舟实时价格页' },
+      { id: 'doubao-seed-2-0-pro-260215', name: 'Doubao Seed 2.0 Pro 260215', price: '阶梯计费：输入长度/缓存/推理方式，见方舟实时价格页' }
+    ]
+  },
+  moonshot: {
+    id: 'moonshot',
+    name: 'Kimi (月之暗面)',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'kimi-k2.7-code-highspeed', name: 'Kimi K2.7 Code HighSpeed', price: '缓存命中 ¥2.6 · 输入 ¥13 · 输出 ¥54 / 1M' },
+      { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', price: '缓存命中 ¥1.3 · 输入 ¥6.5 · 输出 ¥27 / 1M' },
+      { id: 'kimi-k2.6', name: 'Kimi K2.6 (通用多模态)', price: '输入/输出/缓存分项，见 Kimi 官方实时价格页' },
+      { id: 'kimi-k2.5', name: 'Kimi K2.5 (多模态)', price: '输入/输出/缓存分项，见 Kimi 官方实时价格页' }
+    ]
+  },
+  stepfun: {
+    id: 'stepfun',
+    name: 'StepFun (阶跃星辰)',
+    baseUrl: 'https://api.stepfun.com/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'step-3.7-flash', name: 'Step 3.7 Flash (多模态推理)', price: '缓存命中 ¥0.27 · 输入 ¥1.35 · 输出 ¥8.1 / 1M' },
+      { id: 'step-3.5-flash', name: 'Step 3.5 Flash (推理)', price: '缓存命中 ¥0.14 · 输入 ¥0.7 · 输出 ¥2.1 / 1M' }
+    ]
+  },
+  minimax: {
+    id: 'minimax',
+    name: 'MiniMax (稀宇)',
+    baseUrl: 'https://api.minimaxi.com/v1',
+    apiKeyPlaceholder: '...',
+    models: [
+      { id: 'MiniMax-M3', name: 'MiniMax M3 (1M 旗舰)', price: '≤512K 输入 ¥2.1 · 输出 ¥8.4 · 缓存读 ¥0.42；>512K 翻倍 / 1M' },
+      { id: 'MiniMax-M2.7-highspeed', name: 'MiniMax M2.7 HighSpeed', price: '输入 ¥4.2 · 输出 ¥16.8 · 缓存读 ¥0.42 · 缓存写 ¥2.625 / 1M' },
+      { id: 'MiniMax-M2.7', name: 'MiniMax M2.7', price: '输入 ¥2.1 · 输出 ¥8.4 · 缓存读 ¥0.42 · 缓存写 ¥2.625 / 1M' }
+    ]
+  }
+};
+
+const DEFAULT_MODELS = MODEL_PROVIDERS.deepseek.models;
 
 const DEFAULT_MCP_SERVERS = [
   {
@@ -218,6 +348,14 @@ const DEFAULT_SKILLS = [
   { id: 'rewrite', name: 'Rewrite', desc: '重写或润色文本，使其更清晰专业' }
 ];
 
+function buildDefaultApiKeys() {
+  const keys = {};
+  for (const id of Object.keys(MODEL_PROVIDERS)) {
+    keys[id] = '';
+  }
+  return keys;
+}
+
 function loadConfig() {
   let cfg = null;
   try {
@@ -230,8 +368,10 @@ function loadConfig() {
 
   const defaults = {
     api: {
-      baseUrl: 'https://api.deepseek.com/v1',
+      provider: 'deepseek',
+      baseUrl: MODEL_PROVIDERS.deepseek.baseUrl,
       apiKey: '',
+      apiKeys: buildDefaultApiKeys(),
       model: 'deepseek-v4-flash',
       thinking: false
     },
@@ -253,16 +393,39 @@ function loadConfig() {
   if (!cfg) return defaults;
 
   const merged = deepMerge(defaults, cfg);
-  // 强制使用默认模型列表（自定义模型功能已移除）
-  merged.models = DEFAULT_MODELS;
+
+  // 迁移旧配置：旧的单 apiKey 迁移到 apiKeys.deepseek
+  if (merged.api?.apiKey && !merged.api.apiKeys?.deepseek) {
+    if (!merged.api.apiKeys) merged.api.apiKeys = buildDefaultApiKeys();
+    merged.api.apiKeys.deepseek = merged.api.apiKey;
+  }
+
+  // 确保 apiKeys 包含所有已知厂商
+  if (!merged.api.apiKeys) merged.api.apiKeys = buildDefaultApiKeys();
+  for (const id of Object.keys(MODEL_PROVIDERS)) {
+    if (merged.api.apiKeys[id] === undefined) merged.api.apiKeys[id] = '';
+  }
+
+  // 确保 provider 有效
+  if (!merged.api.provider || !MODEL_PROVIDERS[merged.api.provider]) {
+    merged.api.provider = 'deepseek';
+  }
+
+  const provider = MODEL_PROVIDERS[merged.api.provider];
+  merged.api.baseUrl = provider.baseUrl;
+  merged.api.apiKey = merged.api.apiKeys[merged.api.provider] || '';
+
+  // 根据当前 provider 动态设置模型列表
+  merged.models = provider.models;
+
+  // 确保当前选中的模型属于当前 provider
+  if (!provider.models.find(m => m.id === merged.api.model)) {
+    merged.api.model = provider.models[0]?.id || '';
+  }
+
   merged.skills = getMergedSkills(merged);
   merged.mcpServers = ensureDefaultMcp(merged.mcpServers || []);
-  // 强制使用 DeepSeek 的 Base URL 和模型，清除旧配置残留
-  merged.api.baseUrl = 'https://api.deepseek.com/v1';
-  delete merged.api.provider;
-  if (!DEFAULT_MODELS.find(m => m.id === merged.api.model)) {
-    merged.api.model = 'deepseek-v4-flash';
-  }
+
   return merged;
 }
 
@@ -394,22 +557,73 @@ ipcMain.handle('config:get', () => loadConfig());
 ipcMain.handle('config:set', (_e, partial) => {
   const cfg = loadConfig();
   const merged = deepMerge(cfg, partial);
-  // 应用与 loadConfig 相同的强制覆盖逻辑，确保返回值与下次加载一致
-  merged.api.baseUrl = 'https://api.deepseek.com/v1';
-  delete merged.api.provider;
-  if (!DEFAULT_MODELS.find(m => m.id === merged.api.model)) {
-    merged.api.model = 'deepseek-v4-flash';
+
+  // 确保 apiKeys 结构完整
+  if (!merged.api.apiKeys) merged.api.apiKeys = buildDefaultApiKeys();
+  for (const id of Object.keys(MODEL_PROVIDERS)) {
+    if (merged.api.apiKeys[id] === undefined) merged.api.apiKeys[id] = '';
   }
-  merged.models = DEFAULT_MODELS;
+
+  // 确保 provider 有效
+  if (!merged.api.provider || !MODEL_PROVIDERS[merged.api.provider]) {
+    merged.api.provider = 'deepseek';
+  }
+
+  const provider = MODEL_PROVIDERS[merged.api.provider];
+  merged.api.baseUrl = provider.baseUrl;
+  merged.api.apiKey = merged.api.apiKeys[merged.api.provider] || '';
+  merged.models = provider.models;
+
+  // 确保当前选中的模型属于当前 provider
+  if (!provider.models.find(m => m.id === merged.api.model)) {
+    merged.api.model = provider.models[0]?.id || '';
+  }
+
   merged.skills = getMergedSkills(merged);
   merged.mcpServers = ensureDefaultMcp(merged.mcpServers || []);
+  if (partial && Object.prototype.hasOwnProperty.call(partial, 'workspace')) {
+    startWorkspaceWatcher(merged.workspace);
+  }
   saveConfig(merged);
   return merged;
+});
+
+ipcMain.handle('providers:list', () => {
+  const list = [];
+  for (const id of Object.keys(MODEL_PROVIDERS)) {
+    const p = MODEL_PROVIDERS[id];
+    list.push({
+      id: p.id,
+      name: p.name,
+      baseUrl: p.baseUrl,
+      apiKeyPlaceholder: p.apiKeyPlaceholder,
+      modelCount: p.models.length
+    });
+  }
+  return list;
+});
+
+ipcMain.handle('provider:set', (_e, providerId) => {
+  const cfg = loadConfig();
+  if (!MODEL_PROVIDERS[providerId]) return { error: '未知厂商: ' + providerId };
+  cfg.api.provider = providerId;
+  const provider = MODEL_PROVIDERS[providerId];
+  cfg.api.baseUrl = provider.baseUrl;
+  cfg.api.apiKey = cfg.api.apiKeys?.[providerId] || '';
+  cfg.models = provider.models;
+  cfg.api.model = provider.models[0]?.id || '';
+  saveConfig(cfg);
+  return cfg;
 });
 
 ipcMain.handle('models:list', () => loadConfig().models);
 ipcMain.handle('model:set', (_e, modelId) => {
   const cfg = loadConfig();
+  // 确保模型属于当前 provider
+  const provider = MODEL_PROVIDERS[cfg.api.provider];
+  if (!provider.models.find(m => m.id === modelId)) {
+    return { error: '模型不属于当前厂商' };
+  }
   cfg.api.model = modelId;
   saveConfig(cfg);
   return cfg;
@@ -449,11 +663,52 @@ ipcMain.handle('skills:get-custom', () => loadConfig().customSkills || []);
 // ---------------------------------------------------------------------------
 // IPC: Workspace
 // ---------------------------------------------------------------------------
+let workspaceWatcher = null;
+let workspaceNotifyTimer = null;
+
+function shouldIgnoreWorkspaceWatch(filename) {
+  if (!filename) return false;
+  const norm = String(filename).replace(/\\/g, '/');
+  return norm === YANAGENT_DIR || norm.startsWith(YANAGENT_DIR + '/');
+}
+
+function notifyWorkspaceChanged() {
+  if (workspaceNotifyTimer) clearTimeout(workspaceNotifyTimer);
+  workspaceNotifyTimer = setTimeout(() => {
+    workspaceNotifyTimer = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('workspace:changed');
+    }
+  }, 300);
+}
+
+function stopWorkspaceWatcher() {
+  if (workspaceWatcher) {
+    workspaceWatcher.close();
+    workspaceWatcher = null;
+  }
+}
+
+function startWorkspaceWatcher(workspace) {
+  stopWorkspaceWatcher();
+  if (!workspace || !fs.existsSync(workspace)) return;
+  try {
+    workspaceWatcher = fs.watch(workspace, { recursive: true }, (_eventType, filename) => {
+      if (shouldIgnoreWorkspaceWatch(filename)) return;
+      notifyWorkspaceChanged();
+    });
+    workspaceWatcher.on('error', () => stopWorkspaceWatcher());
+  } catch {
+    stopWorkspaceWatcher();
+  }
+}
+
 ipcMain.handle('workspace:get', () => loadConfig().workspace);
 ipcMain.handle('workspace:clear', () => {
   const cfg = loadConfig();
   cfg.workspace = '';
   saveConfig(cfg);
+  stopWorkspaceWatcher();
   return true;
 });
 ipcMain.handle('workspace:choose', async () => {
@@ -464,6 +719,7 @@ ipcMain.handle('workspace:choose', async () => {
     const cfg = loadConfig();
     cfg.workspace = result.filePaths[0];
     saveConfig(cfg);
+    startWorkspaceWatcher(cfg.workspace);
     return result.filePaths[0];
   }
   return null;
@@ -551,6 +807,7 @@ ipcMain.handle('session:set-workspace', async (_e, { id, workspace }) => {
     migrateMemoryToWorkspace(workspace);
     ensureYanagent(workspace);
   }
+  startWorkspaceWatcher(workspace || '');
   return data;
 });
 
@@ -714,6 +971,31 @@ ipcMain.handle('file:read', async (_e, filePath) => {
       content = await fsp.readFile(filePath, 'utf8');
     }
     return { path: filePath, content, isBinary: false, size: stat.size, mtime: stat.mtimeMs };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('file:read-range', async (_e, { filePath, start_line, end_line }) => {
+  const cfg = loadConfig();
+  if (!cfg.permissions.allowFileRead) {
+    return { error: 'File read is disabled in permissions.' };
+  }
+  try {
+    const stat = await fsp.stat(filePath);
+    if (stat.size > 2 * 1024 * 1024) {
+      return { error: 'File too large for read_file_range (max 2MB). Use get_file_outline first.' };
+    }
+    const content = await fsp.readFile(filePath, 'utf8');
+    const range = codeIndex.readFileRange(content, start_line, end_line);
+    if (range.error) return { error: range.error, path: filePath };
+    return {
+      path: filePath,
+      start: range.start,
+      end: range.end,
+      lineCount: range.lineCount,
+      content: range.content
+    };
   } catch (e) {
     return { error: e.message };
   }
@@ -909,7 +1191,7 @@ async function mcpStart(serverCfg) {
     const initPromise = mcpRequest(server, 'initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: 'Yan Agent', version: '1.0.0' }
+      clientInfo: { name: 'Yan Agent', version: '1.2.0' }
     });
 
     await Promise.race([initPromise, spawnError]);
@@ -1078,51 +1360,206 @@ ipcMain.handle('auto:remove', (_e, id) => {
 });
 
 // ---------------------------------------------------------------------------
-// IPC: File search
+// IPC: File search (ripgrep-style, workspace-scoped)
 // ---------------------------------------------------------------------------
-ipcMain.handle('search:files', async (_e, { query, directory, extensions }) => {
+function lineMatchesQuery(line, query, opts) {
+  return codeIndex.lineMatchesQuery(line, query, opts);
+}
+
+ipcMain.handle('search:files', async (_e, opts) => {
+  const {
+    query,
+    directory,
+    extensions,
+    regex = false,
+    caseSensitive = false,
+    maxResults = 80,
+    maxDepth = 8,
+    contextLines = 0
+  } = opts || {};
+
   const root = directory || loadConfig().workspace;
-  if (!root || !fs.existsSync(root)) return [];
+  if (!root || !fs.existsSync(root) || !query) return [];
+
   const results = [];
-  const maxResults = 50;
-  const exts = extensions || [];
-  const queryLower = query.toLowerCase();
+  const exts = (extensions || []).map(e => String(e).replace(/^\./, '').toLowerCase()).filter(Boolean);
+  const ctx = Math.min(5, Math.max(0, parseInt(contextLines, 10) || 0));
 
   async function walk(dir, depth) {
-    if (depth > 5 || results.length >= maxResults) return;
+    if (depth > maxDepth || results.length >= maxResults) return;
     let entries;
     try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
     catch { return; }
+
     for (const entry of entries) {
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      const fullPath = path.join(dir, entry.name);
+      if (results.length >= maxResults) break;
+      const name = entry.name;
       if (entry.isDirectory()) {
-        await walk(fullPath, depth + 1);
-      } else {
-        if (exts.length > 0) {
-          const ext = path.extname(entry.name).slice(1).toLowerCase();
-          if (!exts.includes(ext)) continue;
-        }
-        try {
-          const content = await fsp.readFile(fullPath, 'utf8');
-          const lines = content.split('\n');
-          for (let i = 0; i < lines.length && results.length < maxResults; i++) {
-            if (lines[i].toLowerCase().includes(queryLower)) {
-              results.push({
-                path: fullPath,
-                file: entry.name,
-                line: i + 1,
-                content: lines[i].trim().slice(0, 200)
-              });
-            }
-          }
-        } catch { /* skip binary */ }
+        if (codeIndex.SEARCH_SKIP_DIRS.has(name)) continue;
+        if (name.startsWith('.') && name !== '.github') continue;
+        await walk(path.join(dir, name), depth + 1);
+        continue;
       }
+
+      if (codeIndex.SEARCH_SKIP_FILES.has(name)) continue;
+      if (exts.length > 0) {
+        const ext = path.extname(name).slice(1).toLowerCase();
+        if (!exts.includes(ext)) continue;
+      }
+
+      const fullPath = path.join(dir, name);
+      try {
+        const stat = await fsp.stat(fullPath);
+        if (stat.size > 1024 * 1024) continue;
+        const content = await fsp.readFile(fullPath, 'utf8');
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+          if (!lineMatchesQuery(lines[i], query, { regex, caseSensitive })) continue;
+          const item = {
+            path: fullPath,
+            file: name,
+            line: i + 1,
+            content: lines[i].trim().slice(0, 240)
+          };
+          if (ctx > 0) {
+            const before = [];
+            const after = [];
+            for (let b = 1; b <= ctx && i - b >= 0; b++) before.unshift(lines[i - b].trim().slice(0, 160));
+            for (let a = 1; a <= ctx && i + a < lines.length; a++) after.push(lines[i + a].trim().slice(0, 160));
+            item.contextBefore = before;
+            item.contextAfter = after;
+          }
+          results.push(item);
+        }
+      } catch { /* skip binary / unreadable */ }
     }
   }
 
   await walk(root, 0);
   return results;
+});
+
+// ---------------------------------------------------------------------------
+// IPC: Code understanding (index, symbols, references, project scan)
+// ---------------------------------------------------------------------------
+ipcMain.handle('code:build-index', async (_e, { workspace, force } = {}) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !fs.existsSync(ws)) return { error: 'No workspace selected.' };
+  if (!force) {
+    const existing = await loadPersistedCodeIndex(ws);
+    if (existing && Date.now() - existing.builtAt < 5 * 60 * 1000) {
+      return { ok: true, cached: true, ...summarizeIndex(existing) };
+    }
+  }
+  const index = await codeIndex.buildWorkspaceIndex(ws);
+  await persistCodeIndex(index);
+  return { ok: true, cached: false, ...summarizeIndex(index) };
+});
+
+function summarizeIndex(index) {
+  return {
+    builtAt: index.builtAt,
+    fileCount: index.fileCount,
+    symbolCount: index.symbolCount,
+    workspace: index.workspace
+  };
+}
+
+ipcMain.handle('code:index-status', async (_e, workspace) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws) return { exists: false };
+  const index = await loadPersistedCodeIndex(ws);
+  if (!index) return { exists: false, workspace: ws };
+  return { exists: true, ...summarizeIndex(index) };
+});
+
+ipcMain.handle('code:search-symbols', async (_e, { query, kind, limit, regex, case_sensitive, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  let index = await loadPersistedCodeIndex(ws);
+  if (!index) {
+    index = await codeIndex.buildWorkspaceIndex(ws);
+    await persistCodeIndex(index);
+  }
+  const hits = codeIndex.searchSymbols(index, query, { kind, limit, regex, caseSensitive: case_sensitive });
+  return { hits, indexAge: index.builtAt, fileCount: index.fileCount, symbolCount: index.symbolCount };
+});
+
+ipcMain.handle('code:find-symbol', async (_e, { name, kind, workspace, fallback_search }) => {
+  const ws = workspace || loadConfig().workspace;
+  const key = String(name || '').trim();
+  if (!key) return { hits: [], error: 'name is required' };
+
+  let index = await loadPersistedCodeIndex(ws);
+  if (!index) {
+    index = await codeIndex.buildWorkspaceIndex(ws);
+    await persistCodeIndex(index);
+  }
+
+  let hits = codeIndex.findSymbolInIndex(index, key, { kind });
+  if (!hits.length && fallback_search !== false) {
+    hits = await codeIndex.searchDefinitions(ws, key, { maxResults: 20 });
+    if (kind) hits = hits.filter(h => h.kind === kind);
+  }
+  return { hits, fromIndex: true, symbolCount: index.symbolCount };
+});
+
+ipcMain.handle('code:find-references', async (_e, { name, workspace, max_results }) => {
+  const ws = workspace || loadConfig().workspace;
+  const key = String(name || '').trim();
+  if (!key) return { hits: [], error: 'name is required' };
+  const hits = await codeIndex.searchReferences(ws, key, { maxResults: max_results || 60 });
+  return { hits, count: hits.length };
+});
+
+ipcMain.handle('code:find-related', async (_e, { path: filePath, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!filePath) return { error: 'path is required' };
+  let index = await loadPersistedCodeIndex(ws);
+  if (!index) {
+    index = await codeIndex.buildWorkspaceIndex(ws);
+    await persistCodeIndex(index);
+  }
+  const related = codeIndex.findRelatedFiles(index, ws, filePath);
+  return related;
+});
+
+ipcMain.handle('code:file-imports', async (_e, { path: filePath }) => {
+  if (!filePath) return { error: 'path is required' };
+  try {
+    const content = await fsp.readFile(filePath, 'utf8');
+    const ie = codeIndex.extractImportsExports(content, filePath);
+    const outline = codeIndex.outlineFile(content, filePath);
+    return { path: filePath, ...ie, language: outline.language, lineCount: outline.lineCount, symbolCount: outline.symbols.length };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('code:scan-project', async (_e, { workspace } = {}) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !fs.existsSync(ws)) return { error: 'No workspace selected.' };
+  const meta = await codeIndex.enrichProjectScan(ws);
+  return { meta, summary: codeIndex.formatProjectScan(meta) };
+});
+
+ipcMain.handle('code:trace-symbol', async (_e, { name, workspace }) => {
+  const ws = workspace || loadConfig().workspace;
+  const key = String(name || '').trim();
+  if (!key) return { error: 'name is required' };
+  let index = await loadPersistedCodeIndex(ws);
+  if (!index) {
+    index = await codeIndex.buildWorkspaceIndex(ws);
+    await persistCodeIndex(index);
+  }
+  const definitions = codeIndex.findSymbolInIndex(index, key);
+  const references = await codeIndex.searchReferences(ws, key, { maxResults: 40 });
+  return {
+    name: key,
+    definitions,
+    references,
+    definitionCount: definitions.length,
+    referenceCount: references.length
+  };
 });
 
 // ---------------------------------------------------------------------------
@@ -1278,9 +1715,11 @@ function deepMerge(target, source) {
 // App lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
-  cleanupStaleData();
+  migrateLegacyDataDir();
   ensureDirs();
-  saveConfig(loadConfig());
+  const cfg = loadConfig();
+  saveConfig(cfg);
+  startWorkspaceWatcher(cfg.workspace);
   createWindow();
   createTray();
   app.on('activate', () => {
@@ -1295,6 +1734,7 @@ app.on('window-all-closed', (e) => {
 
 // 真正退出时清理托盘和 MCP 服务器
 app.on('before-quit', () => {
+  stopWorkspaceWatcher();
   if (tray) tray.destroy();
   // 停止所有 MCP 服务器
   for (const id of mcpServers.keys()) mcpStop(id);

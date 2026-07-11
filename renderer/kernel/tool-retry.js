@@ -21,7 +21,7 @@
     if (name === 'execute_shell') {
       return K.executeTool(name, args, runCtx);
     }
-    if (name === 'spawn_subagent') {
+    if (name === 'spawn_subagent' || name === 'spawn_subagents') {
       return K.executeTool(name, args, runCtx);
     }
     let lastOutput = await K.executeTool(name, args, runCtx);
