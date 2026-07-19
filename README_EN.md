@@ -117,8 +117,8 @@ Each provider has its own API key, base URL, model list, and capability metadata
 
 | Build | Description | Download |
 | --- | --- | --- |
-| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.3.0.exe) |
-| Portable | No installation required; run it directly | [Yan.Agent.Portable.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.3.0.exe) |
+| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.0/Yan.Agent.Setup.1.3.0.exe) |
+| Portable | No installation required; run it directly | [Yan.Agent.Portable.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.0/Yan.Agent.Portable.1.3.0.exe) |
 
 [View all releases](https://github.com/666-gy/Yan-Agent/releases)
 

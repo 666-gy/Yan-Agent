@@ -117,8 +117,8 @@ flowchart LR
 
 | 构建  | 说明              | 下载                                                                                                                        |
 | --- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 安装版 | NSIS 安装包，适合日常使用 | [Yan.Agent.Setup.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.3.0.exe)       |
-| 便携版 | 无需安装，解压后直接运行    | [Yan.Agent.Portable.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.3.0.exe) |
+| 安装版 | NSIS 安装包，适合日常使用 | [Yan.Agent.Setup.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.0/Yan.Agent.Setup.1.3.0.exe)       |
+| 便携版 | 无需安装，解压后直接运行    | [Yan.Agent.Portable.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.0/Yan.Agent.Portable.1.3.0.exe) |
 
 [查看全部 Releases](https://github.com/666-gy/Yan-Agent/releases)
 
