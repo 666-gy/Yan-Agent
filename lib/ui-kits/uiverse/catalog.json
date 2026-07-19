@@ -1,0 +1,73 @@
+{
+  "id": "uiverse",
+  "name": "Uiverse (Universe UI)",
+  "homepage": "https://uiverse.io",
+  "syncedAt": 1783880003443,
+  "note": "Copy-paste HTML/CSS UI elements. Prefer these for static .html pages. No network fetch needed.",
+  "patterns": [
+    {
+      "id": "glass-button",
+      "name": "Glass Button",
+      "category": "buttons",
+      "desc": "毛玻璃质感主按钮，hover 微抬升",
+      "html": "<button class=\"uiverse-glass-btn\">Get Started</button>",
+      "css": ".uiverse-glass-btn{padding:12px 28px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);backdrop-filter:blur(12px);color:#fff;font-weight:600;cursor:pointer;transition:transform .2s,box-shadow .2s}.uiverse-glass-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.25)}"
+    },
+    {
+      "id": "gradient-border-card",
+      "name": "Gradient Border Card",
+      "category": "cards",
+      "desc": "渐变描边卡片容器",
+      "html": "<div class=\"uiverse-gcard\"><h3>Feature</h3><p>Short description.</p></div>",
+      "css": ".uiverse-gcard{position:relative;padding:24px;border-radius:16px;background:#111;color:#eee}.uiverse-gcard::before{content:\"\";position:absolute;inset:0;padding:1px;border-radius:16px;background:linear-gradient(135deg,#6366f1,#ec4899);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude}"
+    },
+    {
+      "id": "loader-dots",
+      "name": "Loader Dots",
+      "category": "loaders",
+      "desc": "三点跳动加载动画",
+      "html": "<div class=\"uiverse-dots\"><span></span><span></span><span></span></div>",
+      "css": ".uiverse-dots{display:flex;gap:8px}.uiverse-dots span{width:10px;height:10px;border-radius:50%;background:#818cf8;animation:uiverse-bounce 1s infinite alternate}.uiverse-dots span:nth-child(2){animation-delay:.2s}.uiverse-dots span:nth-child(3){animation-delay:.4s}@keyframes uiverse-bounce{to{transform:translateY(-8px);opacity:.5}}"
+    },
+    {
+      "id": "neon-input",
+      "name": "Neon Input",
+      "category": "inputs",
+      "desc": "霓虹聚焦输入框",
+      "html": "<input class=\"uiverse-neon-input\" placeholder=\"your@email.com\" />",
+      "css": ".uiverse-neon-input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;outline:none;transition:box-shadow .2s,border-color .2s}.uiverse-neon-input:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.35)}"
+    },
+    {
+      "id": "hero-mesh-bg",
+      "name": "Hero Mesh Background",
+      "category": "backgrounds",
+      "desc": "落地页网格渐变背景",
+      "html": "<section class=\"uiverse-hero-mesh\"><h1>Portfolio</h1></section>",
+      "css": ".uiverse-hero-mesh{min-height:60vh;display:grid;place-items:center;color:#fff;background:radial-gradient(circle at 20% 20%,#312e81 0,transparent 40%),radial-gradient(circle at 80% 0%,#831843 0,transparent 35%),#020617}"
+    },
+    {
+      "id": "pill-nav",
+      "name": "Pill Navigation",
+      "category": "navigation",
+      "desc": "胶囊导航条",
+      "html": "<nav class=\"uiverse-pill-nav\"><a class=\"active\" href=\"#\">Work</a><a href=\"#\">About</a><a href=\"#\">Contact</a></nav>",
+      "css": ".uiverse-pill-nav{display:inline-flex;gap:4px;padding:6px;border-radius:999px;background:rgba(255,255,255,.06)}.uiverse-pill-nav a{padding:8px 16px;border-radius:999px;color:#cbd5e1;text-decoration:none;font-size:14px}.uiverse-pill-nav a.active,.uiverse-pill-nav a:hover{background:rgba(255,255,255,.12);color:#fff}"
+    },
+    {
+      "id": "social-icon-row",
+      "name": "Social Icon Row",
+      "category": "icons",
+      "desc": "社交图标悬停行",
+      "html": "<div class=\"uiverse-social\"><a href=\"#\" aria-label=\"GitHub\">GH</a><a href=\"#\" aria-label=\"X\">X</a><a href=\"#\" aria-label=\"Mail\">@</a></div>",
+      "css": ".uiverse-social{display:flex;gap:12px}.uiverse-social a{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:#1e293b;color:#e2e8f0;text-decoration:none;font-size:12px;font-weight:700;transition:transform .2s,background .2s}.uiverse-social a:hover{transform:translateY(-3px);background:#334155}"
+    },
+    {
+      "id": "pricing-card",
+      "name": "Pricing Card",
+      "category": "cards",
+      "desc": "定价卡片高亮档",
+      "html": "<article class=\"uiverse-price\"><span class=\"tag\">Pro</span><h3>$19/mo</h3><ul><li>Unlimited projects</li><li>Priority support</li></ul><button>Choose Pro</button></article>",
+      "css": ".uiverse-price{position:relative;padding:28px;border-radius:20px;background:linear-gradient(180deg,#1e1b4b,#0f172a);color:#e2e8f0;border:1px solid rgba(99,102,241,.4)}.uiverse-price .tag{position:absolute;top:16px;right:16px;font-size:11px;padding:4px 8px;border-radius:999px;background:#4f46e5}.uiverse-price button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:10px;background:#6366f1;color:#fff;font-weight:600;cursor:pointer}"
+    }
+  ]
+}

@@ -58,7 +58,7 @@ async function verifyTextFile(path, expectedContent) {
 }
 
 async function editTextFile(tool, args, runCtx) {
-  const path = await K.resolveWorkspacePath(args.path);
+  const path = await K.resolveWorkspacePath(args.path, runCtx);
   const edits = normalizeEdits(args);
   if (!path) return K.toolError(tool, 'path is required.');
   if (!edits.length) return K.toolError(tool, 'at least one edit is required.');

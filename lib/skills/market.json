@@ -1,0 +1,1168 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "id": "market-pr-review",
+      "name": "PR Review Pro",
+      "desc": "深度 PR 审查：正确性、安全、性能、可维护性",
+      "repo": "obra/superpowers",
+      "stars": "50k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请审查以下改动的 PR，从正确性、安全性、性能、可维护性四个维度给出意见，按严重程度分级：\n\n{{cursor}}",
+      "triggers": [
+        "PR",
+        "Review",
+        "Pro",
+        "深度",
+        "PR",
+        "审查：正确性",
+        "安全",
+        "性能"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-tdd",
+      "name": "TDD 红绿重构",
+      "desc": "严格 RED-GREEN-REFACTOR，先写失败测试再写实现",
+      "repo": "obra/superpowers",
+      "stars": "50k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请用 TDD 方式实现以下功能。步骤：1) 先写会失败的测试 2) 确认测试失败 3) 写最少代码让测试通过 4) 重构。不要先写实现再补测试：\n\n{{cursor}}",
+      "triggers": [
+        "TDD",
+        "红绿重构",
+        "严格",
+        "RED-GREEN-REFACTOR",
+        "先写失败测试再写实现",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-test-gen",
+      "name": "Test Generator",
+      "desc": "生成高覆盖率单元测试，覆盖主路径与边界",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请为以下代码生成单元测试，覆盖主路径、边界情况和错误分支。使用项目现有测试框架：\n\n```\n{{cursor}}\n```",
+      "triggers": [
+        "Test",
+        "Generator",
+        "生成高覆盖率单元测试",
+        "覆盖主路径与边界",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-refactor-plan",
+      "name": "Refactor Planner",
+      "desc": "分步重构计划，不改行为只提升结构",
+      "repo": "obra/superpowers",
+      "stars": "50k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请分析以下代码并制定分步重构计划（保持功能不变，只提升结构与可读性）。每步说明风险与验证方式：\n\n```\n{{cursor}}\n```",
+      "triggers": [
+        "Refactor",
+        "Planner",
+        "分步重构计划",
+        "不改行为只提升结构",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-commit-pro",
+      "name": "Commit Message Pro",
+      "desc": "Conventional Commits + 中文说明",
+      "repo": "github/awesome-copilot",
+      "stars": "3k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请根据以下改动生成 Conventional Commits 格式的提交信息（type(scope): subject + 中文 body）：\n\n```\n{{cursor}}\n```",
+      "triggers": [
+        "Commit",
+        "Message",
+        "Pro",
+        "Conventional",
+        "Commits",
+        "中文说明",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-doc-writer",
+      "name": "Doc Writer",
+      "desc": "从代码生成 README 与 API 文档",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请根据以下代码/模块生成 README（安装、用法、示例、配置项）：\n\n{{cursor}}",
+      "triggers": [
+        "Doc",
+        "Writer",
+        "从代码生成",
+        "README",
+        "API",
+        "文档",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-brainstorm",
+      "name": "Brainstorm 设计",
+      "desc": "写代码前先澄清需求、探索方案、输出设计",
+      "repo": "obra/superpowers",
+      "stars": "50k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "在写任何代码之前，请先帮我 brainstorm：澄清需求、列出 2-3 种方案对比、推荐一种并说明 trade-off。主题：\n\n{{cursor}}",
+      "triggers": [
+        "Brainstorm",
+        "设计",
+        "写代码前先澄清需求",
+        "探索方案",
+        "输出设计",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-impl-plan",
+      "name": "Implementation Plan",
+      "desc": "可执行的实现计划，小步可验证",
+      "repo": "obra/superpowers",
+      "stars": "50k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请为以下任务写详细实现计划：拆成 5-15 个小步骤，每步有明确完成标准和验证方式。不要写代码，只写计划：\n\n{{cursor}}",
+      "triggers": [
+        "Implementation",
+        "Plan",
+        "可执行的实现计划",
+        "小步可验证",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-debug-systematic",
+      "name": "Systematic Debugging",
+      "desc": "四阶段根因分析，禁止瞎猜式改代码",
+      "repo": "obra/superpowers",
+      "stars": "50k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请用系统化调试流程分析以下问题：1) 复现 2) 缩小范围 3) 形成假设并验证 4) 修复并回归。不要未验证就改代码：\n\n{{cursor}}",
+      "triggers": [
+        "Systematic",
+        "Debugging",
+        "四阶段根因分析",
+        "禁止瞎猜式改代码",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-security-audit",
+      "name": "Security Audit",
+      "desc": "扫描注入、XSS、越权、敏感信息泄露",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请对以下代码做安全审计，检查：SQL/命令注入、XSS、CSRF、路径遍历、硬编码密钥、越权访问。按 Critical/High/Medium 分级：\n\n{{cursor}}",
+      "triggers": [
+        "Security",
+        "Audit",
+        "扫描注入",
+        "XSS",
+        "越权",
+        "敏感信息泄露",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-perf-profile",
+      "name": "Performance Profiler",
+      "desc": "定位性能瓶颈并给出可量化优化建议",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请分析以下代码/场景的性能瓶颈，指出热点、复杂度、I/O 问题，并给出优先级排序的优化方案和预期收益：\n\n{{cursor}}",
+      "triggers": [
+        "Performance",
+        "Profiler",
+        "定位性能瓶颈并给出可量化优化建议",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-api-design",
+      "name": "API Design",
+      "desc": "REST/GraphQL 接口设计，命名、版本、错误码",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请设计以下功能的 API（路径、方法、请求/响应 schema、错误码、分页）。遵循 RESTful 最佳实践：\n\n{{cursor}}",
+      "triggers": [
+        "API",
+        "Design",
+        "REST",
+        "GraphQL",
+        "接口设计",
+        "命名",
+        "版本",
+        "错误码"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-ts-migrate",
+      "name": "TypeScript Migration",
+      "desc": "JS 渐进式迁移 TS，类型与 strict 策略",
+      "repo": "github/awesome-copilot",
+      "stars": "3k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请制定将以下 JavaScript 代码迁移到 TypeScript 的计划，包括类型定义、strict 选项、分文件迁移顺序：\n\n```\n{{cursor}}\n```",
+      "triggers": [
+        "TypeScript",
+        "Migration",
+        "JS",
+        "渐进式迁移",
+        "TS",
+        "类型与",
+        "strict",
+        "策略"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-bug-fix",
+      "name": "Bug Fix Pro",
+      "desc": "读错误栈 → 定位 → 最小修复 → 防回归",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请根据以下错误信息/现象定位 Bug，给出根因、最小修复 diff 思路，并建议一条防回归测试：\n\n{{cursor}}",
+      "triggers": [
+        "Bug",
+        "Fix",
+        "Pro",
+        "读错误栈",
+        "定位",
+        "最小修复",
+        "防回归",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-code-explain",
+      "name": "Explain Code",
+      "desc": "逐层解释代码逻辑、数据流、设计意图",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请解释以下代码：整体职责、关键函数、数据流、潜在坑点。用中文，适合新成员 onboarding：\n\n```\n{{cursor}}\n```",
+      "triggers": [
+        "Explain",
+        "Code",
+        "逐层解释代码逻辑",
+        "数据流",
+        "设计意图",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-sql-optimize",
+      "name": "SQL Optimizer",
+      "desc": "慢查询分析、索引建议、执行计划解读",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请分析以下 SQL/查询逻辑，指出性能问题，建议索引、改写方式，并说明原因：\n\n```\n{{cursor}}\n```",
+      "triggers": [
+        "SQL",
+        "Optimizer",
+        "慢查询分析",
+        "索引建议",
+        "执行计划解读",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-regex-builder",
+      "name": "Regex Builder",
+      "desc": "从自然语言描述生成并解释正则表达式",
+      "repo": "github/awesome-copilot",
+      "stars": "3k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请根据以下需求编写正则表达式，给出匹配/不匹配示例，并逐段解释：\n\n{{cursor}}",
+      "triggers": [
+        "Regex",
+        "Builder",
+        "从自然语言描述生成并解释正则表达式",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-deps-audit",
+      "name": "Dependency Audit",
+      "desc": "依赖升级、漏洞、重复包、体积分析",
+      "repo": "snyk.io/skills",
+      "stars": "—",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请审查项目依赖：过时版本、已知漏洞、重复/冗余包、license 风险，并给出升级优先级：\n\n{{cursor}}",
+      "triggers": [
+        "Dependency",
+        "Audit",
+        "依赖升级",
+        "漏洞",
+        "重复包",
+        "体积分析",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-error-handling",
+      "name": "Error Handling",
+      "desc": "统一错误处理、用户友好提示、日志策略",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请为以下代码设计错误处理策略：错误分类、用户可见消息、日志级别、重试/降级。给出改进后的结构：\n\n{{cursor}}",
+      "triggers": [
+        "Error",
+        "Handling",
+        "统一错误处理",
+        "用户友好提示",
+        "日志策略",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-mcp-builder",
+      "name": "MCP Server Builder",
+      "desc": "设计并实现 MCP 工具服务器",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "code"
+      ],
+      "prompt": "请帮我设计一个 MCP 服务器：工具列表、输入 schema、实现思路、测试连接方式。需求：\n\n{{cursor}}",
+      "triggers": [
+        "MCP",
+        "Server",
+        "Builder",
+        "设计并实现",
+        "MCP",
+        "工具服务器",
+        "code"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-frontend-design",
+      "name": "Frontend Design",
+      "desc": "Anthropic 官方：拒绝 AI slop，做有辨识度的界面",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请设计并实现以下界面。要求：选定明确美学方向（不要 Inter/Roboto/紫色渐变套娃），用 CSS 变量统一 token，字体有性格，背景有层次，动效克制但有点睛之笔：\n\n{{cursor}}",
+      "triggers": [
+        "Frontend",
+        "Design",
+        "Anthropic",
+        "官方：拒绝",
+        "AI",
+        "slop",
+        "做有辨识度的界面",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-theme-factory",
+      "name": "Theme Factory",
+      "desc": "生成完整设计主题：色板、字体、圆角、阴影",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下产品/场景生成一套完整 UI 主题（CSS 变量）：主色、背景层级、字体 pairing、圆角、阴影、间距 scale。输出 :root 变量块：\n\n{{cursor}}",
+      "triggers": [
+        "Theme",
+        "Factory",
+        "生成完整设计主题：色板",
+        "字体",
+        "圆角",
+        "阴影",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-design-tokens",
+      "name": "Design System Tokens",
+      "desc": "DESIGN.md 设计系统文档 + token 定义",
+      "repo": "anthropics/cookbook",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下项目编写 DESIGN.md 设计系统：视觉主题、颜色 token、字体规则、组件样式、布局原则、Do/Don't。产品描述：\n\n{{cursor}}",
+      "triggers": [
+        "Design",
+        "System",
+        "Tokens",
+        "DESIGN.md",
+        "设计系统文档",
+        "token",
+        "定义",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-tailwind-polish",
+      "name": "Tailwind Polish",
+      "desc": "Tailwind 组件精细化：间距、状态、暗色",
+      "repo": "deftsoft/skills",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请用 Tailwind CSS 优化以下 UI 组件：统一 spacing、hover/focus/disabled 状态、暗色模式、响应式断点。保持语义化 HTML：\n\n{{cursor}}",
+      "triggers": [
+        "Tailwind",
+        "Polish",
+        "Tailwind",
+        "组件精细化：间距",
+        "状态",
+        "暗色",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-dark-mode",
+      "name": "Dark Mode Theme",
+      "desc": "双主题切换，对比度与 elevation 层级",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下界面实现 dark/light 双主题：CSS 变量、对比度达标、surface elevation 层级、切换动画。现有代码：\n\n{{cursor}}",
+      "triggers": [
+        "Dark",
+        "Mode",
+        "Theme",
+        "双主题切换",
+        "对比度与",
+        "elevation",
+        "层级",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-a11y-audit",
+      "name": "Accessibility Audit",
+      "desc": "WCAG 检查：对比度、键盘、ARIA、焦点",
+      "repo": "snyk.io/skills",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请对以下 UI 做无障碍审计（WCAG 2.1 AA）：颜色对比、键盘导航、ARIA 标签、焦点顺序、屏幕阅读器。列出问题与修复：\n\n{{cursor}}",
+      "triggers": [
+        "Accessibility",
+        "Audit",
+        "WCAG",
+        "检查：对比度",
+        "键盘",
+        "ARIA",
+        "焦点",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-css-animation",
+      "name": "CSS Animation Pro",
+      "desc": "CSS 动效：stagger 入场、微交互、性能友好",
+      "repo": "anthropics/cookbook",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下界面添加 CSS 动效：页面 load stagger reveal、hover 微交互。优先 CSS-only，避免 layout thrashing。场景：\n\n{{cursor}}",
+      "triggers": [
+        "CSS",
+        "Animation",
+        "Pro",
+        "CSS",
+        "动效：stagger",
+        "入场",
+        "微交互",
+        "性能友好"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-responsive-fix",
+      "name": "Mobile Responsive",
+      "desc": "移动端适配：断点、触控目标、折叠布局",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请将以下界面做移动端响应式适配：320/768/1024 断点、触控目标 ≥44px、表格/导航折叠策略：\n\n{{cursor}}",
+      "triggers": [
+        "Mobile",
+        "Responsive",
+        "移动端适配：断点",
+        "触控目标",
+        "折叠布局",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-typography",
+      "name": "Typography Pairing",
+      "desc": "标题/正文字体配对，拒绝 Arial Inter 默认",
+      "repo": "anthropics/cookbook",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下产品设计字体 pairing（display + body），给出 Google Fonts 或系统字体 fallback，以及字号/行高 scale。调性：\n\n{{cursor}}",
+      "triggers": [
+        "Typography",
+        "Pairing",
+        "标题",
+        "正文字体配对",
+        "拒绝",
+        "Arial",
+        "Inter",
+        "默认"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-color-palette",
+      "name": "Color Palette",
+      "desc": "主导色 + 强调色，文化/品牌感配色",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下场景设计配色方案：主色、强调色、neutral 灰阶、semantic（success/warn/error）。避免 AI 默认紫蓝渐变：\n\n{{cursor}}",
+      "triggers": [
+        "Color",
+        "Palette",
+        "主导色",
+        "强调色",
+        "文化",
+        "品牌感配色",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-component-scaffold",
+      "name": "Component Scaffold",
+      "desc": "Button/Card/Modal 等基础组件库骨架",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请搭建基础 UI 组件库骨架：Button、Input、Card、Modal、Toast。统一 variants（size/intent）、TypeScript props、Storybook 友好：\n\n{{cursor}}",
+      "triggers": [
+        "Component",
+        "Scaffold",
+        "Button",
+        "Card",
+        "Modal",
+        "等基础组件库骨架",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-micro-interactions",
+      "name": "Micro-interactions",
+      "desc": "按钮反馈、加载态、空状态、Toast 动效",
+      "repo": "snyk.io/skills",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请为以下界面补充微交互：按钮 press 反馈、loading skeleton、empty state 插画文案、toast 进出动画：\n\n{{cursor}}",
+      "triggers": [
+        "Micro-interactions",
+        "按钮反馈",
+        "加载态",
+        "空状态",
+        "Toast",
+        "动效",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-glass-ui",
+      "name": "Glassmorphism UI",
+      "desc": "毛玻璃、模糊、边框光晕的现代面板风格",
+      "repo": "community/skills",
+      "stars": "—",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请用 glassmorphism 风格实现以下 UI 面板：backdrop-blur、半透明 surface、细边框高光、深色背景衬托。组件：\n\n{{cursor}}",
+      "triggers": [
+        "Glassmorphism",
+        "UI",
+        "毛玻璃",
+        "模糊",
+        "边框光晕的现代面板风格",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-dashboard-ui",
+      "name": "Dashboard UI",
+      "desc": "数据仪表盘：卡片网格、图表区、侧边导航",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请设计并实现一个数据仪表盘布局：sidebar + topbar + metric cards + chart 区域。风格现代、信息密度适中：\n\n{{cursor}}",
+      "triggers": [
+        "Dashboard",
+        "UI",
+        "数据仪表盘：卡片网格",
+        "图表区",
+        "侧边导航",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-form-ux",
+      "name": "Form UX Polish",
+      "desc": "表单体验：校验提示、分步、自动保存",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "ui"
+      ],
+      "prompt": "请优化以下表单的 UX：inline 校验、错误文案、loading/disabled、分步向导（如需要）、键盘 Tab 顺序：\n\n{{cursor}}",
+      "triggers": [
+        "Form",
+        "UX",
+        "Polish",
+        "表单体验：校验提示",
+        "分步",
+        "自动保存",
+        "ui"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-landing-hero",
+      "name": "Landing Hero",
+      "desc": "高转化落地页 Hero + 价值主张 + CTA",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请设计并实现落地页 Hero 区：headline、subhead、主 CTA、社会证明元素。指定美学方向，避免模板感。产品：\n\n{{cursor}}",
+      "triggers": [
+        "Landing",
+        "Hero",
+        "高转化落地页",
+        "Hero",
+        "价值主张",
+        "CTA",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-saas-site",
+      "name": "SaaS Marketing Site",
+      "desc": "SaaS 官网：功能、定价、FAQ、页脚完整结构",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请规划并实现 SaaS 营销站核心页面结构：Hero、Features、Pricing、FAQ、Footer。技术栈与品牌调性：\n\n{{cursor}}",
+      "triggers": [
+        "SaaS",
+        "Marketing",
+        "Site",
+        "SaaS",
+        "官网：功能",
+        "定价",
+        "FAQ",
+        "页脚完整结构"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-portfolio",
+      "name": "Portfolio Site",
+      "desc": "个人/工作室作品集：项目展示、关于、联系",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请设计作品集网站：项目 grid、case study 详情、About、Contact。风格 editorial，突出视觉作品。主体：\n\n{{cursor}}",
+      "triggers": [
+        "Portfolio",
+        "Site",
+        "个人",
+        "工作室作品集：项目展示",
+        "关于",
+        "联系",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-pricing-page",
+      "name": "Pricing Page",
+      "desc": "定价页：tier 对比、功能矩阵、年付切换",
+      "repo": "community/skills",
+      "stars": "—",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请设计定价页：3 档 tier、功能对比表、月/年切换、推荐档高亮、FAQ 折叠。产品：\n\n{{cursor}}",
+      "triggers": [
+        "Pricing",
+        "Page",
+        "定价页：tier",
+        "对比",
+        "功能矩阵",
+        "年付切换",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-web-artifacts",
+      "name": "Web Artifacts Builder",
+      "desc": "Anthropic 官方：自包含 HTML 交互 artifact",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请生成完整自包含 HTML artifact（inline CSS/JS），可直接在浏览器打开。需求：\n\n{{cursor}}",
+      "triggers": [
+        "Web",
+        "Artifacts",
+        "Builder",
+        "Anthropic",
+        "官方：自包含",
+        "HTML",
+        "交互",
+        "artifact"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-wireframe-html",
+      "name": "Wireframe to HTML",
+      "desc": "从文字线框图快速出静态 HTML 原型",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请根据以下线框/结构描述，输出语义化 HTML + Tailwind 静态原型（移动端优先）：\n\n{{cursor}}",
+      "triggers": [
+        "Wireframe",
+        "to",
+        "HTML",
+        "从文字线框图快速出静态",
+        "HTML",
+        "原型",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-seo-structure",
+      "name": "SEO Structure",
+      "desc": "meta、OG、结构化数据、sitemap 建议",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请为以下页面/站点给出 SEO 方案：title/description、Open Graph、JSON-LD、heading 层级、内链策略：\n\n{{cursor}}",
+      "triggers": [
+        "SEO",
+        "Structure",
+        "meta",
+        "OG",
+        "结构化数据",
+        "sitemap",
+        "建议",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-nav-ia",
+      "name": "Navigation & IA",
+      "desc": "信息架构：导航层级、面包屑、URL 规划",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请为以下产品设计信息架构：主导航、二级导航、面包屑、URL 结构、移动端菜单模式：\n\n{{cursor}}",
+      "triggers": [
+        "Navigation",
+        "IA",
+        "信息架构：导航层级",
+        "面包屑",
+        "URL",
+        "规划",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-blog-layout",
+      "name": "Blog Layout",
+      "desc": "博客：文章列表、阅读页、标签、RSS",
+      "repo": "community/skills",
+      "stars": "—",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请设计博客布局：文章列表（摘要+封面）、阅读页（目录+排版）、标签页、作者区。风格：\n\n{{cursor}}",
+      "triggers": [
+        "Blog",
+        "Layout",
+        "博客：文章列表",
+        "阅读页",
+        "标签",
+        "RSS",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-ecommerce-pdp",
+      "name": "E-commerce PDP",
+      "desc": "电商产品详情：画廊、规格、加购、评价",
+      "repo": "community/skills",
+      "stars": "—",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请设计电商产品详情页：图片画廊、规格选择、价格/库存、加购 CTA、评价区、相关推荐：\n\n{{cursor}}",
+      "triggers": [
+        "E-commerce",
+        "PDP",
+        "电商产品详情：画廊",
+        "规格",
+        "加购",
+        "评价",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-cta-optimizer",
+      "name": "CTA Optimizer",
+      "desc": "转化优化：文案、位置、紧迫感、A/B 假设",
+      "repo": "theadpharm/skills",
+      "stars": "—",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请优化以下页面的转化 CTA：文案、颜色对比、位置、紧迫感元素，并给出 2 个 A/B 测试假设：\n\n{{cursor}}",
+      "triggers": [
+        "CTA",
+        "Optimizer",
+        "转化优化：文案",
+        "位置",
+        "紧迫感",
+        "假设",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-og-social",
+      "name": "Social Preview",
+      "desc": "Open Graph / Twitter Card 社交分享预览",
+      "repo": "wshobson/agents",
+      "stars": "5k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请为以下页面生成完整 social meta：og:title/description/image、twitter:card、尺寸建议与示例 HTML head：\n\n{{cursor}}",
+      "triggers": [
+        "Social",
+        "Preview",
+        "Open",
+        "Graph",
+        "Twitter",
+        "Card",
+        "社交分享预览",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-multi-page-plan",
+      "name": "Multi-page Site Plan",
+      "desc": "多页面站点规划：路由、共用 layout、内容大纲",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请规划多页面网站：页面清单、每页内容大纲、共用 header/footer、路由结构、开发顺序：\n\n{{cursor}}",
+      "triggers": [
+        "Multi-page",
+        "Site",
+        "Plan",
+        "多页面站点规划：路由",
+        "共用",
+        "layout",
+        "内容大纲",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-webapp-testing",
+      "name": "Webapp Testing",
+      "desc": "Anthropic 官方：Playwright 端到端测试流程",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请为以下 Web 应用编写 Playwright E2E 测试计划与关键用例（登录、主流程、错误态）：\n\n{{cursor}}",
+      "triggers": [
+        "Webapp",
+        "Testing",
+        "Anthropic",
+        "官方：Playwright",
+        "端到端测试流程",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-footer-legal",
+      "name": "Footer & Legal",
+      "desc": "页脚、隐私政策、Terms 页面模板",
+      "repo": "community/skills",
+      "stars": "—",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请设计网站 footer（链接分组、社交图标、版权）并起草 Privacy Policy / Terms of Service 页面结构（占位文案）：\n\n{{cursor}}",
+      "triggers": [
+        "Footer",
+        "Legal",
+        "页脚",
+        "隐私政策",
+        "Terms",
+        "页面模板",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-web-research",
+      "name": "Web Research",
+      "desc": "联网调研竞品与趋势，输出结构化报告",
+      "repo": "anthropics/skills",
+      "stars": "159k+",
+      "tags": [
+        "web"
+      ],
+      "prompt": "请帮我调研以下主题（竞品网站、设计趋势、技术选型），输出结构化 Markdown 报告（背景、对比表、结论）：\n\n{{cursor}}",
+      "triggers": [
+        "Web",
+        "Research",
+        "联网调研竞品与趋势",
+        "输出结构化报告",
+        "web"
+      ],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
+    }
+  ]
+}

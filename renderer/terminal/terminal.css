@@ -1,0 +1,193 @@
+.terminal-panel {
+  --terminal-bg: #151515;
+  --terminal-surface: #1c1c1c;
+  --terminal-text: #deded8;
+  --terminal-muted: #85857e;
+  --terminal-prompt: #79b69b;
+  --terminal-error: #e4857f;
+  background: var(--terminal-bg);
+}
+
+[data-theme="light"] .terminal-panel {
+  --terminal-bg: #fbfbf8;
+  --terminal-surface: #f4f4ef;
+  --terminal-text: #272725;
+  --terminal-muted: #77776f;
+  --terminal-prompt: #39765c;
+  --terminal-error: #b33d38;
+}
+
+.terminal-header {
+  min-height: 46px;
+  background: var(--terminal-surface);
+  padding-inline: 14px 10px;
+}
+
+.terminal-heading,
+.terminal-header-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.terminal-heading { gap: 8px; }
+.terminal-header-actions { gap: 2px; }
+
+.terminal-heading-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--terminal-prompt);
+  background: color-mix(in srgb, var(--terminal-prompt) 12%, transparent);
+  border-radius: var(--r-sm);
+}
+
+.terminal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 3px;
+  color: var(--terminal-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.terminal-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.terminal-status[data-status="ready"] .terminal-status-dot { background: var(--success); }
+.terminal-status[data-status="running"] .terminal-status-dot { background: var(--accent); }
+.terminal-status[data-status="starting"] .terminal-status-dot,
+.terminal-status[data-status="restarting"] .terminal-status-dot {
+  background: var(--accent);
+  animation: terminalPulse 1.1s ease-in-out infinite;
+}
+.terminal-status[data-status="error"] .terminal-status-dot,
+.terminal-status[data-status="exited"] .terminal-status-dot { background: var(--danger); }
+
+@keyframes terminalPulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.terminal-header .tool-panel-cwd {
+  text-align: center;
+  padding-inline: 12px;
+}
+
+.terminal-header-actions .tool-panel-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.terminal-screen {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px 28px;
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  outline: none;
+  user-select: text;
+  cursor: text;
+}
+
+.terminal-screen:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.terminal-output {
+  min-width: min-content;
+  font-family: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.62;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+.terminal-output-chunk { color: var(--terminal-text); }
+.terminal-output-chunk.is-error { color: var(--terminal-error); }
+.terminal-output-chunk.is-system { color: var(--terminal-muted); }
+.terminal-output-chunk.is-command { color: var(--terminal-prompt); }
+
+.terminal-command-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 10px 12px 10px 20px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--terminal-surface);
+}
+
+.terminal-prompt {
+  max-width: 42%;
+  padding-top: 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--terminal-prompt);
+  font-family: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 22px;
+}
+
+.terminal-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 26px;
+  max-height: 100px;
+  padding: 3px 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--terminal-text);
+  caret-color: var(--accent);
+  font-family: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+.terminal-input::placeholder { color: var(--terminal-muted); }
+
+.terminal-run {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #fff;
+  transition: background var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+
+.terminal-run:hover { background: var(--accent-hover); }
+.terminal-run:disabled { opacity: 0.35; cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  .terminal-status { display: none; }
+  .terminal-header .tool-panel-cwd { text-align: left; }
+  .terminal-screen { padding-inline: 14px; }
+  .terminal-command-row { padding-left: 14px; }
+  .terminal-prompt { max-width: 34%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-status-dot { animation: none !important; }
+}

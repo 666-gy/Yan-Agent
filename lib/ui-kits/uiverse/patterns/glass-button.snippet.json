@@ -1,0 +1,8 @@
+{
+  "id": "glass-button",
+  "name": "Glass Button",
+  "category": "buttons",
+  "desc": "毛玻璃质感主按钮，hover 微抬升",
+  "html": "<button class=\"uiverse-glass-btn\">Get Started</button>",
+  "css": ".uiverse-glass-btn{padding:12px 28px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);backdrop-filter:blur(12px);color:#fff;font-weight:600;cursor:pointer;transition:transform .2s,box-shadow .2s}.uiverse-glass-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.25)}"
+}

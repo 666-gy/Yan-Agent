@@ -7,8 +7,20 @@
 // 当对话历史超过 token 阈值时，压缩早期消息为摘要
 function estimateTokens(messages) {
   let chars = 0;
-  for (const m of messages) {
+  for (const m of messages || []) {
     chars += (m.content || '').length;
+    if (Array.isArray(m.attachments)) {
+      for (const a of m.attachments) {
+        chars += (a.name || '').length + (K.isImageAttachment?.(a) ? 4000 : 80);
+      }
+    }
+    const trace = m.agentRun?.apiTrace;
+    if (Array.isArray(trace)) {
+      for (const tm of trace) {
+        chars += (tm.content || '').length;
+        if (tm.tool_calls) chars += JSON.stringify(tm.tool_calls).length;
+      }
+    }
   }
   return Math.ceil(chars * 1.8);
 }
@@ -22,18 +34,19 @@ function clipTraceForStorage(trace) {
 }
 
 async function compressContextIfNeeded(messages) {
-  const estTokens = estimateTokens(messages);
-  if (estTokens <= K.CONTEXT_TOKEN_THRESHOLD) {
-    return messages;
+  const beforeTokens = estimateTokens(messages);
+  const threshold = K.CONTEXT_TOKEN_COMPRESS_THRESHOLD || K.CONTEXT_TOKEN_THRESHOLD;
+  if (beforeTokens <= threshold) {
+    return { messages, compressed: false, tokens: beforeTokens };
   }
 
   let splitIdx = messages.length - K.CONTEXT_KEEP_RECENT;
-  if (splitIdx <= 2) return messages;
+  if (splitIdx <= 2) return { messages, compressed: false, tokens: beforeTokens };
 
   while (splitIdx < messages.length && messages[splitIdx]?.role === 'tool') {
     splitIdx++;
   }
-  if (splitIdx >= messages.length) return messages;
+  if (splitIdx >= messages.length) return { messages, compressed: false, tokens: beforeTokens };
 
   const toCompress = messages.slice(0, splitIdx);
   const toKeep = messages.slice(splitIdx);
@@ -62,7 +75,13 @@ async function compressContextIfNeeded(messages) {
   }
 
   if (!toSummarize.length) {
-    return [...traceKeepers, ...toKeep];
+    const merged = [...traceKeepers, ...toKeep];
+    return {
+      messages: merged,
+      compressed: true,
+      beforeTokens,
+      afterTokens: estimateTokens(merged)
+    };
   }
 
   const { baseUrl, apiKey, model } = deps().getConfig().api;
@@ -93,13 +112,19 @@ async function compressContextIfNeeded(messages) {
     const data = await res.json();
     const summary = data.choices?.[0]?.message?.content || '';
 
-    return [
+    const merged = [
       { role: 'system', content: `## Previous Context (已压缩的早期对话摘要)\n${summary}` },
       ...traceKeepers,
       ...toKeep
     ];
+    return {
+      messages: merged,
+      compressed: true,
+      beforeTokens,
+      afterTokens: estimateTokens(merged)
+    };
   } catch (e) {
-    return [
+    const merged = [
       ...traceKeepers,
       ...toSummarize.map(m => {
         if ((m.content || '').length > 4000) {
@@ -109,6 +134,12 @@ async function compressContextIfNeeded(messages) {
       }),
       ...toKeep
     ];
+    return {
+      messages: merged,
+      compressed: true,
+      beforeTokens,
+      afterTokens: estimateTokens(merged)
+    };
   }
 }
 

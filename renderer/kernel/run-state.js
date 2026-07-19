@@ -3,15 +3,24 @@
   'use strict';
   const deps = () => K._deps;
   const api = () => deps().api;
-function createRunCtx(sessionId, ui = true) {
+function createRunCtx(sessionId, ui = true, workspace) {
   return {
     sessionId,
+    workspace: workspace === undefined ? undefined : String(workspace || ''),
     runId: 'run_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     fileChangeCount: 0,
     ui,
     shouldAbort: false,
     abortController: null,
-    agentState: { todos: [], todosFromTool: false, iteration: 0, toolCallCount: 0, status: 'idle' },
+    toolCallSeq: 0,
+    toolCallResults: new Map(),
+    builtinBrowserOpened: false,
+    builtinBrowserUrl: '',
+    agentState: {
+      todos: [], todosFromTool: false,
+      outcome: '', acceptanceCriteria: [], outcomeFromTool: false,
+      iteration: 0, toolCallCount: 0, status: 'idle'
+    },
     activeAgentRun: null,
     mcpToolMapSnapshot: null,
     policyState: K.createPolicyState ? K.createPolicyState() : { readPaths: new Set() }
@@ -64,6 +73,13 @@ function finalizeAgentRun(content, status, run, bodyEl, apiMessages, runCtx) {
     toolCallCount: as.toolCallCount,
     todos: as.todos.map(t => ({ text: t.text, done: t.done, inProgress: t.inProgress })),
     todosFromTool: as.todosFromTool,
+    outcome: as.outcome || '',
+    acceptanceCriteria: (as.acceptanceCriteria || []).map(c => ({
+      text: c.text,
+      status: c.status,
+      evidence: c.evidence || ''
+    })),
+    outcomeFromTool: !!as.outcomeFromTool,
     timeline,
     apiTrace
   };

@@ -1,0 +1,8 @@
+{
+  "id": "pill-nav",
+  "name": "Pill Navigation",
+  "category": "navigation",
+  "desc": "胶囊导航条",
+  "html": "<nav class=\"uiverse-pill-nav\"><a class=\"active\" href=\"#\">Work</a><a href=\"#\">About</a><a href=\"#\">Contact</a></nav>",
+  "css": ".uiverse-pill-nav{display:inline-flex;gap:4px;padding:6px;border-radius:999px;background:rgba(255,255,255,.06)}.uiverse-pill-nav a{padding:8px 16px;border-radius:999px;color:#cbd5e1;text-decoration:none;font-size:14px}.uiverse-pill-nav a.active,.uiverse-pill-nav a:hover{background:rgba(255,255,255,.12);color:#fff}"
+}

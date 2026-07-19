@@ -1,6 +1,6 @@
 {
   "name": "yan-agent",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Yan Agent — a modern, minimalist Agent desktop client built with Electron",
   "main": "main.js",
   "scripts": {
@@ -18,6 +18,7 @@
   "build": {
     "appId": "com.yan.agent",
     "productName": "Yan Agent",
+    "icon": "renderer/assets/logo-light.ico",
     "directories": {
       "output": "dist"
     },
@@ -28,20 +29,27 @@
       "renderer/**/*"
     ],
     "win": {
-      "icon": "renderer/assets/logo.png",
+      "icon": "renderer/assets/logo-light.ico",
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "include": "build/installer.nsh",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
@@ -51,5 +59,8 @@
     "portable": {
       "artifactName": "Yan.Agent.Portable.${version}.${ext}"
     }
+  },
+  "dependencies": {
+    "diff": "^7.0.0"
   }
 }

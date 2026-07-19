@@ -8,10 +8,36 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'todo_write',
-      description: '创建或更新任务计划清单（会实时展示给用户）。任何需要 3 步以上的任务，动手前先调用它列出计划；之后每完成一步就再次调用更新状态。每次必须传完整清单。同一时刻只能有一项 in_progress。',
+      description: '定义任务目标、验收条件并创建或更新执行计划（计划会实时展示给用户）。非简单任务开始前调用；后续每次传完整状态。任务是否完成由 acceptance_criteria 及其 evidence 决定，不由 todo 数量决定。',
       parameters: {
         type: 'object',
         properties: {
+          outcome: {
+            type: 'string',
+            minLength: 3,
+            description: '本轮任务最终应交付的可观察结果，不写执行过程'
+          },
+          acceptance_criteria: {
+            type: 'array',
+            minItems: 1,
+            description: '验收条件完整列表；satisfied/skipped 必须提供 evidence',
+            items: {
+              type: 'object',
+              properties: {
+                text: { type: 'string', minLength: 2, description: '可检查的验收条件' },
+                status: {
+                  type: 'string',
+                  enum: ['pending', 'in_progress', 'satisfied', 'skipped'],
+                  description: '验收状态'
+                },
+                evidence: {
+                  type: 'string',
+                  description: '满足条件的工具结果、文件路径或用户明确要求跳过验证的说明'
+                }
+              },
+              required: ['text', 'status']
+            }
+          },
           todos: {
             type: 'array',
             description: '完整的任务清单',
@@ -25,7 +51,7 @@ const BUILT_IN_TOOLS = [
             }
           }
         },
-        required: ['todos']
+        required: ['outcome', 'acceptance_criteria', 'todos']
       }
     }
   },
@@ -401,6 +427,71 @@ const BUILT_IN_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'list_ui_kit',
+      description: '列出预装的 UI 组件库（react-bits、uiverse）。做 UI/网页前先用此工具查本地目录，不要上网搜 GitHub。',
+      parameters: {
+        type: 'object',
+        properties: {
+          kit: { type: 'string', enum: ['react-bits', 'uiverse'], description: 'UI 库 id' },
+          query: { type: 'string', description: '可选关键词，如 BlurText、button、glass' }
+        },
+        required: ['kit']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_ui_kit',
+      description: '读取预装 UI 组件源码（本地）。React Bits 动画组件或 Uiverse HTML/CSS 片段。禁止用 fetch MCP 拉 react-bits 的 GitHub raw 链接。',
+      parameters: {
+        type: 'object',
+        properties: {
+          kit: { type: 'string', enum: ['react-bits', 'uiverse'], description: 'react-bits 或 uiverse' },
+          component: { type: 'string', description: '组件名，如 BlurText、glass-button' },
+          variant: {
+            type: 'string',
+            enum: ['JS-CSS', 'JS-TW', 'TS-CSS', 'TS-TW'],
+            description: 'react-bits 变体，默认 JS-CSS；静态 HTML 优先 uiverse'
+          }
+        },
+        required: ['kit', 'component']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_skills',
+      description: '列出可用 Skill 目录（已安装 + 市场）。任务开始前若不确定用哪个 skill，可先调用此工具按关键词筛选。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '可选关键词，按 id/name/desc/triggers 过滤' },
+          tag: { type: 'string', enum: ['code', 'ui', 'web'], description: '可选标签过滤' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_skill',
+      description: '加载 Skill 的完整 playbook 并遵循其步骤执行。若未安装，会从内置 Skill 目录（lib/skills/market.json）自动安装后再返回。网站/UI/审查/文档类任务应优先调用相关 skill。',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Skill id，如 market-frontend-design、code-review' },
+          task_context: { type: 'string', description: '可选：替换 {{cursor}} 的任务上下文片段' }
+        },
+        required: ['id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'spawn_subagent',
       description: '委派子 Agent 完成子任务，结果以摘要返回主 Agent。类型：explore(只读调研)、shell(命令)、review(代码审查)、edit(专注改动)、ui(前端/HTML)、doc(文档/报告)。子 Agent 不能嵌套。',
       parameters: {
@@ -412,7 +503,12 @@ const BUILT_IN_TOOLS = [
             description: '子 Agent 类型'
           },
           task: { type: 'string', description: '子任务描述' },
-          context: { type: 'string', description: '可选补充上下文' }
+          context: { type: 'string', description: '可选补充上下文' },
+          skills: {
+            type: 'array',
+            description: '可选：委派前用 read_skill 加载的 skill id 列表，将自动注入 playbook',
+            items: { type: 'string' }
+          }
         },
         required: ['type', 'task']
       }
@@ -441,6 +537,22 @@ const BUILT_IN_TOOLS = [
           }
         },
         required: ['agents']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_image',
+      description: '根据用户要求生成一张会话图片并显示在对话中；图片由 Yan Agent 内部保留但不会自动下载，用户点击后可自行下载。仅在用户明确要求生成图片、插画、素材或视觉资产时调用；不要用它代替网页、CSS 或 Canvas 实现。',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', minLength: 3, maxLength: 4000, description: '完整、具体的生图提示词' },
+          aspect_ratio: { type: 'string', enum: ['auto', '1:1', '16:9', '9:16'], description: '图片比例；编辑输入图片时默认 auto，普通生图默认 1:1' },
+          use_input_image: { type: 'boolean', description: '是否使用用户本轮上传的图片进行编辑；有图片时默认使用' }
+        },
+        required: ['prompt']
       }
     }
   },
@@ -487,11 +599,14 @@ async function refreshMcpTools() {
         if (!t.tool) continue;
         const fullName = `mcp__${t.serverId}__${t.tool.name}`;
         mcpToolMap.set(fullName, { serverId: t.serverId, toolName: t.tool.name });
+        const browserPolicy = /playwright/i.test(`${t.serverId} ${t.tool.name}`)
+          ? '[仅用于自动化交互；必须先成功调用 open_builtin_browser，禁止作为内置预览失败后的外部浏览器兜底] '
+          : '';
         mcpToolDefs.push({
           type: 'function',
           function: {
             name: fullName,
-            description: `[MCP:${t.serverName}] ${t.tool.description || t.tool.name}`,
+            description: `${browserPolicy}[MCP:${t.serverName}] ${t.tool.description || t.tool.name}`,
             parameters: t.tool.inputSchema || { type: 'object', properties: {} }
           }
         });
@@ -515,7 +630,8 @@ async function refreshMcpTools() {
 }
 
 function snapshotTools() {
-  return [...TOOLS];
+  const imageGenerationAvailable = !!deps().getConfig?.()?.imageGeneration?.available;
+  return TOOLS.filter(tool => tool.function?.name !== 'generate_image' || imageGenerationAvailable);
 }
 const TOOL_ICONS = {
   todo_write: '📋', read_file: '📄', edit_file: '🪄', apply_patch: '🧩', write_file: '✏️',
@@ -524,10 +640,12 @@ const TOOL_ICONS = {
   read_file_range: '📖', get_file_imports: '🔀', find_references: '↩️',
   find_related_files: '🕸️', search_symbols: '🔎', build_code_index: '🗂️',
   scan_project: '🗺️', trace_symbol: '🧵',
-  open_builtin_browser: '🌐',
+  open_builtin_browser: '🌐', generate_image: '🖼️',
   git_status: '📊', git_diff: '📋', git_log: '📝', git_commit: '✅',
   git_push: '⬆️', git_pull: '⬇️', git_clone: '📦', git_branch: '🌿',
   spawn_subagent: '🧭', spawn_subagents: '🧭',
+  list_skills: '🗂️', read_skill: '📚',
+  list_ui_kit: '🎨', read_ui_kit: '🧩',
 };
 
   K.BUILT_IN_TOOLS = BUILT_IN_TOOLS;

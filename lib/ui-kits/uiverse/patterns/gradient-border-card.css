@@ -1,0 +1,1 @@
+.uiverse-gcard{position:relative;padding:24px;border-radius:16px;background:#111;color:#eee}.uiverse-gcard::before{content:"";position:absolute;inset:0;padding:1px;border-radius:16px;background:linear-gradient(135deg,#6366f1,#ec4899);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude}

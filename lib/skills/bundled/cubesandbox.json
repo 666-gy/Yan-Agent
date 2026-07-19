@@ -1,0 +1,9 @@
+{
+  "id": "cubesandbox",
+  "name": "CubeSandbox",
+  "desc": "硬件隔离 AI 代码沙箱（KVM/E2B 兼容），安全执行 Agent 生成代码",
+  "tags": ["code"],
+  "triggers": ["sandbox", "cubesandbox", "e2b", "隔离", "沙箱", "执行代码"],
+  "source": "https://github.com/TencentCloud/CubeSandbox",
+  "promptFile": "cubesandbox.prompt.md"
+}

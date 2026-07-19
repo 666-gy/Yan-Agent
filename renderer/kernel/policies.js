@@ -40,6 +40,39 @@
   };
 
   K.checkCompletionGate = function (runCtx) {
+    const as = runCtx.agentState;
+    const criteria = as.acceptanceCriteria || [];
+    if (as.outcomeFromTool && criteria.length) {
+      const remaining = criteria.filter(c => !['satisfied', 'skipped'].includes(c.status));
+      const missingEvidence = criteria.filter(c =>
+        ['satisfied', 'skipped'].includes(c.status) && !String(c.evidence || '').trim()
+      );
+      if (remaining.length || missingEvidence.length) {
+        const lines = [
+          ...remaining.map(c => `[${c.status || 'pending'}] ${c.text}`),
+          ...missingEvidence.map(c => `[missing_evidence] ${c.text}`)
+        ].join('\n');
+        return {
+          ok: false,
+          essential: true,
+          outcome: as.outcome,
+          hint: 'Outcome gate: 目标尚未获得完整验收证据。请继续执行，并用 todo_write 更新完整的 acceptance_criteria；只有工具结果、实际产物或用户明确要求跳过验证才能作为 evidence：\n' + lines
+        };
+      }
+
+      const pendingTodos = (as.todos || []).filter(t => !t.done);
+      if (pendingTodos.length && deps().hooks?.deferPendingTodos) {
+        deps().hooks.deferPendingTodos(runCtx, pendingTodos);
+      }
+      return {
+        ok: true,
+        outcomeSatisfied: true,
+        evidenceCount: criteria.length,
+        deferred: pendingTodos.length > 0,
+        pendingCount: pendingTodos.length
+      };
+    }
+
     const { essential, pending } = K.classifyPendingTodos(runCtx);
     if (!pending.length) return { ok: true };
 

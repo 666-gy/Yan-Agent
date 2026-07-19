@@ -1,0 +1,9 @@
+{
+  "id": "officecli",
+  "name": "OfficeCLI",
+  "desc": "创建/编辑 Word、Excel、PowerPoint（.docx/.xlsx/.pptx），本地 CLI，无需安装 Office",
+  "tags": ["code"],
+  "triggers": ["word", "excel", "ppt", "docx", "xlsx", "pptx", "office", "officecli"],
+  "source": "https://officecli.ai/SKILL.md",
+  "promptFile": "officecli.prompt.md"
+}

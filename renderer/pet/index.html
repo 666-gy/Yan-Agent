@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <title>Yan Agent Pet</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="pet.css">
+</head>
+<body data-state="idle">
+  <main class="pet-app">
+    <section class="pet-panel" aria-label="Agent 监督面板" aria-hidden="true" inert hidden>
+      <div class="panel-drag" aria-hidden="true"><span></span><span></span><span></span></div>
+      <header class="panel-header">
+        <div>
+          <div class="panel-kicker"><span class="state-dot"></span><span id="stateLabel">待命</span></div>
+          <h1>Yan Agent Pet</h1>
+        </div>
+        <div class="panel-window-actions">
+          <button id="collapseBtn" type="button" title="收起监督面板" aria-label="收起监督面板">−</button>
+          <button id="hideBtn" type="button" title="关闭桌宠" aria-label="关闭桌宠">×</button>
+        </div>
+      </header>
+
+      <div class="task-section">
+        <div class="section-label">当前任务</div>
+        <div id="taskTitle" class="task-title">Yan Agent</div>
+        <div id="taskMessage" class="task-message">随时待命</div>
+      </div>
+
+      <div class="assessment-row">
+        <span class="assessment-label">监督判断</span>
+        <span id="assessmentText">本地监督已就绪</span>
+      </div>
+
+      <div class="stat-row" aria-label="任务运行统计">
+        <div><strong id="iterationStat">0</strong><span>轮次</span></div>
+        <div><strong id="toolStat">0</strong><span>工具</span></div>
+        <div><strong id="changeStat">0</strong><span>改动</span></div>
+        <div><strong id="memoryStat">--</strong><span>MB</span></div>
+        <div><strong id="cpuStat">--</strong><span>CPU</span></div>
+      </div>
+
+      <footer class="panel-actions">
+        <button id="openTaskBtn" class="secondary-action" type="button">打开任务</button>
+        <button id="stopTaskBtn" class="danger-action" type="button" disabled>停止任务</button>
+      </footer>
+    </section>
+
+    <section class="pet-stage" aria-label="Yan 桌宠">
+      <div class="drag-grip" title="拖动桌宠" aria-hidden="true"><span></span><span></span><span></span></div>
+      <button id="petToggle" class="pet-toggle" type="button" title="拖动桌宠，单击展开" aria-label="展开监督面板">
+        <span class="robot" aria-hidden="true">
+          <span class="antenna"><span class="antenna-light"></span></span>
+          <span class="side-fin left"></span>
+          <span class="side-fin right"></span>
+          <span class="robot-head">
+            <span class="face-screen">
+              <span class="eyes"><span class="eye left"></span><span class="eye right"></span></span>
+              <span class="mouth"></span>
+            </span>
+          </span>
+          <span class="robot-body"><img class="yan-mark" src="../assets/logo.png" alt=""></span>
+          <span class="robot-shadow"></span>
+        </span>
+      </button>
+      <button id="statusStrip" class="status-strip" type="button" title="拖动桌宠，单击展开" aria-label="展开监督面板">
+        <span class="state-dot"></span>
+        <span id="compactStatus">随时待命</span>
+      </button>
+    </section>
+  </main>
+  <script src="pet.js"></script>
+</body>
+</html>

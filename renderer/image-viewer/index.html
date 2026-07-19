@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src data:">
+  <title>图片预览</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <main class="viewer-shell">
+    <header class="viewer-toolbar">
+      <div class="viewer-title">
+        <span>图片预览</span>
+        <span id="imageMeta" class="image-meta"></span>
+      </div>
+      <button id="downloadBtn" class="download-button" type="button" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path>
+        </svg>
+        <span>下载</span>
+      </button>
+    </header>
+    <section class="image-stage" aria-live="polite">
+      <div id="viewerStatus" class="viewer-status">正在加载图片…</div>
+      <img id="generatedImage" alt="Agent 生成的图片" hidden draggable="false">
+    </section>
+    <div id="downloadStatus" class="download-status" role="status"></div>
+  </main>
+  <script src="viewer.js"></script>
+</body>
+</html>

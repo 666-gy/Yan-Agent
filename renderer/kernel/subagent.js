@@ -64,7 +64,9 @@ Output: Files changed, What changed, Verification status. Do not expand scope.`
         'open_builtin_browser'
       ]),
       directive: `You are a UI specialist subagent (HTML/CSS/JS, frontend).
-Implement or fix UI as assigned. Match existing design tokens. After HTML changes, call open_builtin_browser to preview.
+Implement or fix UI as assigned. Match existing design tokens.
+BEFORE coding: call list_ui_kit + read_ui_kit (react-bits or uiverse). Never fetch react-bits from GitHub raw URLs.
+For static .html use uiverse patterns; adapt to vanilla CSS. After HTML changes, call open_builtin_browser to preview.
 Output: Files touched, Preview URL/path, Visual/UX notes.`
     },
     doc: {
@@ -123,7 +125,8 @@ Output: Deliverable paths, Structure summary, Open questions.`
       return K.toolError('spawn_subagent', 'task is required.');
     }
 
-    const subCtx = K.createRunCtx(parentRunCtx.sessionId, false);
+    const subCtx = K.createRunCtx(parentRunCtx.sessionId, false, parentRunCtx.workspace);
+    subCtx.sessionRef = parentRunCtx.sessionRef;
     subCtx.isSubagent = true;
     subCtx.subagentType = type;
     subCtx.subagentTier = profile.tier;
@@ -137,19 +140,32 @@ Output: Deliverable paths, Structure summary, Open questions.`
       return K.toolError('spawn_subagent', 'No tools available for subagent profile.');
     }
 
-    emitSubagentEvent(parentRunCtx, { phase: 'start', type, tier: profile.tier, task: taskText.slice(0, 200) });
+    emitSubagentEvent(parentRunCtx, { phase: 'start', type, tier: profile.tier, task: taskText.slice(0, 200), index: options.parallelIndex });
 
     let basePrompt = '';
     try {
-      basePrompt = await K.buildSystemPrompt();
+      basePrompt = await K.buildSystemPrompt(subCtx);
     } catch {
       basePrompt = 'You are Yan Agent subagent.';
+    }
+
+    let skillBlock = '';
+    const skillIds = Array.isArray(options.skills) ? options.skills : [];
+    if (skillIds.length && api().readSkill) {
+      const parts = [];
+      for (const sid of skillIds.slice(0, 5)) {
+        try {
+          const sr = await api().readSkill(String(sid).trim(), taskText.slice(0, 800));
+          if (sr?.ok && sr.prompt) parts.push(`## Skill: ${sr.name} (${sr.id})\n${sr.prompt}`);
+        } catch { /* skip */ }
+      }
+      if (parts.length) skillBlock = '\n\n# Skill Playbooks\n' + parts.join('\n\n');
     }
 
     const apiMessages = [
       {
         role: 'system',
-        content: basePrompt + '\n\n# Subagent: ' + profile.label + ' (' + profile.tier + ')\n' + profile.directive
+        content: basePrompt + '\n\n# Subagent: ' + profile.label + ' (' + profile.tier + ')\n' + profile.directive + skillBlock
       },
       {
         role: 'user',
@@ -178,35 +194,37 @@ Output: Deliverable paths, Structure summary, Open questions.`
       if (result.content) summary = result.content;
       if (!result.tool_calls || !result.tool_calls.length) break;
 
+      const preparedCalls = result.tool_calls.map(tc => K.prepareToolCall(tc, tools, subCtx));
+      const normalizedToolCalls = result.tool_calls.map((tc, index) => ({
+        ...tc,
+        id: preparedCalls[index].id
+      }));
       const assistantTurn = {
         role: 'assistant',
         content: result.content || '',
-        tool_calls: result.tool_calls
+        tool_calls: normalizedToolCalls
       };
       if (result.reasoning_content) assistantTurn.reasoning_content = result.reasoning_content;
       apiMessages.push(assistantTurn);
 
-      for (const tc of result.tool_calls) {
-        if (parentRunCtx.shouldAbort) break;
-        const fnName = tc.function.name;
-        let fnArgs = {};
-        try { fnArgs = JSON.parse(tc.function.arguments || '{}'); } catch {}
-
-        let toolOutput;
-        if (fnName === 'spawn_subagent' || fnName === 'spawn_subagents') {
-          toolOutput = K.toolError(fnName, 'Nested subagents are not allowed.', { noRetry: true });
-        } else {
-          toolOutput = await K.executeToolWithRetry(fnName, fnArgs, subCtx);
+      const scheduledResults = await K.scheduleToolCalls(preparedCalls, subCtx, {
+        onFinish(executed) {
+          const fnName = executed.name;
+          const toolOutput = executed.output;
+          toolCallCount++;
+          toolTrace.push({
+            tool: fnName,
+            ok: (() => { try { return JSON.parse(toolOutput).ok; } catch { return null; } })()
+          });
+          emitSubagentEvent(parentRunCtx, {
+            phase: 'tool', type, tool: fnName, iteration, toolCalls: toolCallCount,
+            index: options.parallelIndex
+          });
         }
-        toolCallCount++;
-        toolTrace.push({
-          tool: fnName,
-          ok: (() => { try { return JSON.parse(toolOutput).ok; } catch { return null; } })()
-        });
-        emitSubagentEvent(parentRunCtx, {
-          phase: 'tool', type, tool: fnName, iteration, toolCalls: toolCallCount
-        });
-        apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolOutput });
+      });
+      if (parentRunCtx.shouldAbort) break;
+      for (const executed of scheduledResults) {
+        apiMessages.push({ role: 'tool', tool_call_id: executed.id, content: executed.output });
       }
     }
 
@@ -214,7 +232,8 @@ Output: Deliverable paths, Structure summary, Open questions.`
 
     emitSubagentEvent(parentRunCtx, {
       phase: 'done', type, tier: profile.tier,
-      iterations: iteration, toolCalls: toolCallCount, summary: (summary || '').slice(0, 400)
+      iterations: iteration, toolCalls: toolCallCount, summary: (summary || '').slice(0, 400),
+      index: options.parallelIndex
     });
 
     return K.toolSuccess(options.toolName || 'spawn_subagent', summary || '(Subagent finished.)', {
@@ -246,7 +265,8 @@ Output: Deliverable paths, Structure summary, Open questions.`
       const context = spec.context || '';
       return runSubagent(type, task, context, parentRunCtx, {
         toolName: 'spawn_subagents',
-        maxIterations: spec.max_iterations
+        maxIterations: spec.max_iterations,
+        parallelIndex: i
       }).then(raw => {
         let parsed = {};
         try { parsed = JSON.parse(raw); } catch { parsed = { output: raw }; }

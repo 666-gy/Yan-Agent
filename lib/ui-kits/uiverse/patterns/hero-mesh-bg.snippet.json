@@ -1,0 +1,8 @@
+{
+  "id": "hero-mesh-bg",
+  "name": "Hero Mesh Background",
+  "category": "backgrounds",
+  "desc": "落地页网格渐变背景",
+  "html": "<section class=\"uiverse-hero-mesh\"><h1>Portfolio</h1></section>",
+  "css": ".uiverse-hero-mesh{min-height:60vh;display:grid;place-items:center;color:#fff;background:radial-gradient(circle at 20% 20%,#312e81 0,transparent 40%),radial-gradient(circle at 80% 0%,#831843 0,transparent 35%),#020617}"
+}

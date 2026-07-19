@@ -33,7 +33,10 @@ function applyProviderOptions(body, apiConfig = {}) {
       break;
 
     case 'moonshot':
-      if (/^kimi-k2\.7-code(?:-highspeed)?$/.test(model)) {
+      if (model === 'kimi-k3') {
+        // K3 always reasons and currently accepts only the max effort level.
+        body.reasoning_effort = 'max';
+      } else if (/^kimi-k2\.7-code(?:-highspeed)?$/.test(model)) {
         // K2.7 Code is thinking-only; sending disabled is an API error.
         body.thinking = { type: 'enabled' };
       } else if (/^kimi-k2\.(?:6|5)$/.test(model)) {
@@ -78,7 +81,11 @@ function extractReasoningText(delta) {
 }
 
 async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTools()) {
-  if (!runCtx) runCtx = K.createRunCtx(deps().getCurrentSession()?.id, true);
+  if (!runCtx) {
+    const currentSession = deps().getCurrentSession();
+    runCtx = K.createRunCtx(currentSession?.id, true, currentSession?.workspace);
+    runCtx.sessionRef = currentSession;
+  }
   const shouldAbort = () => !!runCtx.shouldAbort;
   const apiConfig = deps().getConfig().api;
   const { baseUrl, apiKey, model } = apiConfig;
@@ -154,7 +161,7 @@ async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTo
               thinkEl.className = 'thinking-block';
               thinkEl.open = true;
               thinkEl.innerHTML = '<summary><span class="think-icon" aria-hidden="true"></span>思考中…</summary><div class="thinking-text"></div>';
-              bodyEl.appendChild(thinkEl);
+              (deps().hooks.getAgentActivityBody?.(bodyEl) || bodyEl).appendChild(thinkEl);
               thinkTextEl = thinkEl.querySelector('.thinking-text');
             }
             thinkTextEl.textContent = reasoning;
@@ -196,6 +203,10 @@ async function callApiStream(messages, assistantEl, runCtx, tools = K.snapshotTo
   }
   } catch (e) {
     if (!(e && e.name === 'AbortError') && !shouldAbort()) throw e;
+  }
+
+  if (shouldAbort() && bodyEl) {
+    deps().hooks.onRunAborted?.(runCtx);
   }
 
   if (thinkEl && thinkEl.open) {

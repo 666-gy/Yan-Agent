@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "id": "code-review",
+      "name": "Code Review",
+      "desc": "审查代码，给出可读性/性能/安全/最佳实践改进建议",
+      "prompt": "请对以下代码进行审查，重点关注：可读性、性能、安全性、最佳实践，并给出具体改进建议：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "审查",
+        "review",
+        "code review",
+        "代码审查"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "refactor",
+      "name": "Refactor",
+      "desc": "重构代码，保持功能不变但提升结构与可读性",
+      "prompt": "请重构以下代码，保持功能不变但提升代码结构、命名与可读性：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "重构",
+        "refactor"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "gen-test",
+      "name": "Gen Tests",
+      "desc": "为代码生成单元测试，覆盖主要分支和边界",
+      "prompt": "请为以下代码生成单元测试，覆盖主要分支和边界情况：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "测试",
+        "单元测试",
+        "test"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "explain-code",
+      "name": "Explain Code",
+      "desc": "解释代码功能、工作原理和关键逻辑",
+      "prompt": "请详细解释以下代码的功能、工作原理和关键逻辑：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "解释",
+        "explain",
+        "读懂"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "fix-bug",
+      "name": "Fix Bug",
+      "desc": "定位并修复代码中的 Bug",
+      "prompt": "以下代码存在 Bug，请帮我定位并修复，并解释原因：\n\n问题描述：\n{{cursor}}\n\n```\n\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "bug",
+        "修复",
+        "报错",
+        "错误"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "add-comments",
+      "name": "Add Comments",
+      "desc": "为代码添加清晰的注释与文档字符串",
+      "prompt": "请为以下代码添加清晰的注释（函数说明、复杂逻辑、参数与返回值）：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "注释",
+        "comment"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "gen-docs",
+      "name": "Gen Docs",
+      "desc": "为代码生成 API 文档（Markdown 含示例）",
+      "prompt": "请为以下代码生成 API 文档（Markdown 格式，含调用示例）：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "文档",
+        "api doc",
+        "readme"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "optimize",
+      "name": "Optimize",
+      "desc": "优化代码性能（时间/空间复杂度、I/O、内存）",
+      "prompt": "请优化以下代码的性能（时间/空间复杂度、I/O、内存），并说明优化点：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "优化",
+        "性能",
+        "performance"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "security-audit",
+      "name": "Security Audit",
+      "desc": "安全审计，找出注入/XSS/CSRF/越权等漏洞",
+      "prompt": "请对以下代码进行安全审计，找出潜在漏洞（注入、XSS、CSRF、越权、敏感信息泄露等）：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "安全",
+        "security",
+        "漏洞",
+        "audit"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "convert-lang",
+      "name": "Convert Lang",
+      "desc": "将代码从一种语言转换为另一种语言",
+      "prompt": "请将以下代码转换为指定语言，保持功能一致：\n\n目标语言：\n{{cursor}}\n\n```\n\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "转换语言",
+        "migrate",
+        "port"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "commit-msg",
+      "name": "Commit Msg",
+      "desc": "为代码改动生成 Conventional Commits 提交信息",
+      "prompt": "请为以下代码改动生成符合 Conventional Commits 规范的提交信息（type: scope: subject）：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "提交信息",
+        "commit message"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "pr-desc",
+      "name": "PR Description",
+      "desc": "根据改动生成 PR 描述（摘要/影响/测试建议）",
+      "prompt": "请根据以下代码改动生成 PR 描述，包含：改动摘要、影响范围、测试建议：\n\n```\n{{cursor}}\n```",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "pr",
+        "pull request",
+        "合并请求"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "summarize",
+      "name": "Summarize",
+      "desc": "总结长文档或对话的要点",
+      "prompt": "请总结以上对话的要点、决策与待办事项：",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "总结",
+        "summarize"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "translate",
+      "name": "Translate",
+      "desc": "在多种语言之间翻译文本",
+      "prompt": "请将以下内容翻译为指定语言（保留代码块原样）：\n\n目标语言：\n{{cursor}}\n\n内容：\n\n",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "翻译",
+        "translate"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "rewrite",
+      "name": "Rewrite",
+      "desc": "重写或润色文本，使其更清晰专业",
+      "prompt": "请重写或润色以下文本，使其更清晰、专业、流畅：\n\n{{cursor}}",
+      "tags": [
+        "code"
+      ],
+      "triggers": [
+        "润色",
+        "rewrite",
+        "改写"
+      ],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "yan-react-bits",
+      "name": "React Bits UI",
+      "desc": "使用预装 React Bits 组件（BlurText、背景动效等），禁止上网拉 GitHub",
+      "prompt": "请用预装 React Bits 组件库完成以下 UI。步骤：1) list_ui_kit(kit=react-bits) 2) read_ui_kit 读取组件 3) 写入工作区。禁止 fetch GitHub raw。任务：\n\n{{cursor}}",
+      "tags": ["ui"],
+      "triggers": ["react bits", "react-bits", "BlurText", "动画组件"],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    },
+    {
+      "id": "yan-uiverse",
+      "name": "Uiverse Universe UI",
+      "desc": "使用预装 Uiverse HTML/CSS 片段做静态页面（按钮、卡片、Hero）",
+      "prompt": "请用预装 Uiverse (Universe UI) 模式完成以下静态页面 UI。步骤：1) list_ui_kit(kit=uiverse) 2) read_ui_kit 读取 pattern 3) 合并进 HTML/CSS。任务：\n\n{{cursor}}",
+      "tags": ["ui", "web"],
+      "triggers": ["uiverse", "universe ui", "静态页面", "portfolio"],
+      "tier": "builtin",
+      "version": 1,
+      "updatedAt": 1783877681497
+    }
+  ]
+}

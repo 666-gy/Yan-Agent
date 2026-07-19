@@ -1,0 +1,4431 @@
+{
+  "id": "react-bits",
+  "name": "React Bits",
+  "homepage": "https://reactbits.dev",
+  "repo": "DavidHDev/react-bits",
+  "syncedAt": 1783880003427,
+  "componentCount": 135,
+  "note": "Use read_ui_kit locally. Do NOT fetch raw.githubusercontent.com/react-bits URLs. BlurText is under TextAnimations, not Components.",
+  "components": [
+    {
+      "id": "AnimatedContent",
+      "title": "AnimatedContent",
+      "description": "Wrapper that animates any children on scroll or mount with configurable direction, distance, duration, easing and disappear options.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/AnimatedContent-JS-CSS.json",
+          "source": "src/content/Components/AnimatedContent/AnimatedContent.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/AnimatedContent-JS-TW.json",
+          "source": "src/tailwind/Components/AnimatedContent/AnimatedContent.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/AnimatedContent-TS-CSS.json",
+          "source": "src/content/Components/AnimatedContent/AnimatedContent.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/AnimatedContent-TS-TW.json",
+          "source": "src/tailwind/Components/AnimatedContent/AnimatedContent.tsx"
+        }
+      }
+    },
+    {
+      "id": "AnimatedList",
+      "title": "AnimatedList",
+      "description": "List items enter with staggered motion variants for polished reveals.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/AnimatedList-JS-CSS.json",
+          "source": "src/content/Components/AnimatedList/AnimatedList.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/AnimatedList-JS-TW.json",
+          "source": "src/tailwind/Components/AnimatedList/AnimatedList.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/AnimatedList-TS-CSS.json",
+          "source": "src/content/Components/AnimatedList/AnimatedList.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/AnimatedList-TS-TW.json",
+          "source": "src/tailwind/Components/AnimatedList/AnimatedList.tsx"
+        }
+      }
+    },
+    {
+      "id": "Antigravity",
+      "title": "Antigravity",
+      "description": "3D antigravity particle field that repels from the cursor with smooth motion.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "@react-three/fiber@^9.3.0",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Antigravity-JS-CSS.json",
+          "source": "src/content/Components/Antigravity/Antigravity.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Antigravity-JS-TW.json",
+          "source": "src/tailwind/Components/Antigravity/Antigravity.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Antigravity-TS-CSS.json",
+          "source": "src/content/Components/Antigravity/Antigravity.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Antigravity-TS-TW.json",
+          "source": "src/tailwind/Components/Antigravity/Antigravity.tsx"
+        }
+      }
+    },
+    {
+      "id": "ASCIIText",
+      "title": "ASCIIText",
+      "description": "Renders text with an animated ASCII background for a retro feel.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ASCIIText-JS-CSS.json",
+          "source": "src/content/Components/ASCIIText/ASCIIText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ASCIIText-JS-TW.json",
+          "source": "src/tailwind/Components/ASCIIText/ASCIIText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ASCIIText-TS-CSS.json",
+          "source": "src/content/Components/ASCIIText/ASCIIText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ASCIIText-TS-TW.json",
+          "source": "src/tailwind/Components/ASCIIText/ASCIIText.tsx"
+        }
+      }
+    },
+    {
+      "id": "Aurora",
+      "title": "Aurora",
+      "description": "Flowing aurora gradient background.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Aurora-JS-CSS.json",
+          "source": "src/content/Components/Aurora/Aurora.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Aurora-JS-TW.json",
+          "source": "src/tailwind/Components/Aurora/Aurora.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Aurora-TS-CSS.json",
+          "source": "src/content/Components/Aurora/Aurora.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Aurora-TS-TW.json",
+          "source": "src/tailwind/Components/Aurora/Aurora.tsx"
+        }
+      }
+    },
+    {
+      "id": "Balatro",
+      "title": "Balatro",
+      "description": "The balatro shader, fully customizalbe and interactive.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Balatro-JS-CSS.json",
+          "source": "src/content/Components/Balatro/Balatro.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Balatro-JS-TW.json",
+          "source": "src/tailwind/Components/Balatro/Balatro.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Balatro-TS-CSS.json",
+          "source": "src/content/Components/Balatro/Balatro.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Balatro-TS-TW.json",
+          "source": "src/tailwind/Components/Balatro/Balatro.tsx"
+        }
+      }
+    },
+    {
+      "id": "Ballpit",
+      "title": "Ballpit",
+      "description": "Physics ball pit simulation with bouncing colorful spheres.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Ballpit-JS-CSS.json",
+          "source": "src/content/Components/Ballpit/Ballpit.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Ballpit-JS-TW.json",
+          "source": "src/tailwind/Components/Ballpit/Ballpit.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Ballpit-TS-CSS.json",
+          "source": "src/content/Components/Ballpit/Ballpit.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Ballpit-TS-TW.json",
+          "source": "src/tailwind/Components/Ballpit/Ballpit.tsx"
+        }
+      }
+    },
+    {
+      "id": "Beams",
+      "title": "Beams",
+      "description": "Crossing animated ribbons with customizable properties.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0",
+        "@react-three/fiber@^9.3.0",
+        "@react-three/drei@^10.7.4"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Beams-JS-CSS.json",
+          "source": "src/content/Components/Beams/Beams.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Beams-JS-TW.json",
+          "source": "src/tailwind/Components/Beams/Beams.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Beams-TS-CSS.json",
+          "source": "src/content/Components/Beams/Beams.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Beams-TS-TW.json",
+          "source": "src/tailwind/Components/Beams/Beams.tsx"
+        }
+      }
+    },
+    {
+      "id": "BlobCursor",
+      "title": "BlobCursor",
+      "description": "Organic blob cursor that smoothly follows the pointer with inertia and elastic morphing.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/BlobCursor-JS-CSS.json",
+          "source": "src/content/Components/BlobCursor/BlobCursor.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/BlobCursor-JS-TW.json",
+          "source": "src/tailwind/Components/BlobCursor/BlobCursor.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/BlobCursor-TS-CSS.json",
+          "source": "src/content/Components/BlobCursor/BlobCursor.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/BlobCursor-TS-TW.json",
+          "source": "src/tailwind/Components/BlobCursor/BlobCursor.tsx"
+        }
+      }
+    },
+    {
+      "id": "BlurText",
+      "title": "BlurText",
+      "description": "Text starts blurred then crisply resolves for a soft-focus reveal effect.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/BlurText-JS-CSS.json",
+          "source": "src/content/Components/BlurText/BlurText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/BlurText-JS-TW.json",
+          "source": "src/tailwind/Components/BlurText/BlurText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/BlurText-TS-CSS.json",
+          "source": "src/content/Components/BlurText/BlurText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/BlurText-TS-TW.json",
+          "source": "src/tailwind/Components/BlurText/BlurText.tsx"
+        }
+      }
+    },
+    {
+      "id": "BorderGlow",
+      "title": "BorderGlow",
+      "description": "Glowing mesh-gradient border that follows cursor direction and intensifies near edges.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/BorderGlow-JS-CSS.json",
+          "source": "src/content/Components/BorderGlow/BorderGlow.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/BorderGlow-JS-TW.json",
+          "source": "src/tailwind/Components/BorderGlow/BorderGlow.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/BorderGlow-TS-CSS.json",
+          "source": "src/content/Components/BorderGlow/BorderGlow.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/BorderGlow-TS-TW.json",
+          "source": "src/tailwind/Components/BorderGlow/BorderGlow.tsx"
+        }
+      }
+    },
+    {
+      "id": "BounceCards",
+      "title": "BounceCards",
+      "description": "Cards bounce that bounce in on mount.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/BounceCards-JS-CSS.json",
+          "source": "src/content/Components/BounceCards/BounceCards.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/BounceCards-JS-TW.json",
+          "source": "src/tailwind/Components/BounceCards/BounceCards.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/BounceCards-TS-CSS.json",
+          "source": "src/content/Components/BounceCards/BounceCards.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/BounceCards-TS-TW.json",
+          "source": "src/tailwind/Components/BounceCards/BounceCards.tsx"
+        }
+      }
+    },
+    {
+      "id": "BubbleMenu",
+      "title": "BubbleMenu",
+      "description": "Floating circular expanding menu with staggered item reveal.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/BubbleMenu-JS-CSS.json",
+          "source": "src/content/Components/BubbleMenu/BubbleMenu.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/BubbleMenu-JS-TW.json",
+          "source": "src/tailwind/Components/BubbleMenu/BubbleMenu.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/BubbleMenu-TS-CSS.json",
+          "source": "src/content/Components/BubbleMenu/BubbleMenu.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/BubbleMenu-TS-TW.json",
+          "source": "src/tailwind/Components/BubbleMenu/BubbleMenu.tsx"
+        }
+      }
+    },
+    {
+      "id": "CardNav",
+      "title": "CardNav",
+      "description": "Expandable navigation bar with card panels revealing nested links.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0",
+        "react-icons@^5.5.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/CardNav-JS-CSS.json",
+          "source": "src/content/Components/CardNav/CardNav.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/CardNav-JS-TW.json",
+          "source": "src/tailwind/Components/CardNav/CardNav.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/CardNav-TS-CSS.json",
+          "source": "src/content/Components/CardNav/CardNav.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/CardNav-TS-TW.json",
+          "source": "src/tailwind/Components/CardNav/CardNav.tsx"
+        }
+      }
+    },
+    {
+      "id": "CardSwap",
+      "title": "CardSwap",
+      "description": "Cards animate position swapping with smooth layout transitions.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/CardSwap-JS-CSS.json",
+          "source": "src/content/Components/CardSwap/CardSwap.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/CardSwap-JS-TW.json",
+          "source": "src/tailwind/Components/CardSwap/CardSwap.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/CardSwap-TS-CSS.json",
+          "source": "src/content/Components/CardSwap/CardSwap.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/CardSwap-TS-TW.json",
+          "source": "src/tailwind/Components/CardSwap/CardSwap.tsx"
+        }
+      }
+    },
+    {
+      "id": "Carousel",
+      "title": "Carousel",
+      "description": "Responsive carousel with touch gestures, looping and transitions.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12",
+        "react-icons@^5.5.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Carousel-JS-CSS.json",
+          "source": "src/content/Components/Carousel/Carousel.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Carousel-JS-TW.json",
+          "source": "src/tailwind/Components/Carousel/Carousel.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Carousel-TS-CSS.json",
+          "source": "src/content/Components/Carousel/Carousel.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Carousel-TS-TW.json",
+          "source": "src/tailwind/Components/Carousel/Carousel.tsx"
+        }
+      }
+    },
+    {
+      "id": "ChromaGrid",
+      "title": "ChromaGrid",
+      "description": "A responsive grid of grayscale tiles. Hovering the grid reaveals their colors.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ChromaGrid-JS-CSS.json",
+          "source": "src/content/Components/ChromaGrid/ChromaGrid.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ChromaGrid-JS-TW.json",
+          "source": "src/tailwind/Components/ChromaGrid/ChromaGrid.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ChromaGrid-TS-CSS.json",
+          "source": "src/content/Components/ChromaGrid/ChromaGrid.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ChromaGrid-TS-TW.json",
+          "source": "src/tailwind/Components/ChromaGrid/ChromaGrid.tsx"
+        }
+      }
+    },
+    {
+      "id": "CircularGallery",
+      "title": "CircularGallery",
+      "description": "Circular orbit gallery rotating images.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/CircularGallery-JS-CSS.json",
+          "source": "src/content/Components/CircularGallery/CircularGallery.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/CircularGallery-JS-TW.json",
+          "source": "src/tailwind/Components/CircularGallery/CircularGallery.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/CircularGallery-TS-CSS.json",
+          "source": "src/content/Components/CircularGallery/CircularGallery.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/CircularGallery-TS-TW.json",
+          "source": "src/tailwind/Components/CircularGallery/CircularGallery.tsx"
+        }
+      }
+    },
+    {
+      "id": "CircularText",
+      "title": "CircularText",
+      "description": "Layouts characters around a circle with optional rotation animation.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/CircularText-JS-CSS.json",
+          "source": "src/content/Components/CircularText/CircularText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/CircularText-JS-TW.json",
+          "source": "src/tailwind/Components/CircularText/CircularText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/CircularText-TS-CSS.json",
+          "source": "src/content/Components/CircularText/CircularText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/CircularText-TS-TW.json",
+          "source": "src/tailwind/Components/CircularText/CircularText.tsx"
+        }
+      }
+    },
+    {
+      "id": "ClickSpark",
+      "title": "ClickSpark",
+      "description": "Creates particle spark bursts at click position.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ClickSpark-JS-CSS.json",
+          "source": "src/content/Components/ClickSpark/ClickSpark.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ClickSpark-JS-TW.json",
+          "source": "src/tailwind/Components/ClickSpark/ClickSpark.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ClickSpark-TS-CSS.json",
+          "source": "src/content/Components/ClickSpark/ClickSpark.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ClickSpark-TS-TW.json",
+          "source": "src/tailwind/Components/ClickSpark/ClickSpark.tsx"
+        }
+      }
+    },
+    {
+      "id": "ColorBends",
+      "title": "ColorBends",
+      "description": "Vibrant color bends with smooth flowing animation.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ColorBends-JS-CSS.json",
+          "source": "src/content/Components/ColorBends/ColorBends.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ColorBends-JS-TW.json",
+          "source": "src/tailwind/Components/ColorBends/ColorBends.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ColorBends-TS-CSS.json",
+          "source": "src/content/Components/ColorBends/ColorBends.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ColorBends-TS-TW.json",
+          "source": "src/tailwind/Components/ColorBends/ColorBends.tsx"
+        }
+      }
+    },
+    {
+      "id": "Counter",
+      "title": "Counter",
+      "description": "Flexible animated counter supporting increments + easing.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Counter-JS-CSS.json",
+          "source": "src/content/Components/Counter/Counter.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Counter-JS-TW.json",
+          "source": "src/tailwind/Components/Counter/Counter.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Counter-TS-CSS.json",
+          "source": "src/content/Components/Counter/Counter.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Counter-TS-TW.json",
+          "source": "src/tailwind/Components/Counter/Counter.tsx"
+        }
+      }
+    },
+    {
+      "id": "CountUp",
+      "title": "CountUp",
+      "description": "Animated number counter supporting formatting and decimals.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/CountUp-JS-CSS.json",
+          "source": "src/content/Components/CountUp/CountUp.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/CountUp-JS-TW.json",
+          "source": "src/tailwind/Components/CountUp/CountUp.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/CountUp-TS-CSS.json",
+          "source": "src/content/Components/CountUp/CountUp.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/CountUp-TS-TW.json",
+          "source": "src/tailwind/Components/CountUp/CountUp.tsx"
+        }
+      }
+    },
+    {
+      "id": "Crosshair",
+      "title": "Crosshair",
+      "description": "Custom crosshair cursor with tracking, and link hover effects.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Crosshair-JS-CSS.json",
+          "source": "src/content/Components/Crosshair/Crosshair.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Crosshair-JS-TW.json",
+          "source": "src/tailwind/Components/Crosshair/Crosshair.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Crosshair-TS-CSS.json",
+          "source": "src/content/Components/Crosshair/Crosshair.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Crosshair-TS-TW.json",
+          "source": "src/tailwind/Components/Crosshair/Crosshair.tsx"
+        }
+      }
+    },
+    {
+      "id": "Cubes",
+      "title": "Cubes",
+      "description": "3D rotating cube cluster. Supports auto-rotation or hover interaction.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Cubes-JS-CSS.json",
+          "source": "src/content/Components/Cubes/Cubes.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Cubes-JS-TW.json",
+          "source": "src/tailwind/Components/Cubes/Cubes.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Cubes-TS-CSS.json",
+          "source": "src/content/Components/Cubes/Cubes.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Cubes-TS-TW.json",
+          "source": "src/tailwind/Components/Cubes/Cubes.tsx"
+        }
+      }
+    },
+    {
+      "id": "CurvedLoop",
+      "title": "CurvedLoop",
+      "description": "Flowing looping text path along a customizable curve with drag interaction.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/CurvedLoop-JS-CSS.json",
+          "source": "src/content/Components/CurvedLoop/CurvedLoop.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/CurvedLoop-JS-TW.json",
+          "source": "src/tailwind/Components/CurvedLoop/CurvedLoop.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/CurvedLoop-TS-CSS.json",
+          "source": "src/content/Components/CurvedLoop/CurvedLoop.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/CurvedLoop-TS-TW.json",
+          "source": "src/tailwind/Components/CurvedLoop/CurvedLoop.tsx"
+        }
+      }
+    },
+    {
+      "id": "DarkVeil",
+      "title": "DarkVeil",
+      "description": "Subtle dark background with a smooth animation and postprocessing.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/DarkVeil-JS-CSS.json",
+          "source": "src/content/Components/DarkVeil/DarkVeil.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/DarkVeil-JS-TW.json",
+          "source": "src/tailwind/Components/DarkVeil/DarkVeil.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/DarkVeil-TS-CSS.json",
+          "source": "src/content/Components/DarkVeil/DarkVeil.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/DarkVeil-TS-TW.json",
+          "source": "src/tailwind/Components/DarkVeil/DarkVeil.tsx"
+        }
+      }
+    },
+    {
+      "id": "DecayCard",
+      "title": "DecayCard",
+      "description": "Hover parallax effect that disintegrates the content of a card.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/DecayCard-JS-CSS.json",
+          "source": "src/content/Components/DecayCard/DecayCard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/DecayCard-JS-TW.json",
+          "source": "src/tailwind/Components/DecayCard/DecayCard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/DecayCard-TS-CSS.json",
+          "source": "src/content/Components/DecayCard/DecayCard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/DecayCard-TS-TW.json",
+          "source": "src/tailwind/Components/DecayCard/DecayCard.tsx"
+        }
+      }
+    },
+    {
+      "id": "DecryptedText",
+      "title": "DecryptedText",
+      "description": "Hacker-style decryption cycling random glyphs until resolving to real text.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/DecryptedText-JS-CSS.json",
+          "source": "src/content/Components/DecryptedText/DecryptedText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/DecryptedText-JS-TW.json",
+          "source": "src/tailwind/Components/DecryptedText/DecryptedText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/DecryptedText-TS-CSS.json",
+          "source": "src/content/Components/DecryptedText/DecryptedText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/DecryptedText-TS-TW.json",
+          "source": "src/tailwind/Components/DecryptedText/DecryptedText.tsx"
+        }
+      }
+    },
+    {
+      "id": "Dither",
+      "title": "Dither",
+      "description": "Retro dithered noise shader background.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "@react-three/fiber@^9.3.0",
+        "@react-three/postprocessing@^3.0.4",
+        "postprocessing@^6.36.0",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Dither-JS-CSS.json",
+          "source": "src/content/Components/Dither/Dither.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Dither-JS-TW.json",
+          "source": "src/tailwind/Components/Dither/Dither.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Dither-TS-CSS.json",
+          "source": "src/content/Components/Dither/Dither.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Dither-TS-TW.json",
+          "source": "src/tailwind/Components/Dither/Dither.tsx"
+        }
+      }
+    },
+    {
+      "id": "Dock",
+      "title": "Dock",
+      "description": "macOS style magnifying dock with proximity scaling of icons.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Dock-JS-CSS.json",
+          "source": "src/content/Components/Dock/Dock.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Dock-JS-TW.json",
+          "source": "src/tailwind/Components/Dock/Dock.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Dock-TS-CSS.json",
+          "source": "src/content/Components/Dock/Dock.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Dock-TS-TW.json",
+          "source": "src/tailwind/Components/Dock/Dock.tsx"
+        }
+      }
+    },
+    {
+      "id": "DomeGallery",
+      "title": "DomeGallery",
+      "description": "Immersive 3D dome gallery projecting images on a hemispheric surface.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "@use-gesture/react@^10.2.27"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/DomeGallery-JS-CSS.json",
+          "source": "src/content/Components/DomeGallery/DomeGallery.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/DomeGallery-JS-TW.json",
+          "source": "src/tailwind/Components/DomeGallery/DomeGallery.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/DomeGallery-TS-CSS.json",
+          "source": "src/content/Components/DomeGallery/DomeGallery.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/DomeGallery-TS-TW.json",
+          "source": "src/tailwind/Components/DomeGallery/DomeGallery.tsx"
+        }
+      }
+    },
+    {
+      "id": "DotField",
+      "title": "DotField",
+      "description": "Interactive dot grid with cursor bulge, glow, sparkle, and wave effects.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/DotField-JS-CSS.json",
+          "source": "src/content/Components/DotField/DotField.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/DotField-JS-TW.json",
+          "source": "src/tailwind/Components/DotField/DotField.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/DotField-TS-CSS.json",
+          "source": "src/content/Components/DotField/DotField.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/DotField-TS-TW.json",
+          "source": "src/tailwind/Components/DotField/DotField.tsx"
+        }
+      }
+    },
+    {
+      "id": "DotGrid",
+      "title": "DotGrid",
+      "description": "Animated dot grid with cursor interactions.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/DotGrid-JS-CSS.json",
+          "source": "src/content/Components/DotGrid/DotGrid.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/DotGrid-JS-TW.json",
+          "source": "src/tailwind/Components/DotGrid/DotGrid.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/DotGrid-TS-CSS.json",
+          "source": "src/content/Components/DotGrid/DotGrid.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/DotGrid-TS-TW.json",
+          "source": "src/tailwind/Components/DotGrid/DotGrid.tsx"
+        }
+      }
+    },
+    {
+      "id": "ElasticSlider",
+      "title": "ElasticSlider",
+      "description": "Slider handle stretches elastically then snaps with spring physics.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12",
+        "@chakra-ui/react@^3.20.0",
+        "react-icons@^5.5.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ElasticSlider-JS-CSS.json",
+          "source": "src/content/Components/ElasticSlider/ElasticSlider.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ElasticSlider-JS-TW.json",
+          "source": "src/tailwind/Components/ElasticSlider/ElasticSlider.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ElasticSlider-TS-CSS.json",
+          "source": "src/content/Components/ElasticSlider/ElasticSlider.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ElasticSlider-TS-TW.json",
+          "source": "src/tailwind/Components/ElasticSlider/ElasticSlider.tsx"
+        }
+      }
+    },
+    {
+      "id": "ElectricBorder",
+      "title": "ElectricBorder",
+      "description": "Jittery electric energy border with animated arcs, glow and adjustable intensity.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ElectricBorder-JS-CSS.json",
+          "source": "src/content/Components/ElectricBorder/ElectricBorder.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ElectricBorder-JS-TW.json",
+          "source": "src/tailwind/Components/ElectricBorder/ElectricBorder.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ElectricBorder-TS-CSS.json",
+          "source": "src/content/Components/ElectricBorder/ElectricBorder.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ElectricBorder-TS-TW.json",
+          "source": "src/tailwind/Components/ElectricBorder/ElectricBorder.tsx"
+        }
+      }
+    },
+    {
+      "id": "EvilEye",
+      "title": "EvilEye",
+      "description": "Procedural evil eye shader with animated iris, slit pupil, and fiery outer glow.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/EvilEye-JS-CSS.json",
+          "source": "src/content/Components/EvilEye/EvilEye.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/EvilEye-JS-TW.json",
+          "source": "src/tailwind/Components/EvilEye/EvilEye.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/EvilEye-TS-CSS.json",
+          "source": "src/content/Components/EvilEye/EvilEye.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/EvilEye-TS-TW.json",
+          "source": "src/tailwind/Components/EvilEye/EvilEye.tsx"
+        }
+      }
+    },
+    {
+      "id": "FadeContent",
+      "title": "FadeContent",
+      "description": "Simple directional fade / slide entrance / exit wrapper with threshold-based activation.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FadeContent-JS-CSS.json",
+          "source": "src/content/Components/FadeContent/FadeContent.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FadeContent-JS-TW.json",
+          "source": "src/tailwind/Components/FadeContent/FadeContent.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FadeContent-TS-CSS.json",
+          "source": "src/content/Components/FadeContent/FadeContent.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FadeContent-TS-TW.json",
+          "source": "src/tailwind/Components/FadeContent/FadeContent.tsx"
+        }
+      }
+    },
+    {
+      "id": "FallingText",
+      "title": "FallingText",
+      "description": "Characters fall with gravity + bounce creating a playful entrance.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "matter-js@^0.20.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FallingText-JS-CSS.json",
+          "source": "src/content/Components/FallingText/FallingText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FallingText-JS-TW.json",
+          "source": "src/tailwind/Components/FallingText/FallingText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FallingText-TS-CSS.json",
+          "source": "src/content/Components/FallingText/FallingText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FallingText-TS-TW.json",
+          "source": "src/tailwind/Components/FallingText/FallingText.tsx"
+        }
+      }
+    },
+    {
+      "id": "FaultyTerminal",
+      "title": "FaultyTerminal",
+      "description": "Terminal CRT scanline squares effect with flicker + noise.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FaultyTerminal-JS-CSS.json",
+          "source": "src/content/Components/FaultyTerminal/FaultyTerminal.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FaultyTerminal-JS-TW.json",
+          "source": "src/tailwind/Components/FaultyTerminal/FaultyTerminal.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FaultyTerminal-TS-CSS.json",
+          "source": "src/content/Components/FaultyTerminal/FaultyTerminal.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FaultyTerminal-TS-TW.json",
+          "source": "src/tailwind/Components/FaultyTerminal/FaultyTerminal.tsx"
+        }
+      }
+    },
+    {
+      "id": "Ferrofluid",
+      "title": "Ferrofluid",
+      "description": "A churning magnetic fluid traced by glowing contour lines, with a cursor magnet.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Ferrofluid-JS-CSS.json",
+          "source": "src/content/Components/Ferrofluid/Ferrofluid.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Ferrofluid-JS-TW.json",
+          "source": "src/tailwind/Components/Ferrofluid/Ferrofluid.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Ferrofluid-TS-CSS.json",
+          "source": "src/content/Components/Ferrofluid/Ferrofluid.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Ferrofluid-TS-TW.json",
+          "source": "src/tailwind/Components/Ferrofluid/Ferrofluid.tsx"
+        }
+      }
+    },
+    {
+      "id": "FloatingLines",
+      "title": "FloatingLines",
+      "description": "3D floating lines that react to cursor movement.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FloatingLines-JS-CSS.json",
+          "source": "src/content/Components/FloatingLines/FloatingLines.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FloatingLines-JS-TW.json",
+          "source": "src/tailwind/Components/FloatingLines/FloatingLines.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FloatingLines-TS-CSS.json",
+          "source": "src/content/Components/FloatingLines/FloatingLines.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FloatingLines-TS-TW.json",
+          "source": "src/tailwind/Components/FloatingLines/FloatingLines.tsx"
+        }
+      }
+    },
+    {
+      "id": "FlowingMenu",
+      "title": "FlowingMenu",
+      "description": "Liquid flowing active indicator glides between menu items.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FlowingMenu-JS-CSS.json",
+          "source": "src/content/Components/FlowingMenu/FlowingMenu.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FlowingMenu-JS-TW.json",
+          "source": "src/tailwind/Components/FlowingMenu/FlowingMenu.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FlowingMenu-TS-CSS.json",
+          "source": "src/content/Components/FlowingMenu/FlowingMenu.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FlowingMenu-TS-TW.json",
+          "source": "src/tailwind/Components/FlowingMenu/FlowingMenu.tsx"
+        }
+      }
+    },
+    {
+      "id": "FluidGlass",
+      "title": "FluidGlass",
+      "description": "Glassmorphism container with animated liquid distortion refraction.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0",
+        "@react-three/fiber@^9.3.0",
+        "@react-three/drei@^10.7.4",
+        "maath@^0.10.8"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FluidGlass-JS-CSS.json",
+          "source": "src/content/Components/FluidGlass/FluidGlass.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FluidGlass-JS-TW.json",
+          "source": "src/tailwind/Components/FluidGlass/FluidGlass.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FluidGlass-TS-CSS.json",
+          "source": "src/content/Components/FluidGlass/FluidGlass.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FluidGlass-TS-TW.json",
+          "source": "src/tailwind/Components/FluidGlass/FluidGlass.tsx"
+        }
+      }
+    },
+    {
+      "id": "FlyingPosters",
+      "title": "FlyingPosters",
+      "description": "3D posters rotate on scroll infinitely.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FlyingPosters-JS-CSS.json",
+          "source": "src/content/Components/FlyingPosters/FlyingPosters.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FlyingPosters-JS-TW.json",
+          "source": "src/tailwind/Components/FlyingPosters/FlyingPosters.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FlyingPosters-TS-CSS.json",
+          "source": "src/content/Components/FlyingPosters/FlyingPosters.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FlyingPosters-TS-TW.json",
+          "source": "src/tailwind/Components/FlyingPosters/FlyingPosters.tsx"
+        }
+      }
+    },
+    {
+      "id": "Folder",
+      "title": "Folder",
+      "description": "Interactive folder opens to reveal nested content smooth motion.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Folder-JS-CSS.json",
+          "source": "src/content/Components/Folder/Folder.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Folder-JS-TW.json",
+          "source": "src/tailwind/Components/Folder/Folder.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Folder-TS-CSS.json",
+          "source": "src/content/Components/Folder/Folder.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Folder-TS-TW.json",
+          "source": "src/tailwind/Components/Folder/Folder.tsx"
+        }
+      }
+    },
+    {
+      "id": "FuzzyText",
+      "title": "FuzzyText",
+      "description": "Vibrating fuzzy text with controllable hover intensity.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/FuzzyText-JS-CSS.json",
+          "source": "src/content/Components/FuzzyText/FuzzyText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/FuzzyText-JS-TW.json",
+          "source": "src/tailwind/Components/FuzzyText/FuzzyText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/FuzzyText-TS-CSS.json",
+          "source": "src/content/Components/FuzzyText/FuzzyText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/FuzzyText-TS-TW.json",
+          "source": "src/tailwind/Components/FuzzyText/FuzzyText.tsx"
+        }
+      }
+    },
+    {
+      "id": "Galaxy",
+      "title": "Galaxy",
+      "description": "Parallax realistic starfield with pointer interactions.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Galaxy-JS-CSS.json",
+          "source": "src/content/Components/Galaxy/Galaxy.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Galaxy-JS-TW.json",
+          "source": "src/tailwind/Components/Galaxy/Galaxy.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Galaxy-TS-CSS.json",
+          "source": "src/content/Components/Galaxy/Galaxy.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Galaxy-TS-TW.json",
+          "source": "src/tailwind/Components/Galaxy/Galaxy.tsx"
+        }
+      }
+    },
+    {
+      "id": "GhostCursor",
+      "title": "GhostCursor",
+      "description": "Semi-transparent ghost cursor that smoothly follows the real cursor with a trailing effect.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GhostCursor-JS-CSS.json",
+          "source": "src/content/Components/GhostCursor/GhostCursor.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GhostCursor-JS-TW.json",
+          "source": "src/tailwind/Components/GhostCursor/GhostCursor.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GhostCursor-TS-CSS.json",
+          "source": "src/content/Components/GhostCursor/GhostCursor.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GhostCursor-TS-TW.json",
+          "source": "src/tailwind/Components/GhostCursor/GhostCursor.tsx"
+        }
+      }
+    },
+    {
+      "id": "GlareHover",
+      "title": "GlareHover",
+      "description": "Adds a realistic moving glare highlight on hover over any element.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GlareHover-JS-CSS.json",
+          "source": "src/content/Components/GlareHover/GlareHover.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GlareHover-JS-TW.json",
+          "source": "src/tailwind/Components/GlareHover/GlareHover.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GlareHover-TS-CSS.json",
+          "source": "src/content/Components/GlareHover/GlareHover.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GlareHover-TS-TW.json",
+          "source": "src/tailwind/Components/GlareHover/GlareHover.tsx"
+        }
+      }
+    },
+    {
+      "id": "GlassIcons",
+      "title": "GlassIcons",
+      "description": "Icon set styled with frosted glass blur.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GlassIcons-JS-CSS.json",
+          "source": "src/content/Components/GlassIcons/GlassIcons.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GlassIcons-JS-TW.json",
+          "source": "src/tailwind/Components/GlassIcons/GlassIcons.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GlassIcons-TS-CSS.json",
+          "source": "src/content/Components/GlassIcons/GlassIcons.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GlassIcons-TS-TW.json",
+          "source": "src/tailwind/Components/GlassIcons/GlassIcons.tsx"
+        }
+      }
+    },
+    {
+      "id": "GlassSurface",
+      "title": "GlassSurface",
+      "description": "Advanced Apple-style glass surface with real-time distortion + lighting.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GlassSurface-JS-CSS.json",
+          "source": "src/content/Components/GlassSurface/GlassSurface.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GlassSurface-JS-TW.json",
+          "source": "src/tailwind/Components/GlassSurface/GlassSurface.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GlassSurface-TS-CSS.json",
+          "source": "src/content/Components/GlassSurface/GlassSurface.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GlassSurface-TS-TW.json",
+          "source": "src/tailwind/Components/GlassSurface/GlassSurface.tsx"
+        }
+      }
+    },
+    {
+      "id": "GlitchText",
+      "title": "GlitchText",
+      "description": "RGB split and distortion glitch effect with jitter effects.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GlitchText-JS-CSS.json",
+          "source": "src/content/Components/GlitchText/GlitchText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GlitchText-JS-TW.json",
+          "source": "src/tailwind/Components/GlitchText/GlitchText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GlitchText-TS-CSS.json",
+          "source": "src/content/Components/GlitchText/GlitchText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GlitchText-TS-TW.json",
+          "source": "src/tailwind/Components/GlitchText/GlitchText.tsx"
+        }
+      }
+    },
+    {
+      "id": "GooeyNav",
+      "title": "GooeyNav",
+      "description": "Navigation indicator morphs with gooey blob transitions between items.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GooeyNav-JS-CSS.json",
+          "source": "src/content/Components/GooeyNav/GooeyNav.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GooeyNav-JS-TW.json",
+          "source": "src/tailwind/Components/GooeyNav/GooeyNav.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GooeyNav-TS-CSS.json",
+          "source": "src/content/Components/GooeyNav/GooeyNav.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GooeyNav-TS-TW.json",
+          "source": "src/tailwind/Components/GooeyNav/GooeyNav.tsx"
+        }
+      }
+    },
+    {
+      "id": "GradientBlinds",
+      "title": "GradientBlinds",
+      "description": "Layered gradient blinds with spotlight and noise distortion.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GradientBlinds-JS-CSS.json",
+          "source": "src/content/Components/GradientBlinds/GradientBlinds.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GradientBlinds-JS-TW.json",
+          "source": "src/tailwind/Components/GradientBlinds/GradientBlinds.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GradientBlinds-TS-CSS.json",
+          "source": "src/content/Components/GradientBlinds/GradientBlinds.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GradientBlinds-TS-TW.json",
+          "source": "src/tailwind/Components/GradientBlinds/GradientBlinds.tsx"
+        }
+      }
+    },
+    {
+      "id": "GradientText",
+      "title": "GradientText",
+      "description": "Animated gradient sweep across live text with speed and color control.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GradientText-JS-CSS.json",
+          "source": "src/content/Components/GradientText/GradientText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GradientText-JS-TW.json",
+          "source": "src/tailwind/Components/GradientText/GradientText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GradientText-TS-CSS.json",
+          "source": "src/content/Components/GradientText/GradientText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GradientText-TS-TW.json",
+          "source": "src/tailwind/Components/GradientText/GradientText.tsx"
+        }
+      }
+    },
+    {
+      "id": "GradualBlur",
+      "title": "GradualBlur",
+      "description": "Progressively un-blurs content based on scroll or trigger creating a cinematic reveal.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GradualBlur-JS-CSS.json",
+          "source": "src/content/Components/GradualBlur/GradualBlur.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GradualBlur-JS-TW.json",
+          "source": "src/tailwind/Components/GradualBlur/GradualBlur.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GradualBlur-TS-CSS.json",
+          "source": "src/content/Components/GradualBlur/GradualBlur.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GradualBlur-TS-TW.json",
+          "source": "src/tailwind/Components/GradualBlur/GradualBlur.tsx"
+        }
+      }
+    },
+    {
+      "id": "Grainient",
+      "title": "Grainient",
+      "description": "Grainy gradient swirls with soft wave distortion.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Grainient-JS-CSS.json",
+          "source": "src/content/Components/Grainient/Grainient.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Grainient-JS-TW.json",
+          "source": "src/tailwind/Components/Grainient/Grainient.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Grainient-TS-CSS.json",
+          "source": "src/content/Components/Grainient/Grainient.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Grainient-TS-TW.json",
+          "source": "src/tailwind/Components/Grainient/Grainient.tsx"
+        }
+      }
+    },
+    {
+      "id": "GridDistortion",
+      "title": "GridDistortion",
+      "description": "Warped grid mesh distorts smoothly reacting to cursor.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GridDistortion-JS-CSS.json",
+          "source": "src/content/Components/GridDistortion/GridDistortion.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GridDistortion-JS-TW.json",
+          "source": "src/tailwind/Components/GridDistortion/GridDistortion.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GridDistortion-TS-CSS.json",
+          "source": "src/content/Components/GridDistortion/GridDistortion.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GridDistortion-TS-TW.json",
+          "source": "src/tailwind/Components/GridDistortion/GridDistortion.tsx"
+        }
+      }
+    },
+    {
+      "id": "GridMotion",
+      "title": "GridMotion",
+      "description": "Perspective moving grid lines based on cusror position.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GridMotion-JS-CSS.json",
+          "source": "src/content/Components/GridMotion/GridMotion.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GridMotion-JS-TW.json",
+          "source": "src/tailwind/Components/GridMotion/GridMotion.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GridMotion-TS-CSS.json",
+          "source": "src/content/Components/GridMotion/GridMotion.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GridMotion-TS-TW.json",
+          "source": "src/tailwind/Components/GridMotion/GridMotion.tsx"
+        }
+      }
+    },
+    {
+      "id": "GridScan",
+      "title": "GridScan",
+      "description": "Animated grid room 3D scan effect and cool interactions.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "face-api.js@^0.22.2",
+        "postprocessing@^6.36.0",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/GridScan-JS-CSS.json",
+          "source": "src/content/Components/GridScan/GridScan.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/GridScan-JS-TW.json",
+          "source": "src/tailwind/Components/GridScan/GridScan.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/GridScan-TS-CSS.json",
+          "source": "src/content/Components/GridScan/GridScan.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/GridScan-TS-TW.json",
+          "source": "src/tailwind/Components/GridScan/GridScan.tsx"
+        }
+      }
+    },
+    {
+      "id": "Hyperspeed",
+      "title": "Hyperspeed",
+      "description": "Animated lines continuously moving to simulate hyperspace travel on click hold.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "postprocessing@^6.36.0",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Hyperspeed-JS-CSS.json",
+          "source": "src/content/Components/Hyperspeed/Hyperspeed.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Hyperspeed-JS-TW.json",
+          "source": "src/tailwind/Components/Hyperspeed/Hyperspeed.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Hyperspeed-TS-CSS.json",
+          "source": "src/content/Components/Hyperspeed/Hyperspeed.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Hyperspeed-TS-TW.json",
+          "source": "src/tailwind/Components/Hyperspeed/Hyperspeed.tsx"
+        }
+      }
+    },
+    {
+      "id": "ImageTrail",
+      "title": "ImageTrail",
+      "description": "Cursor-based image trail with several built-in variants.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ImageTrail-JS-CSS.json",
+          "source": "src/content/Components/ImageTrail/ImageTrail.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ImageTrail-JS-TW.json",
+          "source": "src/tailwind/Components/ImageTrail/ImageTrail.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ImageTrail-TS-CSS.json",
+          "source": "src/content/Components/ImageTrail/ImageTrail.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ImageTrail-TS-TW.json",
+          "source": "src/tailwind/Components/ImageTrail/ImageTrail.tsx"
+        }
+      }
+    },
+    {
+      "id": "InfiniteMenu",
+      "title": "InfiniteMenu",
+      "description": "Horizontally looping menu effect that scrolls endlessly with seamless wrap.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gl-matrix@^3.4.3"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/InfiniteMenu-JS-CSS.json",
+          "source": "src/content/Components/InfiniteMenu/InfiniteMenu.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/InfiniteMenu-JS-TW.json",
+          "source": "src/tailwind/Components/InfiniteMenu/InfiniteMenu.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/InfiniteMenu-TS-CSS.json",
+          "source": "src/content/Components/InfiniteMenu/InfiniteMenu.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/InfiniteMenu-TS-TW.json",
+          "source": "src/tailwind/Components/InfiniteMenu/InfiniteMenu.tsx"
+        }
+      }
+    },
+    {
+      "id": "Iridescence",
+      "title": "Iridescence",
+      "description": "Slick iridescent shader with shifting waves.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Iridescence-JS-CSS.json",
+          "source": "src/content/Components/Iridescence/Iridescence.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Iridescence-JS-TW.json",
+          "source": "src/tailwind/Components/Iridescence/Iridescence.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Iridescence-TS-CSS.json",
+          "source": "src/content/Components/Iridescence/Iridescence.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Iridescence-TS-TW.json",
+          "source": "src/tailwind/Components/Iridescence/Iridescence.tsx"
+        }
+      }
+    },
+    {
+      "id": "Lanyard",
+      "title": "Lanyard",
+      "description": "Swinging 3D lanyard / badge card with realistic inertial motion.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Lanyard-JS-CSS.json",
+          "source": "src/content/Components/Lanyard/Lanyard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Lanyard-JS-TW.json",
+          "source": "src/tailwind/Components/Lanyard/Lanyard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Lanyard-TS-CSS.json",
+          "source": "src/content/Components/Lanyard/Lanyard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Lanyard-TS-TW.json",
+          "source": "src/tailwind/Components/Lanyard/Lanyard.tsx"
+        }
+      }
+    },
+    {
+      "id": "LaserFlow",
+      "title": "LaserFlow",
+      "description": "Dynamic laser light that flows onto a surface, customizable effect.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LaserFlow-JS-CSS.json",
+          "source": "src/content/Components/LaserFlow/LaserFlow.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LaserFlow-JS-TW.json",
+          "source": "src/tailwind/Components/LaserFlow/LaserFlow.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LaserFlow-TS-CSS.json",
+          "source": "src/content/Components/LaserFlow/LaserFlow.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LaserFlow-TS-TW.json",
+          "source": "src/tailwind/Components/LaserFlow/LaserFlow.tsx"
+        }
+      }
+    },
+    {
+      "id": "LetterGlitch",
+      "title": "LetterGlitch",
+      "description": "Matrix style letter animation.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LetterGlitch-JS-CSS.json",
+          "source": "src/content/Components/LetterGlitch/LetterGlitch.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LetterGlitch-JS-TW.json",
+          "source": "src/tailwind/Components/LetterGlitch/LetterGlitch.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LetterGlitch-TS-CSS.json",
+          "source": "src/content/Components/LetterGlitch/LetterGlitch.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LetterGlitch-TS-TW.json",
+          "source": "src/tailwind/Components/LetterGlitch/LetterGlitch.tsx"
+        }
+      }
+    },
+    {
+      "id": "Lightfall",
+      "title": "Lightfall",
+      "description": "Colorful light streaks raining down a glowing tunnel with a cursor light.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Lightfall-JS-CSS.json",
+          "source": "src/content/Components/Lightfall/Lightfall.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Lightfall-JS-TW.json",
+          "source": "src/tailwind/Components/Lightfall/Lightfall.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Lightfall-TS-CSS.json",
+          "source": "src/content/Components/Lightfall/Lightfall.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Lightfall-TS-TW.json",
+          "source": "src/tailwind/Components/Lightfall/Lightfall.tsx"
+        }
+      }
+    },
+    {
+      "id": "Lightning",
+      "title": "Lightning",
+      "description": "Procedural lightning bolts with branching and glow flicker.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Lightning-JS-CSS.json",
+          "source": "src/content/Components/Lightning/Lightning.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Lightning-JS-TW.json",
+          "source": "src/tailwind/Components/Lightning/Lightning.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Lightning-TS-CSS.json",
+          "source": "src/content/Components/Lightning/Lightning.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Lightning-TS-TW.json",
+          "source": "src/tailwind/Components/Lightning/Lightning.tsx"
+        }
+      }
+    },
+    {
+      "id": "LightPillar",
+      "title": "LightPillar",
+      "description": "Vertical pillar of light with glow effects.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LightPillar-JS-CSS.json",
+          "source": "src/content/Components/LightPillar/LightPillar.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LightPillar-JS-TW.json",
+          "source": "src/tailwind/Components/LightPillar/LightPillar.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LightPillar-TS-CSS.json",
+          "source": "src/content/Components/LightPillar/LightPillar.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LightPillar-TS-TW.json",
+          "source": "src/tailwind/Components/LightPillar/LightPillar.tsx"
+        }
+      }
+    },
+    {
+      "id": "LightRays",
+      "title": "LightRays",
+      "description": "Volumetric light rays/beams with customizable direction.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LightRays-JS-CSS.json",
+          "source": "src/content/Components/LightRays/LightRays.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LightRays-JS-TW.json",
+          "source": "src/tailwind/Components/LightRays/LightRays.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LightRays-TS-CSS.json",
+          "source": "src/content/Components/LightRays/LightRays.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LightRays-TS-TW.json",
+          "source": "src/tailwind/Components/LightRays/LightRays.tsx"
+        }
+      }
+    },
+    {
+      "id": "LineSidebar",
+      "title": "LineSidebar",
+      "description": "Static list navigation with a cursor-proximity effect that shifts and highlights nearby items.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LineSidebar-JS-CSS.json",
+          "source": "src/content/Components/LineSidebar/LineSidebar.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LineSidebar-JS-TW.json",
+          "source": "src/tailwind/Components/LineSidebar/LineSidebar.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LineSidebar-TS-CSS.json",
+          "source": "src/content/Components/LineSidebar/LineSidebar.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LineSidebar-TS-TW.json",
+          "source": "src/tailwind/Components/LineSidebar/LineSidebar.tsx"
+        }
+      }
+    },
+    {
+      "id": "LineWaves",
+      "title": "LineWaves",
+      "description": "Animated line wave pattern with colorful warped distortion.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LineWaves-JS-CSS.json",
+          "source": "src/content/Components/LineWaves/LineWaves.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LineWaves-JS-TW.json",
+          "source": "src/tailwind/Components/LineWaves/LineWaves.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LineWaves-TS-CSS.json",
+          "source": "src/content/Components/LineWaves/LineWaves.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LineWaves-TS-TW.json",
+          "source": "src/tailwind/Components/LineWaves/LineWaves.tsx"
+        }
+      }
+    },
+    {
+      "id": "LiquidChrome",
+      "title": "LiquidChrome",
+      "description": "Liquid metallic chrome shader with flowing reflective surface.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LiquidChrome-JS-CSS.json",
+          "source": "src/content/Components/LiquidChrome/LiquidChrome.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LiquidChrome-JS-TW.json",
+          "source": "src/tailwind/Components/LiquidChrome/LiquidChrome.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LiquidChrome-TS-CSS.json",
+          "source": "src/content/Components/LiquidChrome/LiquidChrome.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LiquidChrome-TS-TW.json",
+          "source": "src/tailwind/Components/LiquidChrome/LiquidChrome.tsx"
+        }
+      }
+    },
+    {
+      "id": "LiquidEther",
+      "title": "LiquidEther",
+      "description": "Interactive liquid shader with flowing distortion and customizable colors.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LiquidEther-JS-CSS.json",
+          "source": "src/content/Components/LiquidEther/LiquidEther.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LiquidEther-JS-TW.json",
+          "source": "src/tailwind/Components/LiquidEther/LiquidEther.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LiquidEther-TS-CSS.json",
+          "source": "src/content/Components/LiquidEther/LiquidEther.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LiquidEther-TS-TW.json",
+          "source": "src/tailwind/Components/LiquidEther/LiquidEther.tsx"
+        }
+      }
+    },
+    {
+      "id": "LogoLoop",
+      "title": "LogoLoop",
+      "description": "Continuously looping marquee of brand or tech logos with seamless repeat and hover pause.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/LogoLoop-JS-CSS.json",
+          "source": "src/content/Components/LogoLoop/LogoLoop.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/LogoLoop-JS-TW.json",
+          "source": "src/tailwind/Components/LogoLoop/LogoLoop.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/LogoLoop-TS-CSS.json",
+          "source": "src/content/Components/LogoLoop/LogoLoop.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/LogoLoop-TS-TW.json",
+          "source": "src/tailwind/Components/LogoLoop/LogoLoop.tsx"
+        }
+      }
+    },
+    {
+      "id": "MagicBento",
+      "title": "MagicBento",
+      "description": "Interactive bento grid tiles expand + animate with various options.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/MagicBento-JS-CSS.json",
+          "source": "src/content/Components/MagicBento/MagicBento.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/MagicBento-JS-TW.json",
+          "source": "src/tailwind/Components/MagicBento/MagicBento.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/MagicBento-TS-CSS.json",
+          "source": "src/content/Components/MagicBento/MagicBento.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/MagicBento-TS-TW.json",
+          "source": "src/tailwind/Components/MagicBento/MagicBento.tsx"
+        }
+      }
+    },
+    {
+      "id": "MagicRings",
+      "title": "MagicRings",
+      "description": "Interactive magic rings effect with customizable parameters.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/MagicRings-JS-CSS.json",
+          "source": "src/content/Components/MagicRings/MagicRings.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/MagicRings-JS-TW.json",
+          "source": "src/tailwind/Components/MagicRings/MagicRings.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/MagicRings-TS-CSS.json",
+          "source": "src/content/Components/MagicRings/MagicRings.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/MagicRings-TS-TW.json",
+          "source": "src/tailwind/Components/MagicRings/MagicRings.tsx"
+        }
+      }
+    },
+    {
+      "id": "Magnet",
+      "title": "Magnet",
+      "description": "Elements magnetically ease toward the cursor then settle back with spring physics.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Magnet-JS-CSS.json",
+          "source": "src/content/Components/Magnet/Magnet.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Magnet-JS-TW.json",
+          "source": "src/tailwind/Components/Magnet/Magnet.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Magnet-TS-CSS.json",
+          "source": "src/content/Components/Magnet/Magnet.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Magnet-TS-TW.json",
+          "source": "src/tailwind/Components/Magnet/Magnet.tsx"
+        }
+      }
+    },
+    {
+      "id": "MagnetLines",
+      "title": "MagnetLines",
+      "description": "Animated field lines bend toward the cursor.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/MagnetLines-JS-CSS.json",
+          "source": "src/content/Components/MagnetLines/MagnetLines.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/MagnetLines-JS-TW.json",
+          "source": "src/tailwind/Components/MagnetLines/MagnetLines.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/MagnetLines-TS-CSS.json",
+          "source": "src/content/Components/MagnetLines/MagnetLines.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/MagnetLines-TS-TW.json",
+          "source": "src/tailwind/Components/MagnetLines/MagnetLines.tsx"
+        }
+      }
+    },
+    {
+      "id": "Masonry",
+      "title": "Masonry",
+      "description": "Responsive masonry layout with animated reflow + gaps optimization.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Masonry-JS-CSS.json",
+          "source": "src/content/Components/Masonry/Masonry.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Masonry-JS-TW.json",
+          "source": "src/tailwind/Components/Masonry/Masonry.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Masonry-TS-CSS.json",
+          "source": "src/content/Components/Masonry/Masonry.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Masonry-TS-TW.json",
+          "source": "src/tailwind/Components/Masonry/Masonry.tsx"
+        }
+      }
+    },
+    {
+      "id": "MetaBalls",
+      "title": "MetaBalls",
+      "description": "Liquid metaball blobs that merge and separate with smooth implicit surface animation.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/MetaBalls-JS-CSS.json",
+          "source": "src/content/Components/MetaBalls/MetaBalls.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/MetaBalls-JS-TW.json",
+          "source": "src/tailwind/Components/MetaBalls/MetaBalls.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/MetaBalls-TS-CSS.json",
+          "source": "src/content/Components/MetaBalls/MetaBalls.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/MetaBalls-TS-TW.json",
+          "source": "src/tailwind/Components/MetaBalls/MetaBalls.tsx"
+        }
+      }
+    },
+    {
+      "id": "MetallicPaint",
+      "title": "MetallicPaint",
+      "description": "Liquid metallic paint shader which can be applied to SVG elements.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/MetallicPaint-JS-CSS.json",
+          "source": "src/content/Components/MetallicPaint/MetallicPaint.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/MetallicPaint-JS-TW.json",
+          "source": "src/tailwind/Components/MetallicPaint/MetallicPaint.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/MetallicPaint-TS-CSS.json",
+          "source": "src/content/Components/MetallicPaint/MetallicPaint.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/MetallicPaint-TS-TW.json",
+          "source": "src/tailwind/Components/MetallicPaint/MetallicPaint.tsx"
+        }
+      }
+    },
+    {
+      "id": "ModelViewer",
+      "title": "ModelViewer",
+      "description": "Three.js model viewer with orbit controls and lighting presets.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "@react-three/fiber@^9.3.0",
+        "@react-three/drei@^10.7.4",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ModelViewer-JS-CSS.json",
+          "source": "src/content/Components/ModelViewer/ModelViewer.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ModelViewer-JS-TW.json",
+          "source": "src/tailwind/Components/ModelViewer/ModelViewer.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ModelViewer-TS-CSS.json",
+          "source": "src/content/Components/ModelViewer/ModelViewer.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ModelViewer-TS-TW.json",
+          "source": "src/tailwind/Components/ModelViewer/ModelViewer.tsx"
+        }
+      }
+    },
+    {
+      "id": "Noise",
+      "title": "Noise",
+      "description": "Animated film grain / noise overlay adding subtle texture and motion.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Noise-JS-CSS.json",
+          "source": "src/content/Components/Noise/Noise.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Noise-JS-TW.json",
+          "source": "src/tailwind/Components/Noise/Noise.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Noise-TS-CSS.json",
+          "source": "src/content/Components/Noise/Noise.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Noise-TS-TW.json",
+          "source": "src/tailwind/Components/Noise/Noise.tsx"
+        }
+      }
+    },
+    {
+      "id": "Orb",
+      "title": "Orb",
+      "description": "Floating energy orb with customizable hover effect.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Orb-JS-CSS.json",
+          "source": "src/content/Components/Orb/Orb.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Orb-JS-TW.json",
+          "source": "src/tailwind/Components/Orb/Orb.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Orb-TS-CSS.json",
+          "source": "src/content/Components/Orb/Orb.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Orb-TS-TW.json",
+          "source": "src/tailwind/Components/Orb/Orb.tsx"
+        }
+      }
+    },
+    {
+      "id": "OrbitImages",
+      "title": "OrbitImages",
+      "description": "SVG Path customizable orbiting images effect",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/OrbitImages-JS-CSS.json",
+          "source": "src/content/Components/OrbitImages/OrbitImages.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/OrbitImages-JS-TW.json",
+          "source": "src/tailwind/Components/OrbitImages/OrbitImages.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/OrbitImages-TS-CSS.json",
+          "source": "src/content/Components/OrbitImages/OrbitImages.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/OrbitImages-TS-TW.json",
+          "source": "src/tailwind/Components/OrbitImages/OrbitImages.tsx"
+        }
+      }
+    },
+    {
+      "id": "Particles",
+      "title": "Particles",
+      "description": "Configurable particle system.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Particles-JS-CSS.json",
+          "source": "src/content/Components/Particles/Particles.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Particles-JS-TW.json",
+          "source": "src/tailwind/Components/Particles/Particles.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Particles-TS-CSS.json",
+          "source": "src/content/Components/Particles/Particles.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Particles-TS-TW.json",
+          "source": "src/tailwind/Components/Particles/Particles.tsx"
+        }
+      }
+    },
+    {
+      "id": "PillNav",
+      "title": "PillNav",
+      "description": "Minimal pill nav with sliding active highlight + smooth easing.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "react-router-dom@^6.30.1",
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PillNav-JS-CSS.json",
+          "source": "src/content/Components/PillNav/PillNav.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PillNav-JS-TW.json",
+          "source": "src/tailwind/Components/PillNav/PillNav.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PillNav-TS-CSS.json",
+          "source": "src/content/Components/PillNav/PillNav.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PillNav-TS-TW.json",
+          "source": "src/tailwind/Components/PillNav/PillNav.tsx"
+        }
+      }
+    },
+    {
+      "id": "PixelBlast",
+      "title": "PixelBlast",
+      "description": "Exploding pixel particle bursts with optional liquid postprocessing.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "postprocessing@^6.36.0",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PixelBlast-JS-CSS.json",
+          "source": "src/content/Components/PixelBlast/PixelBlast.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PixelBlast-JS-TW.json",
+          "source": "src/tailwind/Components/PixelBlast/PixelBlast.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PixelBlast-TS-CSS.json",
+          "source": "src/content/Components/PixelBlast/PixelBlast.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PixelBlast-TS-TW.json",
+          "source": "src/tailwind/Components/PixelBlast/PixelBlast.tsx"
+        }
+      }
+    },
+    {
+      "id": "PixelCard",
+      "title": "PixelCard",
+      "description": "Card content revealed through pixel expansion transition.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PixelCard-JS-CSS.json",
+          "source": "src/content/Components/PixelCard/PixelCard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PixelCard-JS-TW.json",
+          "source": "src/tailwind/Components/PixelCard/PixelCard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PixelCard-TS-CSS.json",
+          "source": "src/content/Components/PixelCard/PixelCard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PixelCard-TS-TW.json",
+          "source": "src/tailwind/Components/PixelCard/PixelCard.tsx"
+        }
+      }
+    },
+    {
+      "id": "PixelSnow",
+      "title": "PixelSnow",
+      "description": "Falling pixelated snow effect with customizable density and speed.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PixelSnow-JS-CSS.json",
+          "source": "src/content/Components/PixelSnow/PixelSnow.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PixelSnow-JS-TW.json",
+          "source": "src/tailwind/Components/PixelSnow/PixelSnow.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PixelSnow-TS-CSS.json",
+          "source": "src/content/Components/PixelSnow/PixelSnow.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PixelSnow-TS-TW.json",
+          "source": "src/tailwind/Components/PixelSnow/PixelSnow.tsx"
+        }
+      }
+    },
+    {
+      "id": "PixelTrail",
+      "title": "PixelTrail",
+      "description": "Pixelated cursor trail emitting fading squares with retro digital feel.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "@react-three/fiber@^9.3.0",
+        "@react-three/drei@^10.7.4",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PixelTrail-JS-CSS.json",
+          "source": "src/content/Components/PixelTrail/PixelTrail.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PixelTrail-JS-TW.json",
+          "source": "src/tailwind/Components/PixelTrail/PixelTrail.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PixelTrail-TS-CSS.json",
+          "source": "src/content/Components/PixelTrail/PixelTrail.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PixelTrail-TS-TW.json",
+          "source": "src/tailwind/Components/PixelTrail/PixelTrail.tsx"
+        }
+      }
+    },
+    {
+      "id": "PixelTransition",
+      "title": "PixelTransition",
+      "description": "Pixel dissolve transition for content reveal on hover.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PixelTransition-JS-CSS.json",
+          "source": "src/content/Components/PixelTransition/PixelTransition.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PixelTransition-JS-TW.json",
+          "source": "src/tailwind/Components/PixelTransition/PixelTransition.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PixelTransition-TS-CSS.json",
+          "source": "src/content/Components/PixelTransition/PixelTransition.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PixelTransition-TS-TW.json",
+          "source": "src/tailwind/Components/PixelTransition/PixelTransition.tsx"
+        }
+      }
+    },
+    {
+      "id": "Plasma",
+      "title": "Plasma",
+      "description": "Organic plasma gradients swirl + morph with smooth turbulence.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Plasma-JS-CSS.json",
+          "source": "src/content/Components/Plasma/Plasma.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Plasma-JS-TW.json",
+          "source": "src/tailwind/Components/Plasma/Plasma.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Plasma-TS-CSS.json",
+          "source": "src/content/Components/Plasma/Plasma.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Plasma-TS-TW.json",
+          "source": "src/tailwind/Components/Plasma/Plasma.tsx"
+        }
+      }
+    },
+    {
+      "id": "PlasmaWave",
+      "title": "PlasmaWave",
+      "description": "Raymarched plasma waves with dual-wave interference and OGL.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PlasmaWave-JS-CSS.json",
+          "source": "src/content/Components/PlasmaWave/PlasmaWave.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PlasmaWave-JS-TW.json",
+          "source": "src/tailwind/Components/PlasmaWave/PlasmaWave.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PlasmaWave-TS-CSS.json",
+          "source": "src/content/Components/PlasmaWave/PlasmaWave.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PlasmaWave-TS-TW.json",
+          "source": "src/tailwind/Components/PlasmaWave/PlasmaWave.tsx"
+        }
+      }
+    },
+    {
+      "id": "Prism",
+      "title": "Prism",
+      "description": "Rotating prism with configurable intensity, size, and colors.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Prism-JS-CSS.json",
+          "source": "src/content/Components/Prism/Prism.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Prism-JS-TW.json",
+          "source": "src/tailwind/Components/Prism/Prism.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Prism-TS-CSS.json",
+          "source": "src/content/Components/Prism/Prism.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Prism-TS-TW.json",
+          "source": "src/tailwind/Components/Prism/Prism.tsx"
+        }
+      }
+    },
+    {
+      "id": "PrismaticBurst",
+      "title": "PrismaticBurst",
+      "description": "Burst of light rays with controllable color, distortion, amount.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/PrismaticBurst-JS-CSS.json",
+          "source": "src/content/Components/PrismaticBurst/PrismaticBurst.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/PrismaticBurst-JS-TW.json",
+          "source": "src/tailwind/Components/PrismaticBurst/PrismaticBurst.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/PrismaticBurst-TS-CSS.json",
+          "source": "src/content/Components/PrismaticBurst/PrismaticBurst.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/PrismaticBurst-TS-TW.json",
+          "source": "src/tailwind/Components/PrismaticBurst/PrismaticBurst.tsx"
+        }
+      }
+    },
+    {
+      "id": "ProfileCard",
+      "title": "ProfileCard",
+      "description": "Animated profile card glare with 3D hover effect.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ProfileCard-JS-CSS.json",
+          "source": "src/content/Components/ProfileCard/ProfileCard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ProfileCard-JS-TW.json",
+          "source": "src/tailwind/Components/ProfileCard/ProfileCard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ProfileCard-TS-CSS.json",
+          "source": "src/content/Components/ProfileCard/ProfileCard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ProfileCard-TS-TW.json",
+          "source": "src/tailwind/Components/ProfileCard/ProfileCard.tsx"
+        }
+      }
+    },
+    {
+      "id": "Radar",
+      "title": "Radar",
+      "description": "Radar sweep effect with concentric rings, radial spokes, and a rotating beam.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Radar-JS-CSS.json",
+          "source": "src/content/Components/Radar/Radar.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Radar-JS-TW.json",
+          "source": "src/tailwind/Components/Radar/Radar.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Radar-TS-CSS.json",
+          "source": "src/content/Components/Radar/Radar.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Radar-TS-TW.json",
+          "source": "src/tailwind/Components/Radar/Radar.tsx"
+        }
+      }
+    },
+    {
+      "id": "ReflectiveCard",
+      "title": "ReflectiveCard",
+      "description": "Card with dynamic webcam reflection and glare effects that respond to cursor movement.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "lucide-react@^0.542.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ReflectiveCard-JS-CSS.json",
+          "source": "src/content/Components/ReflectiveCard/ReflectiveCard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ReflectiveCard-JS-TW.json",
+          "source": "src/tailwind/Components/ReflectiveCard/ReflectiveCard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ReflectiveCard-TS-CSS.json",
+          "source": "src/content/Components/ReflectiveCard/ReflectiveCard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ReflectiveCard-TS-TW.json",
+          "source": "src/tailwind/Components/ReflectiveCard/ReflectiveCard.tsx"
+        }
+      }
+    },
+    {
+      "id": "Ribbons",
+      "title": "Ribbons",
+      "description": "Flowing responsive ribbons/cursor trail driven by physics and pointer motion.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Ribbons-JS-CSS.json",
+          "source": "src/content/Components/Ribbons/Ribbons.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Ribbons-JS-TW.json",
+          "source": "src/tailwind/Components/Ribbons/Ribbons.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Ribbons-TS-CSS.json",
+          "source": "src/content/Components/Ribbons/Ribbons.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Ribbons-TS-TW.json",
+          "source": "src/tailwind/Components/Ribbons/Ribbons.tsx"
+        }
+      }
+    },
+    {
+      "id": "RippleGrid",
+      "title": "RippleGrid",
+      "description": "A grid that continuously animates with a ripple effect.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/RippleGrid-JS-CSS.json",
+          "source": "src/content/Components/RippleGrid/RippleGrid.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/RippleGrid-JS-TW.json",
+          "source": "src/tailwind/Components/RippleGrid/RippleGrid.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/RippleGrid-TS-CSS.json",
+          "source": "src/content/Components/RippleGrid/RippleGrid.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/RippleGrid-TS-TW.json",
+          "source": "src/tailwind/Components/RippleGrid/RippleGrid.tsx"
+        }
+      }
+    },
+    {
+      "id": "RotatingText",
+      "title": "RotatingText",
+      "description": "Cycles through multiple phrases with 3D rotate / flip transitions.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/RotatingText-JS-CSS.json",
+          "source": "src/content/Components/RotatingText/RotatingText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/RotatingText-JS-TW.json",
+          "source": "src/tailwind/Components/RotatingText/RotatingText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/RotatingText-TS-CSS.json",
+          "source": "src/content/Components/RotatingText/RotatingText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/RotatingText-TS-TW.json",
+          "source": "src/tailwind/Components/RotatingText/RotatingText.tsx"
+        }
+      }
+    },
+    {
+      "id": "ScrambledText",
+      "title": "ScrambledText",
+      "description": "Detects cursor position and applies a distortion effect to text.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ScrambledText-JS-CSS.json",
+          "source": "src/content/Components/ScrambledText/ScrambledText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ScrambledText-JS-TW.json",
+          "source": "src/tailwind/Components/ScrambledText/ScrambledText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ScrambledText-TS-CSS.json",
+          "source": "src/content/Components/ScrambledText/ScrambledText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ScrambledText-TS-TW.json",
+          "source": "src/tailwind/Components/ScrambledText/ScrambledText.tsx"
+        }
+      }
+    },
+    {
+      "id": "ScrollFloat",
+      "title": "ScrollFloat",
+      "description": "Text gently floats / parallax shifts on scroll.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ScrollFloat-JS-CSS.json",
+          "source": "src/content/Components/ScrollFloat/ScrollFloat.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ScrollFloat-JS-TW.json",
+          "source": "src/tailwind/Components/ScrollFloat/ScrollFloat.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ScrollFloat-TS-CSS.json",
+          "source": "src/content/Components/ScrollFloat/ScrollFloat.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ScrollFloat-TS-TW.json",
+          "source": "src/tailwind/Components/ScrollFloat/ScrollFloat.tsx"
+        }
+      }
+    },
+    {
+      "id": "ScrollReveal",
+      "title": "ScrollReveal",
+      "description": "Text gently unblurs and reveals on scroll.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ScrollReveal-JS-CSS.json",
+          "source": "src/content/Components/ScrollReveal/ScrollReveal.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ScrollReveal-JS-TW.json",
+          "source": "src/tailwind/Components/ScrollReveal/ScrollReveal.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ScrollReveal-TS-CSS.json",
+          "source": "src/content/Components/ScrollReveal/ScrollReveal.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ScrollReveal-TS-TW.json",
+          "source": "src/tailwind/Components/ScrollReveal/ScrollReveal.tsx"
+        }
+      }
+    },
+    {
+      "id": "ScrollStack",
+      "title": "ScrollStack",
+      "description": "Overlapping card stack reveals on scroll with depth layering.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "lenis@^1.3.13"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ScrollStack-JS-CSS.json",
+          "source": "src/content/Components/ScrollStack/ScrollStack.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ScrollStack-JS-TW.json",
+          "source": "src/tailwind/Components/ScrollStack/ScrollStack.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ScrollStack-TS-CSS.json",
+          "source": "src/content/Components/ScrollStack/ScrollStack.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ScrollStack-TS-TW.json",
+          "source": "src/tailwind/Components/ScrollStack/ScrollStack.tsx"
+        }
+      }
+    },
+    {
+      "id": "ScrollVelocity",
+      "title": "ScrollVelocity",
+      "description": "Text marquee animatio - speed and distortion scale with user's scroll velocity.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ScrollVelocity-JS-CSS.json",
+          "source": "src/content/Components/ScrollVelocity/ScrollVelocity.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ScrollVelocity-JS-TW.json",
+          "source": "src/tailwind/Components/ScrollVelocity/ScrollVelocity.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ScrollVelocity-TS-CSS.json",
+          "source": "src/content/Components/ScrollVelocity/ScrollVelocity.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ScrollVelocity-TS-TW.json",
+          "source": "src/tailwind/Components/ScrollVelocity/ScrollVelocity.tsx"
+        }
+      }
+    },
+    {
+      "id": "ShapeBlur",
+      "title": "ShapeBlur",
+      "description": "Morphing blurred geometric shape. The effect occurs on hover.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ShapeBlur-JS-CSS.json",
+          "source": "src/content/Components/ShapeBlur/ShapeBlur.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ShapeBlur-JS-TW.json",
+          "source": "src/tailwind/Components/ShapeBlur/ShapeBlur.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ShapeBlur-TS-CSS.json",
+          "source": "src/content/Components/ShapeBlur/ShapeBlur.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ShapeBlur-TS-TW.json",
+          "source": "src/tailwind/Components/ShapeBlur/ShapeBlur.tsx"
+        }
+      }
+    },
+    {
+      "id": "ShapeGrid",
+      "title": "ShapeGrid",
+      "description": "Animated grid with shape variants (square, hexagon, circle, triangle) + direction customization.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ShapeGrid-JS-CSS.json",
+          "source": "src/content/Components/ShapeGrid/ShapeGrid.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ShapeGrid-JS-TW.json",
+          "source": "src/tailwind/Components/ShapeGrid/ShapeGrid.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ShapeGrid-TS-CSS.json",
+          "source": "src/content/Components/ShapeGrid/ShapeGrid.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ShapeGrid-TS-TW.json",
+          "source": "src/tailwind/Components/ShapeGrid/ShapeGrid.tsx"
+        }
+      }
+    },
+    {
+      "id": "ShinyText",
+      "title": "ShinyText",
+      "description": "Metallic sheen sweeps across text producing a reflective highlight.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/ShinyText-JS-CSS.json",
+          "source": "src/content/Components/ShinyText/ShinyText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/ShinyText-JS-TW.json",
+          "source": "src/tailwind/Components/ShinyText/ShinyText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/ShinyText-TS-CSS.json",
+          "source": "src/content/Components/ShinyText/ShinyText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/ShinyText-TS-TW.json",
+          "source": "src/tailwind/Components/ShinyText/ShinyText.tsx"
+        }
+      }
+    },
+    {
+      "id": "Shuffle",
+      "title": "Shuffle",
+      "description": "Animated text reveal where characters shuffle before settling.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0",
+        "@gsap/react@^2.1.2"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Shuffle-JS-CSS.json",
+          "source": "src/content/Components/Shuffle/Shuffle.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Shuffle-JS-TW.json",
+          "source": "src/tailwind/Components/Shuffle/Shuffle.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Shuffle-TS-CSS.json",
+          "source": "src/content/Components/Shuffle/Shuffle.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Shuffle-TS-TW.json",
+          "source": "src/tailwind/Components/Shuffle/Shuffle.tsx"
+        }
+      }
+    },
+    {
+      "id": "SideRays",
+      "title": "SideRays",
+      "description": "Animated light rays emanating from the side with customizable colors and speed.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/SideRays-JS-CSS.json",
+          "source": "src/content/Components/SideRays/SideRays.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/SideRays-JS-TW.json",
+          "source": "src/tailwind/Components/SideRays/SideRays.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/SideRays-TS-CSS.json",
+          "source": "src/content/Components/SideRays/SideRays.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/SideRays-TS-TW.json",
+          "source": "src/tailwind/Components/SideRays/SideRays.tsx"
+        }
+      }
+    },
+    {
+      "id": "Silk",
+      "title": "Silk",
+      "description": "Smooth waves background with soft lighting.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "@react-three/fiber@^9.3.0",
+        "three@^0.180.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Silk-JS-CSS.json",
+          "source": "src/content/Components/Silk/Silk.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Silk-JS-TW.json",
+          "source": "src/tailwind/Components/Silk/Silk.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Silk-TS-CSS.json",
+          "source": "src/content/Components/Silk/Silk.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Silk-TS-TW.json",
+          "source": "src/tailwind/Components/Silk/Silk.tsx"
+        }
+      }
+    },
+    {
+      "id": "SoftAurora",
+      "title": "SoftAurora",
+      "description": "Soft aurora borealis shader with 3D Perlin noise and cosine gradient palettes.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/SoftAurora-JS-CSS.json",
+          "source": "src/content/Components/SoftAurora/SoftAurora.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/SoftAurora-JS-TW.json",
+          "source": "src/tailwind/Components/SoftAurora/SoftAurora.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/SoftAurora-TS-CSS.json",
+          "source": "src/content/Components/SoftAurora/SoftAurora.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/SoftAurora-TS-TW.json",
+          "source": "src/tailwind/Components/SoftAurora/SoftAurora.tsx"
+        }
+      }
+    },
+    {
+      "id": "SplashCursor",
+      "title": "SplashCursor",
+      "description": "Liquid splash burst at cursor with curling ripples and waves.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/SplashCursor-JS-CSS.json",
+          "source": "src/content/Components/SplashCursor/SplashCursor.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/SplashCursor-JS-TW.json",
+          "source": "src/tailwind/Components/SplashCursor/SplashCursor.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/SplashCursor-TS-CSS.json",
+          "source": "src/content/Components/SplashCursor/SplashCursor.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/SplashCursor-TS-TW.json",
+          "source": "src/tailwind/Components/SplashCursor/SplashCursor.tsx"
+        }
+      }
+    },
+    {
+      "id": "SplitText",
+      "title": "SplitText",
+      "description": "Splits text into characters / words for staggered entrance animation.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0",
+        "@gsap/react@^2.1.2"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/SplitText-JS-CSS.json",
+          "source": "src/content/Components/SplitText/SplitText.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/SplitText-JS-TW.json",
+          "source": "src/tailwind/Components/SplitText/SplitText.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/SplitText-TS-CSS.json",
+          "source": "src/content/Components/SplitText/SplitText.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/SplitText-TS-TW.json",
+          "source": "src/tailwind/Components/SplitText/SplitText.tsx"
+        }
+      }
+    },
+    {
+      "id": "SpotlightCard",
+      "title": "SpotlightCard",
+      "description": "Dynamic spotlight follows cursor casting gradient illumination.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/SpotlightCard-JS-CSS.json",
+          "source": "src/content/Components/SpotlightCard/SpotlightCard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/SpotlightCard-JS-TW.json",
+          "source": "src/tailwind/Components/SpotlightCard/SpotlightCard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/SpotlightCard-TS-CSS.json",
+          "source": "src/content/Components/SpotlightCard/SpotlightCard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/SpotlightCard-TS-TW.json",
+          "source": "src/tailwind/Components/SpotlightCard/SpotlightCard.tsx"
+        }
+      }
+    },
+    {
+      "id": "Stack",
+      "title": "Stack",
+      "description": "Layered stack with swipe animations, autoplay and smooth transitions.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Stack-JS-CSS.json",
+          "source": "src/content/Components/Stack/Stack.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Stack-JS-TW.json",
+          "source": "src/tailwind/Components/Stack/Stack.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Stack-TS-CSS.json",
+          "source": "src/content/Components/Stack/Stack.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Stack-TS-TW.json",
+          "source": "src/tailwind/Components/Stack/Stack.tsx"
+        }
+      }
+    },
+    {
+      "id": "StaggeredMenu",
+      "title": "StaggeredMenu",
+      "description": "Menu with staggered item animations and smooth transitions on open/close.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/StaggeredMenu-JS-CSS.json",
+          "source": "src/content/Components/StaggeredMenu/StaggeredMenu.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/StaggeredMenu-JS-TW.json",
+          "source": "src/tailwind/Components/StaggeredMenu/StaggeredMenu.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/StaggeredMenu-TS-CSS.json",
+          "source": "src/content/Components/StaggeredMenu/StaggeredMenu.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/StaggeredMenu-TS-TW.json",
+          "source": "src/tailwind/Components/StaggeredMenu/StaggeredMenu.tsx"
+        }
+      }
+    },
+    {
+      "id": "StarBorder",
+      "title": "StarBorder",
+      "description": "Animated star / sparkle border orbiting content with twinkle pulses.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/StarBorder-JS-CSS.json",
+          "source": "src/content/Components/StarBorder/StarBorder.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/StarBorder-JS-TW.json",
+          "source": "src/tailwind/Components/StarBorder/StarBorder.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/StarBorder-TS-CSS.json",
+          "source": "src/content/Components/StarBorder/StarBorder.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/StarBorder-TS-TW.json",
+          "source": "src/tailwind/Components/StarBorder/StarBorder.tsx"
+        }
+      }
+    },
+    {
+      "id": "Stepper",
+      "title": "Stepper",
+      "description": "Animated multi-step progress indicator with active state transitions.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Stepper-JS-CSS.json",
+          "source": "src/content/Components/Stepper/Stepper.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Stepper-JS-TW.json",
+          "source": "src/tailwind/Components/Stepper/Stepper.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Stepper-TS-CSS.json",
+          "source": "src/content/Components/Stepper/Stepper.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Stepper-TS-TW.json",
+          "source": "src/tailwind/Components/Stepper/Stepper.tsx"
+        }
+      }
+    },
+    {
+      "id": "StickerPeel",
+      "title": "StickerPeel",
+      "description": "Sticker corner lift + peel interaction using 3D transform and shadow depth.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/StickerPeel-JS-CSS.json",
+          "source": "src/content/Components/StickerPeel/StickerPeel.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/StickerPeel-JS-TW.json",
+          "source": "src/tailwind/Components/StickerPeel/StickerPeel.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/StickerPeel-TS-CSS.json",
+          "source": "src/content/Components/StickerPeel/StickerPeel.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/StickerPeel-TS-TW.json",
+          "source": "src/tailwind/Components/StickerPeel/StickerPeel.tsx"
+        }
+      }
+    },
+    {
+      "id": "Strands",
+      "title": "Strands",
+      "description": "Glowing ribbon-like strands that ripple and weave across a transparent canvas.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Strands-JS-CSS.json",
+          "source": "src/content/Components/Strands/Strands.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Strands-JS-TW.json",
+          "source": "src/tailwind/Components/Strands/Strands.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Strands-TS-CSS.json",
+          "source": "src/content/Components/Strands/Strands.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Strands-TS-TW.json",
+          "source": "src/tailwind/Components/Strands/Strands.tsx"
+        }
+      }
+    },
+    {
+      "id": "TargetCursor",
+      "title": "TargetCursor",
+      "description": "A cursor follow animation with 4 corners that lock onto targets.",
+      "category": "Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/TargetCursor-JS-CSS.json",
+          "source": "src/content/Components/TargetCursor/TargetCursor.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/TargetCursor-JS-TW.json",
+          "source": "src/tailwind/Components/TargetCursor/TargetCursor.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/TargetCursor-TS-CSS.json",
+          "source": "src/content/Components/TargetCursor/TargetCursor.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/TargetCursor-TS-TW.json",
+          "source": "src/tailwind/Components/TargetCursor/TargetCursor.tsx"
+        }
+      }
+    },
+    {
+      "id": "TextCursor",
+      "title": "TextCursor",
+      "description": "Make any text element follow your cursor, leaving a trail of copies behind it.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/TextCursor-JS-CSS.json",
+          "source": "src/content/Components/TextCursor/TextCursor.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/TextCursor-JS-TW.json",
+          "source": "src/tailwind/Components/TextCursor/TextCursor.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/TextCursor-TS-CSS.json",
+          "source": "src/content/Components/TextCursor/TextCursor.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/TextCursor-TS-TW.json",
+          "source": "src/tailwind/Components/TextCursor/TextCursor.tsx"
+        }
+      }
+    },
+    {
+      "id": "TextPressure",
+      "title": "TextPressure",
+      "description": "Characters scale / warp interactively based on pointer pressure zone.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/TextPressure-JS-CSS.json",
+          "source": "src/content/Components/TextPressure/TextPressure.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/TextPressure-JS-TW.json",
+          "source": "src/tailwind/Components/TextPressure/TextPressure.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/TextPressure-TS-CSS.json",
+          "source": "src/content/Components/TextPressure/TextPressure.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/TextPressure-TS-TW.json",
+          "source": "src/tailwind/Components/TextPressure/TextPressure.tsx"
+        }
+      }
+    },
+    {
+      "id": "TextType",
+      "title": "TextType",
+      "description": "Typewriter effect with blinking cursor and adjustable typing cadence.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "gsap@^3.13.0"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/TextType-JS-CSS.json",
+          "source": "src/content/Components/TextType/TextType.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/TextType-JS-TW.json",
+          "source": "src/tailwind/Components/TextType/TextType.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/TextType-TS-CSS.json",
+          "source": "src/content/Components/TextType/TextType.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/TextType-TS-TW.json",
+          "source": "src/tailwind/Components/TextType/TextType.tsx"
+        }
+      }
+    },
+    {
+      "id": "Threads",
+      "title": "Threads",
+      "description": "Animated pattern of lines forming a fabric-like motion.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "ogl@^1.0.11"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Threads-JS-CSS.json",
+          "source": "src/content/Components/Threads/Threads.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Threads-JS-TW.json",
+          "source": "src/tailwind/Components/Threads/Threads.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Threads-TS-CSS.json",
+          "source": "src/content/Components/Threads/Threads.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Threads-TS-TW.json",
+          "source": "src/tailwind/Components/Threads/Threads.tsx"
+        }
+      }
+    },
+    {
+      "id": "TiltedCard",
+      "title": "TiltedCard",
+      "description": "3D perspective tilt card reacting to pointer.",
+      "category": "Components",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/TiltedCard-JS-CSS.json",
+          "source": "src/content/Components/TiltedCard/TiltedCard.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/TiltedCard-JS-TW.json",
+          "source": "src/tailwind/Components/TiltedCard/TiltedCard.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/TiltedCard-TS-CSS.json",
+          "source": "src/content/Components/TiltedCard/TiltedCard.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/TiltedCard-TS-TW.json",
+          "source": "src/tailwind/Components/TiltedCard/TiltedCard.tsx"
+        }
+      }
+    },
+    {
+      "id": "TrueFocus",
+      "title": "TrueFocus",
+      "description": "Applies dynamic blur / clarity based over a series of words in order.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/TrueFocus-JS-CSS.json",
+          "source": "src/content/Components/TrueFocus/TrueFocus.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/TrueFocus-JS-TW.json",
+          "source": "src/tailwind/Components/TrueFocus/TrueFocus.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/TrueFocus-TS-CSS.json",
+          "source": "src/content/Components/TrueFocus/TrueFocus.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/TrueFocus-TS-TW.json",
+          "source": "src/tailwind/Components/TrueFocus/TrueFocus.tsx"
+        }
+      }
+    },
+    {
+      "id": "VariableProximity",
+      "title": "VariableProximity",
+      "description": "Letter styling changes continuously with pointer distance mapping.",
+      "category": "Text Animations",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [
+        "motion@^12.23.12"
+      ],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/VariableProximity-JS-CSS.json",
+          "source": "src/content/Components/VariableProximity/VariableProximity.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/VariableProximity-JS-TW.json",
+          "source": "src/tailwind/Components/VariableProximity/VariableProximity.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/VariableProximity-TS-CSS.json",
+          "source": "src/content/Components/VariableProximity/VariableProximity.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/VariableProximity-TS-TW.json",
+          "source": "src/tailwind/Components/VariableProximity/VariableProximity.tsx"
+        }
+      }
+    },
+    {
+      "id": "Waves",
+      "title": "Waves",
+      "description": "Layered lines that form smooth wave patterns with animation.",
+      "category": "Backgrounds",
+      "variants": [
+        "JS-CSS",
+        "JS-TW",
+        "TS-CSS",
+        "TS-TW"
+      ],
+      "dependencies": [],
+      "paths": {
+        "JS-CSS": {
+          "registry": "registry/Waves-JS-CSS.json",
+          "source": "src/content/Components/Waves/Waves.jsx"
+        },
+        "JS-TW": {
+          "registry": "registry/Waves-JS-TW.json",
+          "source": "src/tailwind/Components/Waves/Waves.jsx"
+        },
+        "TS-CSS": {
+          "registry": "registry/Waves-TS-CSS.json",
+          "source": "src/content/Components/Waves/Waves.tsx"
+        },
+        "TS-TW": {
+          "registry": "registry/Waves-TS-TW.json",
+          "source": "src/tailwind/Components/Waves/Waves.tsx"
+        }
+      }
+    }
+  ]
+}

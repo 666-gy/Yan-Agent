@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  background: #111111;
+  color: #eeeeea;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button { font: inherit; }
+
+.viewer-shell {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr) 30px;
+  background: #111111;
+}
+
+.viewer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px 0 18px;
+  border-bottom: 1px solid #30302e;
+  background: #191918;
+}
+
+.viewer-title {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.image-meta {
+  overflow: hidden;
+  color: #969691;
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 0 13px;
+  border: 1px solid #4a7f69;
+  border-radius: 6px;
+  color: #f4f7f5;
+  background: #2f6d54;
+  cursor: pointer;
+}
+
+.download-button:hover:not(:disabled) { background: #397d61; }
+.download-button:focus-visible { outline: 2px solid #8fc9ad; outline-offset: 2px; }
+.download-button:disabled { opacity: 0.45; cursor: default; }
+
+.image-stage {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  overflow: auto;
+  background: #0d0d0d;
+}
+
+#generatedImage {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+}
+
+.viewer-status {
+  color: #969691;
+  font-size: 13px;
+}
+
+.download-status {
+  min-width: 0;
+  padding: 6px 16px 0;
+  overflow: hidden;
+  color: #969691;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-status.is-error { color: #e58b84; }

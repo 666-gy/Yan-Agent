@@ -1,0 +1,20 @@
+{
+  "name": "Code Simplifier",
+  "promptFile": "code-simplifier.prompt.md",
+  "triggers": [
+    "simplify",
+    "simplifier",
+    "简化代码",
+    "精简代码",
+    "代码简化",
+    "declutter",
+    "code-simplifier",
+    "去冗余"
+  ],
+  "id": "code-simplifier",
+  "source": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-simplifier",
+  "desc": "简化并精炼代码：提升清晰度、一致性与可维护性，严格保持功能不变；默认聚焦最近改动",
+  "tags": [
+    "code"
+  ]
+}

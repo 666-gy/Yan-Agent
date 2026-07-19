@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Yan Agent — 桌面端自主 Agent，5 任务独立并行，30+ 内置工具，8 大国产模型厂商支持。" />
-  <title>Yan Agent · 桌面端自主 Agent</title>
-  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <meta name="description" content="Yan Agent v1.3.0 — 面向真实工作区的桌面端自主 Agent，连接 Yan Project Map 与 Yanxi Code。" />
+  <title>Yan Agent v1.3.0 · 面向真实工作区的自主 Agent</title>
+  <link rel="icon" href="assets/logo-light.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -87,8 +87,7 @@
     }
     .brand-logo {
       width: 30px; height: 30px;
-      border-radius: 7px;
-      box-shadow: 0 0 0 1px rgba(217,119,87,0.25), 0 4px 14px rgba(217,119,87,0.18);
+      object-fit: contain;
     }
     .nav-links { display: flex; align-items: center; gap: 4px; font-size: 14px; }
     .nav-links a {
@@ -146,24 +145,12 @@
       margin: 0 auto 32px;
     }
     .hero-logo-wrap::before {
-      content: "";
-      position: absolute; inset: -12px;
-      border-radius: 50%;
-      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
-      animation: logo-pulse 3.5s ease-in-out infinite;
-    }
-    @keyframes logo-pulse {
-      0%, 100% { opacity: 0.6; transform: scale(1); }
-      50% { opacity: 1; transform: scale(1.08); }
+      display: none;
     }
     .hero-logo {
       position: relative;
       width: 96px; height: 96px;
-      border-radius: 22px;
-      box-shadow:
-        0 0 0 1px rgba(217,119,87,0.3),
-        0 8px 32px rgba(0,0,0,0.4),
-        0 0 60px rgba(217,119,87,0.15);
+      object-fit: contain;
     }
 
     .badge {
@@ -348,6 +335,13 @@
       margin: 0 auto;
     }
     @media (max-width: 560px) {
+      .wrap { padding-left: 16px; padding-right: 16px; }
+      .nav-inner { height: 56px; }
+      .brand { flex-shrink: 0; gap: 8px; font-size: 14px; white-space: nowrap; }
+      .brand-logo { width: 26px; height: 26px; }
+      .brand > span { font-size: 10px !important; }
+      .nav-links { gap: 0; flex-shrink: 0; }
+      .nav-links a { padding: 8px 7px; white-space: nowrap; }
       .download-grid { grid-template-columns: 1fr; }
     }
     .dl-card {
@@ -405,7 +399,7 @@
     }
     .duo-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 20px;
     }
     @media (max-width: 760px) {
@@ -619,11 +613,12 @@
   <nav>
     <div class="wrap nav-inner">
       <a class="brand" href="#">
-        <img class="brand-logo" src="assets/logo.png" alt="" width="30" height="30" />
-        Yan Agent
+        <img class="brand-logo" src="assets/logo-light.png" alt="" width="30" height="30" />
+        Yan Agent <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">v1.3.0</span>
       </a>
       <div class="nav-links">
-        <a href="#changelog">更新公告</a>
+        <a href="#ecosystem">生态</a>
+        <a href="#features">能力</a>
         <a href="#download" class="nav-dl">下载</a>
         <a href="https://github.com/666-gy/Yan-Agent" class="nav-extra" target="_blank" rel="noopener">GitHub</a>
       </div>
@@ -633,24 +628,17 @@
   <header class="hero">
     <div class="wrap">
       <div class="hero-logo-wrap">
-        <img class="hero-logo" src="assets/logo.png" alt="Yan Agent" width="96" height="96" />
+        <img class="hero-logo" src="assets/logo-light.png" alt="Yan Agent" width="96" height="96" />
       </div>
-      <div class="badge">v1.2.0 · 7 大国产模型 · 30+ 工具 · MCP 扩展</div>
+      <div class="badge">v1.3.0 · Yan Project Map · Yanxi Code · 多模态</div>
       <h1>不只是聊天<br /><em>让想法真正落地</em></h1>
       <p class="hero-lead">
-        Yan Agent 在你的 Windows 桌面上自主读写代码、执行命令、操作浏览器、管理 Git。
-        5 个任务完全独立并行，互不影响 — 从「有个想法」到「跑起来了」，全程由 Agent 动手完成。
+        Yan Agent 在 Windows 工作区里读写代码、执行命令、操作浏览器并验证结果。你只需要描述目标，Agent 会把计划、工具调用和最终文件变更串成一条可检查的交付链路。
       </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.2.0.exe">
-          下载安装版
-        </a>
-        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.2.0.exe">
-          下载便携版
-        </a>
-        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">
-          查看源码
-        </a>
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.3.0.exe">下载安装版</a>
+        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.3.0.exe">下载便携版</a>
+        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">查看源码</a>
       </div>
     </div>
   </header>
@@ -658,39 +646,20 @@
   <section class="section" id="models">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow">国产模型</span>
-        <h2>7 大厂商一键切换</h2>
-        <p>设置页选择厂商，填入 API Key 即可开始使用</p>
+        <span class="eyebrow">Model choice</span>
+        <h2>把模型选择权留给你</h2>
+        <p>独立 API Key、模型能力识别和图片输入开关，让同一套工作流适配不同供应商</p>
       </div>
       <div class="models-grid">
-        <div class="model-item">
-          <div class="model-name">DeepSeek</div>
-          <div class="model-vendor">V4 Flash / V4 Pro</div>
-        </div>
-        <div class="model-item">
-          <div class="model-name">通义千问</div>
-          <div class="model-vendor">Qwen3.7 Max / Plus / Flash</div>
-        </div>
-        <div class="model-item">
-          <div class="model-name">智谱清言</div>
-          <div class="model-vendor">GLM-5.2 / GLM-4.7 Flash</div>
-        </div>
-        <div class="model-item">
-          <div class="model-name">豆包</div>
-          <div class="model-vendor">Seed 2.1 Pro / Turbo</div>
-        </div>
-        <div class="model-item">
-          <div class="model-name">Kimi</div>
-          <div class="model-vendor">K2.7 Code / K2.6</div>
-        </div>
-        <div class="model-item">
-          <div class="model-name">StepFun</div>
-          <div class="model-vendor">Step 3.7 Flash</div>
-        </div>
-        <div class="model-item">
-          <div class="model-name">MiniMax</div>
-          <div class="model-vendor">M3 / M2.7</div>
-        </div>
+        <div class="model-item"><div class="model-name">OpenAI</div><div class="model-vendor">Dynamic catalog · Vision</div></div>
+        <div class="model-item"><div class="model-name">Grok</div><div class="model-vendor">Dynamic catalog · Imagine</div></div>
+        <div class="model-item"><div class="model-name">DeepSeek</div><div class="model-vendor">V4 Flash / V4 Pro</div></div>
+        <div class="model-item"><div class="model-name">通义千问</div><div class="model-vendor">Qwen3.7 / Qwen3.6</div></div>
+        <div class="model-item"><div class="model-name">智谱 GLM</div><div class="model-vendor">GLM-5.2 / GLM-4.7 Flash</div></div>
+        <div class="model-item"><div class="model-name">豆包</div><div class="model-vendor">Seed 2.1 / 2.0</div></div>
+        <div class="model-item"><div class="model-name">Kimi</div><div class="model-vendor">K3 / K2.7 Code</div></div>
+        <div class="model-item"><div class="model-name">StepFun</div><div class="model-vendor">Step 3.7 / 3.5 Flash</div></div>
+        <div class="model-item"><div class="model-name">MiniMax</div><div class="model-vendor">M3 / M2.7</div></div>
       </div>
     </div>
   </section>
@@ -699,29 +668,22 @@
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Changelog</span>
-        <h2>更新公告</h2>
-        <p>内核重构 · 5 任务独立并行 · 子 Agent 系统 · 代码理解增强</p>
+        <h2>v1.3.0 更新公告</h2>
+        <p>三端生态、代码地图和真实工作区协同在同一版本完成</p>
       </div>
       <div class="changelog">
-        <div class="changelog-meta">
-          <span class="version-tag">v1.2.0</span>
-          <span class="changelog-date">2026-07-10</span>
-        </div>
-        <h3>本次更新亮点</h3>
+        <div class="changelog-meta"><span class="version-tag">v1.3.0</span><span class="changelog-date">2026-07-18</span></div>
+        <h3>这次更新，不只是换了一个版本号</h3>
         <ul>
-          <li><strong>7 大国产模型厂商</strong> — DeepSeek、通义千问、智谱清言、豆包、Kimi、StepFun、MiniMax，一键切换，独立 API Key</li>
-          <li><strong>10+ 代码理解工具</strong> — get_file_outline、find_symbol、find_references、trace_symbol、get_file_imports、find_related_files、search_symbols、build_code_index、scan_project 等</li>
-          <li><strong>子 Agent 系统</strong> — spawn_subagent 支持 6 类专家：explore（只读调研）、shell（命令）、review（代码审查）、edit（改动）、ui（前端）、doc（文档）；spawn_subagents 最多 3 路并行</li>
-          <li><strong>5 任务完全独立并行</strong> — 每个任务拥有独立 agentState、AbortController、MCP 快照，切换会话不中断运行中的任务</li>
-          <li><strong>内核模块化拆分</strong> — 单文件内核拆分为 15 个独立模块（agent-loop / tool-executor / subagent / policies / edits / stream / tools-registry / prompt / context / run-state / tool-retry / tool-protocol / path / constants / index）</li>
-          <li><strong>运行时策略引擎</strong> — 读后编辑强制校验、完成门控（in_progress 的 todo 不允许提前结束）、工具自动重试（最多 4 次，250ms 指数退避）</li>
-          <li><strong>30+ 内置工具</strong> — 文件读写/编辑、Shell、Git 全套、浏览器预览、代码理解全套</li>
-          <li><strong>MCP 扩展重构</strong> — Fetch / Playwright / Windows-MCP 默认启用，Context7 / GitHub 按需启用，支持 per-server 环境变量配置</li>
-          <li><strong>界面修复</strong> — 主题按钮、右侧边栏实时同步、Agent 输出 UI（Claude/Codex 风格时间线）、后台任务完成通知</li>
+          <li><strong>Yan Project Map</strong> — 把目录、文件、符号和依赖边变成可以缩放和探索的地图。你可以先看全局结构，再沿着入口节点定位到需要修改的模块。</li>
+          <li><strong>Yanxi Code 双向协同</strong> — Yan Agent 会检测已安装的 IDE，并以带回执的协议交接工作区。Yanxi Code 无论冷启动还是已经运行，都会刷新到当前工作区，而不是停在欢迎页。</li>
+          <li><strong>内置终端与浏览器</strong> — 命令执行、网页预览和结果验证都留在任务上下文旁边。Agent 可以边读代码边运行真实检查，把“应该可以”变成可复核的证据。</li>
+          <li><strong>桌面宠物与移动端</strong> — 桌面宠物跟随当前任务，显示运行状态和资源占用，并提供停止入口。移动端可以搜索、切换和管理任务，模型和生成图片会与桌面端同步。</li>
+          <li><strong>多模态工作流</strong> — 图片入口会根据模型能力动态出现，视觉模型可以处理截图和界面问题。图片生成、编辑、预览和下载都保留在任务历史中，刷新后仍可继续使用。</li>
+          <li><strong>Kimi K3 与模型目录</strong> — 新增 Kimi K3、Kimi K2.7 Code 等模型，并更新主流厂商的能力和价格展示。OpenAI 与 Grok 支持动态模型目录，实际费用仍以供应商账单为准。</li>
+          <li><strong>更可靠的任务交付</strong> — 五个任务拥有独立状态、工作区、中止控制和 MCP 工具快照。写入后回读、完成门控和文件变更摘要让每一步都更容易检查。</li>
         </ul>
-        <p class="changelog-more">
-          <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">查看完整 README →</a>
-        </p>
+        <p class="changelog-more"><a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">查看中文版 README →</a> <span style="margin:0 8px;color:var(--border-hi);">·</span> <a href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">Read in English →</a></p>
       </div>
     </div>
   </section>
@@ -730,51 +692,51 @@
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Download</span>
-        <h2>下载</h2>
-        <p>Windows 10/11 · 支持多家国产模型 API Key</p>
+        <h2>现在就开始一个真实任务</h2>
+        <p>Windows 10/11 · 选择供应商 · 选择工作区 · 让 Agent 动手</p>
       </div>
       <div class="download-grid">
         <div class="dl-card recommended">
-          <div class="dl-badge">推荐</div>
+          <div class="dl-badge">推荐 · v1.3.0</div>
           <h3>安装版</h3>
-          <p>NSIS 安装包，创建快捷方式，适合日常使用</p>
-          <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.2.0.exe">
-            Yan.Agent.Setup.1.2.0.exe
-          </a>
+          <p>NSIS 安装包会创建快捷方式并接入桌面环境。适合把 Yan Agent 作为日常开发工具使用。</p>
+          <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.3.0.exe">Yan.Agent.Setup.1.3.0.exe</a>
         </div>
         <div class="dl-card">
-          <div class="dl-badge">&nbsp;</div>
+          <div class="dl-badge">PORTABLE · v1.3.0</div>
           <h3>便携版</h3>
-          <p>免安装，双击即用，适合 U 盘或临时使用</p>
-          <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.2.0.exe">
-            Yan.Agent.Portable.1.2.0.exe
-          </a>
+          <p>不需要安装，双击即可运行。适合临时项目、移动硬盘或不想修改系统环境的场景。</p>
+          <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.3.0.exe">Yan.Agent.Portable.1.3.0.exe</a>
         </div>
       </div>
-      <p class="dl-note">
-        <a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">查看全部 Releases</a>
-      </p>
+      <p class="dl-note"><a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">查看全部 Releases</a></p>
     </div>
   </section>
 
-  <section class="duo" id="duo">
+  <section class="duo" id="ecosystem">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow">A Pair</span>
-        <h2>读与写，一对搭档</h2>
-        <p>Yanxi Code 帮你理解代码，Yan Agent 帮你实现代码</p>
+        <span class="eyebrow">Yan ecosystem</span>
+        <h2>读、看、写，在同一条工作流里</h2>
+        <p>三个产品各自负责一件事，但共享同一个工作区和交付目标</p>
       </div>
       <div class="duo-grid">
+        <div class="duo-card highlight">
+          <div class="duo-label">Yan Agent · Autonomous desktop agent</div>
+          <h3>动手执行，交付结果</h3>
+          <p>它负责把自然语言目标变成计划、工具调用和文件变更。五个任务可以独立推进，完成后留下清晰的验证结果，而不是一段无法执行的建议。</p>
+        </div>
+        <div class="duo-card">
+          <div class="duo-label">Yan Project Map · Code intelligence</div>
+          <h3>先看清，再开始改</h3>
+          <p>它负责把陌生仓库变成可探索的结构图，告诉你入口、模块和依赖关系。地图的节点可以成为 Agent 的上下文，让修改建立在真实代码结构上。</p>
+          <p class="duo-link"><a href="https://github.com/666-gy/Yan-Agent#yan-生态" target="_blank" rel="noopener">了解项目地图 →</a></p>
+        </div>
         <div class="duo-card">
           <div class="duo-label">Yanxi Code · IDE</div>
-          <h3>边写边译，读懂每一行</h3>
-          <p>面向初学者的代码编辑器。在编辑器内实时解释代码含义，降低阅读门槛，让你敢写、能懂。</p>
+          <h3>边写边懂，保持工作区一致</h3>
+          <p>它负责编辑、阅读和运行代码，让每个修改都能回到熟悉的 IDE 表面。来自 Yan Agent 的工作区交接会自动刷新打开的项目，减少手动寻找和重复打开。</p>
           <p class="duo-link"><a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">了解 Yanxi Code →</a></p>
-        </div>
-        <div class="duo-card highlight">
-          <div class="duo-label">Yan Agent · 桌面 Agent</div>
-          <h3>动手执行，交付结果</h3>
-          <p>5 个任务完全独立并行，30+ 内置工具 + 子 Agent 系统 + 运行时策略引擎 + 10+ 代码理解工具。当任务需要 AI 真正去改文件、跑命令、做自动化时，Yan Agent 在本地工作区端到端完成 — 不是给建议，是直接做完。</p>
         </div>
       </div>
     </div>
@@ -785,38 +747,38 @@
       <div class="section-head">
         <span class="eyebrow">Capabilities</span>
         <h2>Agent 能做什么</h2>
-        <p>5 任务独立并行 · 30+ 内置工具 · 最多 40 轮迭代直到任务完成</p>
+        <p>每一项能力都围绕一个问题：如何让真实工作更快、更清楚、更可恢复</p>
       </div>
       <div class="features">
         <div class="feat">
           <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-          <h4>5 任务并行</h4>
-          <p>每个任务完全独立隔离 — agentState、中止控制、MCP 快照互不干扰，切换会话不中断。</p>
+          <h4>五任务并行</h4>
+          <p>每个任务拥有独立的 agentState、工作区、中止控制和 MCP 快照。切换任务只改变你正在看的内容，后台任务不会被打断。</p>
         </div>
         <div class="feat">
           <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
-          <h4>精确编辑引擎</h4>
-          <p>old_string 逐字符匹配 + 唯一性校验 + 写后回读验证，改动可靠落地。</p>
+          <h4>终端与浏览器</h4>
+          <p>Agent 可以在内置终端执行命令，在内置浏览器打开本地页面或验证结果。执行和观察留在同一工作区里，减少来回切换带来的遗漏。</p>
         </div>
         <div class="feat">
           <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><line x1="12" y1="9" x2="6" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg></div>
-          <h4>子 Agent 系统</h4>
-          <p>spawn_subagent 委派 explore / shell / review / edit / ui / doc 专家，spawn_subagents 最多 3 路并行。</p>
+          <h4>Yan Project Map</h4>
+          <p>本地索引负责事实，地图负责让事实变得可浏览。你可以沿着符号和依赖关系定位问题，再把相关节点交给 Agent 深入处理。</p>
         </div>
         <div class="feat">
           <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 5-3.5 7.5-8.5 9.5C7.5 19.5 4 17 4 12V6l8.5-3.5L21 6z"/></svg></div>
-          <h4>运行时策略</h4>
-          <p>读后编辑强制校验、完成门控、工具自动重试 — 规则不是建议，是硬约束。</p>
+          <h4>可靠编辑与验证</h4>
+          <p>精确编辑要求旧文本唯一匹配，写入之后还会回读确认。Todo 完成门控和文件变更摘要让你能快速判断结果是否真的落地。</p>
         </div>
         <div class="feat">
           <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
-          <h4>代码理解工具</h4>
-          <p>10+ 代码分析工具：符号大纲、引用追踪、依赖分析、项目扫描、索引搜索。</p>
+          <h4>多模态与图片</h4>
+          <p>图片输入会按模型能力开启，视觉模型可以理解截图、界面和设计稿。生成或编辑的图片会被保留，可从桌面端和移动端继续查看。</p>
         </div>
         <div class="feat">
           <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
-          <h4>MCP 扩展</h4>
-          <p>Playwright 浏览器自动化、Fetch 网页抓取、Windows 桌面操控，接入任意 MCP 服务。</p>
+          <h4>Skill 与 MCP</h4>
+          <p>Skill 把团队方法沉淀为可复用的任务入口，MCP 则把浏览器、桌面和外部服务接进来。每个任务保留自己的工具快照，复杂工作也能并行推进。</p>
         </div>
       </div>
     </div>
@@ -827,29 +789,13 @@
       <div class="section-head">
         <span class="eyebrow">Workflow</span>
         <h2>从想法到结果</h2>
-        <p>你说目标，Agent 自己规划、执行、验证 — 5 个任务同时开工</p>
+        <p>你说目标，Agent 负责把中间过程变成可见、可验证的步骤</p>
       </div>
       <div class="flow">
-        <div class="flow-step">
-          <div class="flow-num">1</div>
-          <h4>描述想法</h4>
-          <p>用自然语言说出你要什么</p>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">2</div>
-          <h4>制定计划</h4>
-          <p>自动拆解步骤，Todo 实时可见</p>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">3</div>
-          <h4>逐步执行</h4>
-          <p>读文件、改代码、跑命令，工具失败自动重试</p>
-        </div>
-        <div class="flow-step">
-          <div class="flow-num">4</div>
-          <h4>验证交付</h4>
-          <p>写后回读校验，预览或提交 Git</p>
-        </div>
+        <div class="flow-step"><div class="flow-num">1</div><h4>描述目标</h4><p>用自然语言告诉 Agent 你想交付什么。无需先知道应该改哪个文件。</p></div>
+        <div class="flow-step"><div class="flow-num">2</div><h4>看见计划</h4><p>Agent 自动拆分 Todo 和验收条件。每一步都能在右侧面板里跟踪。</p></div>
+        <div class="flow-step"><div class="flow-num">3</div><h4>调用工具</h4><p>读取、编辑、执行、浏览和分析按需组合。失败会被分类处理，而不是默默跳过。</p></div>
+        <div class="flow-step"><div class="flow-num">4</div><h4>验证结果</h4><p>写后回读、运行检查并记录文件变更。完成时你拿到的是结果和证据，不只是回答。</p></div>
       </div>
     </div>
   </section>
@@ -859,9 +805,10 @@
       <div class="links">
         <a href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">Yan Agent</a>
         <a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">Yanxi Code</a>
-        <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">文档</a>
+        <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">中文文档</a>
+        <a href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">English README</a>
       </div>
-      <p class="credit">MIT License · Built with Electron & DeepSeek</p>
+      <p class="credit">MIT License · Built with Electron · Yan Agent v1.3.0</p>
     </div>
   </footer>
 

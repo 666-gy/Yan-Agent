@@ -1,13 +1,54 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, webContents, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const { exec, execFile, spawn } = require('child_process');
 const codeIndex = require('./lib/code-index');
+const codeMap = require('./lib/code-map');
+const { fetchRemoteModelCatalog, normalizeRemoteModels } = require('./lib/model-catalog');
+const { decorateModels, resolveImageGenerationConfig } = require('./lib/model-capabilities');
+const { detectImageType, generateImage } = require('./lib/image-generation');
+const { summarizeRunChanges } = require('./lib/run-change-summary');
+const {
+  evaluateSessionDeletion,
+  findReusableBlankSession,
+  isBlankUnassignedNewChat
+} = require('./lib/session-policy');
+const skillRegistry = require('./lib/skill-registry');
+const uiKitRegistry = require('./lib/ui-kit-registry');
+const { launchYanxiCode } = require('./lib/yanxi-launcher');
+const { parseOpenWorkspaceArg, parseYanxiRequestIdArg, createYanxiCodeReceiver } = require('./lib/yanxi-code-receiver');
+const { TerminalManager } = require('./lib/terminal-manager');
+const crypto = require('crypto');
+const { RemoteServer } = require('./lib/remote-server');
+
+const appRoot = __dirname;
 
 let mainWindow = null;
+let mainRendererReady = false;
+let petWindow = null;
 let tray = null;
 let isQuiting = false;
+let remoteServer = null;
+let petState = {
+  status: 'idle',
+  sessionId: null,
+  running: false,
+  title: 'Yan Agent',
+  message: '随时待命',
+  assessment: '本地监督已就绪',
+  stats: { iteration: 0, toolCalls: 0, changes: 0 }
+};
+const remotePending = new Map();
+const activeImageGenerations = new Map();
+const generatedImages = new Map();
+const generatedImageViewers = new Map();
+const terminalManager = new TerminalManager({
+  onEvent(ownerId, payload) {
+    const target = webContents.fromId(ownerId);
+    if (target && !target.isDestroyed()) target.send('terminal:event', payload);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Paths & storage
@@ -53,8 +94,102 @@ const dataDir = STABLE_DATA_DIR;
 const configPath = path.join(dataDir, 'config.json');
 const sessionsDir = path.join(dataDir, 'sessions');
 const filesDir = path.join(dataDir, 'uploads');
+const generatedImageStoreDir = path.join(dataDir, 'generated-images');
+const legacyGeneratedImageTempDir = path.join(app.getPath('temp'), 'YanAgent', 'generated-images');
 const memoryPath = path.join(dataDir, 'memory.json');
 const YANAGENT_DIR = '.yanagent';
+const MAX_STORED_GENERATED_IMAGES = 100;
+const MAX_STORED_GENERATED_IMAGE_BYTES = 1024 * 1024 * 1024;
+const GENERATED_IMAGE_MIME_BY_EXTENSION = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif'
+};
+
+function loadGeneratedImageStore() {
+  generatedImages.clear();
+  fs.mkdirSync(generatedImageStoreDir, { recursive: true });
+  try {
+    for (const file of fs.readdirSync(legacyGeneratedImageTempDir, { withFileTypes: true })) {
+      if (!file.isFile() || !/^[a-f0-9]{32}\.(?:png|jpg|jpeg|webp|gif)$/i.test(file.name)) continue;
+      const target = path.join(generatedImageStoreDir, file.name.toLowerCase());
+      if (!fs.existsSync(target)) fs.copyFileSync(path.join(legacyGeneratedImageTempDir, file.name), target);
+    }
+    fs.rmSync(legacyGeneratedImageTempDir, { recursive: true, force: true });
+  } catch {}
+
+  const restored = [];
+  for (const file of fs.readdirSync(generatedImageStoreDir, { withFileTypes: true })) {
+    const match = file.isFile() && file.name.match(/^([a-f0-9]{32})\.(png|jpg|jpeg|webp|gif)$/i);
+    if (!match) continue;
+    const filePath = path.join(generatedImageStoreDir, file.name);
+    try {
+      const stat = fs.statSync(filePath);
+      restored.push({
+        assetId: match[1].toLowerCase(),
+        filePath,
+        name: `generated_${Math.trunc(stat.mtimeMs)}_${match[1].slice(0, 6)}.${match[2].toLowerCase()}`,
+        size: stat.size,
+        mimeType: GENERATED_IMAGE_MIME_BY_EXTENSION[match[2].toLowerCase()],
+        createdAt: stat.mtimeMs
+      });
+    } catch {}
+  }
+  restored.sort((a, b) => a.createdAt - b.createdAt);
+  for (const asset of restored) generatedImages.set(asset.assetId, asset);
+  pruneGeneratedImageStore();
+}
+
+function closeGeneratedImageViewers() {
+  for (const viewer of generatedImageViewers.values()) {
+    if (!viewer.isDestroyed()) viewer.destroy();
+  }
+  generatedImageViewers.clear();
+  generatedImages.clear();
+}
+
+function getGeneratedImageAsset(assetId) {
+  const id = String(assetId || '').trim();
+  if (!/^[a-f0-9]{32}$/.test(id)) return null;
+  const asset = generatedImages.get(id);
+  if (!asset || !fs.existsSync(asset.filePath)) {
+    if (asset) generatedImages.delete(id);
+    return null;
+  }
+  return asset;
+}
+
+function pruneGeneratedImageStore() {
+  let totalBytes = [...generatedImages.values()].reduce((sum, item) => sum + item.size, 0);
+  for (const [id, item] of generatedImages) {
+    if (generatedImages.size <= MAX_STORED_GENERATED_IMAGES && totalBytes <= MAX_STORED_GENERATED_IMAGE_BYTES) break;
+    generatedImages.delete(id);
+    totalBytes -= item.size;
+    fsp.unlink(item.filePath).catch(() => {});
+    const viewer = generatedImageViewers.get(id);
+    if (viewer && !viewer.isDestroyed()) viewer.destroy();
+  }
+}
+
+async function registerGeneratedImage(result) {
+  fs.mkdirSync(generatedImageStoreDir, { recursive: true });
+  const assetId = crypto.randomBytes(16).toString('hex');
+  const name = `generated_${Date.now()}_${assetId.slice(0, 6)}.${result.extension}`;
+  const filePath = path.join(generatedImageStoreDir, `${assetId}.${result.extension}`);
+  await fsp.writeFile(filePath, result.buffer);
+  generatedImages.set(assetId, {
+    assetId,
+    filePath,
+    name,
+    size: result.buffer.length,
+    mimeType: result.mimeType,
+    createdAt: Date.now()
+  });
+  pruneGeneratedImageStore();
+  return generatedImages.get(assetId);
+}
 // ---------------------------------------------------------------------------
 // .yanagent — workspace-local memory, logs, session snapshots (safe to delete)
 // ---------------------------------------------------------------------------
@@ -186,6 +321,22 @@ function ensureDirs() {
 // Prices are mainland-China pay-as-you-go API prices per 1M tokens unless noted.
 // Promotions and tiered prices can change; see MODEL_VENDOR_AUDIT_2026-07-11.md.
 const MODEL_PROVIDERS = {
+  openai: {
+    id: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://ai8.my/v1',
+    apiKeyPlaceholder: 'sk-...',
+    dynamicModels: true,
+    models: []
+  },
+  grok: {
+    id: 'grok',
+    name: 'Grok',
+    baseUrl: 'https://ai8.my/v1',
+    apiKeyPlaceholder: 'sk-...',
+    dynamicModels: true,
+    models: []
+  },
   deepseek: {
     id: 'deepseek',
     name: 'DeepSeek (深度求索)',
@@ -252,6 +403,7 @@ const MODEL_PROVIDERS = {
     baseUrl: 'https://api.moonshot.cn/v1',
     apiKeyPlaceholder: 'sk-...',
     models: [
+      { id: 'kimi-k3', name: 'Kimi K3 (1M 旗舰多模态)', price: '缓存命中 ¥2 · 输入 ¥20 · 输出 ¥100 / 1M' },
       { id: 'kimi-k2.7-code-highspeed', name: 'Kimi K2.7 Code HighSpeed', price: '缓存命中 ¥2.6 · 输入 ¥13 · 输出 ¥54 / 1M' },
       { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', price: '缓存命中 ¥1.3 · 输入 ¥6.5 · 输出 ¥27 / 1M' },
       { id: 'kimi-k2.6', name: 'Kimi K2.6 (通用多模态)', price: '输入/输出/缓存分项，见 Kimi 官方实时价格页' },
@@ -281,7 +433,7 @@ const MODEL_PROVIDERS = {
   }
 };
 
-const DEFAULT_MODELS = MODEL_PROVIDERS.deepseek.models;
+const DEFAULT_MODELS = decorateModels('deepseek', MODEL_PROVIDERS.deepseek.models);
 
 const DEFAULT_MCP_SERVERS = [
   {
@@ -314,39 +466,15 @@ function ensureDefaultMcp(servers) {
   return list;
 }
 
+const DEFAULT_SKILLS = skillRegistry.getBuiltinSkills(appRoot);
+
 function getMergedSkills(cfg) {
-  const custom = Array.isArray(cfg.customSkills) ? cfg.customSkills : [];
-  const ids = new Set(DEFAULT_SKILLS.map(s => s.id));
-  const merged = [...DEFAULT_SKILLS];
-  for (const s of custom) {
-    if (s && s.id && !ids.has(s.id)) {
-      merged.push(s);
-      ids.add(s.id);
-    }
-  }
-  return merged;
+  return skillRegistry.getMergedSkillsForList(cfg, appRoot);
 }
 
-const DEFAULT_SKILLS = [
-  // 代码类
-  { id: 'code-review', name: 'Code Review', desc: '审查代码，给出可读性/性能/安全/最佳实践改进建议' },
-  { id: 'refactor', name: 'Refactor', desc: '重构代码，保持功能不变但提升结构与可读性' },
-  { id: 'gen-test', name: 'Gen Tests', desc: '为代码生成单元测试，覆盖主要分支和边界' },
-  { id: 'explain-code', name: 'Explain Code', desc: '解释代码功能、工作原理和关键逻辑' },
-  { id: 'fix-bug', name: 'Fix Bug', desc: '定位并修复代码中的 Bug' },
-  { id: 'add-comments', name: 'Add Comments', desc: '为代码添加清晰的注释与文档字符串' },
-  { id: 'gen-docs', name: 'Gen Docs', desc: '为代码生成 API 文档（Markdown 含示例）' },
-  { id: 'optimize', name: 'Optimize', desc: '优化代码性能（时间/空间复杂度、I/O、内存）' },
-  { id: 'security-audit', name: 'Security Audit', desc: '安全审计，找出注入/XSS/CSRF/越权等漏洞' },
-  { id: 'convert-lang', name: 'Convert Lang', desc: '将代码从一种语言转换为另一种语言' },
-  // Git 类
-  { id: 'commit-msg', name: 'Commit Msg', desc: '为代码改动生成 Conventional Commits 提交信息' },
-  { id: 'pr-desc', name: 'PR Description', desc: '根据改动生成 PR 描述（摘要/影响/测试建议）' },
-  // 文本类
-  { id: 'summarize', name: 'Summarize', desc: '总结长文档或对话的要点' },
-  { id: 'translate', name: 'Translate', desc: '在多种语言之间翻译文本' },
-  { id: 'rewrite', name: 'Rewrite', desc: '重写或润色文本，使其更清晰专业' }
-];
+function getBuiltinSkillIds() {
+  return new Set(DEFAULT_SKILLS.map(s => s.id));
+}
 
 function buildDefaultApiKeys() {
   const keys = {};
@@ -354,6 +482,83 @@ function buildDefaultApiKeys() {
     keys[id] = '';
   }
   return keys;
+}
+
+function getProviderModels(cfg, providerId) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider) return [];
+  let models;
+  if (provider.dynamicModels) {
+    models = normalizeRemoteModels(cfg?.providerModels?.[providerId] || []);
+  } else {
+    models = provider.models;
+  }
+  return decorateModels(providerId, models);
+}
+
+function updateImageGenerationConfig(cfg) {
+  cfg.imageGeneration = resolveImageGenerationConfig(
+    cfg.api.provider,
+    cfg.api.model,
+    cfg.models || []
+  );
+  return cfg.imageGeneration;
+}
+
+function buildPublicModelState(cfg = loadConfig()) {
+  const provider = cfg.api?.provider || '';
+  const models = getProviderModels(cfg, provider).map(model => ({
+    id: model.id,
+    name: model.name || model.id,
+    capabilities: model.capabilities || {}
+  }));
+  const current = models.find(model => model.id === cfg.api?.model) || null;
+  return {
+    provider,
+    providerName: MODEL_PROVIDERS[provider]?.name || provider,
+    model: current?.id || '',
+    capabilities: current?.capabilities || {},
+    models
+  };
+}
+
+function publishModelState(cfg) {
+  const detail = buildPublicModelState(cfg);
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send('model:changed', detail);
+  }
+  remoteServer?.broadcast('model-changed', detail);
+  return detail;
+}
+
+function setActiveModel(modelId) {
+  const cfg = loadConfig();
+  const id = String(modelId || '').trim();
+  const models = getProviderModels(cfg, cfg.api.provider);
+  if (!models.some(model => model.id === id)) {
+    return { error: '模型不属于当前厂商' };
+  }
+  cfg.api.model = id;
+  cfg.models = models;
+  updateImageGenerationConfig(cfg);
+  saveConfig(cfg);
+  publishModelState(cfg);
+  return cfg;
+}
+
+function applyProviderSelection(cfg, providerId, apiKey, models) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!cfg.api.apiKeys) cfg.api.apiKeys = buildDefaultApiKeys();
+  cfg.api.apiKeys[providerId] = apiKey;
+  cfg.api.provider = providerId;
+  cfg.api.baseUrl = provider.baseUrl;
+  cfg.api.apiKey = apiKey;
+  cfg.models = decorateModels(providerId, models);
+  if (!cfg.models.some(model => model.id === cfg.api.model)) {
+    cfg.api.model = cfg.models[0]?.id || '';
+  }
+  updateImageGenerationConfig(cfg);
+  return cfg;
 }
 
 function loadConfig() {
@@ -384,9 +589,24 @@ function loadConfig() {
       allowNetwork: true
     },
     models: DEFAULT_MODELS,
+    providerModels: { openai: [], grok: [] },
+    imageGeneration: { available: false, strategy: '', providerId: 'deepseek', model: '' },
+    codeMap: {
+      model: 'deepseek-v4-flash'
+    },
+    yanxiCode: {
+      executable: ''
+    },
+    remoteControl: {
+      enabled: true,
+      port: 0,
+      password: ''
+    },
     mcpServers: ensureDefaultMcp([]),
     skills: DEFAULT_SKILLS,
     customSkills: [],
+    skillsSyncUrl: '',
+    skillsLastSyncAt: 0,
     automations: []
   };
 
@@ -415,18 +635,116 @@ function loadConfig() {
   merged.api.baseUrl = provider.baseUrl;
   merged.api.apiKey = merged.api.apiKeys[merged.api.provider] || '';
 
-  // 根据当前 provider 动态设置模型列表
-  merged.models = provider.models;
+  // 动态厂商使用服务端返回并持久化的模型目录，静态厂商使用内置目录。
+  merged.models = getProviderModels(merged, provider.id);
 
   // 确保当前选中的模型属于当前 provider
-  if (!provider.models.find(m => m.id === merged.api.model)) {
-    merged.api.model = provider.models[0]?.id || '';
+  if (!merged.models.find(m => m.id === merged.api.model)) {
+    merged.api.model = merged.models[0]?.id || '';
   }
+  updateImageGenerationConfig(merged);
 
   merged.skills = getMergedSkills(merged);
   merged.mcpServers = ensureDefaultMcp(merged.mcpServers || []);
+  merged.codeMap = normalizeCodeMapConfig(merged.codeMap);
+  merged.remoteControl = normalizeRemoteControlConfig(merged.remoteControl);
 
   return merged;
+}
+
+const CODE_MAP_DEFAULT_MODEL = 'deepseek-v4-flash';
+
+function findModelMeta(modelId) {
+  for (const provider of Object.values(MODEL_PROVIDERS)) {
+    const model = provider.models.find(item => item.id === modelId);
+    if (model) {
+      return {
+        ...model,
+        providerId: provider.id,
+        providerName: provider.name,
+        baseUrl: provider.baseUrl
+      };
+    }
+  }
+  return null;
+}
+
+function listAllModelsFlat() {
+  const out = [];
+  for (const provider of Object.values(MODEL_PROVIDERS)) {
+    for (const model of provider.models) {
+      out.push({
+        id: model.id,
+        name: model.name,
+        price: model.price || '',
+        providerId: provider.id,
+        providerName: provider.name
+      });
+    }
+  }
+  return out;
+}
+
+function normalizeCodeMapConfig(codeMap = {}) {
+  const next = { ...(codeMap || {}) };
+  if (!next.model || !findModelMeta(next.model)) next.model = CODE_MAP_DEFAULT_MODEL;
+  return next;
+}
+
+function normalizeRemoteControlConfig(remoteControl = {}) {
+  const next = { ...(remoteControl || {}) };
+  if (next.enabled === undefined) next.enabled = true;
+  const port = Number(next.port);
+  next.port = Number.isFinite(port) && port >= 0 ? Math.floor(port) : 0;
+  if (!next.password && next.token) next.password = String(next.token);
+  delete next.token;
+  next.password = String(next.password || '');
+  return next;
+}
+
+function isRemotePasswordSet(cfg) {
+  const pwd = String(cfg?.remoteControl?.password || '');
+  return pwd.length >= 4;
+}
+
+function verifyRemotePassword(input) {
+  const expected = String(loadConfig().remoteControl?.password || '');
+  if (expected.length < 4) return false;
+  const given = String(input || '');
+  if (given.length < 4) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function resolveCodeMapApi(cfg) {
+  const modelId = cfg?.codeMap?.model || CODE_MAP_DEFAULT_MODEL;
+  const meta = findModelMeta(modelId);
+  if (!meta) {
+    return {
+      modelId: CODE_MAP_DEFAULT_MODEL,
+      modelName: 'DeepSeek V4 Flash',
+      error: '未找到解读模型。'
+    };
+  }
+  const apiKey = cfg?.api?.apiKeys?.[meta.providerId] || '';
+  if (!apiKey) {
+    return {
+      modelId,
+      modelName: meta.name,
+      providerId: meta.providerId,
+      providerName: meta.providerName,
+      error: `请先在设置中配置 ${meta.providerName} API Key。`
+    };
+  }
+  return {
+    modelId,
+    modelName: meta.name,
+    providerId: meta.providerId,
+    providerName: meta.providerName,
+    api: { apiKey, baseUrl: meta.baseUrl, model: modelId }
+  };
 }
 
 function saveConfig(cfg) {
@@ -434,10 +752,32 @@ function saveConfig(cfg) {
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
 }
 
+function notifySkillsChanged(detail = {}) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('skills:changed', detail);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
+const lightWindowIconPngPath = path.join(__dirname, 'renderer', 'assets', 'logo-light.png');
+const lightWindowIconIcoPath = path.join(__dirname, 'renderer', 'assets', 'logo-light.ico');
+
+function loadLightAppIcon() {
+  let icon = nativeImage.createFromPath(lightWindowIconPngPath);
+  if (icon.isEmpty()) icon = nativeImage.createFromPath(lightWindowIconIcoPath);
+  return icon;
+}
+
+function applyLightWindowIcon(win) {
+  if (!win || win.isDestroyed()) return;
+  const icon = loadLightAppIcon();
+  if (!icon.isEmpty()) win.setIcon(icon);
+}
+
 function createWindow() {
+  mainRendererReady = false;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -448,7 +788,7 @@ function createWindow() {
     titleBarStyle: 'hidden',
     frame: false,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, 'renderer', 'assets', 'logo.png'),
+    icon: lightWindowIconPngPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -461,7 +801,17 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.on('did-start-loading', () => { mainRendererReady = false; });
+  mainWindow.webContents.on('did-finish-load', () => { mainRendererReady = true; });
+  mainWindow.once('ready-to-show', () => {
+    applyLightWindowIcon(mainWindow);
+    mainWindow.show();
+    if (pendingFocusMainFromYanxi) {
+      mainWindow.focus();
+      pendingFocusMainFromYanxi = false;
+    }
+  });
+  mainWindow.on('show', () => applyLightWindowIcon(mainWindow));
 
   // Sync maximize state to renderer (for toggling the maximize button icon)
   mainWindow.on('maximize', () => mainWindow.webContents.send('win:maximize-changed', true));
@@ -474,6 +824,7 @@ function createWindow() {
   });
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.log('[renderer gone]', JSON.stringify(details));
+    terminalManager.destroyOwner(mainWindow?.webContents?.id);
   });
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.log('[did-fail-load]', code, desc, url);
@@ -494,16 +845,200 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+function openGeneratedImageViewer(assetId) {
+  const asset = getGeneratedImageAsset(assetId);
+  if (!asset) return { error: '会话图片已失效，请重新生成' };
+  const existing = generatedImageViewers.get(asset.assetId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return { ok: true };
+  }
+
+  const viewer = new BrowserWindow({
+    width: 1080,
+    height: 760,
+    minWidth: 560,
+    minHeight: 420,
+    title: '图片预览',
+    backgroundColor: '#111111',
+    show: false,
+    autoHideMenuBar: true,
+    icon: lightWindowIconPngPath,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer', 'image-viewer', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  generatedImageViewers.set(asset.assetId, viewer);
+  viewer.loadFile(path.join(__dirname, 'renderer', 'image-viewer', 'index.html'), {
+    query: { assetId: asset.assetId }
+  });
+  viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  viewer.once('ready-to-show', () => {
+    applyLightWindowIcon(viewer);
+    viewer.show();
+  });
+  viewer.on('closed', () => generatedImageViewers.delete(asset.assetId));
+  return { ok: true };
+}
+
+const PET_COLLAPSED_SIZE = { width: 176, height: 190 };
+const PET_EXPANDED_SIZE = { width: 324, height: 340 };
+
+function getInitialPetBounds() {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    width: PET_COLLAPSED_SIZE.width,
+    height: PET_COLLAPSED_SIZE.height,
+    x: workArea.x + workArea.width - PET_COLLAPSED_SIZE.width - 18,
+    y: workArea.y + workArea.height - PET_COLLAPSED_SIZE.height - 18
+  };
+}
+
+function resizePetWindow(expanded) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const current = petWindow.getBounds();
+  const nextSize = expanded ? PET_EXPANDED_SIZE : PET_COLLAPSED_SIZE;
+  const display = screen.getDisplayMatching(current);
+  const area = display.workArea;
+  const right = current.x + current.width;
+  const bottom = current.y + current.height;
+  const next = {
+    width: nextSize.width,
+    height: nextSize.height,
+    x: right - nextSize.width,
+    y: bottom - nextSize.height
+  };
+  next.x = Math.max(area.x, Math.min(next.x, area.x + area.width - next.width));
+  next.y = Math.max(area.y, Math.min(next.y, area.y + area.height - next.height));
+  petWindow.setBounds(next, true);
+}
+
+function sendPetState() {
+  if (!petWindow || petWindow.isDestroyed() || petWindow.webContents.isDestroyed()) return;
+  petWindow.webContents.send('pet:state', petState);
+}
+
+function notifyPetVisibility() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('pet:visibility', {
+    visible: !!(petWindow && !petWindow.isDestroyed() && petWindow.isVisible())
+  });
+}
+
+function destroyPetWindow() {
+  if (!petWindow || petWindow.isDestroyed()) {
+    petWindow = null;
+    notifyPetVisibility();
+    return;
+  }
+  petWindow.destroy();
+}
+
+function togglePetWindow() {
+  if (petWindow && !petWindow.isDestroyed()) {
+    destroyPetWindow();
+    return false;
+  }
+  createPetWindow();
+  return true;
+}
+
+function createPetWindow() {
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.showInactive();
+    return petWindow;
+  }
+
+  petWindow = new BrowserWindow({
+    ...getInitialPetBounds(),
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    hasShadow: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer', 'pet', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: true
+    }
+  });
+
+  petWindow.setAlwaysOnTop(true, 'floating');
+  petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
+  petWindow.loadFile(path.join(__dirname, 'renderer', 'pet', 'index.html'));
+  petWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  petWindow.once('ready-to-show', () => {
+    petWindow.showInactive();
+    sendPetState();
+    notifyPetVisibility();
+  });
+  petWindow.on('close', (event) => {
+    if (!isQuiting) {
+      event.preventDefault();
+      petWindow.hide();
+    }
+  });
+  petWindow.on('closed', () => {
+    petWindow = null;
+    notifyPetVisibility();
+  });
+  return petWindow;
+}
+
+function showMainWindowForPet(sessionId) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (sessionId) {
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pet:action', { type: 'open-task', sessionId });
+      }
+    }, 0);
+  }
+}
+
+function normalizePetState(payload = {}) {
+  const allowedStates = new Set(['idle', 'observing', 'warning', 'paused', 'completed', 'error']);
+  const stats = payload.stats || {};
+  return {
+    status: allowedStates.has(payload.status) ? payload.status : 'observing',
+    sessionId: payload.sessionId ? String(payload.sessionId) : null,
+    running: !!payload.running,
+    title: String(payload.title || 'Yan Agent').slice(0, 80),
+    message: String(payload.message || '正在监督任务').slice(0, 140),
+    assessment: String(payload.assessment || '未发现异常').slice(0, 180),
+    stats: {
+      iteration: Math.max(0, Number(stats.iteration) || 0),
+      toolCalls: Math.max(0, Number(stats.toolCalls) || 0),
+      changes: Math.max(0, Number(stats.changes) || 0)
+    },
+    updatedAt: Date.now()
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tray (后台保活)
 // ---------------------------------------------------------------------------
 function createTray() {
-  const iconPath = path.join(__dirname, 'renderer', 'assets', 'logo.png');
-  let trayIcon = nativeImage.createFromPath(iconPath);
-  // 缩放到托盘图标合适尺寸
-  if (!trayIcon.isEmpty()) {
-    trayIcon = trayIcon.resize({ width: 16, height: 16 });
-  }
+  const icon = loadLightAppIcon();
+  let trayIcon = icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 });
+  if (trayIcon.isEmpty()) return;
   tray = new Tray(trayIcon);
   tray.setToolTip('Yan Agent');
 
@@ -516,6 +1051,10 @@ function createTray() {
           mainWindow.focus();
         }
       }
+    },
+    {
+      label: '打开/关闭桌宠',
+      click: () => togglePetWindow()
     },
     { type: 'separator' },
     {
@@ -554,6 +1093,7 @@ function createTray() {
 // IPC: Config / API / Models
 // ---------------------------------------------------------------------------
 ipcMain.handle('config:get', () => loadConfig());
+ipcMain.handle('yanxi:consume-pending-workspace', () => yanxiReceiver.consumePendingWorkspaceForRenderer());
 ipcMain.handle('config:set', (_e, partial) => {
   const cfg = loadConfig();
   const merged = deepMerge(cfg, partial);
@@ -572,23 +1112,30 @@ ipcMain.handle('config:set', (_e, partial) => {
   const provider = MODEL_PROVIDERS[merged.api.provider];
   merged.api.baseUrl = provider.baseUrl;
   merged.api.apiKey = merged.api.apiKeys[merged.api.provider] || '';
-  merged.models = provider.models;
+  merged.models = getProviderModels(merged, provider.id);
 
   // 确保当前选中的模型属于当前 provider
-  if (!provider.models.find(m => m.id === merged.api.model)) {
-    merged.api.model = provider.models[0]?.id || '';
+  if (!merged.models.find(m => m.id === merged.api.model)) {
+    merged.api.model = merged.models[0]?.id || '';
   }
+  updateImageGenerationConfig(merged);
 
   merged.skills = getMergedSkills(merged);
   merged.mcpServers = ensureDefaultMcp(merged.mcpServers || []);
+  merged.codeMap = normalizeCodeMapConfig(merged.codeMap);
+  merged.remoteControl = normalizeRemoteControlConfig(merged.remoteControl);
   if (partial && Object.prototype.hasOwnProperty.call(partial, 'workspace')) {
     startWorkspaceWatcher(merged.workspace);
   }
   saveConfig(merged);
+  if (partial?.remoteControl) {
+    restartRemoteServer().catch((e) => console.error('[remote] restart failed:', e.message));
+  }
   return merged;
 });
 
 ipcMain.handle('providers:list', () => {
+  const cfg = loadConfig();
   const list = [];
   for (const id of Object.keys(MODEL_PROVIDERS)) {
     const p = MODEL_PROVIDERS[id];
@@ -597,10 +1144,22 @@ ipcMain.handle('providers:list', () => {
       name: p.name,
       baseUrl: p.baseUrl,
       apiKeyPlaceholder: p.apiKeyPlaceholder,
-      modelCount: p.models.length
+      modelCount: getProviderModels(cfg, p.id).length,
+      dynamicModels: !!p.dynamicModels
     });
   }
   return list;
+});
+
+ipcMain.handle('external:open', async (_e, url) => {
+  const allowedUrl = 'https://ai8.my/';
+  if (String(url || '') !== allowedUrl) return { error: '不允许打开该链接' };
+  try {
+    await shell.openExternal(allowedUrl);
+    return { ok: true };
+  } catch (error) {
+    return { error: error.message };
+  }
 });
 
 ipcMain.handle('provider:set', (_e, providerId) => {
@@ -610,24 +1169,62 @@ ipcMain.handle('provider:set', (_e, providerId) => {
   const provider = MODEL_PROVIDERS[providerId];
   cfg.api.baseUrl = provider.baseUrl;
   cfg.api.apiKey = cfg.api.apiKeys?.[providerId] || '';
-  cfg.models = provider.models;
-  cfg.api.model = provider.models[0]?.id || '';
+  cfg.models = getProviderModels(cfg, providerId);
+  cfg.api.model = cfg.models[0]?.id || '';
+  updateImageGenerationConfig(cfg);
   saveConfig(cfg);
+  publishModelState(cfg);
   return cfg;
 });
 
-ipcMain.handle('models:list', () => loadConfig().models);
-ipcMain.handle('model:set', (_e, modelId) => {
-  const cfg = loadConfig();
-  // 确保模型属于当前 provider
-  const provider = MODEL_PROVIDERS[cfg.api.provider];
-  if (!provider.models.find(m => m.id === modelId)) {
-    return { error: '模型不属于当前厂商' };
+ipcMain.handle('provider:configure', async (_e, { providerId, apiKey } = {}) => {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider) return { error: '未知厂商: ' + providerId };
+  const key = String(apiKey || '').trim();
+  let models = provider.models;
+  if (provider.dynamicModels) {
+    if (!key) {
+      models = [];
+    } else {
+      try {
+        models = await fetchRemoteModelCatalog({ baseUrl: provider.baseUrl, apiKey: key });
+      } catch (error) {
+        return { error: `模型加载失败：${error.message}` };
+      }
+    }
   }
-  cfg.api.model = modelId;
+
+  const cfg = loadConfig();
+  if (!cfg.providerModels) cfg.providerModels = {};
+  if (provider.dynamicModels) cfg.providerModels[providerId] = models;
+  applyProviderSelection(cfg, providerId, key, models);
   saveConfig(cfg);
-  return cfg;
+  publishModelState(cfg);
+  return { ok: true, config: cfg, modelCount: models.length };
 });
+
+ipcMain.handle('provider:models:refresh', async (_e, providerId) => {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider?.dynamicModels) return { error: '该厂商不使用动态模型目录' };
+  const cfg = loadConfig();
+  const apiKey = cfg.api.apiKeys?.[providerId] || '';
+  try {
+    const models = await fetchRemoteModelCatalog({ baseUrl: provider.baseUrl, apiKey });
+    if (!cfg.providerModels) cfg.providerModels = {};
+    cfg.providerModels[providerId] = models;
+    if (cfg.api.provider === providerId) {
+      applyProviderSelection(cfg, providerId, apiKey, models);
+    }
+    saveConfig(cfg);
+    if (cfg.api.provider === providerId) publishModelState(cfg);
+    return { ok: true, config: cfg, modelCount: models.length };
+  } catch (error) {
+    return { error: `模型加载失败：${error.message}` };
+  }
+});
+
+ipcMain.handle('models:list', () => loadConfig().models);
+ipcMain.handle('model:set', (_e, modelId) => setActiveModel(modelId));
 
 ipcMain.handle('skills:list', () => getMergedSkills(loadConfig()));
 
@@ -660,11 +1257,50 @@ ipcMain.handle('skills:remove-custom', (_e, id) => {
 
 ipcMain.handle('skills:get-custom', () => loadConfig().customSkills || []);
 
+ipcMain.handle('skills:market', () => skillRegistry.getMarketSkills(appRoot, dataDir));
+
+ipcMain.handle('skills:catalog', () =>
+  skillRegistry.getSkillCatalog(loadConfig(), appRoot, dataDir));
+
+ipcMain.handle('skills:prompt-section', () =>
+  skillRegistry.formatCatalogForPrompt(loadConfig(), appRoot, dataDir));
+
+ipcMain.handle('skills:read', (_e, payload) => {
+  const { id, taskContext } = payload || {};
+  const cfg = loadConfig();
+  const result = skillRegistry.readSkill(id, taskContext, cfg, appRoot, dataDir, saveConfig);
+  if (result?.autoInstalled) notifySkillsChanged({ id: result.id, action: 'install', source: 'agent' });
+  return result;
+});
+
+ipcMain.handle('skills:ensure', (_e, { id } = {}) => {
+  const cfg = loadConfig();
+  const result = skillRegistry.ensureSkill(id, cfg, appRoot, dataDir, saveConfig);
+  if (result?.autoInstalled) notifySkillsChanged({ id: result.skill?.id, action: 'install', source: 'ensure' });
+  return result;
+});
+
+ipcMain.handle('skills:sync', async () => {
+  const cfg = loadConfig();
+  return skillRegistry.syncMarketFromGitHub(cfg, appRoot, dataDir, saveConfig);
+});
+
+ipcMain.handle('ui-kits:list', () => uiKitRegistry.listKits(appRoot));
+
+ipcMain.handle('ui-kits:catalog', (_e, { kit, query } = {}) =>
+  uiKitRegistry.listUiKit(appRoot, kit, query));
+
+ipcMain.handle('ui-kits:prompt-section', () => uiKitRegistry.formatPromptSection(appRoot));
+
+ipcMain.handle('ui-kits:read', (_e, { kit, component, variant } = {}) =>
+  uiKitRegistry.readUiKit(appRoot, kit, component, variant));
+
 // ---------------------------------------------------------------------------
 // IPC: Workspace
 // ---------------------------------------------------------------------------
 let workspaceWatcher = null;
 let workspaceNotifyTimer = null;
+const pendingWorkspaceChanges = new Map();
 
 function shouldIgnoreWorkspaceWatch(filename) {
   if (!filename) return false;
@@ -672,12 +1308,24 @@ function shouldIgnoreWorkspaceWatch(filename) {
   return norm === YANAGENT_DIR || norm.startsWith(YANAGENT_DIR + '/');
 }
 
-function notifyWorkspaceChanged() {
+function notifyWorkspaceChanged(detail = {}) {
+  if (detail.path) {
+    pendingWorkspaceChanges.set(detail.path, {
+      path: detail.path,
+      eventType: detail.eventType || 'change'
+    });
+  }
   if (workspaceNotifyTimer) clearTimeout(workspaceNotifyTimer);
   workspaceNotifyTimer = setTimeout(() => {
     workspaceNotifyTimer = null;
+    const payload = {
+      workspace: detail.workspace || loadConfig().workspace,
+      changes: [...pendingWorkspaceChanges.values()].slice(0, 100),
+      timestamp: Date.now()
+    };
+    pendingWorkspaceChanges.clear();
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('workspace:changed');
+      mainWindow.webContents.send('workspace:changed', payload);
     }
   }, 300);
 }
@@ -687,15 +1335,21 @@ function stopWorkspaceWatcher() {
     workspaceWatcher.close();
     workspaceWatcher = null;
   }
+  pendingWorkspaceChanges.clear();
 }
 
 function startWorkspaceWatcher(workspace) {
   stopWorkspaceWatcher();
   if (!workspace || !fs.existsSync(workspace)) return;
   try {
-    workspaceWatcher = fs.watch(workspace, { recursive: true }, (_eventType, filename) => {
+    workspaceWatcher = fs.watch(workspace, { recursive: true }, (eventType, filename) => {
       if (shouldIgnoreWorkspaceWatch(filename)) return;
-      notifyWorkspaceChanged();
+      const relPath = String(filename || '').replace(/\\/g, '/');
+      notifyWorkspaceChanged({
+        workspace,
+        eventType,
+        path: relPath ? path.join(workspace, relPath) : workspace
+      });
     });
     workspaceWatcher.on('error', () => stopWorkspaceWatcher());
   } catch {
@@ -703,7 +1357,44 @@ function startWorkspaceWatcher(workspace) {
   }
 }
 
+const pendingYanxiWorkspace = parseOpenWorkspaceArg();
+const pendingYanxiRequestId = parseYanxiRequestIdArg();
+let pendingFocusMainFromYanxi = process.argv.includes('--show-main') || pendingYanxiWorkspace !== undefined;
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingFocusMainFromYanxi = true;
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+const yanxiReceiver = createYanxiCodeReceiver({
+  dataDir,
+  loadConfig,
+  saveConfig,
+  startWorkspaceWatcher,
+  getMainWindow: () => mainWindow,
+  isRendererReady: () => mainRendererReady,
+  focusMainWindow,
+});
+
 ipcMain.handle('workspace:get', () => loadConfig().workspace);
+function activateWorkspace(workspace) {
+  const ws = workspace || '';
+  const cfg = loadConfig();
+  cfg.workspace = ws;
+  saveConfig(cfg);
+  if (ws) {
+    migrateMemoryToWorkspace(ws);
+    ensureYanagent(ws);
+  }
+  startWorkspaceWatcher(ws);
+  return cfg;
+}
+ipcMain.handle('workspace:activate', (_e, workspace) => activateWorkspace(workspace));
 ipcMain.handle('workspace:clear', () => {
   const cfg = loadConfig();
   cfg.workspace = '';
@@ -748,25 +1439,111 @@ ipcMain.handle('workspace:list', async (_e, dirPath) => {
 // ---------------------------------------------------------------------------
 function sessionPath(id) { return path.join(sessionsDir, `${id}.json`); }
 
-ipcMain.handle('session:list', async () => {
+function sortSessionRecords(list) {
+  return list.sort((a, b) => {
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+}
+
+async function readSessionRecords() {
   ensureDirs();
   const files = await fsp.readdir(sessionsDir);
   const list = [];
-  for (const f of files) {
-    if (!f.endsWith('.json')) continue;
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
     try {
-      const data = JSON.parse(await fsp.readFile(path.join(sessionsDir, f), 'utf8'));
-      list.push({
-        id: data.id,
-        title: data.title,
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt,
-        messageCount: (data.messages || []).length
-      });
-    } catch (e) { /* skip */ }
+      list.push(JSON.parse(await fsp.readFile(path.join(sessionsDir, file), 'utf8')));
+    } catch { /* skip invalid session files */ }
   }
-  return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-});
+  return sortSessionRecords(list);
+}
+
+function toSessionSummary(data) {
+  return {
+    id: data.id,
+    title: data.title,
+    workspace: data.workspace || '',
+    pinned: !!data.pinned,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+    messageCount: (data.messages || []).length
+  };
+}
+
+async function listSessionSummaries() {
+  return (await readSessionRecords()).map(toSessionSummary);
+}
+
+function broadcastSessionUpdate(detail) {
+  remoteServer?.broadcast('session-updated', detail || {});
+}
+
+function notifyDesktopSessionUpdate(detail) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('session:changed', detail || {});
+}
+
+let createSessionPromise = null;
+
+async function createFreshSessionRecord() {
+  ensureDirs();
+  const id = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const session = {
+    id, title: '新对话', messages: [], pinned: false, workspace: '',
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  await fsp.writeFile(sessionPath(id), JSON.stringify(session, null, 2));
+  return session;
+}
+
+async function createOrReuseSessionRecord() {
+  if (createSessionPromise) return createSessionPromise;
+  createSessionPromise = (async () => {
+    const sessions = await readSessionRecords();
+    const existing = findReusableBlankSession(sessions);
+    if (existing) return { session: existing, reused: true };
+    return { session: await createFreshSessionRecord(), reused: false };
+  })();
+  try {
+    return await createSessionPromise;
+  } finally {
+    createSessionPromise = null;
+  }
+}
+
+async function renameSessionRecord(id, title) {
+  const p = sessionPath(id);
+  if (!fs.existsSync(p)) return null;
+  const data = JSON.parse(await fsp.readFile(p, 'utf8'));
+  const nextTitle = String(title || '').trim().slice(0, 80);
+  if (!nextTitle) return null;
+  data.title = nextTitle;
+  data.updatedAt = Date.now();
+  await fsp.writeFile(p, JSON.stringify(data, null, 2));
+  return data;
+}
+
+async function setSessionPinnedRecord(id, pinned) {
+  const p = sessionPath(id);
+  if (!fs.existsSync(p)) return null;
+  const data = JSON.parse(await fsp.readFile(p, 'utf8'));
+  data.pinned = !!pinned;
+  data.updatedAt = Date.now();
+  await fsp.writeFile(p, JSON.stringify(data, null, 2));
+  return data;
+}
+
+async function deleteSessionRecord(id, options = {}) {
+  const sessions = await readSessionRecords();
+  const session = sessions.find(item => item.id === id);
+  const decision = evaluateSessionDeletion(session, sessions.length, options);
+  if (!decision.ok) return decision;
+  await fsp.unlink(sessionPath(id));
+  return { ok: true, id };
+}
+
+ipcMain.handle('session:list', () => listSessionSummaries());
 
 ipcMain.handle('session:get', async (_e, id) => {
   const p = sessionPath(id);
@@ -774,57 +1551,58 @@ ipcMain.handle('session:get', async (_e, id) => {
   return JSON.parse(await fsp.readFile(p, 'utf8'));
 });
 
-ipcMain.handle('session:create', async () => {
-  ensureDirs();
-  const id = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const session = {
-    id, title: 'New chat', messages: [],
-    createdAt: Date.now(), updatedAt: Date.now()
-  };
-  await fsp.writeFile(sessionPath(id), JSON.stringify(session, null, 2));
-  return session;
+ipcMain.handle('session:create', async (_e, options = {}) => {
+  const result = options.forceNew
+    ? { session: await createFreshSessionRecord(), reused: false }
+    : await createOrReuseSessionRecord();
+  if (!result.reused) broadcastSessionUpdate({ type: 'created', id: result.session.id });
+  return result.session;
 });
 
 ipcMain.handle('session:save', async (_e, session) => {
   ensureDirs();
   session.updatedAt = Date.now();
   await fsp.writeFile(sessionPath(session.id), JSON.stringify(session, null, 2));
+  broadcastSessionUpdate({ type: 'updated', id: session.id });
   return session;
 });
 
 // 会话级工作区：存储在 session 对象中，而非全局 config，实现会话隔离
-ipcMain.handle('session:set-workspace', async (_e, { id, workspace }) => {
+ipcMain.handle('session:set-workspace', async (_e, { id, workspace, activate = true }) => {
   const p = sessionPath(id);
   if (!fs.existsSync(p)) return null;
   const data = JSON.parse(await fsp.readFile(p, 'utf8'));
   data.workspace = workspace || '';
   data.updatedAt = Date.now();
   await fsp.writeFile(p, JSON.stringify(data, null, 2));
-  const cfg = loadConfig();
-  cfg.workspace = workspace || '';
-  saveConfig(cfg);
-  if (workspace) {
+  if (activate !== false) {
+    activateWorkspace(workspace || '');
+  } else if (workspace) {
     migrateMemoryToWorkspace(workspace);
     ensureYanagent(workspace);
   }
-  startWorkspaceWatcher(workspace || '');
+  broadcastSessionUpdate({ type: 'workspace', id });
   return data;
 });
 
 ipcMain.handle('session:rename', async (_e, { id, title }) => {
-  const p = sessionPath(id);
-  if (!fs.existsSync(p)) return null;
-  const data = JSON.parse(await fsp.readFile(p, 'utf8'));
-  data.title = title;
-  data.updatedAt = Date.now();
-  await fsp.writeFile(p, JSON.stringify(data, null, 2));
+  const data = await renameSessionRecord(id, title);
+  if (data) broadcastSessionUpdate({ type: 'renamed', id });
   return data;
 });
 
-ipcMain.handle('session:delete', async (_e, id) => {
-  const p = sessionPath(id);
-  if (fs.existsSync(p)) await fsp.unlink(p);
-  return true;
+ipcMain.handle('session:set-pinned', async (_e, { id, pinned }) => {
+  const data = await setSessionPinnedRecord(id, pinned);
+  if (data) broadcastSessionUpdate({ type: 'pinned', id, pinned: !!pinned });
+  return data;
+});
+
+ipcMain.handle('session:delete', async (_e, payload) => {
+  const id = typeof payload === 'string' ? payload : payload?.id;
+  const confirmed = typeof payload === 'object' && !!payload?.confirmed;
+  const result = await deleteSessionRecord(id, { confirmed });
+  if (result.ok) broadcastSessionUpdate({ type: 'deleted', id });
+  return result;
 });
 
 // ---------------------------------------------------------------------------
@@ -914,14 +1692,14 @@ ipcMain.handle('yanagent:record-change', async (_e, { sessionId, runId, filePath
 
 ipcMain.handle('yanagent:run-changes', async (_e, { sessionId, runId, workspace }) => {
   const ws = workspace || loadConfig().workspace;
-  if (!ws || !sessionId || !runId) return { count: 0, changes: [] };
+  if (!ws || !sessionId || !runId) return { count: 0, additions: 0, deletions: 0, files: [] };
   const snapPath = runSnapshotPath(ws, sessionId, runId);
-  if (!fs.existsSync(snapPath)) return { count: 0, changes: [] };
+  if (!fs.existsSync(snapPath)) return { count: 0, additions: 0, deletions: 0, files: [] };
   try {
     const data = JSON.parse(await fsp.readFile(snapPath, 'utf8'));
-    return { count: (data.changes || []).length, changes: data.changes || [] };
+    return summarizeRunChanges(ws, data.changes || []);
   } catch {
-    return { count: 0, changes: [] };
+    return { count: 0, additions: 0, deletions: 0, files: [] };
   }
 });
 
@@ -1032,19 +1810,224 @@ ipcMain.handle('file:choose-save', async () => {
   return null;
 });
 
-// Upload: copy a file into the uploads dir & return metadata
-ipcMain.handle('file:upload', async (_e, { name, data: b64 }) => {
+function resolveStoredUploadPath(filePath) {
+  const resolved = path.resolve(String(filePath || ''));
+  const relative = path.relative(path.resolve(filesDir), resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return resolved;
+}
+
+function sanitizeUploadName(name) {
+  const base = path.basename(String(name || 'attachment'));
+  return base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || 'attachment';
+}
+
+function findRemoteUploadedImage(uploadId) {
+  const id = String(uploadId || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(id)) return null;
+  for (const extension of ['png', 'jpg', 'webp', 'gif']) {
+    const filePath = path.join(filesDir, `${id}.${extension}`);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+
+async function storeRemoteUploadedImage({ name, data, mimeType }) {
+  const raw = String(data || '');
+  if (!raw || !/^[A-Za-z0-9+/]*={0,2}$/.test(raw)) return { error: '图片数据格式无效' };
+  const buffer = Buffer.from(raw, 'base64');
+  if (!buffer.length) return { error: '图片内容为空' };
+  if (buffer.length > 20 * 1024 * 1024) return { error: '图片不能超过 20MB' };
+  let type;
+  try { type = detectImageType(buffer, String(mimeType || '')); }
+  catch { return { error: '仅支持 PNG、JPEG、WebP 或 GIF 图片' }; }
   ensureDirs();
-  const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const uploadId = crypto.randomBytes(16).toString('hex');
+  const filePath = path.join(filesDir, `${uploadId}.${type.extension}`);
+  await fsp.writeFile(filePath, buffer);
+  const originalBase = path.parse(sanitizeUploadName(name || '手机图片')).name.slice(0, 80) || '手机图片';
+  return {
+    uploadId,
+    name: `${originalBase}.${type.extension}`,
+    size: buffer.length,
+    mimeType: type.mimeType,
+    kind: 'image'
+  };
+}
+
+async function resolveRemoteUploadedImages(items) {
+  const attachments = [];
+  for (const item of (Array.isArray(items) ? items : []).slice(0, 4)) {
+    const filePath = findRemoteUploadedImage(item?.uploadId);
+    if (!filePath) continue;
+    try {
+      const buffer = await fsp.readFile(filePath);
+      const type = detectImageType(buffer);
+      attachments.push({
+        uploadId: String(item.uploadId).toLowerCase(),
+        name: sanitizeUploadName(item.name || path.basename(filePath)),
+        path: filePath,
+        size: buffer.length,
+        mimeType: type.mimeType,
+        kind: 'image'
+      });
+    } catch {}
+  }
+  return attachments;
+}
+
+// Upload: copy a file into the uploads dir & return metadata
+ipcMain.handle('file:upload', async (_e, { name, data: b64, mimeType = '' }) => {
+  ensureDirs();
+  const safeName = sanitizeUploadName(name);
+  const buffer = Buffer.from(String(b64 || ''), 'base64');
+  if (buffer.length > 50 * 1024 * 1024) return { error: '附件不能超过 50MB' };
   const target = path.join(filesDir, Date.now() + '_' + safeName);
-  await fsp.writeFile(target, Buffer.from(b64, 'base64'));
+  await fsp.writeFile(target, buffer);
   const stat = await fsp.stat(target);
-  return { path: target, name: safeName, size: stat.size };
+  return { path: target, name: safeName, size: stat.size, mimeType: String(mimeType || '') };
+});
+
+ipcMain.handle('file:image-data', async (_e, filePath) => {
+  const cfg = loadConfig();
+  if (!cfg.permissions.allowFileRead) return { error: '文件读取权限已关闭' };
+  const storedPath = resolveStoredUploadPath(filePath);
+  if (!storedPath) return { error: '只能读取 Yan Agent 保存的图片附件' };
+  try {
+    const stat = await fsp.stat(storedPath);
+    if (stat.size > 20 * 1024 * 1024) return { error: '图片不能超过 20MB' };
+    const buffer = await fsp.readFile(storedPath);
+    const type = detectImageType(buffer);
+    return {
+      path: storedPath,
+      size: stat.size,
+      mimeType: type.mimeType,
+      dataUrl: `data:${type.mimeType};base64,${buffer.toString('base64')}`
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('image:generate', async (_e, payload = {}) => {
+  const cfg = loadConfig();
+  if (!cfg.permissions.allowNetwork) return { error: '网络访问权限已关闭，无法生成图片' };
+  const imageConfig = updateImageGenerationConfig(cfg);
+  if (!imageConfig.available) return { error: '当前模型配置没有可用的图片生成能力' };
+  const prompt = String(payload.prompt || '').trim();
+  const requestId = String(payload.requestId || '').trim().slice(0, 160);
+  if (!prompt) return { error: '生图提示词不能为空' };
+  if (prompt.length > 4000) return { error: '生图提示词不能超过 4000 个字符' };
+  if (!requestId) return { error: '生图请求缺少任务标识' };
+  if (activeImageGenerations.has(requestId)) return { error: '该生图任务正在执行，请勿重复提交' };
+  let sourceImage = null;
+  if (payload.sourceImagePath) {
+    if (!cfg.permissions.allowFileRead) return { error: '文件读取权限已关闭，无法编辑图片' };
+    const sourcePath = resolveStoredUploadPath(payload.sourceImagePath);
+    if (!sourcePath) return { error: '只能编辑 Yan Agent 保存的图片附件' };
+    try {
+      const stat = await fsp.stat(sourcePath);
+      if (stat.size > 20 * 1024 * 1024) return { error: '输入图片不能超过 20MB' };
+      const buffer = await fsp.readFile(sourcePath);
+      const type = detectImageType(buffer);
+      sourceImage = { buffer, mimeType: type.mimeType, name: path.basename(sourcePath) };
+    } catch (error) {
+      return { error: `无法读取输入图片：${error.message}` };
+    }
+  }
+  const controller = new AbortController();
+  const activeRequest = { controller, ownerId: _e.sender.id };
+  activeImageGenerations.set(requestId, activeRequest);
+  try {
+    const result = await generateImage({
+      baseUrl: cfg.api.baseUrl,
+      apiKey: cfg.api.apiKey,
+      providerId: imageConfig.providerId,
+      strategy: imageConfig.strategy,
+      model: imageConfig.model,
+      prompt,
+      aspectRatio: payload.aspectRatio || '1:1',
+      signal: controller.signal,
+      sourceImage
+    });
+    const asset = await registerGeneratedImage(result);
+    return {
+      ok: true,
+      assetId: asset.assetId,
+      name: asset.name,
+      size: result.buffer.length,
+      mimeType: result.mimeType,
+      model: imageConfig.model,
+      strategy: imageConfig.strategy,
+      edited: !!result.edited,
+      revisedPrompt: result.revisedPrompt || ''
+    };
+  } catch (error) {
+    return { error: error.message, code: error.code || undefined };
+  } finally {
+    if (activeImageGenerations.get(requestId) === activeRequest) {
+      activeImageGenerations.delete(requestId);
+    }
+  }
+});
+
+ipcMain.handle('image:cancel', (_e, requestId) => {
+  const id = String(requestId || '').trim();
+  const activeRequest = activeImageGenerations.get(id);
+  if (!activeRequest || activeRequest.ownerId !== _e.sender.id) return { ok: false };
+  activeRequest.controller.abort();
+  return { ok: true };
+});
+
+ipcMain.handle('image:generated-read', async (_e, assetId) => {
+  const asset = getGeneratedImageAsset(assetId);
+  if (!asset) return { error: '会话图片已失效，请重新生成' };
+  try {
+    const buffer = await fsp.readFile(asset.filePath);
+    return {
+      assetId: asset.assetId,
+      name: asset.name,
+      size: asset.size,
+      mimeType: asset.mimeType,
+      dataUrl: `data:${asset.mimeType};base64,${buffer.toString('base64')}`
+    };
+  } catch (error) {
+    generatedImages.delete(asset.assetId);
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('image:generated-open', (_e, assetId) => openGeneratedImageViewer(assetId));
+
+ipcMain.handle('image:generated-download', async (_e, assetId) => {
+  const asset = getGeneratedImageAsset(assetId);
+  if (!asset) return { error: '会话图片已失效，请重新生成' };
+  const owner = BrowserWindow.fromWebContents(_e.sender);
+  const extension = path.extname(asset.name).slice(1).toLowerCase() || 'png';
+  const result = await dialog.showSaveDialog(owner && !owner.isDestroyed() ? owner : mainWindow, {
+    title: '下载图片',
+    buttonLabel: '下载',
+    defaultPath: path.join(app.getPath('downloads'), asset.name),
+    filters: [{ name: '图片', extensions: [extension] }]
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  try {
+    await fsp.copyFile(asset.filePath, result.filePath);
+    return { ok: true, path: result.filePath };
+  } catch (error) {
+    return { error: `下载失败：${error.message}` };
+  }
 });
 
 ipcMain.handle('file:reveal', async (_e, filePath) => {
   shell.showItemInFolder(filePath);
   return true;
+});
+
+ipcMain.handle('yanxi:launch', async (_e, { workspace, mode = 'workspace' } = {}) => {
+  const cfg = loadConfig();
+  const ws = workspace || cfg.workspace;
+  return launchYanxiCode(appRoot, cfg, ws, mode);
 });
 
 ipcMain.handle('file:delete', async (_e, filePath) => {
@@ -1083,6 +2066,31 @@ ipcMain.handle('shell:execute', async (_e, { command, cwd, oneShot }) => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// IPC: Built-in terminal (persistent, independent from Agent workspaces)
+// ---------------------------------------------------------------------------
+ipcMain.handle('terminal:create', (event) => terminalManager.create(event.sender.id));
+
+ipcMain.handle('terminal:execute', (event, { sessionId, command } = {}) => (
+  terminalManager.execute(event.sender.id, sessionId, command)
+));
+
+ipcMain.handle('terminal:write', (event, { sessionId, data } = {}) => (
+  terminalManager.write(event.sender.id, sessionId, data)
+));
+
+ipcMain.handle('terminal:interrupt', (event, sessionId) => (
+  terminalManager.interrupt(event.sender.id, sessionId)
+));
+
+ipcMain.handle('terminal:restart', (event, sessionId) => (
+  terminalManager.restart(event.sender.id, sessionId)
+));
+
+ipcMain.handle('terminal:destroy', (event, sessionId) => (
+  terminalManager.destroy(event.sender.id, sessionId)
+));
 
 // ---------------------------------------------------------------------------
 // MCP (Model Context Protocol) — manage external tool servers via stdio
@@ -1191,7 +2199,7 @@ async function mcpStart(serverCfg) {
     const initPromise = mcpRequest(server, 'initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: 'Yan Agent', version: '1.2.0' }
+      clientInfo: { name: 'Yan Agent', version: '1.3.0' }
     });
 
     await Promise.race([initPromise, spawnError]);
@@ -1563,6 +2571,109 @@ ipcMain.handle('code:trace-symbol', async (_e, { name, workspace }) => {
 });
 
 // ---------------------------------------------------------------------------
+// IPC: Code map (incremental workspace visualization)
+// ---------------------------------------------------------------------------
+ipcMain.handle('code-map:get', async (_e, { workspace, force } = {}) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !fs.existsSync(ws)) return { error: '请先选择有效的工作区。' };
+  try {
+    const map = await codeMap.buildCodeMap(ws, { force: !!force });
+    const cfg = loadConfig();
+    const codeMapApi = resolveCodeMapApi(cfg);
+    return {
+      ok: true,
+      aiAvailable: !!codeMapApi.api,
+      analysisModel: codeMapApi.modelId,
+      analysisModelName: codeMapApi.modelName,
+      analysisProvider: codeMapApi.providerName || null,
+      analysisError: codeMapApi.error || null,
+      ...map
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('code-map:enrich', async (_e, { workspace, limit } = {}) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws || !fs.existsSync(ws)) return { error: '请先选择有效的工作区。' };
+  const sendProgress = progress => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('code-map:progress', { workspace: ws, ...progress });
+    }
+  };
+  try {
+    const cfg = loadConfig();
+    const codeMapApi = resolveCodeMapApi(cfg);
+    const result = await codeMap.enrichCodeMap(ws, cfg, {
+      limit,
+      onProgress: sendProgress,
+      codeMapApi
+    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('code-map:changed', {
+        workspace: ws,
+        updated: result.updated || 0,
+        timestamp: Date.now()
+      });
+    }
+    return result;
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('code-map:clear-cache', async (_e, workspace) => {
+  const ws = workspace || loadConfig().workspace;
+  if (!ws) return { error: '请先选择工作区。' };
+  try {
+    await codeMap.clearCodeMapCache(ws);
+    return { ok: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('code-map:models:list', () => {
+  const cfg = loadConfig();
+  return listAllModelsFlat().map(model => ({
+    ...model,
+    hasKey: !!cfg.api?.apiKeys?.[model.providerId]
+  }));
+});
+
+ipcMain.handle('code-map:model:get', () => {
+  const cfg = loadConfig();
+  const codeMapApi = resolveCodeMapApi(cfg);
+  return {
+    modelId: codeMapApi.modelId,
+    modelName: codeMapApi.modelName,
+    providerId: codeMapApi.providerId || null,
+    providerName: codeMapApi.providerName || null,
+    aiAvailable: !!codeMapApi.api,
+    error: codeMapApi.error || null
+  };
+});
+
+ipcMain.handle('code-map:model:set', (_e, modelId) => {
+  const cfg = loadConfig();
+  const meta = findModelMeta(String(modelId || ''));
+  if (!meta) return { error: '未知解读模型。' };
+  cfg.codeMap = normalizeCodeMapConfig({ ...(cfg.codeMap || {}), model: meta.id });
+  saveConfig(cfg);
+  const codeMapApi = resolveCodeMapApi(cfg);
+  return {
+    ok: true,
+    modelId: codeMapApi.modelId,
+    modelName: codeMapApi.modelName,
+    providerId: codeMapApi.providerId || null,
+    providerName: codeMapApi.providerName || null,
+    aiAvailable: !!codeMapApi.api,
+    error: codeMapApi.error || null
+  };
+});
+
+// ---------------------------------------------------------------------------
 // IPC: Workspace tree (flat file list)
 // ---------------------------------------------------------------------------
 ipcMain.handle('workspace:tree', async (_e, { directory, maxDepth }) => {
@@ -1683,6 +2794,70 @@ ipcMain.handle('permissions:set', (_e, perms) => {
 // ---------------------------------------------------------------------------
 // IPC: Window controls (custom title bar)
 // ---------------------------------------------------------------------------
+ipcMain.on('pet:update', (event, payload = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return;
+  petState = normalizePetState(payload);
+  sendPetState();
+});
+
+ipcMain.on('pet:ready', (event) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  sendPetState();
+});
+
+ipcMain.handle('pet:set-expanded', (event, expanded) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return false;
+  resizePetWindow(!!expanded);
+  return true;
+});
+
+ipcMain.handle('pet:get-metrics', (event) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return null;
+  const pid = petWindow.webContents.getOSProcessId();
+  const metric = app.getAppMetrics().find(item => item.pid === pid);
+  if (!metric) return { pid, memoryMb: null, cpuPercent: null };
+  return {
+    pid,
+    memoryMb: Math.round((Number(metric.memory?.workingSetSize) || 0) / 1024 * 10) / 10,
+    cpuPercent: Math.round((Number(metric.cpu?.percentCPUUsage) || 0) * 10) / 10
+  };
+});
+
+ipcMain.handle('pet:get-visible', (event) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return false;
+  return !!(petWindow && !petWindow.isDestroyed() && petWindow.isVisible());
+});
+
+ipcMain.handle('pet:toggle-window', (event) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return false;
+  return togglePetWindow();
+});
+
+ipcMain.on('pet:move-by', (event, payload = {}) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  const dx = Math.max(-120, Math.min(120, Number(payload.dx) || 0));
+  const dy = Math.max(-120, Math.min(120, Number(payload.dy) || 0));
+  if (!dx && !dy) return;
+  const bounds = petWindow.getBounds();
+  petWindow.setPosition(Math.round(bounds.x + dx), Math.round(bounds.y + dy), false);
+});
+
+ipcMain.on('pet:open-task', (event, sessionId) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  showMainWindowForPet(sessionId);
+});
+
+ipcMain.on('pet:stop-task', (event, sessionId) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !sessionId) return;
+  mainWindow.webContents.send('pet:action', { type: 'stop-task', sessionId: String(sessionId) });
+});
+
+ipcMain.on('pet:close', (event) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  destroyPetWindow();
+});
+
 ipcMain.on('win:minimize', () => mainWindow && mainWindow.minimize());
 ipcMain.on('win:toggle-maximize', () => {
   if (!mainWindow) return;
@@ -1712,18 +2887,312 @@ function deepMerge(target, source) {
 }
 
 // ---------------------------------------------------------------------------
+// Bundled agent skills (OfficeCLI, CubeSandbox, …)
+// ---------------------------------------------------------------------------
+function ensureBundledAgentSkills(cfg) {
+  const bundledDir = path.join(appRoot, 'lib', 'skills', 'bundled');
+  if (!fs.existsSync(bundledDir)) return false;
+  if (!cfg.customSkills) cfg.customSkills = [];
+  const files = fs.readdirSync(bundledDir).filter(f => f.endsWith('.json'));
+  let changed = false;
+  for (const file of files) {
+    let meta;
+    try {
+      meta = JSON.parse(fs.readFileSync(path.join(bundledDir, file), 'utf8'));
+    } catch { continue; }
+    if (!meta?.id) continue;
+    let prompt = String(meta.prompt || '').trim();
+    if (meta.promptFile) {
+      const promptPath = path.join(bundledDir, meta.promptFile);
+      if (fs.existsSync(promptPath)) {
+        prompt = fs.readFileSync(promptPath, 'utf8');
+      }
+    }
+    if (!prompt) continue;
+    const item = {
+      id: meta.id,
+      name: meta.name || meta.id,
+      desc: meta.desc || '',
+      prompt,
+      tags: meta.tags || [],
+      triggers: meta.triggers || [],
+      source: meta.source || 'bundled',
+      installedAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    const idx = cfg.customSkills.findIndex(s => s.id === item.id);
+    if (idx < 0) {
+      cfg.customSkills.push(item);
+      changed = true;
+    } else if (!cfg.customSkills[idx].prompt) {
+      cfg.customSkills[idx] = { ...cfg.customSkills[idx], ...item };
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// ---------------------------------------------------------------------------
+// Mobile remote control (HTTP + Web UI)
+// ---------------------------------------------------------------------------
+function invokeRendererRemote(payload, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      reject(new Error('app not ready'));
+      return;
+    }
+    const requestId = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const timer = setTimeout(() => {
+      remotePending.delete(requestId);
+      reject(new Error('renderer timeout'));
+    }, timeoutMs);
+    remotePending.set(requestId, { resolve, reject, timer });
+    mainWindow.webContents.send('remote:invoke', { ...payload, requestId });
+  });
+}
+
+async function listSessionsBrief() {
+  return listSessionSummaries();
+}
+
+function buildRemoteDeps() {
+  return {
+    listSessions: () => listSessionsBrief(),
+    getSession: async (id) => {
+      const p = sessionPath(id);
+      if (!fs.existsSync(p)) return null;
+      return JSON.parse(await fsp.readFile(p, 'utf8'));
+    },
+    createSession: () => createOrReuseSessionRecord(),
+    deleteSession: async (id, options = {}) => {
+      const status = await buildRemoteDeps().getSessionStatus(id);
+      return deleteSessionRecord(id, { ...options, running: !!status.running });
+    },
+    renameSession: (id, title) => renameSessionRecord(id, title),
+    setSessionPinned: (id, pinned) => setSessionPinnedRecord(id, pinned),
+    onSessionChanged: (detail) => notifyDesktopSessionUpdate(detail),
+    uploadImage: (payload) => storeRemoteUploadedImage(payload),
+    resolveUploadedImages: (items) => resolveRemoteUploadedImages(items),
+    readUploadedImage: async (uploadId) => {
+      const filePath = findRemoteUploadedImage(uploadId);
+      if (!filePath) return null;
+      try {
+        const buffer = await fsp.readFile(filePath);
+        const type = detectImageType(buffer);
+        return {
+          buffer,
+          mimeType: type.mimeType,
+          name: path.basename(filePath),
+          size: buffer.length
+        };
+      } catch {
+        return null;
+      }
+    },
+    sendMessage: async (sessionId, text, attachments = []) => {
+      const session = await buildRemoteDeps().getSession(sessionId);
+      if (!session) return { ok: false, error: 'not found' };
+      try {
+        const result = await invokeRendererRemote({ type: 'send-message', sessionId, text, attachments });
+        return result || { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message || 'invoke failed' };
+      }
+    },
+    abortSession: async (sessionId) => {
+      try {
+        return await invokeRendererRemote({ type: 'abort', sessionId }, 10000);
+      } catch (e) {
+        return { ok: false, error: e.message || 'invoke failed' };
+      }
+    },
+    getSessionStatus: async (sessionId) => {
+      try {
+        return await invokeRendererRemote({ type: 'get-status', sessionId }, 5000);
+      } catch {
+        return { running: false };
+      }
+    },
+    getRunningSessions: async () => {
+      try {
+        const result = await invokeRendererRemote({ type: 'get-running' }, 5000);
+        return result?.ids || [];
+      } catch {
+        return [];
+      }
+    },
+    readGeneratedImage: async (assetId) => {
+      const asset = getGeneratedImageAsset(assetId);
+      if (!asset) return null;
+      try {
+        return {
+          buffer: await fsp.readFile(asset.filePath),
+          mimeType: asset.mimeType,
+          name: asset.name,
+          size: asset.size,
+        };
+      } catch {
+        generatedImages.delete(asset.assetId);
+        return null;
+      }
+    },
+    getModelState: () => buildPublicModelState(),
+    setModel: (modelId) => setActiveModel(modelId),
+    getPublicConfig: () => {
+      const cfg = loadConfig();
+      return {
+        model: cfg.api?.model || '',
+        provider: cfg.api?.provider || '',
+        hasWorkspace: !!cfg.workspace,
+      };
+    },
+    getAuthState: () => ({
+      passwordSet: isRemotePasswordSet(loadConfig()),
+    }),
+  };
+}
+
+async function stopRemoteServer() {
+  if (!remoteServer) return;
+  const srv = remoteServer;
+  remoteServer = null;
+  await srv.stop();
+}
+
+async function startRemoteServer() {
+  const cfg = loadConfig();
+  const rc = normalizeRemoteControlConfig(cfg.remoteControl);
+  if (!rc.enabled) {
+    await stopRemoteServer();
+    return null;
+  }
+  if (remoteServer) return remoteServer.getInfo();
+
+  remoteServer = new RemoteServer({
+    rootDir: appRoot,
+    uiDir: path.join(appRoot, 'renderer', 'remote'),
+    getToken: () => loadConfig().remoteControl?.password || '',
+    verifyPassword: (value) => verifyRemotePassword(value),
+    deps: buildRemoteDeps(),
+  });
+
+  const info = await remoteServer.start(rc.port || 0);
+  if (!rc.port && info.port) {
+    const next = loadConfig();
+    next.remoteControl = { ...normalizeRemoteControlConfig(next.remoteControl), port: info.port };
+    saveConfig(next);
+  }
+  return info;
+}
+
+async function restartRemoteServer() {
+  await stopRemoteServer();
+  return startRemoteServer();
+}
+
+ipcMain.on('remote:result', (_e, payload = {}) => {
+  const { requestId, result, error } = payload;
+  const pending = remotePending.get(requestId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  remotePending.delete(requestId);
+  if (error) pending.reject(new Error(error));
+  else pending.resolve(result);
+});
+
+ipcMain.on('remote:notify', (_e, payload = {}) => {
+  if (!payload?.event || !remoteServer) return;
+  remoteServer.broadcast(payload.event, payload.data || {});
+});
+
+ipcMain.handle('remote:get-info', async () => {
+  const cfg = loadConfig();
+  const rc = normalizeRemoteControlConfig(cfg.remoteControl);
+  const info = remoteServer?.getInfo() || { running: false, port: rc.port || null, urls: [], addresses: [] };
+  return {
+    ...info,
+    enabled: !!rc.enabled,
+    passwordSet: isRemotePasswordSet(cfg),
+  };
+});
+
+ipcMain.handle('remote:restart', async () => {
+  const info = await restartRemoteServer();
+  const cfg = loadConfig();
+  return {
+    ...(info || remoteServer?.getInfo() || {}),
+    enabled: !!cfg.remoteControl?.enabled,
+    passwordSet: isRemotePasswordSet(cfg),
+  };
+});
+
+ipcMain.handle('remote:set-password', async (_e, { password }) => {
+  const pwd = String(password || '');
+  if (pwd.length < 4) return { ok: false, error: '密码至少 4 位' };
+  const cfg = loadConfig();
+  cfg.remoteControl = normalizeRemoteControlConfig(cfg.remoteControl);
+  cfg.remoteControl.password = pwd;
+  saveConfig(cfg);
+  return { ok: true, passwordSet: true };
+});
+
+// ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
-app.whenReady().then(() => {
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const ws = parseOpenWorkspaceArg(argv);
+    const requestId = parseYanxiRequestIdArg(argv);
+    if (ws !== undefined) {
+      yanxiReceiver.applyWorkspaceFromYanxiCode(ws, { requestId }).catch((e) => {
+        console.error('[yanxi-sync]', e.message);
+      });
+    }
+    if (argv.includes('--show-main') || ws !== undefined) {
+      focusMainWindow();
+    }
+  });
+}
+
+app.whenReady().then(async () => {
+  app.setAppUserModelId('com.yan.agent');
   migrateLegacyDataDir();
   ensureDirs();
+  loadGeneratedImageStore();
+  const preferredLanguages = app.getPreferredSystemLanguages?.() || [];
+  terminalManager.setLocale(preferredLanguages[0] || app.getLocale());
   const cfg = loadConfig();
+  ensureBundledAgentSkills(cfg);
   saveConfig(cfg);
   startWorkspaceWatcher(cfg.workspace);
+  yanxiReceiver.watchYanxiSyncFile();
+  // 仅响应 Yanxi Code 显式传入的 --open-workspace；不在每次冷启动时重放 yanxi-sync.json
+  if (pendingYanxiWorkspace !== undefined) {
+    await yanxiReceiver.applyWorkspaceFromYanxiCode(pendingYanxiWorkspace, { requestId: pendingYanxiRequestId });
+  }
+  skillRegistry.scheduleSkillSync(cfg, appRoot, dataDir, saveConfig, (res) => {
+    if (res.ok) {
+      console.log(`[skills] synced market: ${res.total} items (+${res.added} new, ~${res.updated} updated)`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('skills:synced', res);
+      }
+    } else if (res.error) {
+      console.log('[skills] sync skipped/failed:', res.error);
+    }
+  });
   createWindow();
+  applyLightWindowIcon(mainWindow);
+  createPetWindow();
   createTray();
+  mainWindow.webContents.once('did-finish-load', () => {
+    startRemoteServer().catch((e) => console.error('[remote] start failed:', e.message));
+  });
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+    else applyLightWindowIcon(mainWindow);
   });
 });
 
@@ -1734,7 +3203,15 @@ app.on('window-all-closed', (e) => {
 
 // 真正退出时清理托盘和 MCP 服务器
 app.on('before-quit', () => {
+  isQuiting = true;
+  for (const request of activeImageGenerations.values()) request.controller.abort();
+  activeImageGenerations.clear();
+  closeGeneratedImageViewers();
+  skillRegistry.stopSkillSync();
   stopWorkspaceWatcher();
+  terminalManager.dispose();
+  stopRemoteServer().catch(() => {});
+  if (petWindow && !petWindow.isDestroyed()) petWindow.destroy();
   if (tray) tray.destroy();
   // 停止所有 MCP 服务器
   for (const id of mcpServers.keys()) mcpStop(id);

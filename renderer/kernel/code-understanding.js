@@ -154,14 +154,14 @@
     const api = () => K._deps.api;
     const name = String(symbol || '').trim();
     if (!name) return { hits: [], error: 'symbol name is required' };
-    const res = await api().codeFindSymbol({ name, kind: options.kind });
+    const res = await api().codeFindSymbol({ name, kind: options.kind, workspace: options.workspace });
     if (res.error) return { hits: [], error: res.error };
     return { hits: res.hits || [], fromIndex: true };
   }
 
-  async function ensureCodeIndex(force = false) {
+  async function ensureCodeIndex(force = false, workspace) {
     const api = () => K._deps.api;
-    return api().buildCodeIndex({ force });
+    return api().buildCodeIndex({ force, workspace });
   }
 
   K.detectLanguage = detectLanguage;

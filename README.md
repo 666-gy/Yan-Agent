@@ -1,317 +1,188 @@
-# Yan Agent
+<p align="center">
+  <img src="renderer/assets/logo.png" width="96" height="96" alt="Yan Agent Logo">
+</p>
 
-> **桌面端自主 Agent** — 从「有个想法」到「跑起来了」，全程由 Agent 完成
+<h1 align="center">Yan Agent</h1>
 
-在 Windows 桌面上自主读写文件、执行命令、操作浏览器、管理 Git。Yan Agent 不是聊天助手，而是一个能真正动手干活的 Agent。
+<p align="center">
+  面向真实工作区的桌面端自主 Agent
+</p>
 
----
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.0-111111">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848f">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a">
+</p>
 
-## v1.2.0 — 体验修复与能力补强
+<p align="center"><a href="README_EN.md">English README</a></p>
 
-### 国产模型兼容
+Yan Agent 把对话、代码理解和本地工具执行放进同一个桌面工作台。选择一个工作区，描述目标，Agent 会制定计划、读写文件、运行命令、操作浏览器并验证结果，而不只是给出一段建议。
 
-设置页支持 **7 大厂商**一键切换，各自独立 API Key：
+## v1.3.0
 
-| 厂商       | 代表模型                       |
-| -------- | -------------------------- |
-| DeepSeek | V4 Flash / V4 Pro          |
-| 通义千问     | Qwen3.7 Max / Plus / Flash |
-| 智谱清言     | GLM-5.2 / GLM-4.7 Flash    |
-| 豆包       | Seed 2.1 Pro / Turbo       |
-| Kimi     | K2.7 Code / K2.6           |
-| StepFun  | Step 3.7 Flash             |
-| MiniMax  | M3 / M2.7                  |
+这一版本完成了 Yan 桌面开发生态的闭环：
 
-### 代码理解增强
+| 能力                  | 说明                                        |
+| ------------------- | ----------------------------------------- |
+| **Yan Agent**       | 5 个隔离任务并行执行，支持文件、Shell、Git、浏览器、图片和 MCP 工具 |
+| **Yan Project Map** | 在应用内生成可交互项目地图，展示目录、符号和依赖关系，并支持 AI 解读      |
+| **Yanxi Code**      | 从任务栏一键打开当前工作区；冷启动和已运行状态都能双向同步工作区          |
+| **多端协同**            | 桌面主界面、移动端控制页和桌面宠物共享任务与运行状态                |
 
-新增 **10+ 代码分析工具**，支持符号索引与项目扫描：
+### 本次更新
 
-- `get_file_outline` / `read_file_range` — 大文件精读
-- `find_symbol` / `find_references` / `trace_symbol` — 符号追踪
-- `get_file_imports` / `find_related_files` — 依赖分析
-- `search_symbols` / `build_code_index` — 索引搜索
-- `scan_project` — 项目结构与技术栈扫描
-- `search_files` 增强：正则、扩展名过滤、上下文行
-
-索引持久化至 `.yanagent/code-index.json`。
-
-### 子 Agent 强化
-
-- **`spawn_subagents`** — 最多 3 路并行委派
-- **6 类专家**：explore / shell / review / edit / ui / doc
-
-### 界面修复
-
-- **主题按钮** — 浅色模式显示月亮，深色模式显示太阳
-- **右侧边栏实时同步** — 工作区文件变更自动刷新；切换模型后上下文面板即时更新
-- **Agent 输出 UI** — Claude/Codex 风格时间线工具展示、SVG 图标、流式光标
-
-### MCP 扩展重构
-
-| 服务          | 状态   | 启动方式                        |
-| ----------- | ---- | --------------------------- |
-| Fetch       | 默认启用 | `uvx mcp-server-fetch`      |
-| Playwright  | 默认启用 | `npx @playwright/mcp`       |
-| Windows-MCP | 默认启用 | `uvx windows-mcp`           |
-| Context7    | 按需启用 | `npx @upstash/context7-mcp` |
-| GitHub      | 按需启用 | Docker + Token              |
-
-- 支持 per-server **环境变量**配置（GitHub Token 等）
-- 修复 Fetch npm 404 与 GitHub 废弃包问题
-- 预装服务自动迁移旧配置
-
----
-
-## v1.1.0 — 内核重构
-
-本次更新对 Agent 内核进行了全面拆分与重构，核心变化：
-
-### 5 任务完全独立并行
-
-旧架构（1 前台 + 3 后台，共享全局状态）已彻底重写为 **5 个平等并行任务**模型：
-
-| 特性     | 旧架构                 | 新架构                         |
-| ------ | ------------------- | --------------------------- |
-| 并发上限   | 1 前台 + 3 后台         | **5 个任务完全平等**               |
-| 状态隔离   | 全局 `agentState` 共享  | **每个 runCtx 独立 agentState** |
-| 中止控制   | 全局 `shouldAbort` 串扰 | **每个任务独立 AbortController**  |
-| 会话切换   | detach 前台→后台（竞态）    | **pauseUi 仅停 DOM，任务继续**     |
-| MCP 工具 | 全局 map 并发覆盖         | **runCtx 级别快照**             |
-| 侧边栏    | 无运行状态指示             | **实时转圈 + 标题高亮**             |
-
-任务 A 运行中切换到任务 B 发起新任务，两者互不影响，各自独立完成。
-
-### 内核模块化拆分
-
-单文件内核拆分为 15 个独立模块，位于 `renderer/kernel/`：
-
-```
-renderer/kernel/
-├── index.js            # 内核引导 & 依赖注入
-├── constants.js        # 迭代上限、上下文阈值
-├── tool-protocol.js    # 统一工具返回协议 { ok, output, error, meta }
-├── path.js             # 工作区路径解析
-├── edits.js            # 精确编辑引擎 + 写后验证
-├── tools-registry.js   # 30+ 内置工具 + MCP 动态注册
-├── prompt.js           # 系统提示词构建
-├── context.js          # 上下文压缩 + 长期记忆提取
-├── policies.js         # 运行时策略（读后编辑、完成门控）
-├── run-state.js        # 每个 runCtx 的独立状态管理
-├── tool-executor.js    # 工具执行器
-├── tool-retry.js       # 自动重试（最多 4 次，指数退避）
-├── subagent.js         # 子 Agent（explore / shell 专家）
-├── stream.js           # SSE 流式 API 调用
-└── agent-loop.js       # 核心循环：计划 → 执行 → 验证
-```
-
-### 新增：子 Agent 系统
-
-主 Agent 可通过 `spawn_subagent` 工具委派子任务：
-
-- **explore** — 只读调研（读文件、搜代码、查 Git），返回结构化摘要
-- **shell** — 专注跑命令，报告退出码和输出
-
-子 Agent 拥有独立 runCtx，最多 12 轮迭代，不能嵌套。
-
-### 新增：运行时策略引擎
-
-不再依赖提示词「请求」模型遵守规则，而是**强制执行**：
-
-- **读后编辑** — `edit_file` / `apply_patch` 前必须先 `read_file`，否则直接拒绝
-- **完成门控** — 有 `in_progress` 的 todo 时，Agent 不能提前结束循环
-- **非必要 todo 延迟** — 非关键 pending 项自动延迟到下次会话
-
-### 新增：工具自动重试
-
-工具失败时自动重试（最多 4 次，250ms 指数退避），策略/权限错误不重试。
-
----
+- 新增 Yan Project Map：增量代码索引、依赖连线、缩放浏览、模型切换和 AI 项目解读
+- 完成 Yanxi Code 生态对接：自动检测安装位置，原子交接工作区，支持冷启动与运行中切换
+- 新增内置终端和内置浏览器，让 Agent 的执行与验证留在同一工作台
+- 新增常驻桌面宠物：跟随当前任务、显示运行状态和资源占用，并可直接停止任务
+- 完善移动端控制：任务搜索、切换、重命名、删除、模型同步、图片上传与结果预览
+- 完善多模态链路：图片输入、图片生成、编辑、持久化预览和下载
+- 新增 Kimi K3、Kimi K2.7 Code 等模型，并更新主流厂商模型与价格展示
+- 展示每次 Agent 运行产生的文件变更摘要，任务切换和后台执行保持工作区隔离
 
 ## 核心能力
 
-### Agent 循环
+### 自主执行
 
+```text
+用户目标 -> 制定计划 -> 调用工具 -> 检查结果 -> 继续修正 -> 交付
 ```
-用户指令 → 制定计划(todo_write) → 逐步执行(工具调用) → 验证结果(写后回读) → 交付
+
+- 最多 5 个任务并行运行，每个任务都有独立工作区、上下文和中止控制。你可以在任务之间切换，而不必等待前一个任务结束，后台任务也会继续执行。
+- 文件读取、精确编辑、补丁应用、目录扫描和写后校验组成一条完整修改链路。每次写入都会回读确认，减少“看起来改了、实际没生效”的情况。
+- Shell 命令、Git 操作、内置终端和内置浏览器都在当前工作台内完成。Agent 可以先读代码，再运行验证命令，最后把文件变更和结果一起交付。
+- Todo 与完成门控会把计划和验收条件放在同一条任务线上。只要还有未完成步骤或缺少验证证据，Agent 就不会把任务提前标记为完成。
+- 失败按可重试错误、权限错误和副作用错误分类处理。读操作可以自动重试，写入、提交等副作用操作不会被盲目重复执行。
+
+### 代码理解
+
+- 文件大纲、符号搜索、引用追踪和 import 分析让 Agent 能先建立代码事实，再开始修改。对于大型文件，也可以只读取相关范围，避免无意义地塞满上下文。
+- 项目扫描、相关文件发现和持久化代码索引会复用未变化的分析结果。索引保存在 `.yanagent/code-index.json`，下次打开同一工作区可以更快恢复结构。
+- Yan Project Map 把目录、文件、符号和依赖边变成可交互地图。你可以从一个入口文件追到相关模块，再把选中的节点带回 Agent 对话。
+- AI 解读复用当前模型配置，同时保留本地分析能力。即使没有可用模型，目录、符号和依赖结构仍然可以正常展示。
+
+### 多模态
+
+- 附件入口会根据当前模型能力动态开放图片输入。切换到文本模型时不会伪装成支持视觉，切换到多模态模型后才显示对应操作。
+- 视觉模型可以分析截图、设计稿和代码界面，适合把“看起来哪里不对”变成可执行的修改任务。图片会以结构化消息传递给模型，不会偷偷转成无意义的文本描述。
+- 支持 OpenAI 与 Grok 图片生成链路，也支持带参考图的编辑流程。生成结果会被保留为本地会话资源，方便之后继续使用。
+- 生成图片可以在桌面端和移动端预览、打开与下载。任务历史保留资源引用，不会因为刷新界面就丢失结果。
+
+### 扩展系统
+
+- 17 个内置 Skill 和 51 个 Skill 市场模板覆盖代码审查、重构、UI、文档和网页工作流。Skill 通过提示词和工具权限组合复用，不需要修改 Agent 内核。
+- 支持自定义 Skill 的读取、同步与审计，团队可以把自己的项目约定固化成可重复调用的工作流。自定义内容与内置目录分开管理，升级时不会覆盖。
+- 通过 JSON-RPC 2.0 over stdio 接入 MCP Server。每个运行任务会保留自己的工具映射快照，多个任务并行时不会互相覆盖配置。
+- 预置 Playwright 与 Windows-MCP，并支持自定义服务及环境变量。需要 GitHub Token、数据库连接或其他凭据时，可以按服务单独配置。
+
+## Yan 生态
+
+```mermaid
+flowchart LR
+  Agent["Yan Agent\n任务与自主执行"]
+  Map["Yan Project Map\n代码结构与依赖"]
+  Code["Yanxi Code\n编辑与工作区"]
+  Agent <--> Code
+  Agent --> Map
+  Map --> Code
 ```
 
-- 最多 **40 轮** 工具循环
-- 每轮支持多工具并行调用
-- 三处中止检查点（API 调用前、工具执行前、循环体内）
+在 Yan Agent 中为任务选择工作区后，可以直接打开 Yan Project Map，也可以一键进入 Yanxi Code。工作区通过带回执的本地交接协议同步，即使 Yanxi Code 已经运行，也会刷新标题栏和文件树。
 
-### 30+ 个内置工具
+## 支持的模型
 
-| 类别   | 工具                                                                                                                                                                                                                |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 任务计划 | `todo_write`                                                                                                                                                                                                      |
-| 文件操作 | `read_file` · `edit_file` · `apply_patch` · `write_file` · `list_directory`                                                                                                                                       |
-| 代码理解 | `search_files` · `get_file_outline` · `find_symbol` · `read_file_range` · `get_file_imports` · `find_references` · `find_related_files` · `search_symbols` · `build_code_index` · `scan_project` · `trace_symbol` |
-| 执行   | `execute_shell` · `spawn_subagent` · `spawn_subagents`                                                                                                                                                            |
-| Git  | `git_status` · `git_diff` · `git_log` · `git_commit` · `git_push` · `git_pull` · `git_clone` · `git_branch`                                                                                                       |
-| 预览   | `open_builtin_browser`                                                                                                                                                                                            |
+| 厂商       | 当前接入方式                                         |
+| -------- | ---------------------------------------------- |
+| OpenAI   | 动态读取可用模型，支持视觉与图片生成能力识别                         |
+| Grok     | 动态读取可用模型，支持 Imagine 图片生成                       |
+| DeepSeek | DeepSeek V4 Flash / V4 Pro                     |
+| 通义千问     | Qwen3.7、Qwen3.6、Qwen3、Qwen Plus / Turbo / Long |
+| 智谱 GLM   | GLM-5.2、GLM-5 系列、GLM-4.7 与 Flash 系列            |
+| 豆包       | Doubao Seed 2.1 / 2.0 系列                       |
+| Kimi     | Kimi K3、K2.7 Code、K2.6、K2.5                    |
+| StepFun  | Step 3.7 Flash / 3.5 Flash                     |
+| MiniMax  | MiniMax M3 / M2.7                              |
 
-### 精确编辑引擎
-
-- `old_string` 必须与文件内容**逐字符完全一致**（含缩进/换行）
-- 必须在文件中**唯一匹配**，否则拒绝执行
-- 写入后**立即回读校验**，确保文件系统操作正确性
-- 自动记录变更前内容，支持变更溯源
-
-### MCP 扩展
-
-支持 JSON-RPC 2.0 over stdio 协议接入任意 MCP Server：
-
-- **Playwright** — 浏览器自动化（点击、填表、E2E）
-- **Fetch** — 抓取网页/API 文档并转为 Markdown（需 uvx）
-- **Windows-MCP** — Windows 桌面操控（需 uvx）
-- **Context7** — 第三方库最新文档（默认关闭）
-- **GitHub** — Issue/PR 管理（默认关闭，需 Docker + Token）
-- 自定义 MCP Server 即插即用
-
-工具命名格式：`mcp__{serverId}__{toolName}`，每个 runCtx 持有独立快照防止并发竞态。
-
-### Skill 市场
-
-51 个精选 Skill 模板，一键注入对话：
-
-- **代码** — 代码审查、TDD、重构、安全审计
-- **UI** — 设计系统、组件库、主题工厂
-- **网站** — 落地页、全栈应用、部署
-
-### 上下文管理
-
-- **上下文压缩** — 超过 60K tokens 自动压缩早期消息为摘要，保留最近 12 条 + 工具调用链
-- **长期记忆** — 任务完成后自动提取跨会话有用事实（用户偏好、项目约定）
-- **apiTrace 回放** — 工具调用时间线 + 完整 API 消息历史跨轮回放
-
-### 自动化任务
-
-- 间隔 / 每日 / 一次性调度
-- 后台创建独立 `[自动]` 会话
-- 与手动任务共享 5 并发上限
-
----
+每个厂商拥有独立 API Key、Base URL、模型列表和能力判断。模型与价格可能随服务商调整，应用内展示用于选型参考，实际费用以服务商账单为准。
 
 ## 快速开始
 
-1. 下载并运行 Yan Agent
-2. **设置 → API 配置** — 选择厂商并填入 API Key（支持 DeepSeek、通义千问、智谱等）
-3. **工作区** — 选择你的项目文件夹
-4. 输入指令，Agent 开始自主执行
+1. 下载并安装 Yan Agent。
+2. 打开 `设置 -> API 配置`，选择厂商并填写 API Key。
+3. 新建任务并选择一个工作区。
+4. 输入目标，等待 Agent 执行并检查最终文件变更。
 
 ### 下载
 
-| 版本      | 说明              | 下载                                                                                                                        |
-| ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **安装版** | NSIS 安装包，推荐日常使用 | [Yan.Agent.Setup.1.2.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.2.0.exe)       |
-| **便携版** | 免安装，双击即用        | [Yan.Agent.Portable.1.2.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.2.0.exe) |
+| 构建  | 说明              | 下载                                                                                                                        |
+| --- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 安装版 | NSIS 安装包，适合日常使用 | [Yan.Agent.Setup.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Setup.1.3.0.exe)       |
+| 便携版 | 无需安装，解压后直接运行    | [Yan.Agent.Portable.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/latest/download/Yan.Agent.Portable.1.3.0.exe) |
 
-[查看全部 Releases →](https://github.com/666-gy/Yan-Agent/releases)
+[查看全部 Releases](https://github.com/666-gy/Yan-Agent/releases)
 
----
+## 权限与数据
 
-## 架构
+Yan Agent 会在你选择的工作区内执行真实操作。文件读取、写入、网络访问与命令执行可在设置页分别控制，其中命令执行默认需要显式开启。
 
-```
-┌─────────────────────────────────────────────────┐
-│                  Electron 主进程                  │
-│  文件系统 · Shell · Git · MCP Server · 系统托盘     │
-└──────────────────────┬──────────────────────────┘
-                       │ IPC (preload.js)
-┌──────────────────────┴──────────────────────────┐
-│                   渲染进程                        │
-│  ┌─────────────────────────────────────────────┐ │
-│  │            renderer/kernel/                  │ │
-│  │  agent-loop · tool-executor · subagent       │ │
-│  │  edits · policies · context · stream         │ │
-│  │  tools-registry · prompt · run-state         │ │
-│  └──────────────────┬──────────────────────────┘ │
-│  ┌──────────────────┴──────────────────────────┐ │
-│  │            renderer.js (UI 层)               │ │
-│  │  5 并发任务管理 · 会话切换 · DOM 渲染          │ │
-│  └─────────────────────────────────────────────┘ │
-│         skill-market.js · styles.css              │
-└──────────────────────────────────────────────────┘
-```
+应用数据保存在用户数据目录中，包含配置、会话、任务日志、生成图片和本地记忆。工作区中的代码索引保存在 `.yanagent/code-index.json`。
 
-### 并发模型
+建议：
 
-```
-activeRuns: Map<sessionId, { runCtx, sessionRef, assistantEl }>
-                        │
-           ┌────────────┼────────────┐
-           ▼            ▼            ▼
-      任务 A         任务 B         任务 C
-   (独立 runCtx)  (独立 runCtx)  (独立 runCtx)
-   独立 agentState  独立 agentState  独立 agentState
-   独立 abortCtrl   独立 abortCtrl   独立 abortCtrl
-   独立 MCP快照     独立 MCP快照     独立 MCP快照
-```
-
-每个任务拥有完全隔离的 `runCtx`，包括 agentState、abortController、MCP 工具映射快照、策略状态。切换会话仅暂停 DOM 渲染（`pauseUi`），任务继续后台运行。
-
-### 内核依赖注入
-
-内核通过 `YanKernel.init(deps)` 接收渲染层注入的 API 和 hooks，实现内核与 UI 的解耦：
-
-```javascript
-YanKernel.init({
-  api,                    // IPC 桥接
-  getConfig,              // 配置访问
-  getCurrentSession,      // 当前会话
-  hooks: {                // UI 回调
-    renderTodos, updateContextInfo, buildToolStepElement, ...
-  }
-});
-```
-
----
+- 在使用 Git 的项目中运行，重要操作前保留可恢复版本
+- 只为可信 MCP Server 配置凭据和环境变量
+- 运行高影响命令前检查 Agent 给出的计划与权限提示
 
 ## 开发
+
+### 环境
+
+- Windows 10 / 11
+- Node.js 18+
+- npm 9+
 
 ```bash
 git clone https://github.com/666-gy/Yan-Agent.git
 cd Yan-Agent
 npm install
-npm start              # 开发运行
-npm run build          # 打包安装版 (NSIS)
-npm run build:portable # 打包便携版
+npm start
 ```
 
-### 权限
+### 常用命令
 
-| 权限   | 默认  | 说明              |
-| ---- | --- | --------------- |
-| 读取文件 | ✅   | 读取工作区与附件        |
-| 写入文件 | ✅   | 创建或修改文件         |
-| 执行命令 | ❌   | Shell 命令（需手动开启） |
-| 网络访问 | ✅   | 调用 AI API       |
-
-> ⚠️ Agent 具备真实文件系统访问能力，请在可信工作区中使用。
+```bash
+npm start                # 本地启动
+npm run build            # Windows 安装版
+npm run build:portable  # Windows 便携版
+```
 
 ### 项目结构
 
-```
+```text
 Yan-Agent/
-├── main.js                 # Electron 主进程
-├── preload.js              # IPC 安全桥接
-├── renderer/
-│   ├── index.html          # 应用 UI
-│   ├── renderer.js         # 渲染层（并发管理、UI、会话）
-│   ├── skill-market.js     # Skill 市场
-│   ├── styles.css          # 样式
-│   ├── kernel/             # Agent 内核（15 个模块）
-│   └── assets/             # 图标资源
-└── package.json
+|-- main.js                  Electron 主进程、IPC 与本地服务
+|-- preload.js               沙箱化渲染进程桥接
+|-- lib/
+|   |-- code-index.js        代码索引
+|   |-- code-map.js          项目地图分析
+|   |-- terminal-manager.js  内置终端
+|   `-- skills/              Skill 目录
+|-- renderer/
+|   |-- index.html           桌面应用界面
+|   |-- renderer.js          会话、任务与 UI 协调
+|   |-- kernel/              Agent 循环、工具与运行策略
+|   |-- code-map/            Yan Project Map
+|   |-- terminal/            终端界面
+|   |-- remote/              移动端界面
+|   |-- pet/                 桌面宠物
+|   `-- assets/              品牌资源
+`-- package.json
 ```
-
----
 
 ## 技术栈
 
-Electron 31 · 多厂商 OpenAI 兼容 API · MCP (JSON-RPC 2.0) · electron-builder
-
----
+Electron 31 · Node.js · Vanilla JavaScript · OpenAI-compatible APIs · MCP · electron-builder
 
 ## License
 
