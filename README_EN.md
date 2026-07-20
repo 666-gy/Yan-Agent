@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.3.0-111111">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.1-111111">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848f">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a">
@@ -18,6 +18,10 @@
 <p align="center"><a href="README.md">中文 README</a></p>
 
 Yan Agent brings conversation, code understanding, and local tool execution into one Windows workspace. Describe an outcome, choose a project folder, and the agent plans, edits, runs, browses, verifies, and reports the result instead of stopping at a suggestion.
+
+## v1.3.1
+
+This quick update focuses on UI polish, runtime-state bug fixes, broader model support, and the new Yan Computer Use plugin. The packaged application is now version 1.3.1.
 
 ## v1.3.0
 
@@ -38,7 +42,7 @@ Version 1.3.0 completes the first Yan desktop ecosystem loop:
 - **Desktop pet supervision.** The pet follows the selected task, reports runtime status and resource usage, and exposes a direct stop action. It is a small always-available view of what the agent is doing in the background.
 - **Mobile control.** Search, switch, rename, and delete tasks from the mobile page while desktop and mobile stay synchronized. Image upload, model changes, and generated-image previews follow the same session rules.
 - **Multimodal work.** Image input is exposed only for models that support it, while image generation and editing keep their outputs as persistent local assets. The same generated result can be previewed, opened, or downloaded from desktop and mobile.
-- **Current models.** The catalog includes Kimi K3, Kimi K2.7 Code, DeepSeek V4, Qwen3.7, GLM-5.2, Doubao Seed, Step 3.7, MiniMax M3, and dynamic OpenAI/Grok catalogs. Prices and availability are shown for orientation and remain subject to each provider's billing page.
+- **Current models.** The catalog includes Kimi K3, Kimi K2.7 Code, DeepSeek V4, Qwen3.7, GLM-5.2, Doubao Seed, Step 3.7, MiniMax M3, Baichuan, Yi, Hunyuan, and separate dynamic OpenAI/Grok/Agnes/SiliconFlow catalogs. A Custom Model provider accepts any OpenAI-compatible endpoint. Prices and availability remain subject to each provider's billing page.
 - **Reliable delivery.** Five tasks run with isolated state, workspace, abort control, and MCP snapshots. File edits are checked after writing, todo completion requires evidence, and side-effect tools are not blindly retried.
 
 ## Core capabilities
@@ -71,8 +75,8 @@ Goal -> Plan -> Tools -> Verification -> Refinement -> Delivery
 
 ### Skills and MCP
 
-- Seventeen built-in Skills and fifty-one marketplace templates cover code review, refactoring, UI work, documentation, and web workflows. Skills combine reusable instructions with explicit tool access without changing the kernel.
-- Custom Skills can be read, synchronized, and audited separately from the built-in catalog. Project-specific conventions can therefore become repeatable actions rather than tribal knowledge.
+- Seventeen built-in Skills and fifty-two marketplace templates cover code review, refactoring, UI work, documentation, and web workflows. Skills combine reusable instructions with explicit tool access without changing the kernel.
+- Installed and custom Skills can be read and audited separately from the built-in catalog. The app no longer performs background Skill synchronization, so local capability state stays explicit and predictable.
 - MCP servers connect through JSON-RPC 2.0 over stdio. Each running task receives an isolated tool snapshot so parallel tasks cannot overwrite one another's server mapping.
 - Playwright and Windows-MCP templates are included, with support for custom servers and per-server environment variables for credentials or project services.
 
@@ -96,6 +100,8 @@ Choose a workspace once in Yan Agent, then open the project map or Yanxi Code fr
 | --- | --- |
 | OpenAI | Dynamic model catalog with vision and image-generation capability detection |
 | Grok | Dynamic model catalog with Imagine image generation |
+| Agnes | Dynamic Agnes AI gateway model catalog |
+| Custom Model | User-defined Base URL, API key, and model ID through OpenAI Chat Completions |
 | DeepSeek | DeepSeek V4 Flash / V4 Pro |
 | Qwen | Qwen3.7, Qwen3.6, Qwen3, Qwen Plus / Turbo / Long |
 | Zhipu GLM | GLM-5.2, GLM-5 series, GLM-4.7 and Flash series |
@@ -103,13 +109,17 @@ Choose a workspace once in Yan Agent, then open the project map or Yanxi Code fr
 | Kimi | Kimi K3, Kimi K2.7 Code, Kimi K2.6, Kimi K2.5 |
 | StepFun | Step 3.7 Flash / 3.5 Flash |
 | MiniMax | MiniMax M3 / M2.7 |
+| Baichuan | Baichuan 4 / Baichuan 3 Turbo |
+| Yi | Yi Large / Yi Lightning |
+| Tencent Hunyuan | Hunyuan Turbo S / Hunyuan Pro |
+| SiliconFlow | Dynamic model catalog |
 
-Each provider has its own API key, base URL, model list, and capability metadata. Provider prices and availability can change; the application display is a selection aid, while billing is determined by the provider.
+Each provider has its own API key, editable base URL, model list, and capability metadata. You can connect an official API, CC Switch, a relay, or a self-hosted OpenAI-compatible gateway. Custom Model only asks for a Base URL, API key, and model ID, then sends requests directly through OpenAI Chat Completions without a local router or model mapping. Image providers can also use separate generation and edit POST URLs. Provider prices and availability can change; billing is determined by the provider.
 
 ## Quick start
 
 1. Download and install Yan Agent.
-2. Open `Settings -> API Configuration`, choose a provider, and enter its API key.
+2. Open `Settings -> API Configuration`, choose a provider, and enter its base URL and API key.
 3. Create a task and choose a workspace folder.
 4. Describe the outcome and inspect the final file-change summary when the agent finishes.
 
@@ -117,8 +127,8 @@ Each provider has its own API key, base URL, model list, and capability metadata
 
 | Build | Description | Download |
 | --- | --- | --- |
-| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.0/Yan.Agent.Setup.1.3.0.exe) |
-| Portable | No installation required; run it directly | [Yan.Agent.Portable.1.3.0.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.0/Yan.Agent.Portable.1.3.0.exe) |
+| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.1.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.1/Yan.Agent.Setup.1.3.1.exe) |
+| Portable | No installation required; run it directly | [Open the v1.3.1 release page](https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.1) |
 
 [View all releases](https://github.com/666-gy/Yan-Agent/releases)
 
