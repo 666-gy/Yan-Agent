@@ -10,7 +10,9 @@
       const o = JSON.parse(raw);
       if (o.ok) return false;
       if (o.meta?.policy || o.meta?.denied || o.meta?.noRetry) return false;
-      if (o.meta?.transient === true) return true;
+      if (o.meta?.retryable === false) return false;
+      if (o.meta?.retryable === true || o.meta?.transient === true) return true;
+      if (String(o.meta?.code || '') === 'TRANSIENT') return true;
       const status = Number(o.meta?.status || o.meta?.statusCode);
       if ([408, 425, 429, 500, 502, 503, 504].includes(status)) return true;
       const err = String(o.error || '').toLowerCase();

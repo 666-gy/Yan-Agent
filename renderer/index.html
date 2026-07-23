@@ -7,6 +7,7 @@
   <title>Yan Agent</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="code-map/code-map.css" />
+  <link rel="stylesheet" href="vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="terminal/terminal.css" />
 </head>
 <body>
@@ -16,7 +17,7 @@
     <div class="titlebar">
       <div class="titlebar-drag"></div>
       <div class="titlebar-left">
-        <button id="sidebarToggle" class="titlebar-sidebar-btn" title="切换侧边栏 (Ctrl+B)" aria-label="切换侧边栏">
+        <button id="sidebarToggle" class="titlebar-sidebar-btn" title="切换侧边栏 (Ctrl+B)" aria-label="切换侧边栏" aria-controls="sidebar" aria-expanded="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9.5" y1="3" x2="9.5" y2="21"/></svg>
         </button>
       </div>
@@ -44,17 +45,32 @@
 
       <!-- ===== Sidebar ===== -->
       <aside id="sidebar" class="sidebar">
-        <div class="sidebar-brand" aria-label="Yan Agent v1.3.0">
-          <span class="sidebar-brand-name">Yan Agent</span>
-          <span class="sidebar-brand-version">v1.3.0</span>
+        <div class="sidebar-brand-shell">
+          <button id="appSwitcherButton" class="sidebar-brand" type="button" aria-label="切换 Yan 应用" aria-haspopup="menu" aria-expanded="false">
+            <span id="sidebarBrandName" class="sidebar-brand-name">Yan Agent</span>
+            <span class="sidebar-brand-version">v1.3.2</span>
+            <svg class="sidebar-brand-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="appSwitcherMenu" class="app-switcher-menu hidden" role="menu" aria-label="Yan 应用">
+            <button class="app-switcher-option active" type="button" data-app-mode="agent" role="menuitem">
+              <span class="app-switcher-mark" aria-hidden="true"><img src="assets/logo.png" alt="" /></span>
+              <span>Yan Agent</span>
+              <svg class="app-switcher-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <button class="app-switcher-option" type="button" data-app-mode="partner" role="menuitem">
+              <span class="app-switcher-mark partner" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+              <span>Yan Partner</span>
+              <svg class="app-switcher-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
         </div>
-        <nav class="sidebar-nav">
+        <nav id="agentSidebarNav" class="sidebar-nav">
           <button id="newTaskNavBtn" class="sidebar-nav-item" type="button" title="新建任务">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             <span>新建任务</span>
           </button>
           <button class="sidebar-nav-item" data-nav="skills" title="Skill 市场">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.65 5.02a3.5 3.5 0 0 1-2.33 2.33L3 12l5.02 1.65a3.5 3.5 0 0 1 2.33 2.33L12 21l1.65-5.02a3.5 3.5 0 0 1 2.33-2.33L21 12l-5.02-1.65a3.5 3.5 0 0 1-2.33-2.33L12 3Z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/></svg>
             <span>Skill 市场</span>
           </button>
           <button class="sidebar-nav-item" data-nav="mcp" title="MCP 服务">
@@ -75,11 +91,18 @@
           <div id="sessionList" class="session-list"></div>
         </div>
 
+        <div id="partnerSidebarPanel" class="sidebar-panel partner-sidebar-panel hidden">
+          <div class="partner-sidebar-actions">
+            <button id="partnerNewConversation" class="sidebar-nav-item" type="button" title="新建 Partner 对话">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>新建对话</span>
+            </button>
+          </div>
+          <div class="partner-sidebar-section-title">最近对话</div>
+          <div id="partnerConversationList" class="session-list partner-conversation-list"></div>
+        </div>
+
         <div class="sidebar-bottom">
-          <button id="workspaceBtn" class="bottom-btn" title="工作区">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            <span class="bottom-btn-label">工作区</span>
-          </button>
           <button id="settingsBtn" class="bottom-btn" title="设置">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span class="bottom-btn-label">设置</span>
@@ -119,7 +142,7 @@
             <button id="taskBarOpenFolder" class="task-bar-icon-btn" title="在文件资源管理器中打开" disabled>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             </button>
-            <button id="rightSidebarToggleBtn" class="task-bar-icon-btn" title="右侧面板">
+            <button id="rightSidebarToggleBtn" class="task-bar-icon-btn" title="右侧面板" aria-label="切换右侧面板" aria-controls="rightSidebar" aria-expanded="true">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
             </button>
             <div class="task-actions-wrap">
@@ -161,27 +184,102 @@
           <div class="composer-wrap">
             <div id="attachments" class="attachments hidden"></div>
             <div id="composer" class="composer">
-              <!-- Pills: float out of top-left edge together -->
+              <!-- Model controls: float out of top-left edge together -->
               <div class="composer-pills">
-                <button id="wsPill" class="ws-pill" type="button" title="选择工作区">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                  <span id="wsPillName" class="ws-pill-name">未设置工作区</span>
-                  <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-                </button>
                 <button id="modelPill" class="ws-pill model-pill" type="button" title="切换模型">
                   <svg class="model-pill-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>
                   <span id="modelPillName" class="ws-pill-name">—</span>
                   <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-                <button id="thinkPill" class="ws-pill think-pill" type="button" title="深度思考：回答前先进行思维链推理，更聪明但更慢">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
-                  <span class="ws-pill-name">深度思考</span>
-                </button>
+                <div id="workModeWrap" class="work-mode-wrap">
+                  <button id="workModePill" class="ws-pill work-mode-pill" type="button" title="工作方式：常规" aria-label="工作方式" aria-haspopup="dialog" aria-expanded="false">
+                    <svg class="work-mode-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v12"/><path d="M18 9v12"/><path d="M6 15c0 3 2 4 5 4h7"/><path d="m15 6 3 3 3-3"/></svg>
+                    <span id="workModePillName" class="ws-pill-name">常规</span>
+                    <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div id="workModeMenu" class="reasoning-speed-menu work-mode-menu hidden" role="dialog" aria-label="工作方式">
+                    <div class="reasoning-speed-menu-head">
+                      <span id="workModeMenuValue">常规</span>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
+                    <div id="workModeSliderShell" class="reasoning-speed-slider-shell work-mode-slider-shell" data-mode="normal">
+                      <span class="reasoning-speed-fluid work-mode-fluid" aria-hidden="true"></span>
+                      <span class="reasoning-speed-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                      <input id="workModeSlider" type="range" min="0" max="100" step="1" value="0" aria-label="工作方式" aria-valuetext="常规" />
+                    </div>
+                  </div>
+                </div>
+                <div id="reasoningSpeedWrap" class="reasoning-speed-wrap">
+                  <button id="reasoningSpeedPill" class="ws-pill reasoning-speed-pill" type="button" title="推理速度" aria-label="推理速度" aria-haspopup="dialog" aria-expanded="false">
+                    <svg class="reasoning-speed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M4.93 19a10 10 0 1 1 14.14 0"/><path class="reasoning-speed-needle" d="M12 13l3.5-3.5"/><circle cx="12" cy="13" r="1" fill="currentColor" stroke="none"/>
+                    </svg>
+                    <span id="reasoningSpeedPillName" class="ws-pill-name">标准</span>
+                    <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div id="reasoningSpeedMenu" class="reasoning-speed-menu hidden" role="dialog" aria-label="推理速度">
+                    <div class="reasoning-speed-menu-head">
+                      <span id="reasoningSpeedMenuValue">标准</span>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
+                    <div id="reasoningSpeedSliderShell" class="reasoning-speed-slider-shell" data-mode="balanced">
+                      <span class="reasoning-speed-fluid" aria-hidden="true"></span>
+                      <span class="reasoning-speed-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                      <input id="reasoningSpeedSlider" type="range" min="0" max="100" step="1" value="50" aria-label="推理速度" aria-valuetext="标准" />
+                    </div>
+                    <div id="reasoningSpeedBillingNote" class="reasoning-speed-billing is-empty"></div>
+                  </div>
+                </div>
+                <div id="skillCallWrap" class="skill-call-wrap">
+                  <button id="skillCallPill" class="ws-pill skill-call-pill" type="button" title="技能调用" aria-label="技能调用" aria-haspopup="dialog" aria-expanded="false">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.6 4.7a3 3 0 0 0 1.8 1.8L20 11l-4.6 1.6a3 3 0 0 0-1.8 1.8L12 19l-1.6-4.6a3 3 0 0 0-1.8-1.8L4 11l4.6-1.5a3 3 0 0 0 1.8-1.8L12 3Z"/><path d="m19 3 .4 1.2L21 5l-1.6.8L19 7l-.4-1.2L17 5l1.6-.8L19 3Z"/></svg>
+                    <span class="skill-call-label">技能调用</span>
+                  </button>
+                  <div id="skillCallMenu" class="skill-call-menu hidden" role="dialog" aria-label="技能调用">
+                    <div class="skill-call-menu-header">
+                      <span>已安装 Skill</span>
+                      <span id="skillCallCount" class="skill-call-count"></span>
+                    </div>
+                    <div id="skillCallList" class="skill-call-list"></div>
+                  </div>
+                </div>
+                <div id="accessModeWrap" class="access-mode-wrap">
+                  <button id="accessModePill" class="ws-pill access-mode-pill" type="button" title="权限访问：请求批准" aria-label="权限访问：请求批准" aria-haspopup="dialog" aria-expanded="false">
+                    <span class="access-mode-pill-icon" aria-hidden="true">
+                      <svg data-access-icon="request" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 8v4l2 1"/></svg>
+                      <svg data-access-icon="delegate" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+                      <svg data-access-icon="full" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 8v5"/><path d="M12 17h.01"/></svg>
+                    </span>
+                    <span id="accessModePillName" class="access-mode-label">请求批准</span>
+                    <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div id="accessModeMenu" class="access-mode-menu hidden" role="dialog" aria-label="权限访问">
+                    <div class="access-mode-menu-header">权限访问</div>
+                    <button class="access-mode-option" type="button" data-access-mode="request" aria-pressed="true">
+                      <span class="access-mode-option-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 8v4l2 1"/></svg></span>
+                      <span class="access-mode-option-copy"><strong>请求批准</strong><small>执行命令或申请工作区时询问你</small></span>
+                      <svg class="access-mode-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    </button>
+                    <button class="access-mode-option" type="button" data-access-mode="delegate" aria-pressed="false">
+                      <span class="access-mode-option-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+                      <span class="access-mode-option-copy"><strong>替我审批</strong><small>自动批准常规操作，仍锁定当前工作区</small></span>
+                      <svg class="access-mode-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    </button>
+                    <button class="access-mode-option is-full" type="button" data-access-mode="full" aria-pressed="false">
+                      <span class="access-mode-option-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 8v5"/><path d="M12 17h.01"/></svg></span>
+                      <span class="access-mode-option-copy"><strong>完全访问</strong><small>允许使用绝对路径并自动批准正常操作</small></span>
+                      <svg class="access-mode-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div class="composer-inner">
-                <textarea id="composerInput" class="composer-input" rows="1"
-                  placeholder="你负责想象，我负责写"></textarea>
+                <div class="composer-editor">
+                  <div id="composerSkillSelection" class="composer-skill-selection hidden" aria-label="已选择的 Skill" aria-live="polite"></div>
+                  <textarea id="composerInput" class="composer-input" rows="1"
+                    placeholder="你负责想象，我负责写"></textarea>
+                </div>
                 <div class="composer-actions">
                   <div class="attachment-action-wrap">
                     <button id="attachBtn" class="composer-icon-btn" type="button" title="添加附件" aria-label="添加附件" aria-expanded="false">
@@ -206,25 +304,10 @@
                 </div>
               </div>
               <div class="composer-hint">
-                <span class="kbd-hint">Enter 发送 · Shift+Enter 换行 · 按 / 调用技能</span>
+                <span class="kbd-hint">Enter 发送 · Shift+Enter 换行</span>
               </div>
             </div>
 
-            <!-- Quick starts (empty state only, below composer) -->
-            <div id="quickStarts" class="quick-starts">
-              <div class="hint-card" data-prompt="帮我写一个 Python 贪吃蛇游戏，写到工作区里">
-                <span class="hint-icon">🎮</span><span>写一个游戏</span>
-              </div>
-              <div class="hint-card" data-prompt="列出当前工作区的文件，帮我了解项目结构">
-                <span class="hint-icon">📁</span><span>查看项目结构</span>
-              </div>
-              <div class="hint-card" data-prompt="帮我在工作区创建一个 Express 服务器，带路由和中间件">
-                <span class="hint-icon">⚡</span><span>搭建项目</span>
-              </div>
-              <div class="hint-card" data-prompt="读取工作区里的文件，审查代码并给出优化建议">
-                <span class="hint-icon">🔍</span><span>代码审查</span>
-              </div>
-            </div>
             </div>
           </div>
 
@@ -301,72 +384,206 @@
           </section>
         </main>
 
-      <!-- ===== Main: Skill Market ===== -->
-      <section id="pageSkills" class="page-view page-panel hidden">
-        <div class="page-header">
-          <div>
-            <h2>Skill 市场</h2>
-            <p class="page-sub">内置 Skill 目录共 66 项（15 内置 + 51 扩展）。Agent 的 read_skill 从此目录加载；下方可浏览、搜索、手动安装。</p>
+      <!-- ===== Main: Yan Partner ===== -->
+      <section id="pagePartner" class="page-view partner-page hidden" aria-label="Yan Partner">
+        <header class="partner-topbar">
+          <div class="partner-heading">
+            <button id="partnerAvatarButton" class="partner-heading-mark" type="button" title="更换 Yan Partner 头像" aria-label="更换 Yan Partner 头像">
+              <svg id="partnerAvatarDefault" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <img id="partnerAvatarPreview" class="hidden" alt="Yan Partner 头像" draggable="false" />
+              <span class="partner-avatar-edit" aria-hidden="true">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>
+              </span>
+            </button>
+            <input id="partnerAvatarInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+            <div>
+              <strong>Yan Partner</strong>
+              <span>DeepSeek V4 Flash</span>
+            </div>
+          </div>
+          <div id="partnerModeControl" class="partner-mode-control" role="group" aria-label="内容模式">
+            <button type="button" class="active" data-partner-mode="safe" aria-pressed="true">安全</button>
+            <button type="button" data-partner-mode="nsfw" aria-pressed="false">NSFW</button>
+          </div>
+        </header>
+
+        <div id="partnerRoleCardBar" class="partner-rolecard-bar">
+          <button id="partnerRoleCardToggle" class="partner-rolecard-toggle" type="button" aria-expanded="false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="partner-rolecard-label">角色卡</span>
+            <span id="partnerRoleCardSummary" class="partner-rolecard-summary"></span>
+            <svg class="partner-rolecard-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="partnerRoleCardPanel" class="partner-rolecard-panel hidden">
+            <div class="partner-rolecard-fields">
+              <label class="partner-rolecard-field">
+                <span>名字</span>
+                <input id="partnerRCName" type="text" maxlength="20" placeholder="给你的角色起个名字" autocomplete="off" />
+              </label>
+              <div class="partner-rolecard-row">
+                <label class="partner-rolecard-field">
+                  <span>年龄</span>
+                  <input id="partnerRCAge" type="text" maxlength="8" placeholder="18+" autocomplete="off" />
+                </label>
+                <label class="partner-rolecard-field">
+                  <span>性别</span>
+                  <input id="partnerRCGender" type="text" maxlength="10" placeholder="女 / 男 / …" autocomplete="off" />
+                </label>
+              </div>
+              <label class="partner-rolecard-field">
+                <span>性格</span>
+                <input id="partnerRCPersonality" type="text" maxlength="80" placeholder="温柔、害羞、爱撒娇…" autocomplete="off" />
+              </label>
+              <label class="partner-rolecard-field">
+                <span>外貌 / 描述</span>
+                <textarea id="partnerRCDescription" rows="2" maxlength="200" placeholder="长发及腰、肤白、声音软糯…" autocomplete="off"></textarea>
+              </label>
+              <label class="partner-rolecard-field">
+                <span>背景故事</span>
+                <textarea id="partnerRCBackground" rows="2" maxlength="300" placeholder="你们是怎么认识的、她的身份…" autocomplete="off"></textarea>
+              </label>
+            </div>
+            <div class="partner-rolecard-actions">
+              <button id="partnerRCSave" class="primary-btn" type="button">保存角色卡</button>
+              <button id="partnerRCClear" class="secondary-btn" type="button">清除</button>
+            </div>
           </div>
         </div>
-        <div class="page-body">
-          <div class="page-section">
-            <div class="skill-market-head">
-              <h3>Skill 目录 <span id="skillMarketCount" class="skill-market-count"></span></h3>
-              <div class="skill-market-actions">
-                <input id="skillMarketSearch" type="search" class="skill-market-search" placeholder="搜索 Skill（如 regex、网站）" />
-                <button id="skillSyncBtn" class="ghost-btn" title="从 GitHub 同步最新 Skill 目录">同步更新</button>
-                <span id="skillSyncStatus" class="skill-sync-status"></span>
-              </div>
-              <div id="skillTagFilters" class="skill-tag-filters"></div>
+
+        <div id="partnerPrivacyNotice" class="partner-privacy-notice" role="status">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>安全模式会拦截 18+ 内容。Partner 对话与 Agent、移动端和工作区日志隔离。</span>
+        </div>
+
+        <div id="partnerChatScroll" class="partner-chat-scroll">
+          <div id="partnerEmpty" class="partner-empty">
+            <span class="partner-empty-mark" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+            </span>
+            <strong>Yan Partner</strong>
+            <span id="partnerEmptyHint" class="partner-empty-hint hidden"></span>
+          </div>
+          <div id="partnerMessages" class="partner-messages" aria-live="polite"></div>
+          <div id="partnerTyping" class="partner-typing hidden" aria-label="Yan Partner 正在回复">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+
+        <div class="partner-composer-stage">
+          <div class="partner-composer">
+            <textarea id="partnerInput" rows="1" maxlength="20000" placeholder="和 Yan Partner 聊聊" aria-label="发送给 Yan Partner"></textarea>
+            <button id="partnerSend" class="send-btn partner-send" type="button" title="发送" aria-label="发送" disabled>
+              <svg class="partner-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>
+              <svg class="partner-stop-icon hidden" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+            </button>
+          </div>
+          <div class="partner-composer-meta">
+            <span>DS V4 Flash</span>
+            <span id="partnerModeLabel">安全模式</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Main: Skill Market ===== -->
+      <section id="pageSkills" class="page-view page-panel capability-page hidden">
+        <div class="page-header capability-page-header">
+          <div>
+            <h2>Skill 市场</h2>
+            <p class="page-sub">查找、安装并管理 Agent 可调用的能力。</p>
+          </div>
+          <div class="capability-header-actions">
+            <span id="skillMarketCount" class="page-header-stats" aria-live="polite"></span>
+            <button id="skillImportBtn" class="ghost-btn capability-header-btn">导入 Skill</button>
+            <input id="skillImportInput" type="file" accept=".json,application/json" hidden />
+          </div>
+        </div>
+        <div class="page-body capability-page-body">
+          <section class="skill-workbench" aria-labelledby="skillCatalogHeading">
+            <div class="capability-toolbar">
+              <label class="skill-search-field" for="skillMarketSearch">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+                <input id="skillMarketSearch" type="search" placeholder="搜索名称、说明或 ID" autocomplete="off" />
+              </label>
+              <div id="skillTagFilters" class="skill-tag-filters" aria-label="Skill 分类"></div>
+            </div>
+            <div class="capability-toolbar-meta">
+              <h3 id="skillCatalogHeading">目录</h3>
+            </div>
+            <div class="skill-directory-head" aria-hidden="true">
+              <span>Skill</span><span>来源</span><span>操作</span>
             </div>
             <div id="skillMarketGrid" class="skill-market-grid"></div>
-          </div>
-          <div class="page-section">
-            <h3>已安装的自定义 Skill</h3>
+          </section>
+
+          <section id="skillInstalledSection" class="skill-installed-section" aria-labelledby="installedSkillHeading">
+            <div class="capability-section-head">
+              <div>
+                <h3 id="installedSkillHeading">自定义 Skill</h3>
+                <p>从市场安装或从本地 JSON 导入的能力。</p>
+              </div>
+              <span id="customSkillCount" class="capability-section-count"></span>
+            </div>
             <div id="customSkillList" class="skill-custom-list"></div>
-          </div>
-          <div class="page-section import-guide">
-            <h3>导入自定义 Skill</h3>
-            <p class="page-desc">Skill 是一个 JSON 文件，包含 <code>id</code>、<code>name</code>、<code>desc</code>、<code>prompt</code> 字段，可选 <code>tags</code>（code / ui / web）。导入后可在对话中按 <kbd>/</kbd> 调用。</p>
-            <pre class="code-sample">{
+            <details class="skill-import-details import-guide">
+              <summary>查看 JSON 格式说明</summary>
+              <p class="page-desc">文件需包含 <code>id</code>、<code>name</code>、<code>desc</code>、<code>prompt</code>，可选 <code>tags</code>。导入后可通过输入框上方的“技能调用”选择。</p>
+              <pre class="code-sample">{
   "id": "my-skill",
   "name": "My Skill",
   "desc": "一句话描述",
   "tags": ["code"],
   "prompt": "请帮我完成以下任务：\n\n{{cursor}}"
 }</pre>
-            <div class="page-actions">
-              <button id="skillImportBtn" class="primary-btn">从 JSON 文件导入</button>
-              <input id="skillImportInput" type="file" accept=".json,application/json" hidden />
-            </div>
-          </div>
+            </details>
+          </section>
         </div>
       </section>
 
       <!-- ===== Main: MCP Services ===== -->
-      <section id="pageMcp" class="page-view page-panel hidden">
-        <div class="page-header">
+      <section id="pageMcp" class="page-view page-panel capability-page hidden">
+        <div class="page-header capability-page-header">
           <div>
             <h2>MCP 服务</h2>
-            <p class="page-sub">通过 Model Context Protocol 扩展 Agent 工具能力</p>
+            <p class="page-sub">连接本地或远程工具，让 Agent 获得可验证的执行能力。</p>
           </div>
-          <div class="page-header-stats" id="mcpStats"></div>
+          <div class="capability-header-actions">
+            <div class="page-header-stats" id="mcpStats"></div>
+            <button id="mcpOpenCreateBtn" class="primary-btn capability-create-btn" type="button">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              添加服务器
+            </button>
+          </div>
         </div>
-        <div class="page-body">
-          <div class="mgmt-layout">
-            <div class="mgmt-list-col">
-              <div class="mgmt-col-head">
-                <h3>已安装服务</h3>
+        <div class="page-body capability-page-body">
+          <div class="mgmt-workspace">
+            <div class="mgmt-col-head">
+              <div>
+                <h3>服务注册表</h3>
+                <p>测试连接、启停服务并查看启动命令。</p>
+              </div>
+              <span class="mgmt-head-note">Model Context Protocol</span>
+            </div>
+            <div class="mgmt-registry">
+              <div id="mcpRegistryHead" class="mgmt-registry-head" aria-hidden="true">
+                <span>服务与命令</span><span>状态</span><span>操作</span>
               </div>
               <div id="mcpPageList" class="mgmt-list"></div>
             </div>
-            <aside class="mgmt-form-col">
+          </div>
+        </div>
+        <dialog id="mcpCreateDialog" class="capability-drawer" aria-labelledby="mcpCreateTitle">
+          <div class="capability-drawer-shell">
+            <header class="capability-drawer-head">
+              <div>
+                <h3 id="mcpCreateTitle">添加服务器</h3>
+                <p>填写启动命令，保存后立即测试连接。</p>
+              </div>
+              <button id="mcpCloseCreateBtn" class="capability-drawer-close" type="button" aria-label="关闭添加服务器面板">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+              </button>
+            </header>
+            <div class="capability-drawer-body">
               <div class="form-panel">
-                <div class="form-panel-head">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  <h3>添加服务器</h3>
-                </div>
                 <div class="form-grid">
                   <div class="form-field">
                     <label for="mcpNewName">名称</label>
@@ -384,38 +601,60 @@
                 </div>
                 <button id="mcpAddBtn" class="primary-btn block">添加并测试连接</button>
                 <div class="form-callout">
-                  <strong>预装服务</strong>
-                  <p>Playwright（浏览器自动化）、Windows-MCP（桌面操控）。添加后点击「测试连接」验证是否正常。</p>
+                  <strong>内置连接</strong>
+                  <p>Playwright 用于浏览器自动化，Windows-MCP 用于桌面操控。</p>
                 </div>
               </div>
-            </aside>
+            </div>
           </div>
-        </div>
+        </dialog>
       </section>
 
       <!-- ===== Main: Automation ===== -->
-      <section id="pageAutomation" class="page-view page-panel hidden">
-        <div class="page-header">
+      <section id="pageAutomation" class="page-view page-panel capability-page hidden">
+        <div class="page-header capability-page-header">
           <div>
             <h2>自动化</h2>
-            <p class="page-sub">定时运行 Agent 任务，窗口最小化到托盘时也会照常执行</p>
+            <p class="page-sub">按间隔或指定时间运行 Agent 任务，最小化到托盘后仍会执行。</p>
           </div>
-          <div class="page-header-stats" id="autoStats"></div>
+          <div class="capability-header-actions">
+            <div class="page-header-stats" id="autoStats"></div>
+            <button id="autoOpenCreateBtn" class="primary-btn capability-create-btn" type="button">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              新建任务
+            </button>
+          </div>
         </div>
-        <div class="page-body">
-          <div class="mgmt-layout">
-            <div class="mgmt-list-col">
-              <div class="mgmt-col-head">
-                <h3>任务列表</h3>
+        <div class="page-body capability-page-body">
+          <div class="mgmt-workspace">
+            <div class="mgmt-col-head">
+              <div>
+                <h3>调度任务</h3>
+                <p>查看运行频率、最近结果并手动触发任务。</p>
+              </div>
+              <span class="mgmt-head-note">后台调度器每 30 秒检查一次</span>
+            </div>
+            <div class="mgmt-registry auto-registry">
+              <div id="autoRegistryHead" class="mgmt-registry-head" aria-hidden="true">
+                <span>任务与提示词</span><span>运行状态</span><span>操作</span>
               </div>
               <div id="autoList" class="mgmt-list"></div>
             </div>
-            <aside class="mgmt-form-col">
+          </div>
+        </div>
+        <dialog id="autoCreateDialog" class="capability-drawer" aria-labelledby="autoCreateTitle">
+          <div class="capability-drawer-shell">
+            <header class="capability-drawer-head">
+              <div>
+                <h3 id="autoCreateTitle">新建自动化</h3>
+                <p>任务会在独立对话中运行，不打断当前工作。</p>
+              </div>
+              <button id="autoCloseCreateBtn" class="capability-drawer-close" type="button" aria-label="关闭新建自动化面板">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+              </button>
+            </header>
+            <div class="capability-drawer-body">
               <div class="form-panel">
-                <div class="form-panel-head">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  <h3>新建任务</h3>
-                </div>
                 <div class="form-grid">
                   <div class="form-field form-field-full">
                     <label for="autoNewName">任务名称</label>
@@ -451,52 +690,46 @@
                 </div>
                 <button id="autoAddBtn" class="primary-btn block">添加任务</button>
                 <div class="form-callout">
-                  <strong>运行说明</strong>
-                  <p>任务触发时会新建独立对话执行，不影响当前任务。一次性任务运行后自动禁用。</p>
+                  <strong>调度说明</strong>
+                  <p>自动化不会打断当前任务；一次性任务完成后会自动暂停。</p>
                 </div>
               </div>
-            </aside>
+            </div>
           </div>
-        </div>
+        </dialog>
       </section>
 
-      <!-- ===== Built-in terminal ===== -->
+      <!-- ===== Built-in terminal (real PTY + xterm) ===== -->
       <div id="terminalPanel" class="tool-panel terminal-panel hidden" aria-label="内置终端">
         <div class="tool-panel-header terminal-header">
           <div class="terminal-heading">
             <span class="terminal-heading-icon" aria-hidden="true">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <img src="assets/powershell.png" alt="" />
             </span>
-            <span class="tool-panel-title">内置终端</span>
-            <span id="terminalStatus" class="terminal-status" data-status="starting">
-              <span class="terminal-status-dot" aria-hidden="true"></span>
-              <span id="terminalStatusText">未启动</span>
-            </span>
+            <span class="tool-panel-title">PowerShell 7</span>
           </div>
-          <span id="terminalCwd" class="tool-panel-cwd" title="">用户目录</span>
-          <div class="terminal-header-actions">
-            <button id="terminalInterrupt" class="tool-panel-nav-btn" type="button" title="中断当前命令" aria-label="中断当前命令" disabled>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
+          <div class="terminal-session-strip">
+            <div id="terminalTabs" class="terminal-tabs" role="tablist" aria-label="PowerShell 终端"></div>
+            <button id="terminalNew" class="terminal-new" type="button" title="新建 PowerShell 终端" aria-label="新建 PowerShell 终端">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
             </button>
+          </div>
+          <span class="terminal-cwd-wrap">
+            <svg class="terminal-cwd-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3.5 6.75A1.75 1.75 0 0 1 5.25 5h4.21l1.68 2H18.75a1.75 1.75 0 0 1 1.75 1.75v8.5A1.75 1.75 0 0 1 18.75 19h-13A1.75 1.75 0 0 1 4 17.25V8.75A1.75 1.75 0 0 1 5.75 7h.64"/></svg>
+            <span id="terminalCwd" class="terminal-cwd" title="">用户目录</span>
+          </span>
+          <div class="terminal-header-actions" aria-label="终端操作">
             <button id="terminalClear" class="tool-panel-nav-btn" type="button" title="清空终端" aria-label="清空终端">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg>
-            </button>
-            <button id="terminalRestart" class="tool-panel-nav-btn" type="button" title="重启 PowerShell" aria-label="重启 PowerShell">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             </button>
             <button id="terminalClose" class="tool-panel-close" type="button" title="关闭终端" aria-label="关闭终端">×</button>
           </div>
         </div>
-        <div id="terminalScreen" class="terminal-screen" role="log" aria-label="终端输出" tabindex="0">
-          <div id="terminalOutput" class="terminal-output"></div>
+        <div id="terminalScreen" class="terminal-screen" aria-label="终端">
+          <div class="terminal-frame">
+            <div id="terminalMount" class="terminal-mount" aria-label="终端命令"></div>
+          </div>
         </div>
-        <form id="terminalForm" class="terminal-command-row" autocomplete="off">
-          <span id="terminalPrompt" class="terminal-prompt" title="">PS &gt;</span>
-          <textarea id="terminalInput" class="terminal-input" rows="1" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="终端命令" placeholder="输入 PowerShell 命令"></textarea>
-          <button id="terminalRun" class="terminal-run" type="submit" title="运行命令" aria-label="运行命令">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
-          </button>
-        </form>
       </div>
 
       <!-- ===== Browser panel ===== -->
@@ -509,9 +742,10 @@
           </div>
           <input id="browserUrl" class="tool-panel-url" type="text" placeholder="输入网址或搜索..." />
           <button id="browserGo" class="tool-panel-go">前往</button>
+          <span id="browserAgentStatus" class="browser-agent-status hidden" aria-hidden="true">Agent 操作中</span>
           <button id="browserClose" class="tool-panel-close" title="关闭浏览器">×</button>
         </div>
-        <webview id="browserWebview" class="browser-webview" src="about:blank"></webview>
+        <webview id="browserWebview" class="browser-webview" src="about:blank" partition="persist:yan-browser"></webview>
       </div>
 
 
@@ -534,17 +768,42 @@
           </div>
           <!-- Context tab -->
           <div id="rs-context" class="rs-panel">
-            <div id="contextInfo" class="context-info">
-              <div class="ctx-row"><span class="ctx-label">模型</span><span id="ctxModel" class="ctx-val">—</span></div>
-              <div class="ctx-row"><span class="ctx-label">迭代轮次</span><span id="ctxIteration" class="ctx-val">0</span></div>
-              <div class="ctx-row"><span class="ctx-label">工具调用</span><span id="ctxToolCalls" class="ctx-val">0</span></div>
-              <div class="ctx-row"><span class="ctx-label">消息数</span><span id="ctxMsgCount" class="ctx-val">0</span></div>
-              <div class="ctx-row"><span class="ctx-label">上下文 tokens</span><span id="ctxTokens" class="ctx-val">—</span></div>
-              <div class="ctx-token-meter">
-                <div class="ctx-token-track"><div id="ctxTokenBar" class="ctx-token-bar"></div></div>
-                <div id="ctxTokenHint" class="ctx-token-hint">上限 100 万 · 达 80 万自动压缩</div>
-              </div>
-              <div class="ctx-row"><span class="ctx-label">状态</span><span id="ctxStatus" class="ctx-val">空闲</span></div>
+            <div id="contextInfo" class="context-info" data-status="idle" data-budget="normal">
+              <section class="ctx-overview" aria-label="当前运行状态">
+                <div class="ctx-overview-top">
+                  <span class="ctx-status-chip">
+                    <span class="ctx-status-dot" aria-hidden="true"></span>
+                    <span id="ctxStatus">空闲</span>
+                  </span>
+                  <span class="ctx-model-label">当前模型</span>
+                </div>
+                <div id="ctxModel" class="ctx-model-name" title="当前模型">—</div>
+              </section>
+
+              <section class="ctx-budget" aria-labelledby="ctxBudgetTitle">
+                <div class="ctx-section-head">
+                  <span id="ctxBudgetTitle">上下文预算</span>
+                  <span id="ctxTokenPercent" class="ctx-token-percent">0%</span>
+                </div>
+                <div class="ctx-token-value">
+                  <strong id="ctxTokenUsed">—</strong>
+                  <span>/ <span id="ctxTokenLimit">—</span></span>
+                </div>
+                <div id="ctxTokenTrack" class="ctx-token-track" role="progressbar" aria-label="上下文 token 使用率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <div id="ctxTokenBar" class="ctx-token-bar"></div>
+                  <span class="ctx-compress-marker" aria-hidden="true"></span>
+                </div>
+                <div id="ctxTokenHint" class="ctx-token-hint">正在计算模型上下文预算</div>
+              </section>
+
+              <section class="ctx-activity" aria-labelledby="ctxActivityTitle">
+                <div id="ctxActivityTitle" class="ctx-section-label">本次活动</div>
+                <div class="ctx-metric-grid">
+                  <div class="ctx-metric"><strong id="ctxIteration">0</strong><span>迭代</span></div>
+                  <div class="ctx-metric"><strong id="ctxToolCalls">0</strong><span>工具</span></div>
+                  <div class="ctx-metric"><strong id="ctxMsgCount">0</strong><span>消息</span></div>
+                </div>
+              </section>
             </div>
           </div>
           <!-- Files tab -->
@@ -555,15 +814,6 @@
           </div>
         </div>
       </aside>
-    </div>
-
-    <!-- ===== Slash command popover ===== -->
-    <div id="slashMenu" class="slash-menu hidden">
-      <div class="slash-menu-header">
-        <span>技能</span>
-        <span class="slash-menu-sub">内置 + 目录共 66 项；继续输入可筛选（如 regex）</span>
-      </div>
-      <div id="slashList" class="slash-list"></div>
     </div>
 
     <!-- ===== Settings sheet ===== -->
@@ -579,10 +829,8 @@
           <nav class="sheet-nav">
             <button class="sheet-nav-btn" data-tab="api">API 配置</button>
             <button class="sheet-nav-btn" data-tab="model">模型</button>
-            <button class="sheet-nav-btn" data-tab="workspace">工作区</button>
             <button class="sheet-nav-btn" data-tab="permissions">权限</button>
             <button class="sheet-nav-btn" data-tab="remote">移动端</button>
-            <button class="sheet-nav-btn" data-tab="files">文件</button>
             <button class="sheet-nav-btn active" data-tab="about">关于</button>
           </nav>
           <div class="sheet-content">
@@ -597,9 +845,25 @@
                   <input id="cfgApiKey" class="input" type="password" placeholder="sk-..." />
                   <button id="toggleKey" class="ghost-btn" type="button">显示</button>
                 </div>
-                <p id="apiApplyHint" class="api-apply-hint hidden">你可以在<a id="apiApplyLink" href="https://ai8.my/">这里</a>申请一个<span id="apiApplyProviderName"></span>的 API，该网站需要开启 VPN 后访问</p>
-                <p id="cfgBaseUrlHint" class="field-hint"></p>
+                <p id="apiApplyHint" class="api-apply-hint hidden">你可以在<a id="apiApplyLink" href="https://blankusing.com/">这里</a>申请一个<span id="apiApplyProviderName"></span>的 API</p>
               </div>
+              <div class="field"><label id="cfgBaseUrlLabel" for="cfgBaseUrl">Base URL</label>
+                <input id="cfgBaseUrl" class="input" type="url" placeholder="https://api.example.com/v1" />
+                <p id="cfgBaseUrlHint" class="field-hint">可填写官方 API、CC Switch、中转站或自建 OpenAI 兼容网关。</p>
+              </div>
+              <div class="form-grid provider-image-endpoints">
+                <div class="field"><label for="cfgImageGenerationUrl">文生图 POST URL（可选）</label>
+                  <input id="cfgImageGenerationUrl" class="input" type="url" placeholder="https://.../images/generations" />
+                </div>
+                <div class="field"><label for="cfgImageEditUrl">P 图 POST URL（可选）</label>
+                  <input id="cfgImageEditUrl" class="input" type="url" placeholder="https://.../images/edits" />
+                </div>
+              </div>
+              <div id="customModelField" class="field hidden"><label for="cfgCustomModelId">模型 ID</label>
+                <input id="cfgCustomModelId" class="input" type="text" placeholder="例如：my-model-v1" />
+                <p class="field-hint">自定义模型直接按 OpenAI Chat Completions 协议请求，不做本地连接、代理或模型映射。</p>
+              </div>
+              <p class="field-hint">图片端点留空时按 Base URL 自动使用 <code>/images/generations</code> 与 <code>/images/edits</code>。</p>
               <button id="saveApi" class="primary-btn">保存配置</button>
             </section>
 
@@ -613,18 +877,6 @@
                 </button>
               </div>
               <div id="modelGrid" class="model-grid"></div>
-            </section>
-
-            <!-- Workspace -->
-            <section id="tab-workspace" class="tab-panel">
-              <div class="field"><label>当前工作区</label>
-                <div class="input-with-action">
-                  <input id="wsPath" class="input" type="text" readonly />
-                  <button id="wsChoose" class="ghost-btn">选择…</button>
-                </div>
-              </div>
-              <p class="tab-desc">工作区文件浏览：</p>
-              <div id="wsTree" class="ws-tree"></div>
             </section>
 
             <!-- Permissions -->
@@ -673,66 +925,41 @@
               <p id="remoteStatus" class="field-hint"></p>
             </section>
 
-            <!-- Files -->
-            <section id="tab-files" class="tab-panel">
-              <div class="row between">
-                <p class="tab-desc">读取或写入本地文件。</p>
-                <div class="row" style="gap:8px">
-                  <button id="openFileBtn" class="ghost-btn">打开文件…</button>
-                  <button id="saveFileBtn" class="ghost-btn">另存为…</button>
-                </div>
-              </div>
-              <div class="field"><label>文件路径</label>
-                <input id="filePathInput" class="input" type="text" placeholder="绝对路径…" />
-              </div>
-              <div class="field"><label>内容</label>
-                <textarea id="fileContentInput" class="input mono" rows="10" placeholder="文件内容…"></textarea>
-              </div>
-              <div class="row" style="gap:8px">
-                <button id="readFileBtn" class="primary-btn">读取</button>
-                <button id="writeFileBtn" class="primary-btn">写入</button>
-              </div>
-              <p id="fileStatus" class="file-status"></p>
-            </section>
-
             <!-- About -->
             <section id="tab-about" class="tab-panel active">
               <div class="about">
                 <div class="welcome-logo small"><img src="assets/logo.png" alt="Yan Agent" width="56" height="56" /></div>
                 <h2>Yan Agent</h2>
-                <p class="about-version">v1.3.0</p>
+                <p class="about-version">v1.3.2</p>
                 <p class="muted">面向真实工作区的桌面端自主 Agent</p>
                 <div class="about-changelog">
-                  <h3>v1.3.0 更新内容</h3>
+                  <h3>v1.3.2 主要更新</h3>
                   <div class="about-group">
-                    <h4>Yan 生态协同</h4>
+                    <h4>更稳的任务内核</h4>
                     <ul>
-                      <li>新增 Yan Project Map，展示目录、符号与代码依赖关系</li>
-                      <li>与 Yanxi Code 双向同步工作区，支持冷启动与运行中切换</li>
+                      <li>修复模型断流、空响应和工具失败后的任务状态错乱，让对话、按钮、桌宠和 Windows 通知保持一致</li>
+                      <li>增加明确的错误收尾、上下文压缩和重复错误熔断，长任务不会悄悄停在“正在工作”</li>
                     </ul>
                   </div>
                   <div class="about-group">
-                    <h4>完整工作台</h4>
+                    <h4>更聪明的工具调用</h4>
                     <ul>
-                      <li>新增内置终端与内置浏览器，执行和验证无需离开应用</li>
-                      <li>桌面宠物跟随当前任务，展示状态、资源占用并支持停止任务</li>
-                      <li>移动端与桌面端实时同步任务、模型和生成结果</li>
+                      <li>新增动态能力判断，Agent 会根据目标选择必要的 Skill、MCP、浏览器和电脑操作能力</li>
+                      <li>Skill 调用改为输入框内的已安装 Skill 选择器，支持一次任务组合多个技能，减少无关工具调用</li>
                     </ul>
                   </div>
                   <div class="about-group">
-                    <h4>模型与多模态</h4>
+                    <h4>工作区与验证体验</h4>
                     <ul>
-                      <li>新增 Kimi K3、Kimi K2.7 Code 等模型与最新价格展示</li>
-                      <li>支持图片输入、生成、编辑、持久化预览和下载</li>
-                      <li>根据模型能力动态开放视觉与图片生成工具</li>
+                      <li>任务工作区、终端目录和新建空任务彻底隔离；进入新文件夹后会真正切换 Agent 工作区</li>
+                      <li>内置浏览器成为网页和小游戏的默认验收入口，Computer Use、MCP 与 Playwright 按任务需要才启用</li>
                     </ul>
                   </div>
                   <div class="about-group">
-                    <h4>代码理解与任务可靠性</h4>
+                    <h4>输入框与权限访问</h4>
                     <ul>
-                      <li>5 个任务独立并行，后台任务保持各自工作区与工具状态</li>
-                      <li>增量代码索引、符号追踪、依赖分析与 AI 项目解读</li>
-                      <li>Agent 回复附带可核对的文件变更摘要</li>
+                      <li>新增推理速度、工作方式和权限访问控制，可在常规、计划、目标及三档审批策略之间切换</li>
+                      <li>完全访问启用前增加确认，并保留文件、网络和高风险系统命令的安全边界</li>
                     </ul>
                   </div>
                 </div>
@@ -746,6 +973,46 @@
 
     <!-- ===== Toast ===== -->
     <div id="toast" class="toast hidden"></div>
+
+    <!-- ===== Yan Partner NSFW confirmation ===== -->
+    <div id="partnerNsfwModal" class="overlay hidden">
+      <div class="perm-dialog partner-nsfw-dialog" role="dialog" aria-modal="true" aria-labelledby="partnerNsfwTitle">
+        <div class="partner-nsfw-symbol" aria-hidden="true">18+</div>
+        <h3 id="partnerNsfwTitle" class="perm-dialog-title">进入 NSFW 模式</h3>
+        <p class="perm-dialog-desc">仅限已满 18 岁用户。NSFW 模式下，你无权复制任何聊天文本；Yan Partner 会禁用文本选择、复制按钮、复制/剪切与拖拽。</p>
+        <p class="partner-nsfw-boundary">内容使用及后果由用户自行承担，与 Yan Partner 无关；该提示不替代适用法律与服务条款。消息仍需发送至你配置的 DeepSeek API，软件无法阻止截图、录屏、开发者工具或操作系统级抓取。</p>
+        <div class="perm-dialog-actions">
+          <button type="button" id="partnerNsfwCancel" class="secondary-btn">取消</button>
+          <button type="button" id="partnerNsfwConfirm" class="primary-btn">我已满 18 岁并进入</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Rename Partner conversation ===== -->
+    <div id="partnerRenameModal" class="overlay hidden">
+      <div class="perm-dialog rename-task-dialog" role="dialog" aria-modal="true" aria-labelledby="partnerRenameTitle">
+        <h3 id="partnerRenameTitle" class="perm-dialog-title">重命名对话</h3>
+        <label class="rename-task-label" for="partnerRenameInput">对话名称</label>
+        <input id="partnerRenameInput" class="input rename-task-input" type="text" maxlength="80" autocomplete="off" />
+        <div class="perm-dialog-actions">
+          <button type="button" id="partnerRenameCancel" class="secondary-btn">取消</button>
+          <button type="button" id="partnerRenameConfirm" class="primary-btn">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Delete Partner conversation ===== -->
+    <div id="partnerDeleteModal" class="overlay hidden">
+      <div class="perm-dialog delete-task-dialog" role="dialog" aria-modal="true" aria-labelledby="partnerDeleteTitle">
+        <h3 id="partnerDeleteTitle" class="perm-dialog-title">删除对话？</h3>
+        <p id="partnerDeleteDesc" class="perm-dialog-desc"></p>
+        <p class="delete-task-warning">删除后无法恢复这段对话及其全部消息。</p>
+        <div class="perm-dialog-actions">
+          <button type="button" id="partnerDeleteCancel" class="secondary-btn">取消</button>
+          <button type="button" id="partnerDeleteConfirm" class="delete-task-confirm">删除对话</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== Rename task ===== -->
     <div id="renameTaskModal" class="overlay hidden">
@@ -773,6 +1040,23 @@
       </div>
     </div>
 
+    <!-- ===== Workspace permission dialog ===== -->
+    <div id="workspacePermModal" class="overlay hidden">
+      <div class="perm-dialog workspace-perm-dialog" role="dialog" aria-modal="true" aria-labelledby="workspacePermTitle">
+        <h3 id="workspacePermTitle" class="perm-dialog-title">Agent 申请工作区</h3>
+        <p id="workspacePermReason" class="perm-dialog-desc"></p>
+        <div class="workspace-perm-target">
+          <span id="workspacePermLabel"></span>
+          <code id="workspacePermPath"></code>
+        </div>
+        <div class="perm-dialog-actions">
+          <button type="button" id="workspacePermDeny" class="ghost-btn">拒绝</button>
+          <button type="button" id="workspacePermChoose" class="secondary-btn">选择其他文件夹</button>
+          <button type="button" id="workspacePermAllow" class="primary-btn">允许</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== Shell permission dialog ===== -->
     <div id="shellPermModal" class="overlay hidden">
       <div class="perm-dialog" role="dialog" aria-modal="true">
@@ -786,14 +1070,30 @@
         </div>
       </div>
     </div>
+
+    <!-- ===== Full access confirmation ===== -->
+    <div id="accessModeConfirmModal" class="overlay hidden">
+      <div class="perm-dialog access-mode-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="accessModeConfirmTitle">
+        <h3 id="accessModeConfirmTitle" class="perm-dialog-title">开启完全访问？</h3>
+        <p class="perm-dialog-desc">Agent 将不再为常规操作请求确认，并可使用绝对路径访问本机文件。仅在你完全信任当前任务、模型和工作区时开启。</p>
+        <p class="access-mode-confirm-note">你在设置中关闭的文件读写与网络权限仍然生效；高风险系统命令仍会被拦截。</p>
+        <div class="perm-dialog-actions">
+          <button type="button" id="accessModeConfirmCancel" class="ghost-btn">取消</button>
+          <button type="button" id="accessModeConfirmAccept" class="primary-btn">开启完全访问</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="kernel/index.js"></script>
   <script src="kernel/constants.js"></script>
+  <script src="kernel/model-budget.js"></script>
   <script src="kernel/tool-protocol.js"></script>
   <script src="kernel/path.js"></script>
   <script src="kernel/edits.js"></script>
   <script src="kernel/tools-registry.js"></script>
+  <script src="kernel/progress.js"></script>
+  <script src="kernel/capability-planner.js"></script>
   <script src="kernel/code-understanding.js"></script>
   <script src="kernel/prompt.js"></script>
   <script src="kernel/context.js"></script>
@@ -809,8 +1109,12 @@
   <script src="code-map/store.js"></script>
   <script src="code-map/graph-view.js"></script>
   <script src="code-map/index.js"></script>
+  <script src="vendor/xterm/xterm.js"></script>
+  <script src="vendor/xterm/addon-fit.js"></script>
   <script src="terminal/index.js"></script>
+  <script src="browser-agent.js"></script>
   <script src="skill-market.js"></script>
+  <script src="partner.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

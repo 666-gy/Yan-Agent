@@ -1,0 +1,52 @@
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* .computer-use-cursor is now a native Windows cursor managed by the main process. */
+
+.computer-use-edge {
+  position: fixed;
+  inset: 0;
+  border: 2px solid rgba(62, 157, 255, 0.94);
+  background:
+    linear-gradient(90deg, transparent 3%, rgba(82, 174, 255, 0.95) 50%, transparent 97%) top / 66% 3px no-repeat,
+    linear-gradient(90deg, transparent 3%, rgba(82, 174, 255, 0.78) 50%, transparent 97%) bottom / 66% 3px no-repeat,
+    linear-gradient(180deg, transparent 3%, rgba(82, 174, 255, 0.84) 50%, transparent 97%) left / 3px 72% no-repeat,
+    linear-gradient(180deg, transparent 3%, rgba(82, 174, 255, 0.84) 50%, transparent 97%) right / 3px 72% no-repeat;
+  box-shadow:
+    inset 0 0 38px rgba(30, 128, 255, 0.2),
+    inset 0 0 12px rgba(67, 164, 255, 0.34),
+    inset 0 0 3px rgba(159, 218, 255, 0.9);
+  animation: edge-breathe 1.6s ease-in-out infinite;
+}
+
+.computer-use-edge::before,
+.computer-use-edge::after {
+  content: '';
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  filter: blur(34px);
+  background: rgba(32, 137, 255, 0.16);
+}
+.computer-use-edge::before { top: -94px; left: -94px; }
+.computer-use-edge::after { right: -94px; bottom: -94px; }
+
+@keyframes edge-breathe {
+  0%, 100% { opacity: 0.62; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .computer-use-edge { animation: none; opacity: 0.9; }
+}

@@ -21,12 +21,59 @@ const { parseOpenWorkspaceArg, parseYanxiRequestIdArg, createYanxiCodeReceiver }
 const { TerminalManager } = require('./lib/terminal-manager');
 const crypto = require('crypto');
 const { RemoteServer } = require('./lib/remote-server');
+const workspaceSandbox = require('./lib/workspace-sandbox');
 
 const appRoot = __dirname;
+
+/**
+ * Resolve an agent path inside a workspace (session workspace preferred, else config).
+ * @returns {{ ok: true, path: string, workspace: string } | { ok: false, error: string, code: string }}
+ */
+function resolveAgentPath(filePath, workspaceHint) {
+  const cfg = loadConfig();
+  if (cfg.agent?.accessMode === 'full') return resolveFullAccessPath(filePath, workspaceHint);
+  const workspace = workspaceSandbox.normalizeWorkspace(workspaceHint || cfg.workspace);
+  return workspaceSandbox.resolveInsideWorkspace(workspace, filePath);
+}
+
+function resolveAgentDir(dirPath, workspaceHint) {
+  const cfg = loadConfig();
+  if (cfg.agent?.accessMode === 'full') return resolveFullAccessPath(dirPath, workspaceHint, { allowEmpty: true });
+  const workspace = workspaceSandbox.normalizeWorkspace(workspaceHint || cfg.workspace);
+  if (!dirPath) {
+    if (!workspace) return { ok: false, error: 'Workspace is not set.', code: 'WORKSPACE_REQUIRED' };
+    return { ok: true, path: workspace, workspace };
+  }
+  return workspaceSandbox.resolveInsideWorkspace(workspace, dirPath);
+}
+
+function resolveFullAccessPath(filePath, workspaceHint, { allowEmpty = false } = {}) {
+  const raw = String(filePath || '').trim();
+  const cfg = loadConfig();
+  const base = workspaceSandbox.normalizeWorkspace(workspaceHint || cfg.workspace || app.getPath('home')) || app.getPath('home');
+  if (!raw && !allowEmpty) return { ok: false, error: 'Path is empty.', code: 'PATH_EMPTY' };
+  try {
+    const resolved = raw
+      ? path.resolve(path.isAbsolute(raw) ? raw : path.join(base, raw))
+      : path.resolve(base);
+    return { ok: true, path: resolved, workspace: base, relative: path.relative(base, resolved) || '.' };
+  } catch (error) {
+    return { ok: false, error: `Invalid path: ${error.message}`, code: 'PATH_INVALID' };
+  }
+}
 
 let mainWindow = null;
 let mainRendererReady = false;
 let petWindow = null;
+let computerUseOverlayWindow = null;
+let computerUseOverlayTimer = null;
+let computerUseOverlayActive = false;
+let computerUseOverlayReady = false;
+let computerUseOverlayDisplayId = null;
+let computerUseCursorHost = null;
+let computerUseCursorHostReady = false;
+let computerUseCursorHostRestartTimer = null;
+let computerUseCursorDesiredActive = false;
 let tray = null;
 let isQuiting = false;
 let remoteServer = null;
@@ -97,6 +144,7 @@ const filesDir = path.join(dataDir, 'uploads');
 const generatedImageStoreDir = path.join(dataDir, 'generated-images');
 const legacyGeneratedImageTempDir = path.join(app.getPath('temp'), 'YanAgent', 'generated-images');
 const memoryPath = path.join(dataDir, 'memory.json');
+const partnerStatePath = path.join(dataDir, 'partner.json');
 const YANAGENT_DIR = '.yanagent';
 const MAX_STORED_GENERATED_IMAGES = 100;
 const MAX_STORED_GENERATED_IMAGE_BYTES = 1024 * 1024 * 1024;
@@ -337,6 +385,17 @@ const MODEL_PROVIDERS = {
     dynamicModels: true,
     models: []
   },
+  agnes: {
+    id: 'agnes',
+    name: 'Agnes',
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
+    apiKeyPlaceholder: 'sk-...',
+    dynamicModels: true,
+    models: [
+      { id: 'agnes-2.0-flash', name: 'Agnes 2.0 Flash', price: '按 Agnes AI 实时价格' },
+      { id: 'agnes-2.0-pro', name: 'Agnes 2.0 Pro', price: '按 Agnes AI 实时价格' }
+    ]
+  },
   deepseek: {
     id: 'deepseek',
     name: 'DeepSeek (深度求索)',
@@ -430,10 +489,56 @@ const MODEL_PROVIDERS = {
       { id: 'MiniMax-M2.7-highspeed', name: 'MiniMax M2.7 HighSpeed', price: '输入 ¥4.2 · 输出 ¥16.8 · 缓存读 ¥0.42 · 缓存写 ¥2.625 / 1M' },
       { id: 'MiniMax-M2.7', name: 'MiniMax M2.7', price: '输入 ¥2.1 · 输出 ¥8.4 · 缓存读 ¥0.42 · 缓存写 ¥2.625 / 1M' }
     ]
+  },
+  baichuan: {
+    id: 'baichuan',
+    name: '百川智能 (Baichuan)',
+    baseUrl: 'https://api.baichuan-ai.com/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'Baichuan4', name: 'Baichuan 4', price: '按百川智能实时价格' },
+      { id: 'Baichuan3-Turbo', name: 'Baichuan 3 Turbo', price: '按百川智能实时价格' }
+    ]
+  },
+  yi: {
+    id: 'yi',
+    name: '零一万物 (Yi)',
+    baseUrl: 'https://api.lingyiwanwu.com/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'yi-large', name: 'Yi Large', price: '按零一万物实时价格' },
+      { id: 'yi-lightning', name: 'Yi Lightning', price: '按零一万物实时价格' }
+    ]
+  },
+  hunyuan: {
+    id: 'hunyuan',
+    name: '腾讯混元 (Hunyuan)',
+    baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1',
+    apiKeyPlaceholder: 'sk-...',
+    models: [
+      { id: 'hunyuan-turbos', name: '混元 Turbo S', price: '按腾讯云实时价格' },
+      { id: 'hunyuan-pro', name: '混元 Pro', price: '按腾讯云实时价格' }
+    ]
+  },
+  siliconflow: {
+    id: 'siliconflow',
+    name: '硅基流动 (SiliconFlow)',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    apiKeyPlaceholder: 'sk-...',
+    dynamicModels: true,
+    models: []
+  },
+  custom: {
+    id: 'custom',
+    name: '自定义模型',
+    baseUrl: '',
+    apiKeyPlaceholder: 'API Key',
+    models: []
   }
 };
 
 const DEFAULT_MODELS = decorateModels('deepseek', MODEL_PROVIDERS.deepseek.models);
+const WINDOWS_MCP_FIXED_SOURCE = 'git+https://github.com/CursorTouch/Windows-MCP.git@e4e3b7c006a8f9076331f88bcba586f0c7edbb67';
 
 const DEFAULT_MCP_SERVERS = [
   {
@@ -448,20 +553,37 @@ const DEFAULT_MCP_SERVERS = [
     id: 'mcp_default_windows',
     name: 'Windows-MCP',
     command: 'uvx',
-    args: ['windows-mcp', 'serve'],
+    args: ['--quiet', '--from', WINDOWS_MCP_FIXED_SOURCE, 'windows-mcp', 'serve'],
     enabled: true,
-    builtin: true
+    builtin: true,
+    sourceVersion: 'official-e4e3b7c0'
   }
 ];
 
 function ensureDefaultMcp(servers) {
   const list = Array.isArray(servers) ? [...servers] : [];
-  const ids = new Set(list.map(s => s.id));
-  const names = new Set(list.map(s => (s.name || '').toLowerCase()));
   for (const d of DEFAULT_MCP_SERVERS) {
-    if (!ids.has(d.id) && !names.has(d.name.toLowerCase())) {
+    const normalizedName = d.name.toLowerCase();
+    const idIndex = list.findIndex(server => server?.id === d.id);
+    const builtinNameIndex = list.findIndex(server => (
+      server?.builtin && String(server.name || '').toLowerCase() === normalizedName
+    ));
+    const index = idIndex >= 0 ? idIndex : builtinNameIndex;
+    if (index < 0) {
+      if (list.some(server => String(server?.name || '').toLowerCase() === normalizedName)) continue;
       list.push({ ...d });
+      continue;
     }
+    // Built-in definitions are migrated on load so existing installations do
+    // not remain on a broken cached command after an application update.
+    list[index] = {
+      ...list[index],
+      name: d.name,
+      command: d.command,
+      args: [...d.args],
+      builtin: true,
+      sourceVersion: d.sourceVersion
+    };
   }
   return list;
 }
@@ -484,12 +606,76 @@ function buildDefaultApiKeys() {
   return keys;
 }
 
+function buildDefaultProviderConfigs() {
+  const configs = {};
+  for (const [id, provider] of Object.entries(MODEL_PROVIDERS)) {
+    configs[id] = {
+      baseUrl: provider.baseUrl,
+      apiKey: '',
+      imageGenerationUrl: '',
+      imageEditUrl: '',
+      customModelId: ''
+    };
+  }
+  return configs;
+}
+
+function normalizeProviderConfig(raw, provider) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  return {
+    baseUrl: String(value.baseUrl || provider.baseUrl || '').trim().replace(/\/$/, ''),
+    apiKey: String(value.apiKey || '').trim(),
+    imageGenerationUrl: String(value.imageGenerationUrl || '').trim(),
+    imageEditUrl: String(value.imageEditUrl || '').trim(),
+    customModelId: String(value.customModelId || '').trim()
+  };
+}
+
+function ensureProviderConfigs(cfg) {
+  if (!cfg.api.providerConfigs || typeof cfg.api.providerConfigs !== 'object') {
+    cfg.api.providerConfigs = buildDefaultProviderConfigs();
+  }
+  if (!cfg.api.apiKeys) cfg.api.apiKeys = buildDefaultApiKeys();
+  for (const [id, provider] of Object.entries(MODEL_PROVIDERS)) {
+    const raw = cfg.api.providerConfigs[id];
+    const current = normalizeProviderConfig(raw, provider);
+    const legacyKey = cfg.api.apiKeys[id];
+    if (!current.apiKey && legacyKey) current.apiKey = String(legacyKey).trim();
+    cfg.api.providerConfigs[id] = current;
+    cfg.api.apiKeys[id] = current.apiKey;
+  }
+  const providerIds = new Set(Object.keys(MODEL_PROVIDERS));
+  for (const key of Object.keys(cfg.api.providerConfigs)) {
+    if (!providerIds.has(key)) delete cfg.api.providerConfigs[key];
+  }
+  for (const key of Object.keys(cfg.api.apiKeys)) {
+    if (!providerIds.has(key)) delete cfg.api.apiKeys[key];
+  }
+  if (cfg.providerModels && typeof cfg.providerModels === 'object') {
+    for (const key of Object.keys(cfg.providerModels)) {
+      if (!providerIds.has(key)) delete cfg.providerModels[key];
+    }
+  }
+  return cfg.api.providerConfigs;
+}
+
+function getProviderConnection(cfg, providerId) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider) return { baseUrl: '', apiKey: '', imageGenerationUrl: '', imageEditUrl: '' };
+  ensureProviderConfigs(cfg);
+  return normalizeProviderConfig(cfg.api.providerConfigs[providerId], provider);
+}
+
 function getProviderModels(cfg, providerId) {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return [];
   let models;
   if (provider.dynamicModels) {
-    models = normalizeRemoteModels(cfg?.providerModels?.[providerId] || []);
+    const remoteModels = normalizeRemoteModels(cfg?.providerModels?.[providerId] || []);
+    models = remoteModels.length ? remoteModels : provider.models;
+  } else if (providerId === 'custom') {
+    const connection = getProviderConnection(cfg, providerId);
+    models = connection.customModelId ? [{ id: connection.customModelId, name: connection.customModelId, price: '按自定义服务商价格' }] : [];
   } else {
     models = provider.models;
   }
@@ -547,12 +733,14 @@ function setActiveModel(modelId) {
 }
 
 function applyProviderSelection(cfg, providerId, apiKey, models) {
-  const provider = MODEL_PROVIDERS[providerId];
-  if (!cfg.api.apiKeys) cfg.api.apiKeys = buildDefaultApiKeys();
-  cfg.api.apiKeys[providerId] = apiKey;
+  ensureProviderConfigs(cfg);
+  const connection = getProviderConnection(cfg, providerId);
+  connection.apiKey = String(apiKey || '').trim();
+  cfg.api.providerConfigs[providerId] = connection;
+  cfg.api.apiKeys[providerId] = connection.apiKey;
   cfg.api.provider = providerId;
-  cfg.api.baseUrl = provider.baseUrl;
-  cfg.api.apiKey = apiKey;
+  cfg.api.baseUrl = connection.baseUrl;
+  cfg.api.apiKey = connection.apiKey;
   cfg.models = decorateModels(providerId, models);
   if (!cfg.models.some(model => model.id === cfg.api.model)) {
     cfg.api.model = cfg.models[0]?.id || '';
@@ -577,8 +765,14 @@ function loadConfig() {
       baseUrl: MODEL_PROVIDERS.deepseek.baseUrl,
       apiKey: '',
       apiKeys: buildDefaultApiKeys(),
+      providerConfigs: buildDefaultProviderConfigs(),
       model: 'deepseek-v4-flash',
-      thinking: false
+      thinking: false,
+      reasoningSpeed: 'balanced'
+    },
+    agent: {
+      workMode: 'normal',
+      accessMode: 'request'
     },
     workspace: path.join(app.getPath('home'), 'YanWorkspace'),
     theme: 'dark',
@@ -589,7 +783,7 @@ function loadConfig() {
       allowNetwork: true
     },
     models: DEFAULT_MODELS,
-    providerModels: { openai: [], grok: [] },
+    providerModels: { openai: [], grok: [], agnes: [], siliconflow: [] },
     imageGeneration: { available: false, strategy: '', providerId: 'deepseek', model: '' },
     codeMap: {
       model: 'deepseek-v4-flash'
@@ -605,14 +799,30 @@ function loadConfig() {
     mcpServers: ensureDefaultMcp([]),
     skills: DEFAULT_SKILLS,
     customSkills: [],
-    skillsSyncUrl: '',
-    skillsLastSyncAt: 0,
     automations: []
   };
 
   if (!cfg) return defaults;
 
+  const storedProviderId = String(cfg.api?.provider || defaults.api.provider);
+  const storedProviderConfig = cfg.api?.providerConfigs?.[storedProviderId];
+  const hasStoredProviderBaseUrl = !!storedProviderConfig
+    && Object.prototype.hasOwnProperty.call(storedProviderConfig, 'baseUrl');
+  const legacyBaseUrl = String(cfg.api?.baseUrl || '').trim().replace(/\/$/, '');
+  const storedReasoningSpeed = ['fast', 'balanced', 'smart'].includes(String(cfg.api?.reasoningSpeed || ''))
+    ? cfg.api.reasoningSpeed
+    : (cfg.api?.thinking ? 'smart' : 'balanced');
   const merged = deepMerge(defaults, cfg);
+  merged.api.reasoningSpeed = storedReasoningSpeed;
+  merged.api.thinking = storedReasoningSpeed === 'smart';
+  merged.agent = normalizeAgentConfig(merged.agent);
+
+  // One-time migration for configurations created before providerConfigs.
+  // Never repeat this inside ensureProviderConfigs: doing so overwrites an
+  // explicit attempt to restore a provider's default Base URL.
+  if (!hasStoredProviderBaseUrl && MODEL_PROVIDERS[storedProviderId] && legacyBaseUrl) {
+    merged.api.providerConfigs[storedProviderId].baseUrl = legacyBaseUrl;
+  }
 
   // 迁移旧配置：旧的单 apiKey 迁移到 apiKeys.deepseek
   if (merged.api?.apiKey && !merged.api.apiKeys?.deepseek) {
@@ -625,6 +835,7 @@ function loadConfig() {
   for (const id of Object.keys(MODEL_PROVIDERS)) {
     if (merged.api.apiKeys[id] === undefined) merged.api.apiKeys[id] = '';
   }
+  ensureProviderConfigs(merged);
 
   // 确保 provider 有效
   if (!merged.api.provider || !MODEL_PROVIDERS[merged.api.provider]) {
@@ -632,8 +843,9 @@ function loadConfig() {
   }
 
   const provider = MODEL_PROVIDERS[merged.api.provider];
-  merged.api.baseUrl = provider.baseUrl;
-  merged.api.apiKey = merged.api.apiKeys[merged.api.provider] || '';
+  const connection = getProviderConnection(merged, merged.api.provider);
+  merged.api.baseUrl = connection.baseUrl;
+  merged.api.apiKey = connection.apiKey;
 
   // 动态厂商使用服务端返回并持久化的模型目录，静态厂商使用内置目录。
   merged.models = getProviderModels(merged, provider.id);
@@ -702,6 +914,17 @@ function normalizeRemoteControlConfig(remoteControl = {}) {
   return next;
 }
 
+function normalizeAgentConfig(agent = {}) {
+  const next = { ...(agent || {}) };
+  next.workMode = ['normal', 'plan', 'goal'].includes(String(next.workMode || ''))
+    ? next.workMode
+    : 'normal';
+  next.accessMode = ['request', 'delegate', 'full'].includes(String(next.accessMode || ''))
+    ? next.accessMode
+    : 'request';
+  return next;
+}
+
 function isRemotePasswordSet(cfg) {
   const pwd = String(cfg?.remoteControl?.password || '');
   return pwd.length >= 4;
@@ -728,7 +951,8 @@ function resolveCodeMapApi(cfg) {
       error: '未找到解读模型。'
     };
   }
-  const apiKey = cfg?.api?.apiKeys?.[meta.providerId] || '';
+  const connection = getProviderConnection(cfg, meta.providerId);
+  const apiKey = connection.apiKey;
   if (!apiKey) {
     return {
       modelId,
@@ -743,7 +967,7 @@ function resolveCodeMapApi(cfg) {
     modelName: meta.name,
     providerId: meta.providerId,
     providerName: meta.providerName,
-    api: { apiKey, baseUrl: meta.baseUrl, model: modelId }
+    api: { apiKey, baseUrl: connection.baseUrl, model: modelId }
   };
 }
 
@@ -824,6 +1048,7 @@ function createWindow() {
   });
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.log('[renderer gone]', JSON.stringify(details));
+    setComputerUseOverlayActive(false);
     terminalManager.destroyOwner(mainWindow?.webContents?.id);
   });
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
@@ -843,6 +1068,196 @@ function createWindow() {
     }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+function createComputerUseOverlayWindow() {
+  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) return computerUseOverlayWindow;
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+  computerUseOverlayDisplayId = display.id;
+  computerUseOverlayReady = false;
+  computerUseOverlayWindow = new BrowserWindow({
+    ...display.bounds,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    hasShadow: false,
+    title: 'Yan Computer Use Overlay',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false
+    }
+  });
+  computerUseOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  computerUseOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  computerUseOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  computerUseOverlayWindow.loadFile(path.join(__dirname, 'renderer', 'computer-use-overlay', 'index.html'));
+  computerUseOverlayWindow.webContents.once('did-finish-load', () => {
+    computerUseOverlayReady = true;
+    if (computerUseOverlayActive && computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) {
+      updateComputerUseOverlay();
+      computerUseOverlayWindow.showInactive();
+    }
+  });
+  computerUseOverlayWindow.on('closed', () => {
+    computerUseOverlayWindow = null;
+    computerUseOverlayReady = false;
+    computerUseOverlayDisplayId = null;
+  });
+  return computerUseOverlayWindow;
+}
+
+function getComputerUseCursorHostPath() {
+  const relativePath = path.join('lib', 'native', 'cursor-host', 'YanComputerUseCursorHost.exe');
+  const appPath = app.getAppPath();
+  if (app.isPackaged && appPath.endsWith('app.asar')) {
+    return path.join(`${appPath}.unpacked`, relativePath);
+  }
+  return path.join(appPath, relativePath);
+}
+
+function sendComputerUseCursorHostCommand(command) {
+  if (!computerUseCursorHost || computerUseCursorHost.killed || !computerUseCursorHost.stdin?.writable) return false;
+  try {
+    computerUseCursorHost.stdin.write(`${command}\n`);
+    return true;
+  } catch (error) {
+    console.warn('[computer-use cursor] command failed:', error?.message || error);
+    return false;
+  }
+}
+
+function syncComputerUseCursorHost() {
+  if (!computerUseCursorHostReady) return;
+  sendComputerUseCursorHostCommand(computerUseCursorDesiredActive ? 'APPLY' : 'RESTORE');
+}
+
+function ensureComputerUseCursorHost() {
+  if (computerUseCursorHost && !computerUseCursorHost.killed) return computerUseCursorHost;
+
+  const executablePath = getComputerUseCursorHostPath();
+  if (!fs.existsSync(executablePath)) {
+    console.warn('[computer-use cursor] native cursor host is missing:', executablePath);
+    return null;
+  }
+
+  computerUseCursorHostReady = false;
+  const child = spawn(executablePath, ['--host', String(process.pid)], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  computerUseCursorHost = child;
+
+  let stdoutBuffer = '';
+  child.stdout.on('data', (chunk) => {
+    stdoutBuffer += String(chunk || '');
+    const lines = stdoutBuffer.split(/\r?\n/);
+    stdoutBuffer = lines.pop() || '';
+    for (const line of lines) {
+      const status = line.trim();
+      if (!status) continue;
+      if (status === 'READY') {
+        computerUseCursorHostReady = true;
+        syncComputerUseCursorHost();
+      } else if (status.startsWith('ERROR ')) {
+        console.warn('[computer-use cursor]', status);
+      }
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    const message = String(chunk || '').trim();
+    if (message) console.warn('[computer-use cursor]', message);
+  });
+  child.on('error', (error) => {
+    console.warn('[computer-use cursor] host error:', error?.message || error);
+  });
+  child.on('exit', (code, signal) => {
+    if (computerUseCursorHost !== child) return;
+    computerUseCursorHost = null;
+    computerUseCursorHostReady = false;
+    if (isQuiting || !computerUseCursorDesiredActive) return;
+    console.warn('[computer-use cursor] host exited unexpectedly:', code, signal);
+    if (!computerUseCursorHostRestartTimer) {
+      computerUseCursorHostRestartTimer = setTimeout(() => {
+        computerUseCursorHostRestartTimer = null;
+        if (computerUseCursorDesiredActive && !isQuiting) ensureComputerUseCursorHost();
+      }, 300);
+    }
+  });
+  return child;
+}
+
+function setComputerUseCursorActive(active) {
+  computerUseCursorDesiredActive = !!active;
+  if (computerUseCursorDesiredActive) ensureComputerUseCursorHost();
+  syncComputerUseCursorHost();
+}
+
+function shutdownComputerUseCursorHost() {
+  computerUseCursorDesiredActive = false;
+  if (computerUseCursorHostRestartTimer) {
+    clearTimeout(computerUseCursorHostRestartTimer);
+    computerUseCursorHostRestartTimer = null;
+  }
+  if (!computerUseCursorHost) return;
+  sendComputerUseCursorHostCommand('EXIT');
+  try { computerUseCursorHost.stdin.end(); } catch { /* already closed */ }
+  computerUseCursorHost = null;
+  computerUseCursorHostReady = false;
+}
+
+function updateComputerUseOverlay() {
+  if (!computerUseOverlayActive) return;
+  const overlay = createComputerUseOverlayWindow();
+  if (!overlay || overlay.isDestroyed()) return;
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+  if (computerUseOverlayDisplayId !== display.id) {
+    computerUseOverlayDisplayId = display.id;
+    overlay.setBounds(display.bounds, false);
+  }
+  if (!overlay.isVisible() && computerUseOverlayReady) overlay.showInactive();
+}
+
+function setComputerUseOverlayActive(active) {
+  computerUseOverlayActive = !!active;
+  setComputerUseCursorActive(computerUseOverlayActive);
+  if (computerUseOverlayActive) {
+    createComputerUseOverlayWindow();
+    updateComputerUseOverlay();
+    if (!computerUseOverlayTimer) {
+      computerUseOverlayTimer = setInterval(updateComputerUseOverlay, 33);
+    }
+    return;
+  }
+  if (computerUseOverlayTimer) {
+    clearInterval(computerUseOverlayTimer);
+    computerUseOverlayTimer = null;
+  }
+  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) {
+    computerUseOverlayWindow.hide();
+  }
+}
+
+function destroyComputerUseOverlay() {
+  setComputerUseOverlayActive(false);
+  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) {
+    computerUseOverlayWindow.destroy();
+  }
+  computerUseOverlayWindow = null;
+  computerUseOverlayReady = false;
+  computerUseOverlayDisplayId = null;
 }
 
 function openGeneratedImageViewer(assetId) {
@@ -1097,6 +1512,16 @@ ipcMain.handle('yanxi:consume-pending-workspace', () => yanxiReceiver.consumePen
 ipcMain.handle('config:set', (_e, partial) => {
   const cfg = loadConfig();
   const merged = deepMerge(cfg, partial);
+  if (partial?.api
+      && Object.prototype.hasOwnProperty.call(partial.api, 'thinking')
+      && !Object.prototype.hasOwnProperty.call(partial.api, 'reasoningSpeed')) {
+    merged.api.reasoningSpeed = partial.api.thinking ? 'smart' : 'balanced';
+  }
+  merged.api.reasoningSpeed = ['fast', 'balanced', 'smart'].includes(String(merged.api.reasoningSpeed || ''))
+    ? merged.api.reasoningSpeed
+    : (merged.api.thinking ? 'smart' : 'balanced');
+  merged.api.thinking = merged.api.reasoningSpeed === 'smart';
+  merged.agent = normalizeAgentConfig(merged.agent);
 
   // 确保 apiKeys 结构完整
   if (!merged.api.apiKeys) merged.api.apiKeys = buildDefaultApiKeys();
@@ -1110,8 +1535,9 @@ ipcMain.handle('config:set', (_e, partial) => {
   }
 
   const provider = MODEL_PROVIDERS[merged.api.provider];
-  merged.api.baseUrl = provider.baseUrl;
-  merged.api.apiKey = merged.api.apiKeys[merged.api.provider] || '';
+  const connection = getProviderConnection(merged, merged.api.provider);
+  merged.api.baseUrl = connection.baseUrl;
+  merged.api.apiKey = connection.apiKey;
   merged.models = getProviderModels(merged, provider.id);
 
   // 确保当前选中的模型属于当前 provider
@@ -1142,7 +1568,10 @@ ipcMain.handle('providers:list', () => {
     list.push({
       id: p.id,
       name: p.name,
-      baseUrl: p.baseUrl,
+      baseUrl: getProviderConnection(cfg, id).baseUrl,
+      defaultBaseUrl: p.baseUrl,
+      imageGenerationUrl: getProviderConnection(cfg, id).imageGenerationUrl,
+      imageEditUrl: getProviderConnection(cfg, id).imageEditUrl,
       apiKeyPlaceholder: p.apiKeyPlaceholder,
       modelCount: getProviderModels(cfg, p.id).length,
       dynamicModels: !!p.dynamicModels
@@ -1152,7 +1581,7 @@ ipcMain.handle('providers:list', () => {
 });
 
 ipcMain.handle('external:open', async (_e, url) => {
-  const allowedUrl = 'https://ai8.my/';
+  const allowedUrl = 'https://blankusing.com/';
   if (String(url || '') !== allowedUrl) return { error: '不允许打开该链接' };
   try {
     await shell.openExternal(allowedUrl);
@@ -1167,8 +1596,9 @@ ipcMain.handle('provider:set', (_e, providerId) => {
   if (!MODEL_PROVIDERS[providerId]) return { error: '未知厂商: ' + providerId };
   cfg.api.provider = providerId;
   const provider = MODEL_PROVIDERS[providerId];
-  cfg.api.baseUrl = provider.baseUrl;
-  cfg.api.apiKey = cfg.api.apiKeys?.[providerId] || '';
+  const connection = getProviderConnection(cfg, providerId);
+  cfg.api.baseUrl = connection.baseUrl;
+  cfg.api.apiKey = connection.apiKey;
   cfg.models = getProviderModels(cfg, providerId);
   cfg.api.model = cfg.models[0]?.id || '';
   updateImageGenerationConfig(cfg);
@@ -1177,17 +1607,42 @@ ipcMain.handle('provider:set', (_e, providerId) => {
   return cfg;
 });
 
-ipcMain.handle('provider:configure', async (_e, { providerId, apiKey } = {}) => {
+ipcMain.handle('provider:configure', async (_e, {
+  providerId,
+  apiKey,
+  baseUrl,
+  imageGenerationUrl,
+  imageEditUrl,
+  customModelId
+} = {}) => {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return { error: '未知厂商: ' + providerId };
   const key = String(apiKey || '').trim();
+  const nextBaseUrl = String(baseUrl || provider.baseUrl).trim().replace(/\/$/, '');
+  if (!/^https?:\/\//i.test(nextBaseUrl)) return { error: 'Base URL 必须以 http:// 或 https:// 开头' };
+  const nextImageGenerationUrl = String(imageGenerationUrl || '').trim();
+  const nextImageEditUrl = String(imageEditUrl || '').trim();
+  if ((nextImageGenerationUrl && !/^https?:\/\//i.test(nextImageGenerationUrl))
+    || (nextImageEditUrl && !/^https?:\/\//i.test(nextImageEditUrl))) {
+    return { error: '图片 POST URL 必须以 http:// 或 https:// 开头' };
+  }
+  const normalizedCustomModelId = String(customModelId || '').trim();
+  if (providerId === 'custom' && !normalizedCustomModelId) {
+    return { error: '请填写模型 ID' };
+  }
+  if (providerId === 'custom' && !key) {
+    return { error: '请填写 API Key' };
+  }
   let models = provider.models;
+  if (providerId === 'custom') {
+    models = [{ id: normalizedCustomModelId, name: normalizedCustomModelId, price: '按自定义服务商价格' }];
+  }
   if (provider.dynamicModels) {
     if (!key) {
-      models = [];
+      models = provider.models;
     } else {
       try {
-        models = await fetchRemoteModelCatalog({ baseUrl: provider.baseUrl, apiKey: key });
+        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key });
       } catch (error) {
         return { error: `模型加载失败：${error.message}` };
       }
@@ -1195,6 +1650,15 @@ ipcMain.handle('provider:configure', async (_e, { providerId, apiKey } = {}) => 
   }
 
   const cfg = loadConfig();
+  ensureProviderConfigs(cfg);
+  cfg.api.providerConfigs[providerId] = normalizeProviderConfig({
+    ...cfg.api.providerConfigs[providerId],
+    baseUrl: nextBaseUrl,
+    apiKey: key,
+    imageGenerationUrl: nextImageGenerationUrl,
+    imageEditUrl: nextImageEditUrl,
+    customModelId: providerId === 'custom' ? normalizedCustomModelId : ''
+  }, provider);
   if (!cfg.providerModels) cfg.providerModels = {};
   if (provider.dynamicModels) cfg.providerModels[providerId] = models;
   applyProviderSelection(cfg, providerId, key, models);
@@ -1207,9 +1671,10 @@ ipcMain.handle('provider:models:refresh', async (_e, providerId) => {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider?.dynamicModels) return { error: '该厂商不使用动态模型目录' };
   const cfg = loadConfig();
-  const apiKey = cfg.api.apiKeys?.[providerId] || '';
+  const connection = getProviderConnection(cfg, providerId);
+  const apiKey = connection.apiKey;
   try {
-    const models = await fetchRemoteModelCatalog({ baseUrl: provider.baseUrl, apiKey });
+    const models = await fetchRemoteModelCatalog({ baseUrl: connection.baseUrl, apiKey });
     if (!cfg.providerModels) cfg.providerModels = {};
     cfg.providerModels[providerId] = models;
     if (cfg.api.provider === providerId) {
@@ -1222,6 +1687,7 @@ ipcMain.handle('provider:models:refresh', async (_e, providerId) => {
     return { error: `模型加载失败：${error.message}` };
   }
 });
+
 
 ipcMain.handle('models:list', () => loadConfig().models);
 ipcMain.handle('model:set', (_e, modelId) => setActiveModel(modelId));
@@ -1237,6 +1703,7 @@ ipcMain.handle('skills:add-custom', (_e, skill) => {
     desc: String(skill.desc || '').trim(),
     prompt: String(skill.prompt || '').trim(),
     source: skill.source || 'custom',
+    logo: skillRegistry.resolveSkillLogo(skill),
     installedAt: Date.now()
   };
   if (!item.id || !item.prompt) return { error: 'id 和 prompt 为必填项' };
@@ -1255,7 +1722,12 @@ ipcMain.handle('skills:remove-custom', (_e, id) => {
   return true;
 });
 
-ipcMain.handle('skills:get-custom', () => loadConfig().customSkills || []);
+ipcMain.handle('skills:get-custom', () =>
+  (loadConfig().customSkills || []).map(skill => ({
+    ...skill,
+    tags: skill.id === 'yan-computer-use' ? [] : (skill.tags || []),
+    logo: skillRegistry.resolveSkillLogo(skill)
+  })));
 
 ipcMain.handle('skills:market', () => skillRegistry.getMarketSkills(appRoot, dataDir));
 
@@ -1268,21 +1740,7 @@ ipcMain.handle('skills:prompt-section', () =>
 ipcMain.handle('skills:read', (_e, payload) => {
   const { id, taskContext } = payload || {};
   const cfg = loadConfig();
-  const result = skillRegistry.readSkill(id, taskContext, cfg, appRoot, dataDir, saveConfig);
-  if (result?.autoInstalled) notifySkillsChanged({ id: result.id, action: 'install', source: 'agent' });
-  return result;
-});
-
-ipcMain.handle('skills:ensure', (_e, { id } = {}) => {
-  const cfg = loadConfig();
-  const result = skillRegistry.ensureSkill(id, cfg, appRoot, dataDir, saveConfig);
-  if (result?.autoInstalled) notifySkillsChanged({ id: result.skill?.id, action: 'install', source: 'ensure' });
-  return result;
-});
-
-ipcMain.handle('skills:sync', async () => {
-  const cfg = loadConfig();
-  return skillRegistry.syncMarketFromGitHub(cfg, appRoot, dataDir, saveConfig);
+  return skillRegistry.readSkill(id, taskContext, cfg, appRoot, dataDir, saveConfig);
 });
 
 ipcMain.handle('ui-kits:list', () => uiKitRegistry.listKits(appRoot));
@@ -1382,6 +1840,33 @@ const yanxiReceiver = createYanxiCodeReceiver({
 });
 
 ipcMain.handle('workspace:get', () => loadConfig().workspace);
+ipcMain.handle('workspace:known-path', (_e, name) => {
+  const known = { desktop: 'desktop', documents: 'documents', downloads: 'downloads', home: 'home' };
+  const key = known[String(name || '').toLowerCase()];
+  if (!key) return { error: '不支持的系统目录', code: 'WORKSPACE_TARGET_INVALID' };
+  try {
+    const workspace = app.getPath(key);
+    if (!workspace || !fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) {
+      return { error: '系统目录不可用', code: 'WORKSPACE_TARGET_UNAVAILABLE' };
+    }
+    return { workspace, target: key };
+  } catch {
+    return { error: '系统目录不可用', code: 'WORKSPACE_TARGET_UNAVAILABLE' };
+  }
+});
+ipcMain.handle('workspace:inspect', (_e, { dirPath, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath || '', workspace);
+  if (!resolved.ok) return resolved;
+  try {
+    const stat = fs.statSync(resolved.path);
+    return { ok: true, exists: true, isDirectory: stat.isDirectory(), path: resolved.path, workspace: resolved.workspace };
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
+      return { ok: true, exists: false, isDirectory: false, path: resolved.path, workspace: resolved.workspace };
+    }
+    return { ok: false, error: error?.message || String(error), code: error?.code || 'WORKSPACE_INSPECT_FAILED' };
+  }
+});
 function activateWorkspace(workspace) {
   const ws = workspace || '';
   const cfg = loadConfig();
@@ -1402,22 +1887,32 @@ ipcMain.handle('workspace:clear', () => {
   stopWorkspaceWatcher();
   return true;
 });
-ipcMain.handle('workspace:choose', async () => {
+async function pickWorkspaceDirectory() {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   });
-  if (!result.canceled && result.filePaths.length) {
+  return !result.canceled && result.filePaths.length ? result.filePaths[0] : null;
+}
+ipcMain.handle('workspace:pick', pickWorkspaceDirectory);
+ipcMain.handle('workspace:choose', async () => {
+  const workspace = await pickWorkspaceDirectory();
+  if (workspace) {
     const cfg = loadConfig();
-    cfg.workspace = result.filePaths[0];
+    cfg.workspace = workspace;
     saveConfig(cfg);
     startWorkspaceWatcher(cfg.workspace);
-    return result.filePaths[0];
+    return workspace;
   }
   return null;
 });
 
-ipcMain.handle('workspace:list', async (_e, dirPath) => {
-  const root = dirPath || loadConfig().workspace;
+ipcMain.handle('workspace:list', async (_e, dirPathOrOpts) => {
+  const opts = dirPathOrOpts && typeof dirPathOrOpts === 'object' && !Array.isArray(dirPathOrOpts)
+    ? dirPathOrOpts
+    : { dirPath: dirPathOrOpts };
+  const resolved = resolveAgentDir(opts.dirPath || opts.path || '', opts.workspace);
+  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
+  const root = resolved.path;
   if (!fs.existsSync(root)) return [];
   try {
     const entries = await fsp.readdir(root, { withFileTypes: true });
@@ -1430,7 +1925,7 @@ ipcMain.handle('workspace:list', async (_e, dirPath) => {
       return a.name.localeCompare(b.name);
     });
   } catch (e) {
-    return [];
+    return { error: e.message, code: 'LIST_FAILED' };
   }
 });
 
@@ -1438,6 +1933,110 @@ ipcMain.handle('workspace:list', async (_e, dirPath) => {
 // IPC: Sessions (CRUD)
 // ---------------------------------------------------------------------------
 function sessionPath(id) { return path.join(sessionsDir, `${id}.json`); }
+
+function createDefaultPartnerState() {
+  return { mode: 'safe', avatarDataUrl: '', safeActiveId: '', nsfwActiveId: '', conversations: [], roleCard: { name: '', age: '', gender: '', personality: '', description: '', background: '' } };
+}
+
+function normalizeRoleCard(rc) {
+  if (!rc || typeof rc !== 'object') return { name: '', age: '', gender: '', personality: '', description: '', background: '' };
+  return {
+    name: String(rc.name || '').trim().slice(0, 20),
+    age: String(rc.age || '').trim().slice(0, 8),
+    gender: String(rc.gender || '').trim().slice(0, 10),
+    personality: String(rc.personality || '').trim().slice(0, 80),
+    description: String(rc.description || '').trim().slice(0, 200),
+    background: String(rc.background || '').trim().slice(0, 300)
+  };
+}
+
+function normalizePartnerState(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const rawAvatar = String(source.avatarDataUrl || '');
+  const avatarDataUrl = rawAvatar.length <= 2500000
+    && /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(rawAvatar)
+    ? rawAvatar
+    : '';
+  const conversations = (Array.isArray(source.conversations) ? source.conversations : [])
+    .slice(0, 100)
+    .map((conversation, index) => {
+      const id = String(conversation?.id || `partner_${Date.now().toString(36)}_${index}`)
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 80);
+      const messages = (Array.isArray(conversation?.messages) ? conversation.messages : [])
+        .slice(-500)
+        .map(message => {
+          const role = message?.role === 'assistant' ? 'assistant' : 'user';
+          return {
+            role,
+            content: String(message?.content || '').slice(0, 100000),
+            ts: Number(message?.ts) || Date.now(),
+            private: !!message?.private,
+            error: !!message?.error
+          };
+        })
+        .filter(message => message.content);
+      // Migrate: old conversations may lack a mode field; infer from message.private or default to 'safe'
+      let mode = String(conversation?.mode || '').trim();
+      if (!mode || !['safe','nsfw'].includes(mode)) {
+        mode = messages.some(m => m.private) ? 'nsfw' : 'safe';
+      }
+      return {
+        id: id || `partner_${Date.now().toString(36)}_${index}`,
+        title: String(conversation?.title || '新对话').trim().slice(0, 80) || '新对话',
+        mode,
+        createdAt: Number(conversation?.createdAt) || Date.now(),
+        updatedAt: Number(conversation?.updatedAt) || Date.now(),
+        messages
+      };
+    });
+  // Migrate: old state used activeConversationId; new state uses safeActiveId + nsfwActiveId
+  let safeActiveId = String(source.safeActiveId || '');
+  let nsfwActiveId = String(source.nsfwActiveId || '');
+  if (!safeActiveId && !nsfwActiveId && source.activeConversationId) {
+    // Old format: migrate the single activeConversationId to the appropriate mode bucket
+    const oldConv = conversations.find(c => c.id === source.activeConversationId);
+    if (oldConv) {
+      if (oldConv.mode === 'nsfw') nsfwActiveId = oldConv.id;
+      else safeActiveId = oldConv.id;
+    }
+  }
+  if (!safeActiveId) {
+    const safeConv = conversations.find(c => c.mode === 'safe');
+    if (safeConv) safeActiveId = safeConv.id;
+  }
+  if (!nsfwActiveId) {
+    const nsfwConv = conversations.find(c => c.mode === 'nsfw');
+    if (nsfwConv) nsfwActiveId = nsfwConv.id;
+  }
+  return {
+    mode: source.mode === 'nsfw' ? 'nsfw' : 'safe',
+    avatarDataUrl,
+    safeActiveId,
+    nsfwActiveId,
+    conversations,
+    roleCard: normalizeRoleCard(source.roleCard)
+  };
+}
+
+async function readPartnerState() {
+  ensureDirs();
+  try {
+    if (fs.existsSync(partnerStatePath)) {
+      return normalizePartnerState(JSON.parse(await fsp.readFile(partnerStatePath, 'utf8')));
+    }
+  } catch (error) {
+    console.error('[partner] state read failed:', error.message);
+  }
+  return createDefaultPartnerState();
+}
+
+async function writePartnerState(value) {
+  ensureDirs();
+  const normalized = normalizePartnerState(value);
+  await fsp.writeFile(partnerStatePath, JSON.stringify(normalized, null, 2));
+  return normalized;
+}
 
 function sortSessionRecords(list) {
   return list.sort((a, b) => {
@@ -1544,6 +2143,10 @@ async function deleteSessionRecord(id, options = {}) {
 }
 
 ipcMain.handle('session:list', () => listSessionSummaries());
+
+ipcMain.handle('partner:state:get', () => readPartnerState());
+
+ipcMain.handle('partner:state:save', (_event, value) => writePartnerState(value));
 
 ipcMain.handle('session:get', async (_e, id) => {
   const p = sessionPath(id);
@@ -1724,11 +2327,15 @@ ipcMain.handle('yanagent:rollback-run', async (_e, { sessionId, runId, workspace
 // ---------------------------------------------------------------------------
 // IPC: File operations (read/write/list/upload)
 // ---------------------------------------------------------------------------
-ipcMain.handle('file:read', async (_e, filePath) => {
+ipcMain.handle('file:read', async (_e, payload) => {
   const cfg = loadConfig();
   if (!cfg.permissions.allowFileRead) {
-    return { error: 'File read is disabled in permissions.' };
+    return { error: 'File read is disabled in permissions.', code: 'PERMISSION_DENIED' };
   }
+  const parsed = workspaceSandbox.parsePathPayload(payload, 'filePath');
+  const resolved = resolveAgentPath(parsed.filePath, parsed.workspace);
+  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
+  const filePath = resolved.path;
   try {
     const stat = await fsp.stat(filePath);
     // Detect binary: read first 4KB as buffer and check for null bytes
@@ -1750,23 +2357,28 @@ ipcMain.handle('file:read', async (_e, filePath) => {
     }
     return { path: filePath, content, isBinary: false, size: stat.size, mtime: stat.mtimeMs };
   } catch (e) {
-    return { error: e.message };
+    return { error: e.message, code: e.code === 'ENOENT' ? 'NOT_FOUND' : 'READ_FAILED' };
   }
 });
 
-ipcMain.handle('file:read-range', async (_e, { filePath, start_line, end_line }) => {
+ipcMain.handle('file:read-range', async (_e, payload = {}) => {
   const cfg = loadConfig();
   if (!cfg.permissions.allowFileRead) {
-    return { error: 'File read is disabled in permissions.' };
+    return { error: 'File read is disabled in permissions.', code: 'PERMISSION_DENIED' };
   }
+  const filePathRaw = payload.filePath || payload.path || '';
+  const resolved = resolveAgentPath(filePathRaw, payload.workspace);
+  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
+  const filePath = resolved.path;
+  const { start_line, end_line } = payload;
   try {
     const stat = await fsp.stat(filePath);
     if (stat.size > 2 * 1024 * 1024) {
-      return { error: 'File too large for read_file_range (max 2MB). Use get_file_outline first.' };
+      return { error: 'File too large for read_file_range (max 2MB). Use get_file_outline first.', code: 'FILE_TOO_LARGE' };
     }
     const content = await fsp.readFile(filePath, 'utf8');
     const range = codeIndex.readFileRange(content, start_line, end_line);
-    if (range.error) return { error: range.error, path: filePath };
+    if (range.error) return { error: range.error, path: filePath, code: 'RANGE_INVALID' };
     return {
       path: filePath,
       start: range.start,
@@ -1775,22 +2387,27 @@ ipcMain.handle('file:read-range', async (_e, { filePath, start_line, end_line })
       content: range.content
     };
   } catch (e) {
-    return { error: e.message };
+    return { error: e.message, code: e.code === 'ENOENT' ? 'NOT_FOUND' : 'READ_FAILED' };
   }
 });
 
-ipcMain.handle('file:write', async (_e, { filePath, content }) => {
+ipcMain.handle('file:write', async (_e, payload = {}) => {
   const cfg = loadConfig();
   if (!cfg.permissions.allowFileWrite) {
-    return { error: 'File write is disabled in permissions.' };
+    return { error: 'File write is disabled in permissions.', code: 'PERMISSION_DENIED' };
   }
+  const filePathRaw = payload.filePath || payload.path || '';
+  const content = payload.content;
+  const resolved = resolveAgentPath(filePathRaw, payload.workspace);
+  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
+  const filePath = resolved.path;
   try {
     await fsp.mkdir(path.dirname(filePath), { recursive: true });
     await fsp.writeFile(filePath, content, 'utf8');
     const stat = await fsp.stat(filePath);
     return { path: filePath, size: stat.size, mtime: stat.mtimeMs };
   } catch (e) {
-    return { error: e.message };
+    return { error: e.message, code: 'WRITE_FAILED' };
   }
 });
 
@@ -1945,6 +2562,10 @@ ipcMain.handle('image:generate', async (_e, payload = {}) => {
       providerId: imageConfig.providerId,
       strategy: imageConfig.strategy,
       model: imageConfig.model,
+      imageEndpoints: {
+        generations: getProviderConnection(cfg, imageConfig.providerId).imageGenerationUrl,
+        edits: getProviderConnection(cfg, imageConfig.providerId).imageEditUrl
+      },
       prompt,
       aspectRatio: payload.aspectRatio || '1:1',
       signal: controller.signal,
@@ -2030,31 +2651,60 @@ ipcMain.handle('yanxi:launch', async (_e, { workspace, mode = 'workspace' } = {}
   return launchYanxiCode(appRoot, cfg, ws, mode);
 });
 
-ipcMain.handle('file:delete', async (_e, filePath) => {
+ipcMain.handle('file:delete', async (_e, payload) => {
   const cfg = loadConfig();
-  if (!cfg.permissions.allowFileWrite) return { error: 'Permission denied.' };
+  if (!cfg.permissions.allowFileWrite) return { error: 'Permission denied.', code: 'PERMISSION_DENIED' };
+  const parsed = workspaceSandbox.parsePathPayload(payload, 'filePath');
+  const resolved = resolveAgentPath(parsed.filePath, parsed.workspace);
+  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
   try {
-    await fsp.unlink(filePath);
-    return { ok: true };
-  } catch (e) { return { error: e.message }; }
+    await fsp.unlink(resolved.path);
+    return { ok: true, path: resolved.path };
+  } catch (e) { return { error: e.message, code: 'DELETE_FAILED' }; }
 });
 
 // ---------------------------------------------------------------------------
 // IPC: Shell execution
 // ---------------------------------------------------------------------------
-ipcMain.handle('shell:execute', async (_e, { command, cwd, oneShot }) => {
+ipcMain.handle('shell:execute', async (_e, { command, cwd, oneShot, workspace } = {}) => {
   const cfg = loadConfig();
-  if (!cfg.permissions.allowShell && !oneShot) {
-    return { error: 'Shell execution is disabled in permissions.', needsPermission: true };
+  const accessMode = cfg.agent?.accessMode || 'request';
+  const autoApproved = accessMode === 'delegate' || accessMode === 'full';
+  if (!cfg.permissions.allowShell && !oneShot && !autoApproved) {
+    return { error: 'Shell execution is disabled in permissions.', needsPermission: true, code: 'PERMISSION_DENIED' };
   }
-  const ws = cfg.workspace;
-  if (ws) appendYanagentLog(ws, `[shell] ${String(command || '').slice(0, 200)}`);
+  const risk = workspaceSandbox.classifyShellCommand(command);
+  if (risk.blocked) {
+    return {
+      stdout: '',
+      stderr: risk.reason,
+      exitCode: 1,
+      error: risk.reason,
+      code: risk.code
+    };
+  }
+  const wsHint = workspace || cwd || cfg.workspace;
+  const cwdResolved = accessMode === 'full'
+    ? resolveFullAccessPath(cwd || wsHint, wsHint, { allowEmpty: true })
+    : workspaceSandbox.resolveShellCwd(wsHint, cwd && cwd !== wsHint ? cwd : '');
+  if (!cwdResolved.ok) {
+    return {
+      stdout: '',
+      stderr: cwdResolved.error,
+      exitCode: 1,
+      error: cwdResolved.error,
+      code: cwdResolved.code
+    };
+  }
+  const safeCwd = cwdResolved.path;
+  if (safeCwd) appendYanagentLog(safeCwd, `[shell] ${String(command || '').slice(0, 200)}`);
   return new Promise((resolve) => {
     const options = {
       timeout: 30000,
       maxBuffer: 1024 * 1024 * 5,
-      cwd: cwd || cfg.workspace || undefined,
-      env: { ...process.env }
+      cwd: safeCwd,
+      env: { ...process.env },
+      windowsHide: true
     };
     exec(command, options, (err, stdout, stderr) => {
       resolve({
@@ -2068,9 +2718,11 @@ ipcMain.handle('shell:execute', async (_e, { command, cwd, oneShot }) => {
 });
 
 // ---------------------------------------------------------------------------
-// IPC: Built-in terminal (persistent, independent from Agent workspaces)
+// IPC: Built-in terminal (real PTY / ConPTY, independent from Agent workspaces)
 // ---------------------------------------------------------------------------
-ipcMain.handle('terminal:create', (event) => terminalManager.create(event.sender.id));
+ipcMain.handle('terminal:create', (event, options = {}) => (
+  terminalManager.create(event.sender.id, options || {})
+));
 
 ipcMain.handle('terminal:execute', (event, { sessionId, command } = {}) => (
   terminalManager.execute(event.sender.id, sessionId, command)
@@ -2078,6 +2730,10 @@ ipcMain.handle('terminal:execute', (event, { sessionId, command } = {}) => (
 
 ipcMain.handle('terminal:write', (event, { sessionId, data } = {}) => (
   terminalManager.write(event.sender.id, sessionId, data)
+));
+
+ipcMain.handle('terminal:resize', (event, { sessionId, cols, rows } = {}) => (
+  terminalManager.resize(event.sender.id, sessionId, cols, rows)
 ));
 
 ipcMain.handle('terminal:interrupt', (event, sessionId) => (
@@ -2096,6 +2752,18 @@ ipcMain.handle('terminal:destroy', (event, sessionId) => (
 // MCP (Model Context Protocol) — manage external tool servers via stdio
 // ---------------------------------------------------------------------------
 const mcpServers = new Map(); // id -> { process, tools, pending, buffer, nextId }
+
+function classifyMcpStderrFailure(serverId, text) {
+  const message = String(text || '');
+  if (!/windows/i.test(String(serverId || ''))) return null;
+  if (!/(?:UnboundLocalError:[^\n]*tree_node|Error getting nodes for handle|Task failed completely for handle|\[Tree\].*failed to capture)/is.test(message)) {
+    return null;
+  }
+  return {
+    code: 'WINDOWS_UI_TREE_CAPTURE_FAILED',
+    message: 'Windows-MCP 无法读取目标窗口的 UI 元素树。请改用 Screenshot，或调用 Snapshot 时设置 use_ui_tree=false、use_vision=true，然后只使用最新截图中的坐标继续操作；不要重复扫描 UI Tree。'
+  };
+}
 
 function mcpSend(proc, msg) {
   proc.stdin.write(JSON.stringify(msg) + '\n');
@@ -2147,7 +2815,19 @@ async function mcpStart(serverCfg) {
       proc.on('error', errHandler);
     });
 
-    const server = { process: proc, tools: [], pending: new Map(), buffer: '', nextId: 1, decoder: new TextDecoder('utf-8') };
+    const server = {
+      process: proc,
+      tools: [],
+      pending: new Map(),
+      buffer: '',
+      nextId: 1,
+      decoder: new TextDecoder('utf-8'),
+      stderrSeq: 0,
+      stderrScanTail: '',
+      lastStderrFailure: null,
+      lastStderrFailureLogAt: 0,
+      suppressedStderrFailures: 0
+    };
     mcpServers.set(id, server);
 
     proc.stdout.on('data', (data) => {
@@ -2177,7 +2857,31 @@ async function mcpStart(serverCfg) {
     });
 
     proc.stderr.on('data', (data) => {
-      console.log(`[MCP ${id}] stderr:`, data.toString().trim());
+      const message = data.toString().trim();
+      if (!message) return;
+      server.stderrSeq++;
+      const scanText = `${server.stderrScanTail}\n${message}`.slice(-16000);
+      server.stderrScanTail = message.slice(-512);
+      const failure = classifyMcpStderrFailure(id, scanText);
+      if (failure) {
+        server.lastStderrFailure = {
+          ...failure,
+          seq: server.stderrSeq,
+          at: Date.now(),
+          raw: message.slice(-2000)
+        };
+        const now = Date.now();
+        if (now - server.lastStderrFailureLogAt >= 2000) {
+          const suppressed = server.suppressedStderrFailures;
+          console.warn(`[MCP ${id}] ${failure.code}: ${failure.message}${suppressed ? `（已抑制 ${suppressed} 条重复日志）` : ''}`);
+          server.lastStderrFailureLogAt = now;
+          server.suppressedStderrFailures = 0;
+        } else {
+          server.suppressedStderrFailures++;
+        }
+        return;
+      }
+      console.log(`[MCP ${id}] stderr:`, message);
     });
 
     proc.on('exit', (code) => {
@@ -2199,7 +2903,7 @@ async function mcpStart(serverCfg) {
     const initPromise = mcpRequest(server, 'initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: 'Yan Agent', version: '1.3.0' }
+      clientInfo: { name: 'Yan Agent', version: '1.3.2' }
     });
 
     await Promise.race([initPromise, spawnError]);
@@ -2310,16 +3014,35 @@ ipcMain.handle('mcp:call-tool', async (_e, serverId, toolName, args) => {
   const server = mcpServers.get(serverId);
   if (!server) return { error: '服务器未运行' };
   try {
+    const stderrSeqBeforeCall = server.stderrSeq || 0;
     const result = await mcpRequest(server, 'tools/call', {
       name: toolName,
       arguments: args || {}
     });
+    if (/windows/i.test(String(serverId || ''))) {
+      // stdout and stderr use separate pipes; allow the diagnostic event queued
+      // with this response to reach the main process before classifying the call.
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const stderrFailure = server.lastStderrFailure;
+    if (stderrFailure && stderrFailure.seq > stderrSeqBeforeCall) {
+      return {
+        error: stderrFailure.message,
+        code: stderrFailure.code,
+        stderr: stderrFailure.raw
+      };
+    }
     if (result && result.content) {
       const text = result.content
         .filter(c => c.type === 'text')
         .map(c => c.text)
         .join('\n');
-      return { result: text, isError: result.isError };
+      const images = result.content
+        .filter(c => c.type === 'image' && c.data && /^image\//i.test(String(c.mimeType || 'image/png')))
+        .slice(0, 2)
+        .map(c => ({ data: String(c.data), mimeType: String(c.mimeType || 'image/png') }));
+      const textFailure = /^Error (?:capturing|processing|getting)\b|^Task failed completely\b/im.test(text);
+      return { result: text, images, isError: !!result.isError || textFailure };
     }
     return { result: JSON.stringify(result) };
   } catch (e) {
@@ -2378,6 +3101,7 @@ ipcMain.handle('search:files', async (_e, opts) => {
   const {
     query,
     directory,
+    workspace,
     extensions,
     regex = false,
     caseSensitive = false,
@@ -2386,7 +3110,9 @@ ipcMain.handle('search:files', async (_e, opts) => {
     contextLines = 0
   } = opts || {};
 
-  const root = directory || loadConfig().workspace;
+  const resolved = resolveAgentDir(directory || '', workspace);
+  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
+  const root = resolved.path;
   if (!root || !fs.existsSync(root) || !query) return [];
 
   const results = [];
@@ -2707,66 +3433,78 @@ ipcMain.handle('workspace:tree', async (_e, { directory, maxDepth }) => {
 // IPC: Git operations
 // ---------------------------------------------------------------------------
 ipcMain.handle('git:status', async (_e, dirPath) => {
-  const root = dirPath || loadConfig().workspace;
-  return execGitArgs(['status', '--porcelain=v2', '--branch'], root);
+  const resolved = resolveAgentDir(typeof dirPath === 'object' ? dirPath?.dirPath : dirPath, typeof dirPath === 'object' ? dirPath?.workspace : dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
+  return execGitArgs(['status', '--porcelain=v2', '--branch'], resolved.path);
 });
 
-ipcMain.handle('git:diff', async (_e, { dirPath, staged }) => {
-  const root = dirPath || loadConfig().workspace;
+ipcMain.handle('git:diff', async (_e, { dirPath, staged, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
   const args = staged ? ['diff', '--cached'] : ['diff'];
-  return execGitArgs(args, root);
+  return execGitArgs(args, resolved.path);
 });
 
-ipcMain.handle('git:log', async (_e, { dirPath, limit }) => {
-  const root = dirPath || loadConfig().workspace;
+ipcMain.handle('git:log', async (_e, { dirPath, limit, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
   const n = Number.parseInt(limit, 10);
   const count = Number.isFinite(n) && n > 0 ? n : 20;
-  return execGitArgs(['log', '--oneline', '--decorate', `-${count}`], root);
+  return execGitArgs(['log', '--oneline', '--decorate', `-${count}`], resolved.path);
 });
 
-ipcMain.handle('git:commit', async (_e, { message, dirPath }) => {
-  const root = dirPath || loadConfig().workspace;
+ipcMain.handle('git:commit', async (_e, { message, dirPath, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
   // 安全方案：add -A 和 commit 分两步执行，commit 用数组参数避免 shell 解析
-  await execGitArgs(['add', '-A'], root);
-  return execGitArgs(['commit', '-m', String(message || '')], root);
+  await execGitArgs(['add', '-A'], resolved.path);
+  return execGitArgs(['commit', '-m', String(message || '')], resolved.path);
 });
 
-ipcMain.handle('git:push', async (_e, { dirPath, remote, branch }) => {
-  const root = dirPath || loadConfig().workspace;
+ipcMain.handle('git:push', async (_e, { dirPath, remote, branch, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
   const r = remote || 'origin';
   const args = ['push', r];
   if (branch) args.push(branch);
-  return execGitArgs(args, root);
+  return execGitArgs(args, resolved.path);
 });
 
-ipcMain.handle('git:pull', async (_e, { dirPath, remote, branch }) => {
-  const root = dirPath || loadConfig().workspace;
+ipcMain.handle('git:pull', async (_e, { dirPath, remote, branch, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
   const r = remote || 'origin';
   const args = ['pull', r];
   if (branch) args.push(branch);
-  return execGitArgs(args, root);
+  return execGitArgs(args, resolved.path);
 });
 
-ipcMain.handle('git:clone', async (_e, { url, dirPath }) => {
-  const root = dirPath || loadConfig().workspace;
-  return execGitArgs(['clone', String(url || '')], root);
+ipcMain.handle('git:clone', async (_e, { url, dirPath, workspace } = {}) => {
+  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
+  return execGitArgs(['clone', String(url || '')], resolved.path);
 });
 
 ipcMain.handle('git:branch', async (_e, dirPath) => {
-  const root = dirPath || loadConfig().workspace;
-  return execGitArgs(['branch', '-a'], root);
+  const resolved = resolveAgentDir(typeof dirPath === 'object' ? dirPath?.dirPath : dirPath, typeof dirPath === 'object' ? dirPath?.workspace : dirPath);
+  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
+  return execGitArgs(['branch', '-a'], resolved.path);
 });
 
 // 通过参数数组调用 git，彻底避免 shell 命令注入
 async function execGitArgs(args, cwd) {
   if (!cwd || !String(cwd).trim()) {
-    return { stdout: '', stderr: '', exitCode: 1, error: '未设置工作区，请先在设置或任务栏中选择文件夹' };
+    return { stdout: '', stderr: '', exitCode: 1, error: '未设置工作区，请先在设置或任务栏中选择文件夹', code: 'WORKSPACE_REQUIRED' };
+  }
+  const sandbox = resolveAgentDir(cwd, cwd);
+  if (!sandbox.ok) {
+    return { stdout: '', stderr: sandbox.error, exitCode: 1, error: sandbox.error, code: sandbox.code };
   }
   return new Promise((resolve) => {
     execFile('git', args, {
       timeout: 30000,
       maxBuffer: 1024 * 1024 * 5,
-      cwd: cwd || undefined,
+      cwd: sandbox.path,
       env: { ...process.env },
       windowsHide: true
     }, (err, stdout, stderr) => {
@@ -2868,6 +3606,10 @@ ipcMain.on('win:close', () => {
   if (mainWindow) mainWindow.hide();
 });
 ipcMain.handle('win:is-maximized', () => (mainWindow ? mainWindow.isMaximized() : false));
+ipcMain.on('computer-use:set-active', (event, active) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return;
+  setComputerUseOverlayActive(!!active);
+});
 
 // ---------------------------------------------------------------------------
 // Utility
@@ -2917,6 +3659,7 @@ function ensureBundledAgentSkills(cfg) {
       tags: meta.tags || [],
       triggers: meta.triggers || [],
       source: meta.source || 'bundled',
+      logo: skillRegistry.resolveSkillLogo(meta),
       installedAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -2926,6 +3669,9 @@ function ensureBundledAgentSkills(cfg) {
       changed = true;
     } else if (!cfg.customSkills[idx].prompt) {
       cfg.customSkills[idx] = { ...cfg.customSkills[idx], ...item };
+      changed = true;
+    } else if (meta.id === 'yan-computer-use' && (cfg.customSkills[idx].tags || []).length) {
+      cfg.customSkills[idx] = { ...cfg.customSkills[idx], tags: [] };
       changed = true;
     }
   }
@@ -3173,16 +3919,6 @@ app.whenReady().then(async () => {
   if (pendingYanxiWorkspace !== undefined) {
     await yanxiReceiver.applyWorkspaceFromYanxiCode(pendingYanxiWorkspace, { requestId: pendingYanxiRequestId });
   }
-  skillRegistry.scheduleSkillSync(cfg, appRoot, dataDir, saveConfig, (res) => {
-    if (res.ok) {
-      console.log(`[skills] synced market: ${res.total} items (+${res.added} new, ~${res.updated} updated)`);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('skills:synced', res);
-      }
-    } else if (res.error) {
-      console.log('[skills] sync skipped/failed:', res.error);
-    }
-  });
   createWindow();
   applyLightWindowIcon(mainWindow);
   createPetWindow();
@@ -3207,10 +3943,11 @@ app.on('before-quit', () => {
   for (const request of activeImageGenerations.values()) request.controller.abort();
   activeImageGenerations.clear();
   closeGeneratedImageViewers();
-  skillRegistry.stopSkillSync();
   stopWorkspaceWatcher();
   terminalManager.dispose();
   stopRemoteServer().catch(() => {});
+  destroyComputerUseOverlay();
+  shutdownComputerUseCursorHost();
   if (petWindow && !petWindow.isDestroyed()) petWindow.destroy();
   if (tray) tray.destroy();
   // 停止所有 MCP 服务器

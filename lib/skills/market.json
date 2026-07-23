@@ -1163,6 +1163,19 @@
       "tier": "market",
       "version": 1,
       "updatedAt": 1783877681497
+    },
+    {
+      "id": "market-anysearch",
+      "name": "AnySearch Search Engine",
+      "desc": "统一实时搜索引擎，支持 Web 搜索、垂直领域搜索、并行批量搜索和 URL 内容提取",
+      "repo": "anysearch-ai/anysearch-skill",
+      "stars": "4.5k+",
+      "tags": ["code"],
+      "prompt": "Use the AnySearch skill to perform real-time search operations. The skill is installed at <skill_dir>/lib/skills/anysearch/. Available operations: search, batch_search, extract, get_sub_domains. Detect the best runtime (Python > Node.js > PowerShell) before calling. Run `<cmd> doc` for full reference.\n\n{{cursor}}",
+      "triggers": ["AnySearch", "Search", "搜索引擎", "信息检索", "实时搜索", "code"],
+      "tier": "market",
+      "version": 1,
+      "updatedAt": 1783877681497
     }
   ]
 }

@@ -61,6 +61,8 @@ Output: Files changed, What changed, Verification status. Do not expand scope.`
       icon: '🎨',
       tools: new Set([
         ...EDIT_TOOLS,
+        'list_ui_kit',
+        'read_ui_kit',
         'open_builtin_browser'
       ]),
       directive: `You are a UI specialist subagent (HTML/CSS/JS, frontend).
@@ -126,6 +128,7 @@ Output: Deliverable paths, Structure summary, Open questions.`
     }
 
     const subCtx = K.createRunCtx(parentRunCtx.sessionId, false, parentRunCtx.workspace);
+    subCtx.accessMode = parentRunCtx.accessMode || 'request';
     subCtx.sessionRef = parentRunCtx.sessionRef;
     subCtx.isSubagent = true;
     subCtx.subagentType = type;
@@ -135,7 +138,9 @@ Output: Deliverable paths, Structure summary, Open questions.`
     subCtx.mcpToolMapSnapshot = parentRunCtx.mcpToolMapSnapshot;
     subCtx.policyState = parentRunCtx.policyState;
 
-    const tools = filterTools(K.snapshotTools(), profile.tools);
+    // Subagents already have an explicit, curated profile. Resolve that profile
+    // from all native definitions rather than the main agent's smaller stable core.
+    const tools = filterTools(K.snapshotAllNativeTools?.() || K.snapshotTools(), profile.tools);
     if (!tools.length) {
       return K.toolError('spawn_subagent', 'No tools available for subagent profile.');
     }
@@ -195,9 +200,15 @@ Output: Deliverable paths, Structure summary, Open questions.`
       if (!result.tool_calls || !result.tool_calls.length) break;
 
       const preparedCalls = result.tool_calls.map(tc => K.prepareToolCall(tc, tools, subCtx));
+      // Re-serialize arguments as a JSON string: some gateways reject object-typed
+      // arguments in the message history (main loop already does this).
       const normalizedToolCalls = result.tool_calls.map((tc, index) => ({
         ...tc,
-        id: preparedCalls[index].id
+        id: preparedCalls[index].id,
+        function: {
+          ...(tc.function || {}),
+          arguments: JSON.stringify(preparedCalls[index].args || {})
+        }
       }));
       const assistantTurn = {
         role: 'assistant',
@@ -225,6 +236,22 @@ Output: Deliverable paths, Structure summary, Open questions.`
       if (parentRunCtx.shouldAbort) break;
       for (const executed of scheduledResults) {
         apiMessages.push({ role: 'tool', tool_call_id: executed.id, content: executed.output });
+      }
+
+      // Circuit breakers: a subagent must not burn its full iteration budget re-reading
+      // the same file or hammering the same failing call. Reuse the main-loop governors.
+      if (K.recordProgressAfterTools) K.recordProgressAfterTools(subCtx, scheduledResults);
+      const repeatedFailure = K.updateRepeatedToolFailureStreak
+        ? K.updateRepeatedToolFailureStreak(scheduledResults, subCtx)
+        : null;
+      if (repeatedFailure) {
+        summary = (summary ? summary + '\n\n' : '') + '[subagent stopped] ' + repeatedFailure.message;
+        break;
+      }
+      const progressStop = K.evaluateProgressGovernor ? K.evaluateProgressGovernor(subCtx) : null;
+      if (progressStop?.stop) {
+        summary = (summary ? summary + '\n\n' : '') + '[subagent stopped] ' + progressStop.message;
+        break;
       }
     }
 

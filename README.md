@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.3.1-111111">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.2-111111">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848f">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a">
@@ -19,9 +19,16 @@
 
 Yan Agent 把对话、代码理解和本地工具执行放进同一个桌面工作台。选择一个工作区，描述目标，Agent 会制定计划、读写文件、运行命令、操作浏览器并验证结果，而不只是给出一段建议。
 
-## v1.3.1
+## v1.3.2
 
-本次快速更新聚焦 UI 优化、任务状态 Bug 修复、更多模型支持，以及全新的 Yan Computer Use 插件。安装包版本同步升级到 v1.3.1。
+这次更新把重点放在 Agent 的真实工作可靠性上：它不仅要会调用工具，还要知道什么时候该调用、失败后如何停下来、以及用户能否清楚看见发生了什么。安装包版本同步升级到 v1.3.2。
+
+- **任务内核更可靠。** 模型断流、空响应、MCP 启动失败和工具异常都会留下明确的对话错误，不再出现任务已经停止但界面仍显示“正在工作”的情况。长任务增加上下文压缩、迭代上限和重复错误熔断，连续陷入同一错误时会主动停下并说明原因。
+- **动态能力调用。** Agent 会先根据用户目标判断是否需要 Git、MCP、Skill、浏览器或电脑操作能力，再按需加载具体工具。做一个网页或小游戏时，默认走内置浏览器验收，不会为了“看起来完整”额外生成 Playwright 脚本或调用无关工具。
+- **Skill 更像工作台的一部分。** 输入框新增已安装 Skill 选择器，支持一次任务组合多个 Skill，并把调用状态放在输入区域内展示。市场内容与本机已安装内容分开，用户引用时只会看到真正可用的技能。
+- **工作区真正隔离。** 每个任务保存自己的工作区、终端目录、工具快照和运行状态。新建空任务会回到用户默认目录，Agent 创建并进入子文件夹后会同步切换当前工作区，减少反复 `cd` 和误写其他任务目录的风险。
+- **权限访问更清楚。** 输入框提供“请求批准”“替我审批”“完全访问”三档策略。完全访问支持必要的绝对路径操作，但开启前会二次确认，文件、网络和高风险系统命令的安全边界仍然保留。
+- **Computer Use 与界面反馈。** 电脑操作插件补齐了调用提示、蓝色氛围边框和导航光标，工具执行、对话输出、桌宠状态和中止按钮会同步更新，便于用户判断 Agent 正在做什么。
 
 ## v1.3.0
 
@@ -127,8 +134,8 @@ flowchart LR
 
 | 构建  | 说明              | 下载                                                                                                                        |
 | --- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 安装版 | NSIS 安装包，适合日常使用 | [Yan.Agent.Setup.1.3.1.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.1/Yan.Agent.Setup.1.3.1.exe)       |
-| 便携版 | 无需安装，解压后直接运行    | [前往 v1.3.1 Release 查看](https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.1) |
+| 安装版 | NSIS 安装包，适合日常使用 | [Yan.Agent.Setup.1.3.2.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe)       |
+| 便携版 | 无需安装，解压后直接运行    | [前往 v1.3.2 Release 查看](https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2) |
 
 [查看全部 Releases](https://github.com/666-gy/Yan-Agent/releases)
 

@@ -1,0 +1,13 @@
+interface:
+  display_name: "Yan Computer Use"
+  short_description: "Reliable Windows app control with observe-act-verify loops"
+  default_prompt: "Use $yan-computer-use to operate the requested Windows app safely and verify each step."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "windows-mcp"
+      description: "Yan Agent Windows observation and input executor"
+
+policy:
+  allow_implicit_invocation: true

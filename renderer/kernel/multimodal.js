@@ -10,8 +10,40 @@
     return /\.(?:png|jpe?g|webp|gif)$/i.test(String(attachment.name || attachment.path || ''));
   }
 
+  function selectedSkills(message) {
+    const source = Array.isArray(message?.skillCalls)
+      ? message.skillCalls
+      : (message?.skillCall?.id ? [message.skillCall] : []);
+    const seen = new Set();
+    return source.filter(skill => {
+      const id = String(skill?.id || '').trim();
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+
+  function applySelectedSkills(message, taskText) {
+    const skills = selectedSkills(message);
+    if (!skills.length) return taskText;
+    const instructions = [];
+    if (taskText) instructions.push(`用户当前请求：\n${taskText}`);
+    instructions.push(...skills.map(skill => {
+      const name = String(skill.name || skill.id);
+      const playbook = String(skill.prompt || '').trim();
+      if (playbook) {
+        return [
+          `用户已明确启用 Skill「${name}」(${skill.id})。以下是该 Skill 的完整 playbook，必须与其他已选 Skill 一并遵循：`,
+          playbook
+        ].join('\n\n');
+      }
+      return `用户已明确启用 Skill「${name}」(${skill.id})。先调用 read_skill 读取其完整 playbook，再按其中步骤执行。`;
+    }));
+    return instructions.join('\n\n---\n\n');
+  }
+
   async function buildApiMessageContent(message = {}, modelCapabilities = {}) {
-    let text = String(message.content || '');
+    let text = applySelectedSkills(message, String(message.content || ''));
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     if (!attachments.length) return text;
 

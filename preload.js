@@ -6,7 +6,10 @@ contextBridge.exposeInMainWorld('yan', {
   setConfig: (partial) => ipcRenderer.invoke('config:set', partial),
   listProviders: () => ipcRenderer.invoke('providers:list'),
   setProvider: (providerId) => ipcRenderer.invoke('provider:set', providerId),
-  configureProvider: (providerId, apiKey) => ipcRenderer.invoke('provider:configure', { providerId, apiKey }),
+  configureProvider: (providerId, config) => ipcRenderer.invoke('provider:configure', {
+    providerId,
+    ...(config && typeof config === 'object' ? config : { apiKey: config })
+  }),
   refreshProviderModels: (providerId) => ipcRenderer.invoke('provider:models:refresh', providerId),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
   listModels: () => ipcRenderer.invoke('models:list'),
@@ -21,8 +24,6 @@ contextBridge.exposeInMainWorld('yan', {
   getSkillCatalog: () => ipcRenderer.invoke('skills:catalog'),
   getSkillPromptSection: () => ipcRenderer.invoke('skills:prompt-section'),
   readSkill: (id, taskContext) => ipcRenderer.invoke('skills:read', { id, taskContext }),
-  ensureSkill: (id) => ipcRenderer.invoke('skills:ensure', { id }),
-  syncSkills: () => ipcRenderer.invoke('skills:sync'),
 
   listUiKits: () => ipcRenderer.invoke('ui-kits:list'),
   listUiKit: (kit, query) => ipcRenderer.invoke('ui-kits:catalog', { kit, query }),
@@ -31,6 +32,9 @@ contextBridge.exposeInMainWorld('yan', {
 
   // Workspace
   getWorkspace: () => ipcRenderer.invoke('workspace:get'),
+  getKnownWorkspacePath: (name) => ipcRenderer.invoke('workspace:known-path', name),
+  inspectWorkspace: (dirPath, workspace) => ipcRenderer.invoke('workspace:inspect', { dirPath, workspace }),
+  pickWorkspace: () => ipcRenderer.invoke('workspace:pick'),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
   listWorkspace: (dir) => ipcRenderer.invoke('workspace:list', dir),
   clearWorkspace: () => ipcRenderer.invoke('workspace:clear'),
@@ -50,6 +54,10 @@ contextBridge.exposeInMainWorld('yan', {
     ipcRenderer.on('session:changed', handler);
     return () => ipcRenderer.removeListener('session:changed', handler);
   },
+
+  // Yan Partner uses isolated local storage and is not exposed to remote control.
+  getPartnerState: () => ipcRenderer.invoke('partner:state:get'),
+  savePartnerState: (state) => ipcRenderer.invoke('partner:state:save', state),
 
   // Desktop pet supervision bridge
   petUpdate: (payload) => ipcRenderer.send('pet:update', payload),
@@ -77,11 +85,21 @@ contextBridge.exposeInMainWorld('yan', {
   removeCustomSkill: (id) => ipcRenderer.invoke('skills:remove-custom', id),
   getCustomSkills: () => ipcRenderer.invoke('skills:get-custom'),
 
-  // Files
-  readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
-  readFileRange: (filePath, start_line, end_line) =>
-    ipcRenderer.invoke('file:read-range', { filePath, start_line, end_line }),
-  writeFile: (filePath, content) => ipcRenderer.invoke('file:write', { filePath, content }),
+  // Files — pass { filePath, workspace } for sandbox enforcement (session workspace)
+  readFile: (filePath, workspace) => {
+    if (filePath && typeof filePath === 'object') return ipcRenderer.invoke('file:read', filePath);
+    return ipcRenderer.invoke('file:read', { filePath, workspace });
+  },
+  readFileRange: (filePath, start_line, end_line, workspace) => {
+    if (filePath && typeof filePath === 'object') {
+      return ipcRenderer.invoke('file:read-range', filePath);
+    }
+    return ipcRenderer.invoke('file:read-range', { filePath, start_line, end_line, workspace });
+  },
+  writeFile: (filePath, content, workspace) => {
+    if (filePath && typeof filePath === 'object') return ipcRenderer.invoke('file:write', filePath);
+    return ipcRenderer.invoke('file:write', { filePath, content, workspace });
+  },
   chooseOpenFile: () => ipcRenderer.invoke('file:choose-open'),
   chooseSaveFile: () => ipcRenderer.invoke('file:choose-save'),
   uploadFile: (name, base64, mimeType) => ipcRenderer.invoke('file:upload', { name, data: base64, mimeType }),
@@ -91,15 +109,24 @@ contextBridge.exposeInMainWorld('yan', {
   readGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-read', assetId),
   openGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-open', assetId),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
-  deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
+  deleteFile: (filePath, workspace) => {
+    if (filePath && typeof filePath === 'object') return ipcRenderer.invoke('file:delete', filePath);
+    return ipcRenderer.invoke('file:delete', { filePath, workspace });
+  },
 
-  // Shell execution
-  executeShell: (command, cwd, oneShot) => ipcRenderer.invoke('shell:execute', { command, cwd, oneShot }),
+  // Shell execution — cwd forced inside workspace by main process
+  executeShell: (command, cwd, oneShot, workspace) => ipcRenderer.invoke('shell:execute', {
+    command,
+    cwd,
+    oneShot,
+    workspace: workspace || cwd
+  }),
 
-  // Built-in terminal (persistent and independent from Agent workspaces)
-  terminalCreate: () => ipcRenderer.invoke('terminal:create'),
+  // Built-in terminal (real PTY, independent from Agent workspaces)
+  terminalCreate: (options) => ipcRenderer.invoke('terminal:create', options || {}),
   terminalExecute: (sessionId, command) => ipcRenderer.invoke('terminal:execute', { sessionId, command }),
   terminalWrite: (sessionId, data) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
+  terminalResize: (sessionId, cols, rows) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
   terminalInterrupt: (sessionId) => ipcRenderer.invoke('terminal:interrupt', sessionId),
   terminalRestart: (sessionId) => ipcRenderer.invoke('terminal:restart', sessionId),
   terminalDestroy: (sessionId) => ipcRenderer.invoke('terminal:destroy', sessionId),
@@ -203,6 +230,7 @@ contextBridge.exposeInMainWorld('yan', {
   mcpStop: (id) => ipcRenderer.invoke('mcp:stop', id),
   mcpListTools: () => ipcRenderer.invoke('mcp:list-tools'),
   mcpCallTool: (serverId, toolName, args) => ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args),
+  setComputerUseActive: (active) => ipcRenderer.send('computer-use:set-active', !!active),
 
   // Window controls (custom title bar)
   window: {
@@ -253,12 +281,6 @@ contextBridge.exposeInMainWorld('yan', {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('code-map:changed', handler);
     return () => ipcRenderer.removeListener('code-map:changed', handler);
-  },
-
-  onSkillsSynced: (cb) => {
-    const handler = (_e, data) => cb(data);
-    ipcRenderer.on('skills:synced', handler);
-    return () => ipcRenderer.removeListener('skills:synced', handler);
   },
 
   onSkillsChanged: (cb) => {

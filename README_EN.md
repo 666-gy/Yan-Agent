@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.3.1-111111">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.2-111111">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848f">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a">
@@ -19,9 +19,16 @@
 
 Yan Agent brings conversation, code understanding, and local tool execution into one Windows workspace. Describe an outcome, choose a project folder, and the agent plans, edits, runs, browses, verifies, and reports the result instead of stopping at a suggestion.
 
-## v1.3.1
+## v1.3.2
 
-This quick update focuses on UI polish, runtime-state bug fixes, broader model support, and the new Yan Computer Use plugin. The packaged application is now version 1.3.1.
+This release focuses on the reliability of real agent work. Yan Agent now makes tool selection more deliberate, keeps failures visible, and gives users a clearer boundary around approvals and filesystem access. The packaged application is now version 1.3.2.
+
+- **More reliable task runs.** Stream disconnects, empty responses, MCP startup failures, and tool errors now become explicit conversation errors instead of leaving the task stuck in a working state. Long runs compact context when needed and stop repeated identical failures with a concrete explanation.
+- **Dynamic capability selection.** The agent evaluates whether a task actually needs Git, MCP, Skills, browser verification, or computer control before loading optional capabilities. Local HTML and game tasks use the built-in browser first, without inventing a Playwright verifier or unrelated tool calls.
+- **Skills inside the composer.** The input area now offers an installed-Skill picker that can combine multiple Skills in one task. The market catalog and installed capabilities stay separate, so the agent only receives Skills that are actually available locally.
+- **Real workspace isolation.** Each task keeps its own workspace, terminal directory, tool snapshot, and runtime state. New blank tasks return to the user's default directory, and entering a newly created subfolder updates the task workspace instead of leaving the agent at the parent folder.
+- **Clearer access policies.** The composer exposes “Request approval”, “Approve on my behalf”, and “Full access”. Full access can use absolute paths when necessary, but requires confirmation and keeps file, network, and high-risk system-command boundaries in place.
+- **Computer Use feedback.** Computer control now has visible narration, a blue activity frame, and a dedicated navigation cursor. Conversation output, tool state, desktop pet status, and the stop control stay aligned while an action is running.
 
 ## v1.3.0
 
@@ -127,8 +134,8 @@ Each provider has its own API key, editable base URL, model list, and capability
 
 | Build | Description | Download |
 | --- | --- | --- |
-| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.1.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.1/Yan.Agent.Setup.1.3.1.exe) |
-| Portable | No installation required; run it directly | [Open the v1.3.1 release page](https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.1) |
+| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.2.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe) |
+| Portable | No installation required; run it directly | [Open the v1.3.2 release page](https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2) |
 
 [View all releases](https://github.com/666-gy/Yan-Agent/releases)
 

@@ -7,6 +7,100 @@ const BUILT_IN_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'search_capabilities',
+      description: '按当前任务语义搜索未常驻的能力。用于查找 Git、进阶代码分析、UI Kit、子 Agent、已安装 Skill 与 MCP/Computer Use 工具。返回最多几个匹配能力及其参数结构；不要为了“看看有什么”而调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 2, description: '具体需要完成的动作，例如“提交当前改动”“点击微信搜索框”“加载代码审查 Skill”' },
+          category: {
+            type: 'string',
+            enum: ['all', 'code', 'git', 'ui', 'subagent', 'skill', 'mcp', 'media'],
+            description: '可选能力类别；已明确知道类别时填写可提高检索精度'
+          },
+          limit: { type: 'number', minimum: 1, maximum: 8, description: '返回数量，默认 5，最多 8' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_workspace',
+      description: '当前任务没有工作区，但确实需要创建或修改文件时，向用户申请一个工作区。若用户已在本轮明确要求进入桌面/文档/下载目录，内核会自动绑定，无需调用。不得自行猜测或使用工作区外路径。',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', minLength: 8, description: '为什么当前任务必须使用文件工作区，以及准备创建什么' },
+          suggested_location: {
+            type: 'string',
+            enum: ['desktop', 'documents', 'downloads', 'choose'],
+            description: '建议位置；choose 让用户自行选择文件夹'
+          },
+          artifact_type: {
+            type: 'string',
+            enum: ['files', 'web', 'project'],
+            description: '准备创建的内容类型；网页或 HTML 选择 web'
+          }
+        },
+        required: ['reason', 'suggested_location', 'artifact_type']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'use_capability',
+      description: '调用 search_capabilities 在本轮刚发现的能力。capability_id 必须来自搜索结果，input 必须符合该结果返回的 input_schema。危险操作仍会经过运行时权限与用户意图检查。',
+      parameters: {
+        type: 'object',
+        properties: {
+          capability_id: { type: 'string', minLength: 3, description: 'search_capabilities 返回的 capability_id' },
+          input: { type: 'object', description: '目标能力的参数对象；按搜索结果中的 input_schema 填写', additionalProperties: true }
+        },
+        required: ['capability_id', 'input']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_capability',
+      description: '兼容旧会话的能力申请入口。新任务请使用 search_capabilities 与 use_capability。',
+      parameters: {
+        type: 'object',
+        properties: {
+          capability: {
+            type: 'string',
+            enum: ['code_analysis', 'workspace_write', 'ui_kit', 'git', 'computer_use', 'browser_automation', 'subagent', 'skill', 'mcp'],
+            description: '需要解锁的能力类别；workspace_write 在只读路由下用于申请编辑/Shell'
+          },
+          reason: { type: 'string', minLength: 12, description: '当前工具为何无法完成任务的具体阻塞原因' },
+          skill_id: { type: 'string', description: '申请 skill 时填写已安装的 skill id（可选）' },
+          query: { type: 'string', description: '申请 skill 或 MCP 时填写要找的能力关键词（可选）' }
+        },
+        required: ['capability', 'reason']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'change_workspace',
+      description: '把当前任务工作区切换到当前工作区内已经存在的子目录。仅在用户明确要求“进入/切换到该文件夹”时使用；先用文件工具或 execute_shell 创建目录，再调用本工具进入它。只能使用当前工作区内的路径，不能猜测或跳出工作区。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', minLength: 1, description: '相对当前工作区的已存在目录，例如 文件夹3' }
+        },
+        required: ['path']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'todo_write',
       description: '定义任务目标、验收条件并创建或更新执行计划（计划会实时展示给用户）。非简单任务开始前调用；后续每次传完整状态。任务是否完成由 acceptance_criteria 及其 evidence 决定，不由 todo 数量决定。',
       parameters: {
@@ -40,11 +134,11 @@ const BUILT_IN_TOOLS = [
           },
           todos: {
             type: 'array',
-            description: '完整的任务清单',
+            description: '完整的任务清单；同一时间最多一项为 in_progress，文本不得为空或重复',
             items: {
               type: 'object',
               properties: {
-                text: { type: 'string', description: '任务描述（简短）' },
+                text: { type: 'string', minLength: 1, description: '任务描述（简短且唯一）' },
                 status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: '任务状态' }
               },
               required: ['text', 'status']
@@ -115,7 +209,7 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'write_file',
-      description: '将内容写入文件（不存在则创建，存在则整体覆盖，自动创建目录）。仅用于新建文件或彻底重写；修改已有文件请用 edit_file 或 apply_patch。写入后会自动回读校验。',
+      description: '将内容写入文件（不存在则创建，存在则整体覆盖，自动创建目录）。仅用于新建文件或彻底重写；修改已有文件请用 edit_file 或 apply_patch。写入后会自动回读校验。普通网页验收不要新建 Playwright/Puppeteer 临时脚本。',
       parameters: {
         type: 'object',
         properties: {
@@ -144,7 +238,7 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'execute_shell',
-      description: '执行 Shell 命令并返回输出。可用于运行脚本、安装依赖、编译代码等。',
+      description: '执行 Shell 命令并返回输出。可用于运行脚本、安装依赖、编译代码等。普通网页/小游戏验收只做语法或构建检查，随后使用 open_builtin_browser；不要从 Shell 启动外部浏览器或 Playwright。',
       parameters: {
         type: 'object',
         properties: {
@@ -463,7 +557,7 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'list_skills',
-      description: '列出可用 Skill 目录（已安装 + 市场）。任务开始前若不确定用哪个 skill，可先调用此工具按关键词筛选。',
+      description: '仅列出当前已安装的 Skill。任务开始前若不确定用哪个 Skill，可先调用此工具按关键词筛选。',
       parameters: {
         type: 'object',
         properties: {
@@ -478,7 +572,7 @@ const BUILT_IN_TOOLS = [
     type: 'function',
     function: {
       name: 'read_skill',
-      description: '加载 Skill 的完整 playbook 并遵循其步骤执行。若未安装，会从内置 Skill 目录（lib/skills/market.json）自动安装后再返回。网站/UI/审查/文档类任务应优先调用相关 skill。',
+      description: '加载已安装 Skill 的完整 playbook 并遵循其步骤执行。未安装时不会自动安装，应提示用户先到 Skill 市场安装。网站/UI/审查/文档类任务应优先调用相关 Skill。',
       parameters: {
         type: 'object',
         properties: {
@@ -559,8 +653,100 @@ const BUILT_IN_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'browser_snapshot',
+      description: '读取 Yan 内置浏览器当前页面的可访问性快照。返回可交互元素及其临时引用（如 e1、e2）；点击、输入或选择前必须先调用，页面变化后必须重新调用，不能猜测引用。仅操作已经由 open_builtin_browser 打开的当前页面。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_read_page',
+      description: '读取 Yan 内置浏览器当前页面的 URL、标题和可见文本。适合确认加载结果或提取少量页面信息；要操作控件请先调用 browser_snapshot。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_click',
+      description: '点击 browser_snapshot 返回的一个元素引用。页面发生导航、弹窗或动态渲染后，旧引用立即失效，下一步必须重新 snapshot。',
+      parameters: {
+        type: 'object',
+        properties: { ref: { type: 'string', pattern: '^e\\d+$', description: 'browser_snapshot 返回的元素引用，例如 e3' } },
+        required: ['ref']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_type',
+      description: '向 browser_snapshot 返回的输入框或可编辑元素填入文本，会替换该控件的现有内容。提交前通常再调用 browser_press（如 Enter）或 browser_click。',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string', pattern: '^e\\d+$', description: '输入元素引用' },
+          text: { type: 'string', minLength: 1, maxLength: 12000, description: '完整输入文本' }
+        },
+        required: ['ref', 'text']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_press',
+      description: '向内置浏览器当前焦点发送按键，例如 Enter、Tab、Escape、ArrowDown、Ctrl+A。优先用于当前页面内的键盘交互，不控制 Windows 或其他应用。',
+      parameters: {
+        type: 'object',
+        properties: { key: { type: 'string', minLength: 1, maxLength: 32, description: '按键名称，例如 Enter 或 Ctrl+A' } },
+        required: ['key']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_scroll',
+      description: '滚动 Yan 内置浏览器当前页面。滚动后页面可交互元素可能改变，需要重新调用 browser_snapshot。',
+      parameters: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: '滚动方向' },
+          amount: { type: 'number', minimum: 80, maximum: 2400, description: '滚动距离，默认 640 像素' }
+        },
+        required: ['direction']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_wait',
+      description: '等待内置浏览器页面完成异步变化。可选 text 用于等待页面出现指定文字；不要连续无意义等待。',
+      parameters: {
+        type: 'object',
+        properties: {
+          ms: { type: 'number', minimum: 100, maximum: 10000, description: '最长等待时间，默认 500 毫秒' },
+          text: { type: 'string', maxLength: 300, description: '可选，等待页面出现的文字' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_screenshot',
+      description: '截取 Yan 内置浏览器当前页面，并把最新截图仅发送给支持视觉输入的当前模型，用于视觉验收或控件无法从页面语义判断时。不要连续截图；页面变化后最多再截一次。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'open_builtin_browser',
-      description: '打开 Yan Agent 内置浏览器面板并导航到 URL 或本地 HTML 文件，供用户预览。写完 HTML/网页/Canvas 游戏等前端页面后，必须调用此工具在内置浏览器中打开验证；不要只用 read_file 代替视觉测试。支持 https URL 或文件路径（相对工作区或绝对路径，如 snake.html）。',
+      description: '打开 Yan Agent 内置浏览器面板并导航到真实 URL 或本地 HTML 文件，供用户预览和操作。写完 HTML、网页或 Canvas 游戏后，必须优先调用此工具；加载后用 browser_snapshot、browser_click、browser_type、browser_press 或 browser_screenshot 在同一个可见页面完成验收。不要启动外部浏览器或另写 Playwright 脚本。支持 https URL 或文件路径（相对工作区或绝对路径，如 snake.html）。',
       parameters: {
         type: 'object',
         properties: {
@@ -572,13 +758,25 @@ const BUILT_IN_TOOLS = [
   }
 ];
 
-// Dynamic TOOLS: built-in + MCP tools (refreshed at the start of each agent run)
-let TOOLS = [...BUILT_IN_TOOLS];
-// Map: full tool name -> { serverId, toolName } for MCP tool routing
+// Stable model-facing core. Optional native tools and MCP schemas stay hidden
+// behind search_capabilities/use_capability so the request prefix remains small.
+const CORE_TOOL_NAMES = new Set([
+  'search_capabilities', 'use_capability', 'request_workspace', 'change_workspace', 'todo_write',
+  'read_file', 'edit_file', 'apply_patch', 'write_file',
+  'list_directory', 'execute_shell', 'search_files',
+  'get_file_outline', 'find_symbol', 'read_file_range',
+  'open_builtin_browser', 'browser_snapshot', 'browser_read_page',
+  'browser_click', 'browser_type', 'browser_press', 'browser_scroll',
+  'browser_wait', 'browser_screenshot'
+]);
+
+// Map: full tool name -> route + hidden definition for MCP dispatch/search.
 const mcpToolMap = new Map();
 let mcpToolsRefreshPromise = null;
+const BLOCKED_WINDOWS_MCP_TOOLS = new Set(['powershell', 'registry']);
 
-// 加载所有已启用的 MCP 服务器工具，合并进 TOOLS
+// Load enabled MCP tools into the hidden catalog. Their individual schemas are
+// deliberately never appended to the model-facing tool list.
 async function refreshMcpTools() {
   if (mcpToolsRefreshPromise) return mcpToolsRefreshPromise;
   mcpToolsRefreshPromise = (async () => {
@@ -587,43 +785,68 @@ async function refreshMcpTools() {
     try {
       const mcpTools = await api().mcpListTools();
       if (!mcpTools || mcpTools.length === 0) {
-        TOOLS = [...BUILT_IN_TOOLS];
-        return;
+        return { loadedCount: 0, errors };
       }
-      const mcpToolDefs = [];
       for (const t of mcpTools) {
         if (t.error) {
-          errors.push(`${t.serverName}: ${t.error}`);
+          errors.push({
+            serverId: String(t.serverId || ''),
+            serverName: String(t.serverName || t.serverId || 'MCP'),
+            error: String(t.error)
+          });
           continue;
         }
         if (!t.tool) continue;
+        const isWindowsMcp = /windows/i.test(`${t.serverId} ${t.serverName}`);
+        const normalizedToolName = String(t.tool.name || '').toLowerCase();
+        if (isWindowsMcp && BLOCKED_WINDOWS_MCP_TOOLS.has(normalizedToolName)) continue;
         const fullName = `mcp__${t.serverId}__${t.tool.name}`;
-        mcpToolMap.set(fullName, { serverId: t.serverId, toolName: t.tool.name });
         const browserPolicy = /playwright/i.test(`${t.serverId} ${t.tool.name}`)
           ? '[仅用于自动化交互；必须先成功调用 open_builtin_browser，禁止作为内置预览失败后的外部浏览器兜底] '
           : '';
-        mcpToolDefs.push({
+        const windowsPolicy = isWindowsMcp && normalizedToolName === 'shortcut'
+          ? '[仅允许应用内快捷键；Win/Windows/Meta/Super/Cmd 键已禁用] '
+          : '';
+        const toolDescription = isWindowsMcp && normalizedToolName === 'shortcut'
+          ? '在当前目标应用内执行组合键，例如 Ctrl+C、Ctrl+V、Tab 或 Escape。'
+          : (t.tool.description || t.tool.name);
+        const definition = {
           type: 'function',
           function: {
             name: fullName,
-            description: `${browserPolicy}[MCP:${t.serverName}] ${t.tool.description || t.tool.name}`,
+            description: `${browserPolicy}${windowsPolicy}[MCP:${t.serverName}] ${toolDescription}`,
             parameters: t.tool.inputSchema || { type: 'object', properties: {} }
           }
+        };
+        mcpToolMap.set(fullName, {
+          serverId: t.serverId,
+          serverName: t.serverName,
+          toolName: t.tool.name,
+          fullName,
+          definition,
+          description: definition.function.description,
+          inputSchema: definition.function.parameters,
+          isWindowsMcp,
+          isPlaywright: /playwright/i.test(`${t.serverId} ${t.tool.name}`)
         });
       }
-      TOOLS = [...BUILT_IN_TOOLS, ...mcpToolDefs];
-      console.log(`[MCP] 已加载 ${mcpToolDefs.length} 个 MCP 工具${errors.length ? '，' + errors.length + ' 个服务器失败' : ''}`);
+      console.log(`[MCP] 已索引 ${mcpToolMap.size} 个隐藏工具${errors.length ? '，' + errors.length + ' 个服务器失败' : ''}`);
       if (errors.length > 0) {
-        deps().toast('MCP 启动失败: ' + errors[0] + (errors.length > 1 ? ` 等 ${errors.length} 个` : ''));
+        const first = errors[0];
+        deps().toast('MCP 启动失败: ' + `${first.serverName}: ${first.error}` + (errors.length > 1 ? ` 等 ${errors.length} 个` : ''));
       }
+      return { loadedCount: mcpToolMap.size, errors };
     } catch (e) {
       console.log('[MCP] 加载工具失败:', e.message);
-      TOOLS = [...BUILT_IN_TOOLS];
       deps().toast('MCP 加载失败: ' + e.message);
+      return {
+        loadedCount: 0,
+        errors: [{ serverId: '', serverName: 'MCP', error: String(e?.message || e || '未知错误') }]
+      };
     }
   })();
   try {
-    await mcpToolsRefreshPromise;
+    return await mcpToolsRefreshPromise;
   } finally {
     mcpToolsRefreshPromise = null;
   }
@@ -631,16 +854,32 @@ async function refreshMcpTools() {
 
 function snapshotTools() {
   const imageGenerationAvailable = !!deps().getConfig?.()?.imageGeneration?.available;
-  return TOOLS.filter(tool => tool.function?.name !== 'generate_image' || imageGenerationAvailable);
+  return BUILT_IN_TOOLS.filter(tool => {
+    const name = tool.function?.name;
+    if (!CORE_TOOL_NAMES.has(name)) return false;
+    return name !== 'generate_image' || imageGenerationAvailable;
+  });
+}
+
+function snapshotAllNativeTools() {
+  const imageGenerationAvailable = !!deps().getConfig?.()?.imageGeneration?.available;
+  return BUILT_IN_TOOLS.filter(tool => (
+    tool.function?.name !== 'generate_image' || imageGenerationAvailable
+  ));
 }
 const TOOL_ICONS = {
+  search_capabilities: '🔎', use_capability: '🧰',
+  request_capability: '🧠',
+  request_workspace: '📁', change_workspace: '📂',
   todo_write: '📋', read_file: '📄', edit_file: '🪄', apply_patch: '🧩', write_file: '✏️',
   list_directory: '📁', execute_shell: '⚡', search_files: '🔍',
   get_file_outline: '📑', find_symbol: '🔗',
   read_file_range: '📖', get_file_imports: '🔀', find_references: '↩️',
   find_related_files: '🕸️', search_symbols: '🔎', build_code_index: '🗂️',
   scan_project: '🗺️', trace_symbol: '🧵',
-  open_builtin_browser: '🌐', generate_image: '🖼️',
+  open_builtin_browser: '🌐', browser_snapshot: '🔎', browser_read_page: '📄',
+  browser_click: '🖱️', browser_type: '⌨️', browser_press: '⌨️', browser_scroll: '↕️',
+  browser_wait: '⏳', browser_screenshot: '📷', generate_image: '🖼️',
   git_status: '📊', git_diff: '📋', git_log: '📝', git_commit: '✅',
   git_push: '⬆️', git_pull: '⬇️', git_clone: '📦', git_branch: '🌿',
   spawn_subagent: '🧭', spawn_subagents: '🧭',
@@ -649,9 +888,11 @@ const TOOL_ICONS = {
 };
 
   K.BUILT_IN_TOOLS = BUILT_IN_TOOLS;
+  K.CORE_TOOL_NAMES = CORE_TOOL_NAMES;
   K.TOOL_ICONS = TOOL_ICONS;
   K.refreshMcpTools = refreshMcpTools;
   K.snapshotTools = snapshotTools;
+  K.snapshotAllNativeTools = snapshotAllNativeTools;
   K.getMcpToolMap = () => mcpToolMap;
 
 })(window.YanKernel);

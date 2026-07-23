@@ -5,11 +5,16 @@ dist/
 Thumbs.db
 .env
 .env.*
+!.env.example
 .workbuddy/
 scripts/test-output.txt
-scripts/
+/scripts/
 .playwright-cli/
+.playwright-mcp/
+.reasonix/
 .yanagent/
 .agents/
 backup/
 output/
+/example-com-*.png
+/switch-page-test.png

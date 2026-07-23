@@ -3,6 +3,7 @@
   'use strict';
 
   const PARALLEL_READ_TOOLS = new Set([
+    'search_capabilities',
     'read_file', 'list_directory', 'search_files', 'get_file_outline',
     'find_symbol', 'read_file_range', 'get_file_imports', 'find_references',
     'find_related_files', 'search_symbols', 'git_status', 'git_diff', 'git_log',

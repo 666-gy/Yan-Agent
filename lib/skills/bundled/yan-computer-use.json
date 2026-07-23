@@ -1,0 +1,19 @@
+{
+  "id": "yan-computer-use",
+  "name": "Yan Computer Use",
+  "desc": "可靠控制 Windows 应用：选择窗口、观察界面、单步操作、复查结果并执行安全确认",
+  "tags": [],
+  "triggers": [
+    "computer use",
+    "computer-use",
+    "操作电脑",
+    "操作 Windows",
+    "控制桌面",
+    "点击软件",
+    "打开软件",
+    "桌面自动化"
+  ],
+  "source": "Yan Agent",
+  "version": 1,
+  "promptFile": "../yan-computer-use/SKILL.md"
+}

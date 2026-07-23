@@ -1,0 +1,48 @@
+/* Yan Agent capability workbench tokens */
+:root {
+  --color-paper: var(--bg);
+  --color-paper-raised: var(--bg-elev);
+  --color-paper-muted: var(--bg-elev2);
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-dim);
+  --color-ink-faint: var(--text-faint);
+  --color-rule: var(--border-soft);
+  --color-rule-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-soft);
+  --color-accent-ink: var(--bg-elev);
+  --color-focus: var(--accent);
+  --color-success: var(--success);
+  --color-error: var(--danger);
+  --color-backdrop: rgb(12 10 9 / 0.46);
+
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-code: var(--font-mono);
+
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 40px;
+
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 180ms;
+  --dur-panel: 280ms;
+
+  --rule-thin: 1px;
+  --radius-control: var(--r-md);
+  --radius-surface: var(--r-lg);
+}

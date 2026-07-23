@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Yan Agent v1.3.1 — 面向真实工作区的桌面端自主 Agent，连接 Yan Project Map 与 Yanxi Code。" />
-  <title>Yan Agent v1.3.1 · 面向真实工作区的自主 Agent</title>
+  <meta name="description" content="Yan Agent v1.3.2 — 面向真实工作区的桌面端自主 Agent，连接 Yan Project Map 与 Yanxi Code。" />
+  <title>Yan Agent v1.3.2 · 面向真实工作区的自主 Agent</title>
   <link rel="icon" href="assets/logo-light.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -614,7 +614,7 @@
     <div class="wrap nav-inner">
       <a class="brand" href="#">
         <img class="brand-logo" src="assets/logo-light.png" alt="" width="30" height="30" />
-        Yan Agent <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">v1.3.1</span>
+        Yan Agent <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">v1.3.2</span>
       </a>
       <div class="nav-links">
         <a href="#ecosystem">生态</a>
@@ -630,14 +630,14 @@
       <div class="hero-logo-wrap">
         <img class="hero-logo" src="assets/logo-light.png" alt="Yan Agent" width="96" height="96" />
       </div>
-      <div class="badge">v1.3.1 · Yan Project Map · Yanxi Code · 多模态</div>
+      <div class="badge">v1.3.2 · Yan Project Map · Yanxi Code · 多模态</div>
       <h1>不只是聊天<br /><em>让想法真正落地</em></h1>
       <p class="hero-lead">
         Yan Agent 在 Windows 工作区里读写代码、执行命令、操作浏览器并验证结果。你只需要描述目标，Agent 会把计划、工具调用和最终文件变更串成一条可检查的交付链路。
       </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/download/v1.3.1/Yan.Agent.Setup.1.3.1.exe">下载安装版</a>
-        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.1">前往 v1.3.1 Release</a>
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe">下载安装版</a>
+        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2">前往 v1.3.2 Release</a>
         <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">查看源码</a>
       </div>
     </div>
@@ -674,14 +674,18 @@
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Changelog</span>
-        <h2>v1.3.1 更新公告</h2>
-        <p>UI 优化、状态修复、模型扩展和 Yan Computer Use 插件在本次快速更新中完成</p>
+        <h2>v1.3.2 更新公告</h2>
+        <p>这次更新把重点放在真实任务的可靠执行、动态工具选择和更清楚的权限反馈上</p>
       </div>
       <div class="changelog">
-        <div class="changelog-meta"><span class="version-tag">v1.3.1</span><span class="changelog-date">2026-07-20</span></div>
+        <div class="changelog-meta"><span class="version-tag">v1.3.2</span><span class="changelog-date">2026-07-23</span></div>
         <h3>这次更新，不只是换了一个版本号</h3>
         <ul>
-          <li><strong>v1.3.1 快速更新</strong> — 优化核心页面 UI，修复模型异常时任务状态和通知不同步的问题，扩展模型配置，并加入新的 Yan Computer Use 插件。</li>
+          <li><strong>更稳的任务内核</strong> — 流读取失败、空响应、MCP 启动失败和工具异常都会进入对话错误，不再让任务停了却继续显示“正在工作”。上下文压缩、长任务上限和重复错误熔断也会在后台保护运行。</li>
+          <li><strong>动态能力调用</strong> — Agent 会先判断任务是否真的需要 Git、MCP、Skill、浏览器或电脑控制，再按需加载能力。网页和小游戏验收优先使用内置浏览器，减少无关脚本和工具调用。</li>
+          <li><strong>Skill 与工作区</strong> — 输入框支持选择多个已安装 Skill；每个任务拥有独立工作区和终端目录，进入新建子文件夹后会同步切换工作区，新建空任务也不会继承上一个任务的目录。</li>
+          <li><strong>权限访问</strong> — 新增“请求批准”“替我审批”“完全访问”三档策略。完全访问支持必要的绝对路径，但开启前必须确认，文件、网络和高风险系统命令仍受安全边界约束。</li>
+          <li><strong>Computer Use 反馈</strong> — 电脑操作增加调用提示、蓝色氛围边框和专用导航光标，工具执行、对话、桌宠和中止状态会同步变化，让每一步都可见。</li>
           <li><strong>Yan Project Map</strong> — 把目录、文件、符号和依赖边变成可以缩放和探索的地图。你可以先看全局结构，再沿着入口节点定位到需要修改的模块。</li>
           <li><strong>Yanxi Code 双向协同</strong> — Yan Agent 会检测已安装的 IDE，并以带回执的协议交接工作区。Yanxi Code 无论冷启动还是已经运行，都会刷新到当前工作区，而不是停在欢迎页。</li>
           <li><strong>内置终端与浏览器</strong> — 命令执行、网页预览和结果验证都留在任务上下文旁边。Agent 可以边读代码边运行真实检查，把“应该可以”变成可复核的证据。</li>
@@ -704,16 +708,16 @@
       </div>
       <div class="download-grid">
         <div class="dl-card recommended">
-          <div class="dl-badge">推荐 · v1.3.1</div>
+          <div class="dl-badge">推荐 · v1.3.2</div>
           <h3>安装版</h3>
           <p>NSIS 安装包会创建快捷方式并接入桌面环境。适合把 Yan Agent 作为日常开发工具使用。</p>
-          <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/download/v1.3.1/Yan.Agent.Setup.1.3.1.exe">Yan.Agent.Setup.1.3.1.exe</a>
+          <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe">Yan.Agent.Setup.1.3.2.exe</a>
         </div>
         <div class="dl-card">
-          <div class="dl-badge">PORTABLE · v1.3.1</div>
+          <div class="dl-badge">PORTABLE · v1.3.2</div>
           <h3>便携版</h3>
           <p>不需要安装，双击即可运行。适合临时项目、移动硬盘或不想修改系统环境的场景。</p>
-          <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.1">前往 v1.3.1 Release</a>
+          <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2">前往 v1.3.2 Release</a>
         </div>
       </div>
       <p class="dl-note"><a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">查看全部 Releases</a></p>
@@ -815,7 +819,7 @@
         <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">中文文档</a>
         <a href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">English README</a>
       </div>
-      <p class="credit">MIT License · Built with Electron · Yan Agent v1.3.1</p>
+      <p class="credit">MIT License · Built with Electron · Yan Agent v1.3.2</p>
     </div>
   </footer>
 
