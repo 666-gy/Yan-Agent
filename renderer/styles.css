@@ -8521,3 +8521,93 @@ html[data-sidebar-transition="right-open"]::view-transition-new(right-resize-han
   opacity: .8;
 }
 .provider-item.provider-add:hover { opacity: 1; }
+
+/* Quick model switcher: provider groups + search */
+.mq-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 5px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-faint);
+}
+.mq-search:focus-within { border-color: var(--accent); color: var(--accent); }
+.mq-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.mq-search input::placeholder { color: var(--text-faint); }
+.mq-group-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  transition: background var(--fast) var(--ease);
+}
+.mq-group-head:hover { background: var(--bg-hover); }
+.mq-group-head .mq-arrow {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  opacity: .5;
+  transition: transform var(--fast) var(--ease);
+}
+.mq-group.open .mq-group-head .mq-arrow { transform: rotate(90deg); }
+.mq-gname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mq-count {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+}
+.mq-items { display: none; padding: 2px 0 4px; }
+.mq-group.open .mq-items { display: block; }
+
+/* Item layout override: no icon column, name + provider tag + check */
+.mq-item {
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  gap: 8px;
+  padding: 6px 10px 6px 24px;
+}
+#modelQuickList > .mq-item { padding-left: 10px; }
+.mq-ptag {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-faint);
+  border: 1px solid var(--border-soft);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+}
+.mq-item .model-quick-check { justify-self: end; }
+.mq-item mark {
+  background: none;
+  color: var(--accent);
+  font-weight: 700;
+}

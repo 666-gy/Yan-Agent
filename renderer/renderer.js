@@ -9578,23 +9578,102 @@ function setMediaModelMenuOpen(open) {
   }
 }
 
-function renderQuickModels(payload = {}) {
+let quickModelsCache = null;
+const QUICK_GROUP_STATE_KEY = 'yan-quick-model-group-states';
+
+function getQuickGroupStates() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(QUICK_GROUP_STATE_KEY) || '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function setQuickGroupState(providerId, open) {
+  const states = getQuickGroupStates();
+  states[providerId] = !!open;
+  try { localStorage.setItem(QUICK_GROUP_STATE_KEY, JSON.stringify(states)); } catch {}
+}
+
+function renderQuickModels(payload = null) {
   const list = $('#modelQuickList');
   if (!list) return;
-  const models = (Array.isArray(payload.models) ? payload.models : [])
+  if (payload && Array.isArray(payload.models)) quickModelsCache = payload;
+  const models = ((quickModelsCache && quickModelsCache.models) || [])
     .filter(model => model.modelType === 'text');
   if (!models.length) {
     list.innerHTML = '<div class="model-quick-empty">当前没有已配置的文本模型。</div>';
     return;
   }
 
-  list.innerHTML = models.map(model => {
-    return `<button class="model-quick-item ${model.selected ? 'is-selected' : ''}" type="button"
-        data-provider="${escapeHtml(model.providerId)}" data-model="${escapeHtml(model.id)}">
-        <span class="model-quick-name">${escapeHtml(model.name)}</span>
+  const query = String($('#modelQuickSearch')?.value || '').trim().toLowerCase();
+  const activeProvider = state.config?.agentModel?.providerId || state.config?.api?.provider || '';
+  const activeModel = state.config?.agentModel?.modelId || state.config?.api?.model || '';
+
+  const highlight = (text) => {
+    const raw = String(text);
+    if (!query) return escapeHtml(raw);
+    const idx = raw.toLowerCase().indexOf(query);
+    if (idx < 0) return escapeHtml(raw);
+    return escapeHtml(raw.slice(0, idx)) + '<mark>' + escapeHtml(raw.slice(idx, idx + query.length)) + '</mark>' + escapeHtml(raw.slice(idx + query.length));
+  };
+  const itemHtml = (model) => {
+    const selected = model.providerId === activeProvider && model.id === activeModel;
+    return `<button class="model-quick-item mq-item ${selected ? 'is-selected' : ''}" type="button"
+        data-provider="${escapeAttr(model.providerId)}" data-model="${escapeAttr(model.id)}">
+        <span class="model-quick-name">${highlight(model.name || model.id)}</span>
+        <span class="mq-ptag" title="${escapeAttr(model.providerName || model.providerId)}">${escapeHtml(model.providerName || model.providerId)}</span>
         <svg class="model-quick-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
       </button>`;
-  }).join('');
+  };
+
+  if (query) {
+    const matched = models.filter(model =>
+      String(model.name || model.id).toLowerCase().includes(query)
+      || String(model.id).toLowerCase().includes(query)
+      || String(model.providerName || model.providerId).toLowerCase().includes(query));
+    list.innerHTML = matched.length
+      ? matched.map(itemHtml).join('')
+      : '<div class="model-quick-empty">没有匹配的模型。</div>';
+  } else {
+    const states = getQuickGroupStates();
+    const groups = [];
+    const byProvider = new Map();
+    for (const model of models) {
+      let group = byProvider.get(model.providerId);
+      if (!group) {
+        group = { providerId: model.providerId, providerName: model.providerName || model.providerId, models: [] };
+        byProvider.set(model.providerId, group);
+        groups.push(group);
+      }
+      group.models.push(model);
+    }
+    list.innerHTML = groups.map(group => {
+      const open = Object.prototype.hasOwnProperty.call(states, group.providerId)
+        ? states[group.providerId]
+        : group.providerId === activeProvider;
+      return `<div class="mq-group ${open ? 'open' : ''}" data-provider="${escapeAttr(group.providerId)}">
+        <button class="mq-group-head" type="button" aria-expanded="${open}">
+          <svg class="mq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+          <span class="mq-gname">${escapeHtml(group.providerName)}</span>
+          <span class="mq-count">${group.models.length}</span>
+        </button>
+        <div class="mq-items">${group.models.map(itemHtml).join('')}</div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.mq-group-head').forEach(head => {
+      head.addEventListener('click', () => {
+        const group = head.closest('.mq-group');
+        const nowOpen = !group.classList.contains('open');
+        group.classList.toggle('open', nowOpen);
+        head.setAttribute('aria-expanded', String(nowOpen));
+        setQuickGroupState(group.dataset.provider, nowOpen);
+      });
+    });
+    const selectedEl = list.querySelector('.mq-item.is-selected');
+    if (selectedEl) selectedEl.scrollIntoView({ block: 'center' });
+  }
 
   list.querySelectorAll('.model-quick-item').forEach(button => {
     button.addEventListener('click', async () => {
@@ -9618,10 +9697,14 @@ function renderQuickModels(payload = {}) {
   });
 }
 
+$('#modelQuickSearch')?.addEventListener('input', () => renderQuickModels());
+
 async function refreshQuickModels() {
   const menu = $('#modelQuickMenu');
   const list = $('#modelQuickList');
   if (!menu || !list) return;
+  const searchInput = $('#modelQuickSearch');
+  if (searchInput) searchInput.value = '';
   const sequence = ++modelQuickRefreshSequence;
   menu.setAttribute('aria-busy', 'true');
   list.innerHTML = '<div class="model-quick-empty">正在读取模型…</div>';
