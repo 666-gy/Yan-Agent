@@ -8749,3 +8749,45 @@ html[data-sidebar-transition="right-open"]::view-transition-new(right-resize-han
 }
 .mmgr-empty { padding: 24px; text-align: center; color: var(--text-faint); font-size: 12px; }
 
+/* Inline sub-views into the menu card (was: right-side flyout, overflows on narrow windows) */
+#modelQuickModelsView,
+#modelQuickReasoningView {
+  position: static;
+  left: auto;
+  bottom: auto;
+  width: auto;
+  height: auto;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  transform-origin: initial;
+}
+.model-quick-menu[data-child="models"],
+.model-quick-menu[data-child="reasoning"] {
+  width: min(280px, calc(100vw - 24px));
+  overflow: hidden;
+}
+.model-quick-menu[data-child="models"] #modelQuickModelsView,
+.model-quick-menu[data-child="reasoning"] #modelQuickReasoningView {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-soft);
+}
+#modelQuickModelsView .model-quick-list {
+  max-height: min(300px, calc(100vh - 260px));
+}
+
+/* Item layout: restore 3-column grid + group indentation (ID-level specificity
+   to beat the legacy flyout rules above) */
+#modelQuickModelsView .mq-item {
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  gap: 8px;
+  padding: 6px 10px 6px 24px;
+}
+#modelQuickList > .mq-item { padding-left: 10px; }
+
