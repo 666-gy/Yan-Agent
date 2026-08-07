@@ -317,9 +317,9 @@
                         <input id="modelQuickSearch" type="text" placeholder="搜索模型或厂商…" autocomplete="off" />
                       </div>
                       <div id="modelQuickList" class="model-quick-list"></div>
-                      <button id="manageModelsBtn" class="model-quick-manage" type="button" hidden>
+                      <button id="manageModelsBtn" class="model-quick-manage" type="button">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.38.26.61.68.6 1.14V13.6h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>
-                        <span>管理模型与 API</span>
+                        <span>管理模型</span>
                       </button>
                     </div>
                     <div id="modelQuickReasoningView" class="model-quick-view hidden">
@@ -1448,6 +1448,21 @@
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
   <script src="terminal/index.js"></script>
+      <div id="modelManagerMask" class="mmgr-mask hidden"></div>
+      <aside id="modelManager" class="mmgr hidden" role="dialog" aria-label="模型管理">
+        <div class="mmgr-head">
+          <h3>模型管理</h3>
+          <button id="modelManagerClose" class="mmgr-close" type="button" aria-label="关闭">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="mq-search mmgr-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+          <input id="modelManagerSearch" type="text" placeholder="搜索模型" autocomplete="off" />
+        </div>
+        <div id="modelManagerList" class="mmgr-list"></div>
+        <div id="modelManagerFoot" class="mmgr-foot"></div>
+      </aside>
   <script src="browser-agent.js"></script>
   <script src="skill-market.js"></script>
   <script src="renderer.js"></script>

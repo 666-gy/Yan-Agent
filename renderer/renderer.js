@@ -9600,8 +9600,12 @@ function renderQuickModels(payload = null) {
   const list = $('#modelQuickList');
   if (!list) return;
   if (payload && Array.isArray(payload.models)) quickModelsCache = payload;
+  const disabledMap = state.config?.disabledModels || {};
+  const isModelEnabled = (providerId, modelId) =>
+    !Array.isArray(disabledMap[providerId]) || !disabledMap[providerId].includes(modelId);
   const models = ((quickModelsCache && quickModelsCache.models) || [])
-    .filter(model => model.modelType === 'text');
+    .filter(model => model.modelType === 'text')
+    .filter(model => isModelEnabled(model.providerId, model.id));
   if (!models.length) {
     list.innerHTML = '<div class="model-quick-empty">当前没有已配置的文本模型。</div>';
     return;
@@ -9698,6 +9702,155 @@ function renderQuickModels(payload = null) {
 }
 
 $('#modelQuickSearch')?.addEventListener('input', () => renderQuickModels());
+
+// ---------------------------------------------------------------------------
+// Model manager panel: per-model enable switches, stored in config.disabledModels
+const modelManagerFold = {};
+let modelManagerWired = false;
+
+function getDisabledMap() { return state.config?.disabledModels || {}; }
+function isModelEnabledGlobal(providerId, modelId) {
+  const list = getDisabledMap()[providerId];
+  return !Array.isArray(list) || !list.includes(modelId);
+}
+
+async function persistProviderDisabled(providerId, modelIds) {
+  const result = await api.setConfig({ disabledModels: { [providerId]: modelIds } });
+  if (result) state.config = result;
+}
+
+function renderModelManager() {
+  const list = $('#modelManagerList');
+  if (!list) return;
+  const query = String($('#modelManagerSearch')?.value || '').trim().toLowerCase();
+  const all = ((quickModelsCache && quickModelsCache.models) || [])
+    .filter(model => model.modelType === 'text');
+  const groups = [];
+  const byProvider = new Map();
+  for (const model of all) {
+    let group = byProvider.get(model.providerId);
+    if (!group) {
+      group = { providerId: model.providerId, providerName: model.providerName || model.providerId, models: [] };
+      byProvider.set(model.providerId, group);
+      groups.push(group);
+    }
+    group.models.push(model);
+  }
+  const activeProvider = state.config?.agentModel?.providerId || state.config?.api?.provider || '';
+  const hl = (text) => {
+    const raw = String(text);
+    if (!query) return escapeHtml(raw);
+    const idx = raw.toLowerCase().indexOf(query);
+    if (idx < 0) return escapeHtml(raw);
+    return escapeHtml(raw.slice(0, idx)) + '<mark>' + escapeHtml(raw.slice(idx, idx + query.length)) + '</mark>' + escapeHtml(raw.slice(idx + query.length));
+  };
+  let total = 0;
+  let enabledTotal = 0;
+  list.innerHTML = groups.map(group => {
+    const enabled = group.models.filter(m => isModelEnabledGlobal(group.providerId, m.id)).length;
+    total += group.models.length;
+    enabledTotal += enabled;
+    const shown = query
+      ? group.models.filter(m => String(m.name || m.id).toLowerCase().includes(query) || String(m.id).toLowerCase().includes(query))
+      : group.models;
+    if (query && !shown.length && !group.providerName.toLowerCase().includes(query)) return '';
+    const open = query ? true
+      : (Object.prototype.hasOwnProperty.call(modelManagerFold, group.providerId)
+          ? modelManagerFold[group.providerId]
+          : group.providerId === activeProvider);
+    const tri = enabled === group.models.length ? 'all' : enabled > 0 ? 'some' : '';
+    const triMark = tri === 'all' ? '\u2713' : tri === 'some' ? '\u2212' : '';
+    return `<div class="mmgr-group ${open ? 'open' : ''}" data-provider="${escapeAttr(group.providerId)}">
+      <div class="mmgr-group-head" data-provider="${escapeAttr(group.providerId)}">
+        <svg class="mq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+        <span class="mmgr-gname">${escapeHtml(group.providerName)}</span>
+        <button class="mmgr-tri ${tri}" type="button" data-provider="${escapeAttr(group.providerId)}" title="整组启用/停用">${triMark}</button>
+        <span class="mq-count">${enabled}/${group.models.length}</span>
+      </div>
+      <div class="mmgr-rows">${shown.map(model => {
+        const on = isModelEnabledGlobal(group.providerId, model.id);
+        return `<div class="mmgr-row ${on ? '' : 'off'}">
+          <span class="mname">${hl(model.name || model.id)}</span>
+          <button class="mmgr-sw ${on ? 'on' : ''}" type="button" data-provider="${escapeAttr(group.providerId)}" data-model="${escapeAttr(model.id)}" title="${on ? '停用' : '启用'}"></button>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+  }).join('') || '<div class="mmgr-empty">没有匹配的模型</div>';
+  const foot = $('#modelManagerFoot');
+  if (foot) foot.textContent = `已启用 ${enabledTotal} / ${total} 个模型，快捷切换器只显示启用的`;
+}
+
+async function setModelEnabled(providerId, modelId, enabled) {
+  const current = Array.isArray(getDisabledMap()[providerId]) ? [...getDisabledMap()[providerId]] : [];
+  const next = enabled ? current.filter(id => id !== modelId) : [...new Set([...current, modelId])];
+  await persistProviderDisabled(providerId, next);
+}
+
+async function setProviderEnabled(providerId, enabled) {
+  const all = ((quickModelsCache && quickModelsCache.models) || [])
+    .filter(m => m.modelType === 'text' && m.providerId === providerId);
+  await persistProviderDisabled(providerId, enabled ? [] : all.map(m => m.id));
+}
+
+async function openModelManager() {
+  if (!quickModelsCache) {
+    try { quickModelsCache = await api.listQuickModels(); } catch { quickModelsCache = null; }
+  }
+  renderModelManager();
+  $('#modelManager')?.classList.remove('hidden');
+  $('#modelManagerMask')?.classList.remove('hidden');
+  $('#modelManagerSearch')?.focus();
+}
+
+function closeModelManager() {
+  $('#modelManager')?.classList.add('hidden');
+  $('#modelManagerMask')?.classList.add('hidden');
+  const search = $('#modelManagerSearch');
+  if (search) search.value = '';
+  if (!$('#modelQuickMenu')?.classList.contains('hidden')) renderQuickModels();
+}
+
+function wireModelManager() {
+  if (modelManagerWired) return;
+  modelManagerWired = true;
+  $('#manageModelsBtn')?.addEventListener('click', () => { void openModelManager(); });
+  $('#modelManagerClose')?.addEventListener('click', closeModelManager);
+  $('#modelManagerMask')?.addEventListener('click', closeModelManager);
+  $('#modelManagerSearch')?.addEventListener('input', renderModelManager);
+  $('#modelManagerList')?.addEventListener('click', async (event) => {
+    const sw = event.target.closest('.mmgr-sw');
+    if (sw) {
+      sw.disabled = true;
+      try {
+        await setModelEnabled(sw.dataset.provider, sw.dataset.model, !sw.classList.contains('on'));
+      } finally { sw.disabled = false; }
+      renderModelManager();
+      return;
+    }
+    const tri = event.target.closest('.mmgr-tri');
+    if (tri) {
+      event.stopPropagation();
+      tri.disabled = true;
+      try {
+        await setProviderEnabled(tri.dataset.provider, !tri.classList.contains('all'));
+      } finally { tri.disabled = false; }
+      renderModelManager();
+      return;
+    }
+    const head = event.target.closest('.mmgr-group-head');
+    if (head) {
+      const group = head.closest('.mmgr-group');
+      const nowOpen = !group.classList.contains('open');
+      group.classList.toggle('open', nowOpen);
+      modelManagerFold[head.dataset.provider] = nowOpen;
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('#modelManager')?.classList.contains('hidden')) closeModelManager();
+  });
+}
+wireModelManager();
+
 
 async function refreshQuickModels() {
   const menu = $('#modelQuickMenu');

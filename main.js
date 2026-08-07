@@ -3302,6 +3302,9 @@ ipcMain.handle('config:set', (_e, partial) => {
     startWorkspaceWatcher(merged.workspace);
   }
   saveConfig(merged);
+  if (partial && Object.prototype.hasOwnProperty.call(partial, 'disabledModels')) {
+    publishModelState(merged);
+  }
   if (partial?.remoteControl) {
     restartRemoteServer().catch((e) => console.error('[remote] restart failed:', e.message));
   }
