@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-image-to-code",
+  "name": "TasteSkill Image to Code",
+  "desc": "先生成并分析视觉参考，再将网页设计准确落地为代码",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-image-to-code/SKILL.md"
+}

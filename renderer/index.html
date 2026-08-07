@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.deepseek.com https://dashscope.aliyuncs.com https://open.bigmodel.cn https://ark.cn-beijing.volces.com https://api.moonshot.cn https://api.stepfun.com https://api.minimaxi.com https://*; frame-src https: http: file:;" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; media-src 'self' data: blob: https:; connect-src 'self' https://api.deepseek.com https://dashscope.aliyuncs.com https://open.bigmodel.cn https://ark.cn-beijing.volces.com https://api.moonshot.cn https://api.stepfun.com https://api.minimaxi.com https://*; frame-src https: http: file:;" />
   <title>Yan Agent</title>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="code-map/code-map.css" />
+  <link rel="stylesheet" href="understand-anything/understand-anything.css" />
   <link rel="stylesheet" href="vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="terminal/terminal.css" />
 </head>
@@ -20,14 +20,13 @@
         <button id="sidebarToggle" class="titlebar-sidebar-btn" title="切换侧边栏 (Ctrl+B)" aria-label="切换侧边栏" aria-controls="sidebar" aria-expanded="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="9.5" y1="3" x2="9.5" y2="21"/></svg>
         </button>
+        <div id="windowViewSwitcher" class="window-view-switcher" role="tablist" aria-label="Yan 工作区视图">
+          <button class="window-view-option active" type="button" role="tab" data-window-view="main" aria-selected="true">主界面</button>
+          <button class="window-view-option" type="button" role="tab" data-window-view="project-map" aria-selected="false">Understand Anything</button>
+          <button class="window-view-option" type="button" role="tab" data-window-view="work-gui" aria-selected="false">Yan Work GUI</button>
+        </div>
       </div>
       <div class="titlebar-right">
-        <button id="petWindowToggle" class="win-btn icon-btn" title="关闭桌宠" aria-label="关闭桌宠" aria-pressed="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="5"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/><path d="M9 16h6"/></svg>
-        </button>
-        <button id="themeToggle" class="win-btn icon-btn" title="切换主题" aria-label="切换主题">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        </button>
         <span class="win-sep"></span>
         <button id="winMin" class="win-btn" title="最小化" aria-label="最小化">
           <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="5.5" width="9" height="1" fill="currentColor"/></svg>
@@ -46,22 +45,9 @@
       <!-- ===== Sidebar ===== -->
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-brand-shell">
-          <button id="appSwitcherButton" class="sidebar-brand" type="button" aria-label="切换 Yan 应用" aria-haspopup="menu" aria-expanded="false">
-            <span id="sidebarBrandName" class="sidebar-brand-name">Yan Agent</span>
-            <span class="sidebar-brand-version">v1.3.2</span>
-            <svg class="sidebar-brand-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div id="appSwitcherMenu" class="app-switcher-menu hidden" role="menu" aria-label="Yan 应用">
-            <button class="app-switcher-option active" type="button" data-app-mode="agent" role="menuitem">
-              <span class="app-switcher-mark" aria-hidden="true"><img src="assets/logo.png" alt="" /></span>
-              <span>Yan Agent</span>
-              <svg class="app-switcher-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-            </button>
-            <button class="app-switcher-option" type="button" data-app-mode="partner" role="menuitem">
-              <span class="app-switcher-mark partner" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-              <span>Yan Partner</span>
-              <svg class="app-switcher-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-            </button>
+          <div class="sidebar-brand" aria-label="Yan Agent">
+            <span class="sidebar-brand-name">Yan Agent</span>
+            <span class="sidebar-brand-version">v1.4.0</span>
           </div>
         </div>
         <nav id="agentSidebarNav" class="sidebar-nav">
@@ -91,22 +77,28 @@
           <div id="sessionList" class="session-list"></div>
         </div>
 
-        <div id="partnerSidebarPanel" class="sidebar-panel partner-sidebar-panel hidden">
-          <div class="partner-sidebar-actions">
-            <button id="partnerNewConversation" class="sidebar-nav-item" type="button" title="新建 Partner 对话">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              <span>新建对话</span>
-            </button>
-          </div>
-          <div class="partner-sidebar-section-title">最近对话</div>
-          <div id="partnerConversationList" class="session-list partner-conversation-list"></div>
-        </div>
-
         <div class="sidebar-bottom">
-          <button id="settingsBtn" class="bottom-btn" title="设置">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            <span class="bottom-btn-label">设置</span>
-          </button>
+          <div id="settingsMenuWrap" class="settings-menu-wrap">
+            <button id="settingsBtn" class="bottom-btn" type="button" title="打开设置菜单" aria-label="打开设置菜单" aria-haspopup="menu" aria-expanded="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <span class="bottom-btn-label">设置</span>
+            </button>
+            <div id="settingsMenu" class="settings-menu hidden" role="menu" aria-label="Yan Agent 设置菜单">
+              <button id="petWindowToggle" class="settings-menu-item" type="button" role="menuitem" title="关闭桌宠" aria-label="关闭桌宠" aria-pressed="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c3.7 0 6.5 3.9 6.5 8.5S15.7 20 12 20s-6.5-3.7-6.5-8.3S8.3 3.2 12 3.2Z"/><circle cx="9.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="11.5" r="1" fill="currentColor" stroke="none"/></svg>
+                <span>宠物</span>
+              </button>
+              <button id="themeToggle" class="settings-menu-item" type="button" role="menuitem" title="切换主题" aria-label="切换主题">
+                <span class="settings-menu-icon" aria-hidden="true"></span>
+                <span class="settings-menu-theme-label">切换浅色模式</span>
+              </button>
+              <div class="settings-menu-divider" role="separator"></div>
+              <button id="settingsMenuOpen" class="settings-menu-item" type="button" role="menuitem" title="进入设置页面">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0 .33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span>设置</span>
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -125,26 +117,6 @@
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               <span id="taskBarFolderName" class="task-bar-folder-name">选择文件夹</span>
             </button>
-          </div>
-          <div class="task-bar-right">
-            <button id="taskBarYanxiCode" class="task-bar-icon-btn" title="在 Yanxi Code 中打开当前工作区" aria-label="Open current workspace in Yanxi Code" disabled>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg>
-            </button>
-            <button id="taskBarCodeMap" class="task-bar-icon-btn" title="Yan Project Map" aria-label="Open Yan Project Map" disabled>
-              <svg data-icon="map" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6z"/><path d="M9 3v15M15 6v15"/></svg>
-            </button>
-            <button id="taskBarTerminal" class="task-bar-icon-btn" title="内置终端" aria-label="打开内置终端">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            </button>
-            <button id="taskBarBrowser" class="task-bar-icon-btn" title="内置浏览器">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            </button>
-            <button id="taskBarOpenFolder" class="task-bar-icon-btn" title="在文件资源管理器中打开" disabled>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            </button>
-            <button id="rightSidebarToggleBtn" class="task-bar-icon-btn" title="右侧面板" aria-label="切换右侧面板" aria-controls="rightSidebar" aria-expanded="true">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-            </button>
             <div class="task-actions-wrap">
               <button id="taskBarMoreBtn" class="task-bar-icon-btn" type="button" title="任务操作" aria-label="任务操作" aria-expanded="false">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
@@ -161,14 +133,89 @@
               </div>
             </div>
           </div>
-        </div>
-
-        <div id="chatScroll" class="chat-scroll">
-          <div id="messages" class="messages"></div>
-          <div id="typingIndicator" class="typing-indicator hidden">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <div class="task-bar-right">
+            <div id="taskToolsWrap" class="task-tools-wrap">
+              <div class="task-tools-control">
+                <button id="taskToolsPill" class="task-tools-pill" type="button" title="打开工作区工具 · PowerShell" aria-label="打开工作区工具 · PowerShell">
+                <span class="task-tools-pill-icon" aria-hidden="true"><img id="taskToolsPillIcon" src="assets/powershell.png" alt="" /></span>
+                </button>
+                <button id="taskToolsMenuToggle" class="task-tools-menu-toggle" type="button" title="选择工作区工具" aria-label="选择工作区工具" aria-haspopup="menu" aria-controls="taskToolsMenu" aria-expanded="false">
+                  <svg class="task-tools-pill-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
+              <div id="taskToolsMenu" class="task-tools-menu hidden" role="menu" aria-label="工作区工具">
+                <button id="taskBarYanxiCode" class="task-tool-item" type="button" role="menuitem" data-tool="yanxi-code" title="在 Yanxi Code 中打开当前工作区" aria-label="在 Yanxi Code 中打开当前工作区" disabled>
+                  <span class="task-tool-logo task-tool-logo-code" aria-hidden="true"><img src="assets/yanxi-code.png" alt="" /></span>
+                  <span class="task-tool-copy"><strong>Yanxi Code</strong><small>在代码编辑器中打开</small></span>
+                </button>
+                <button id="taskBarTerminal" class="task-tool-item" type="button" role="menuitem" data-tool="powershell" title="打开 PowerShell" aria-label="打开 PowerShell">
+                  <span class="task-tool-logo task-tool-logo-terminal" aria-hidden="true"><img src="assets/powershell.png" alt="" /></span>
+                  <span class="task-tool-copy"><strong>终端</strong><small>打开电脑上的 PowerShell</small></span>
+                </button>
+                <button id="taskBarOpenFolder" class="task-tool-item" type="button" role="menuitem" data-tool="file-explorer" title="在文件资源管理器中打开" aria-label="在文件资源管理器中打开" disabled>
+                  <span class="task-tool-logo task-tool-logo-folder" aria-hidden="true"><img src="assets/file-explorer.png" alt="" /></span>
+                  <span class="task-tool-copy"><strong>资源管理器</strong><small>在文件夹中查看工作区</small></span>
+                </button>
+              </div>
+            </div>
+            <button id="interjectionToggle" class="interjection-trigger" type="button" popovertarget="interjectionPopover" disabled aria-label="Yan Agent Interrupt" title="当前任务未在工作" aria-controls="interjectionPopover" data-state="idle">
+              <svg class="interjection-trigger-mark" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 4h13A2.5 2.5 0 0 1 21 6.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-5.5 3.5V17A2.5 2.5 0 0 1 3 14.5v-8A2.5 2.5 0 0 1 5.5 4Z"/><path d="M7 11h2.3l1.55-3.2 2.35 6.4 1.55-3.2H18"/></svg>
+              <span class="interjection-trigger-lamp" aria-hidden="true"></span>
+            </button>
+            <section id="interjectionPopover" class="interjection-popover" popover="auto" aria-label="Yan Agent Interrupt" data-state="idle">
+              <header class="interjection-header">
+                <div class="interjection-heading">
+                  <strong>Yan Agent Interrupt</strong>
+                  <span class="interjection-status"><span class="interjection-status-lamp" aria-hidden="true"></span><span id="interjectionRunStatus">未在工作</span></span>
+                </div>
+                <button id="interjectionClose" class="interjection-close icon-btn" type="button" popovertarget="interjectionPopover" popovertargetaction="hide" aria-label="关闭 Yan Agent Interrupt">×</button>
+              </header>
+              <div id="interjectionTranscript" class="interjection-transcript" aria-live="polite"></div>
+              <form id="interjectionForm" class="interjection-composer">
+                <textarea id="interjectionInput" rows="1" maxlength="4000" placeholder="询问状态，或引导 Agent 接下来的工作…" aria-label="Yan Agent Interrupt 内容"></textarea>
+                <button id="interjectionSend" class="interjection-send" type="submit" disabled aria-label="发送插话" title="发送插话">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15"/><path d="m13 6 6 6-6 6"/></svg>
+                </button>
+              </form>
+            </section>
           </div>
         </div>
+
+        <div id="browserFocusConversationDock" class="browser-focus-conversation-dock collapsed">
+          <button id="browserFocusChatToggle" class="browser-focus-chat-toggle" type="button" aria-expanded="false" aria-controls="chatScroll">
+            <span class="browser-focus-chat-label">
+              <span>最近一条</span>
+            </span>
+            <svg class="browser-focus-chat-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="chatScroll" class="chat-scroll">
+            <div id="messages" class="messages"></div>
+            <div id="typingIndicator" class="typing-indicator hidden">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+          </div>
+        </div>
+
+        <section id="agentPermissionPanel" class="agent-permission-panel hidden" aria-live="assertive" aria-labelledby="agentPermissionTitle">
+          <button id="agentPermissionToggle" class="agent-permission-toggle" type="button" aria-expanded="true" aria-controls="agentPermissionBody">
+            <span class="agent-permission-heading">
+              <span class="agent-permission-status-icon" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2.7 19a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L12 3Z"/><path d="M12 9v4"/><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"/></svg>
+              </span>
+              <span id="agentPermissionTitle">权限确认</span>
+            </span>
+            <svg class="agent-permission-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="agentPermissionBody" class="agent-permission-body">
+            <p id="agentPermissionDescription" class="agent-permission-description"></p>
+            <pre id="agentPermissionDetail" class="agent-permission-command"></pre>
+            <div class="agent-permission-actions">
+              <button type="button" id="agentPermissionAlways" class="primary-btn">总是允许</button>
+              <button type="button" id="agentPermissionOnce" class="secondary-btn">本次允许</button>
+              <button type="button" id="agentPermissionDeny" class="ghost-btn">拒绝</button>
+            </div>
+          </div>
+        </section>
 
         <nav id="turnScaleNav" class="turn-scale-nav hidden" aria-label="对话回合导航"></nav>
 
@@ -184,65 +231,103 @@
           <div class="composer-wrap">
             <div id="attachments" class="attachments hidden"></div>
             <div id="composer" class="composer">
-              <!-- Model controls: float out of top-left edge together -->
-              <div class="composer-pills">
-                <button id="modelPill" class="ws-pill model-pill" type="button" title="切换模型">
-                  <svg class="model-pill-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>
-                  <span id="modelPillName" class="ws-pill-name">—</span>
-                  <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg id="composerContextBorder" class="composer-context-border" role="progressbar" aria-labelledby="composerContextBorderTitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-budget="normal">
+                <title id="composerContextBorderTitle">上下文 0 / 自动压缩阈值 0 tokens</title>
+                <path id="composerContextProgress" class="composer-context-progress" pathLength="1"></path>
+                <path id="composerContextHit" class="composer-context-hit"></path>
+              </svg>
+              <div id="todoProgressHost" class="todo-progress-host hidden" data-state="working">
+                <button id="todoProgressPill" class="todo-progress-pill" type="button" aria-label="查看任务待办" aria-haspopup="dialog" aria-controls="todoProgressPanel" aria-expanded="false">
+                  <span id="todoProgressRing" class="todo-progress-ring" aria-hidden="true"><span></span></span>
+                  <span id="todoProgressCount" class="todo-progress-count">0/0</span>
                 </button>
-                <div id="workModeWrap" class="work-mode-wrap">
-                  <button id="workModePill" class="ws-pill work-mode-pill" type="button" title="工作方式：常规" aria-label="工作方式" aria-haspopup="dialog" aria-expanded="false">
-                    <svg class="work-mode-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v12"/><path d="M18 9v12"/><path d="M6 15c0 3 2 4 5 4h7"/><path d="m15 6 3 3 3-3"/></svg>
-                    <span id="workModePillName" class="ws-pill-name">常规</span>
+                <section id="todoProgressPanel" class="todo-progress-panel" role="dialog" aria-label="任务待办" aria-hidden="true">
+                  <header class="todo-progress-panel-head">
+                    <strong>待办</strong>
+                    <span id="todoProgressSummary">已完成 0/0</span>
+                  </header>
+                  <div id="todoList" class="todo-list"></div>
+                </section>
+              </div>
+
+              <!-- Composer controls share one bottom toolbar. -->
+              <div class="composer-toolbar-controls">
+                <div id="mediaModelPickerWrap" class="media-model-picker-wrap">
+                  <button id="mediaModelPill" class="composer-icon-btn media-model-pill" type="button" title="图像/视频模型" aria-label="选择图像与视频模型" aria-haspopup="dialog" aria-controls="mediaModelMenu" aria-expanded="false">
+                    <span>图像/视频模型</span>
+                  </button>
+                  <section id="mediaModelMenu" class="media-model-menu hidden" role="dialog" aria-label="次模型" aria-busy="false">
+                    <div class="model-quick-overview media-model-overview">
+                      <button id="mediaImageModelRoute" class="model-quick-route" type="button" aria-controls="mediaModelListView" aria-expanded="false">
+                        <span class="model-quick-route-label">生图类</span>
+                        <span id="mediaImageModelValue" class="model-quick-route-value">未选择</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                      <button id="mediaVideoModelRoute" class="model-quick-route" type="button" aria-controls="mediaModelListView" aria-expanded="false">
+                        <span class="model-quick-route-label">生视频类</span>
+                        <span id="mediaVideoModelValue" class="model-quick-route-value">未选择</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                    </div>
+                    <div id="mediaModelListView" class="media-model-list-view hidden">
+                      <div id="mediaModelList" class="model-quick-list"></div>
+                    </div>
+                  </section>
+                </div>
+                <div id="modelPickerWrap" class="model-picker-wrap">
+                  <button id="modelPill" class="ws-pill model-pill" type="button" title="切换模型与推理速度" aria-haspopup="dialog" aria-controls="modelQuickMenu" aria-expanded="false">
+                    <span id="modelPillName" class="ws-pill-name">—</span>
+                    <span id="modelPillSpeed" class="model-pill-speed">标准</span>
                     <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
-                  <div id="workModeMenu" class="reasoning-speed-menu work-mode-menu hidden" role="dialog" aria-label="工作方式">
-                    <div class="reasoning-speed-menu-head">
-                      <span id="workModeMenuValue">常规</span>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                  <section id="modelQuickMenu" class="model-quick-menu hidden" role="dialog" aria-label="模型与推理速度" aria-busy="false">
+                    <div id="modelQuickDefaultView" class="model-quick-view">
+                      <button id="modelQuickAdvancedBtn" class="reasoning-speed-menu-head model-quick-speed-head" type="button" aria-label="展开模型与推理速度设置">
+                        <span>推理速度</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                      <div id="reasoningSpeedSliderShell" class="reasoning-speed-slider-shell" data-mode="balanced">
+                        <span class="reasoning-speed-fluid" aria-hidden="true"></span>
+                        <span class="reasoning-speed-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                        <input id="reasoningSpeedSlider" type="range" min="0" max="100" step="1" value="0" aria-label="推理速度" aria-valuetext="标准" />
+                      </div>
+                      <div id="reasoningSpeedBillingNote" class="reasoning-speed-billing is-empty"></div>
                     </div>
-                    <div id="workModeSliderShell" class="reasoning-speed-slider-shell work-mode-slider-shell" data-mode="normal">
-                      <span class="reasoning-speed-fluid work-mode-fluid" aria-hidden="true"></span>
-                      <span class="reasoning-speed-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                      <input id="workModeSlider" type="range" min="0" max="100" step="1" value="0" aria-label="工作方式" aria-valuetext="常规" />
+                    <div id="modelQuickAdvancedView" class="model-quick-view hidden">
+                      <div class="model-quick-overview">
+                        <button id="modelQuickModelRoute" class="model-quick-route" type="button" aria-controls="modelQuickModelsView" aria-expanded="false">
+                          <span class="model-quick-route-label">模型</span>
+                          <span id="modelQuickModelValue" class="model-quick-route-value">—</span>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                        <button id="modelQuickReasoningRoute" class="model-quick-route" type="button" aria-controls="modelQuickReasoningView" aria-expanded="false">
+                          <span class="model-quick-route-label">推理速度</span>
+                          <span id="modelQuickReasoningValue" class="model-quick-route-value">标准</span>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                      </div>
+                      <button id="modelQuickBackBtn" class="model-quick-back" type="button" aria-label="返回推理速度滑块">
+                        <span id="modelQuickFooterSpeed">标准</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+                      </button>
                     </div>
-                  </div>
+                    <div id="modelQuickModelsView" class="model-quick-view hidden">
+                      <div id="modelQuickList" class="model-quick-list"></div>
+                      <button id="manageModelsBtn" class="model-quick-manage" type="button" hidden>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.38.26.61.68.6 1.14V13.6h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+                        <span>管理模型与 API</span>
+                      </button>
+                    </div>
+                    <div id="modelQuickReasoningView" class="model-quick-view hidden">
+                      <div class="reasoning-choice-list is-compact" role="group" aria-label="推理速度">
+                        <button type="button" class="reasoning-choice" data-reasoning-mode="balanced" aria-pressed="true">标准</button>
+                        <button type="button" class="reasoning-choice" data-reasoning-mode="fast" aria-pressed="false">高效</button>
+                        <button type="button" class="reasoning-choice" data-reasoning-mode="smart" aria-pressed="false">更智能</button>
+                      </div>
+                    </div>
+                  </section>
                 </div>
-                <div id="reasoningSpeedWrap" class="reasoning-speed-wrap">
-                  <button id="reasoningSpeedPill" class="ws-pill reasoning-speed-pill" type="button" title="推理速度" aria-label="推理速度" aria-haspopup="dialog" aria-expanded="false">
-                    <svg class="reasoning-speed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M4.93 19a10 10 0 1 1 14.14 0"/><path class="reasoning-speed-needle" d="M12 13l3.5-3.5"/><circle cx="12" cy="13" r="1" fill="currentColor" stroke="none"/>
-                    </svg>
-                    <span id="reasoningSpeedPillName" class="ws-pill-name">标准</span>
-                    <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
-                  <div id="reasoningSpeedMenu" class="reasoning-speed-menu hidden" role="dialog" aria-label="推理速度">
-                    <div class="reasoning-speed-menu-head">
-                      <span id="reasoningSpeedMenuValue">标准</span>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-                    </div>
-                    <div id="reasoningSpeedSliderShell" class="reasoning-speed-slider-shell" data-mode="balanced">
-                      <span class="reasoning-speed-fluid" aria-hidden="true"></span>
-                      <span class="reasoning-speed-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                      <input id="reasoningSpeedSlider" type="range" min="0" max="100" step="1" value="50" aria-label="推理速度" aria-valuetext="标准" />
-                    </div>
-                    <div id="reasoningSpeedBillingNote" class="reasoning-speed-billing is-empty"></div>
-                  </div>
-                </div>
-                <div id="skillCallWrap" class="skill-call-wrap">
-                  <button id="skillCallPill" class="ws-pill skill-call-pill" type="button" title="技能调用" aria-label="技能调用" aria-haspopup="dialog" aria-expanded="false">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.6 4.7a3 3 0 0 0 1.8 1.8L20 11l-4.6 1.6a3 3 0 0 0-1.8 1.8L12 19l-1.6-4.6a3 3 0 0 0-1.8-1.8L4 11l4.6-1.5a3 3 0 0 0 1.8-1.8L12 3Z"/><path d="m19 3 .4 1.2L21 5l-1.6.8L19 7l-.4-1.2L17 5l1.6-.8L19 3Z"/></svg>
-                    <span class="skill-call-label">技能调用</span>
-                  </button>
-                  <div id="skillCallMenu" class="skill-call-menu hidden" role="dialog" aria-label="技能调用">
-                    <div class="skill-call-menu-header">
-                      <span>已安装 Skill</span>
-                      <span id="skillCallCount" class="skill-call-count"></span>
-                    </div>
-                    <div id="skillCallList" class="skill-call-list"></div>
-                  </div>
-                </div>
+                <span id="workModeIndicator" class="work-mode-indicator hidden" aria-live="polite"></span>
                 <div id="accessModeWrap" class="access-mode-wrap">
                   <button id="accessModePill" class="ws-pill access-mode-pill" type="button" title="权限访问：请求批准" aria-label="权限访问：请求批准" aria-haspopup="dialog" aria-expanded="false">
                     <span class="access-mode-pill-icon" aria-hidden="true">
@@ -262,7 +347,7 @@
                     </button>
                     <button class="access-mode-option" type="button" data-access-mode="delegate" aria-pressed="false">
                       <span class="access-mode-option-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span>
-                      <span class="access-mode-option-copy"><strong>替我审批</strong><small>自动批准常规操作，仍锁定当前工作区</small></span>
+                      <span class="access-mode-option-copy"><strong>替我审批</strong><small>自动批准常规操作，高危命令仍会询问</small></span>
                       <svg class="access-mode-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     </button>
                     <button class="access-mode-option is-full" type="button" data-access-mode="full" aria-pressed="false">
@@ -272,40 +357,67 @@
                     </button>
                   </div>
                 </div>
+                <div id="promptOptimizerWrap" class="prompt-optimizer-wrap">
+                  <button id="promptOptimizerPill" class="ws-pill prompt-optimizer-pill" type="button" title="优化prompt" aria-label="优化prompt" aria-busy="false" disabled>
+                    <img class="prompt-optimizer-icon" src="assets/skill-logos/prompt-optimizer.svg" alt="" aria-hidden="true" draggable="false" />
+                    <span class="prompt-optimizer-label">优化prompt</span>
+                  </button>
+                </div>
               </div>
 
               <div class="composer-inner">
                 <div class="composer-editor">
-                  <div id="composerSkillSelection" class="composer-skill-selection hidden" aria-label="已选择的 Skill" aria-live="polite"></div>
-                  <textarea id="composerInput" class="composer-input" rows="1"
-                    placeholder="你负责想象，我负责写"></textarea>
+                  <div id="promptOptimizerStatus" class="prompt-optimizer-status hidden" role="status" aria-live="polite">Yan Prompt Optimizer正在优化你的输入，按Ctrl+Z以回退优化</div>
+                  <div id="composerInput" class="composer-input" contenteditable="true" role="textbox"
+                    aria-label="消息输入" aria-multiline="true" data-placeholder="你负责想象，我负责写" spellcheck="true"></div>
                 </div>
-                <div class="composer-actions">
+                <div class="composer-actions hidden">
                   <div class="attachment-action-wrap">
-                    <button id="attachBtn" class="composer-icon-btn" type="button" title="添加附件" aria-label="添加附件" aria-expanded="false">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    <button id="attachBtn" class="composer-icon-btn" type="button" title="添加内容" aria-label="添加文件、工作方式或 Skill" aria-haspopup="dialog" aria-controls="attachmentMenu" aria-expanded="false">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
                     </button>
-                    <div id="attachmentMenu" class="attachment-menu hidden" role="menu">
-                      <button id="uploadFileAction" type="button" role="menuitem">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
-                        <span>上传文件</span>
-                      </button>
-                      <button id="uploadImageAction" type="button" role="menuitem">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
-                        <span>上传图像</span>
-                      </button>
+                    <div id="attachmentMenu" class="attachment-menu composer-add-menu hidden" role="dialog" aria-label="添加与插件" aria-busy="false">
+                      <section class="composer-add-section" aria-labelledby="composerAddSectionTitle">
+                        <div id="composerAddSectionTitle" class="composer-add-section-title">添加</div>
+                        <div class="composer-add-actions">
+                          <button id="uploadFileAction" type="button">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                            <span class="composer-add-action-text">
+                              <span class="composer-add-action-name">文件和文件夹</span>
+                            </span>
+                          </button>
+                          <button type="button" data-work-mode="goal" aria-checked="false">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="M22 2 13.5 10.5M16 2h6v6"/></svg>
+                            <span class="composer-add-action-text">
+                              <span class="composer-add-action-name">目标</span>
+                              <span class="composer-add-action-desc">设置要持续追求的目标</span>
+                            </span>
+                            <svg class="attachment-menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                          </button>
+                          <button type="button" data-work-mode="plan" aria-checked="false">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5c-.9.7-1.5 1.5-1.5 2.5h-4c0-1-.6-1.8-1.5-2.5Z"/></svg>
+                            <span class="composer-add-action-text">
+                              <span class="composer-add-action-name">计划模式</span>
+                              <span class="composer-add-action-desc">开启计划模式</span>
+                            </span>
+                            <svg class="attachment-menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                          </button>
+                        </div>
+                      </section>
+                      <section class="composer-add-section composer-skill-section" aria-labelledby="composerSkillSectionTitle">
+                        <div class="composer-add-section-title">
+                          <span id="composerSkillSectionTitle">技能</span>
+                        </div>
+                        <div id="composerSkillMenuList" class="composer-skill-menu-list" role="group" aria-label="选择 Skill"></div>
+                      </section>
                     </div>
                     <input id="fileInput" type="file" multiple hidden />
-                    <input id="imageInput" type="file" accept="image/png,image/jpeg" multiple hidden />
                   </div>
                   <button id="sendBtn" class="send-btn" title="发送" aria-label="发送" disabled>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>
                   </button>
                 </div>
               </div>
-              <div class="composer-hint">
-                <span class="kbd-hint">Enter 发送 · Shift+Enter 换行</span>
-              </div>
             </div>
 
             </div>
@@ -313,176 +425,10 @@
 
         </div>
 
-          <section id="codeMapLayer" class="code-map-layer hidden" aria-label="Yan Project Map">
-            <button id="codeMapResizeHandle" class="code-map-resize-handle" type="button" aria-label="Drag to resize Yan Project Map"></button>
-            <header class="code-map-toolbar">
-              <div class="code-map-heading">
-                <span class="code-map-heading-icon" aria-hidden="true">
-                  <svg data-icon="map" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6z"/><path d="M9 3v15M15 6v15"/></svg>
-                </span>
-                <div class="code-map-heading-copy">
-                  <strong>Yan Project Map</strong>
-                  <span id="codeMapWorkspaceName">未选择工作区</span>
-                </div>
-              </div>
-              <div id="codeMapStatus" class="code-map-status" data-status="idle">
-                <span class="code-map-status-dot"></span>
-                <span id="codeMapStatusText">待命</span>
-              </div>
-              <div class="code-map-model-picker">
-                <button id="codeMapModelBtn" class="code-map-model-btn" type="button" title="切换 AI 解读模型" aria-haspopup="listbox" aria-expanded="false" aria-label="切换 Yan Project Map 解读模型">
-                  <span class="code-map-model-btn-label">解读</span>
-                  <span id="codeMapModelName" class="code-map-model-btn-name">DS V4 Flash</span>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                </button>
-                <div id="codeMapModelMenu" class="code-map-model-menu hidden" role="listbox" aria-label="Yan Project Map 解读模型"></div>
-              </div>
-              <div class="code-map-tools">
-                <label class="code-map-search-wrap" for="codeMapSearch">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input id="codeMapSearch" type="search" placeholder="搜索文件或函数" autocomplete="off" />
-                </label>
-                <button id="codeMapZoomOut" class="code-map-tool-btn" type="button" title="缩小" aria-label="Zoom out Yan Project Map">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg>
-                </button>
-                <button id="codeMapZoomIn" class="code-map-tool-btn" type="button" title="放大" aria-label="Zoom in Yan Project Map">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg>
-                </button>
-                <button id="codeMapFit" class="code-map-tool-btn" type="button" title="适应画布" aria-label="适应画布">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-                </button>
-                <button id="codeMapRefresh" class="code-map-tool-btn" type="button" title="重新分析" aria-label="Refresh Yan Project Map">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                </button>
-                <button id="codeMapClose" class="code-map-tool-btn" type="button" title="关闭" aria-label="Close Yan Project Map">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-              </div>
-            </header>
-            <div class="code-map-content">
-              <div id="codeMapEmpty" class="code-map-empty">
-                <div class="code-map-empty-mark" aria-hidden="true">
-                  <svg data-icon="map" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6z"/><path d="M9 3v15M15 6v15"/></svg>
-                </div>
-                <strong id="codeMapEmptyTitle">选择工作区后生成 Yan Project Map</strong>
-                <span id="codeMapEmptyText">目录、文件和函数职责会显示在这里</span>
-              </div>
-              <div id="codeMapViewport" class="code-map-viewport hidden" aria-label="可平移和缩放的代码关系图">
-                <div id="codeMapScene" class="code-map-scene">
-                  <div id="codeMapWorld" class="code-map-world"></div>
-                  <svg id="codeMapEdges" class="code-map-edges" aria-hidden="true">
-                    <defs>
-                      <marker id="code-map-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                        <polygon points="0 0, 8 3, 0 6" fill="currentColor" />
-                      </marker>
-                    </defs>
-                  </svg>
-                </div>
-                <div class="code-map-zoom-readout"><span id="codeMapZoomValue">100%</span></div>
-              </div>
-            </div>
+          <section id="understandAnythingLayer" class="understand-anything-layer hidden" aria-label="Understand Anything">
+            <iframe id="understandAnythingFrame" class="understand-anything-frame" title="Understand Anything 本地图谱" loading="eager"></iframe>
           </section>
         </main>
-
-      <!-- ===== Main: Yan Partner ===== -->
-      <section id="pagePartner" class="page-view partner-page hidden" aria-label="Yan Partner">
-        <header class="partner-topbar">
-          <div class="partner-heading">
-            <button id="partnerAvatarButton" class="partner-heading-mark" type="button" title="更换 Yan Partner 头像" aria-label="更换 Yan Partner 头像">
-              <svg id="partnerAvatarDefault" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <img id="partnerAvatarPreview" class="hidden" alt="Yan Partner 头像" draggable="false" />
-              <span class="partner-avatar-edit" aria-hidden="true">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>
-              </span>
-            </button>
-            <input id="partnerAvatarInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
-            <div>
-              <strong>Yan Partner</strong>
-              <span>DeepSeek V4 Flash</span>
-            </div>
-          </div>
-          <div id="partnerModeControl" class="partner-mode-control" role="group" aria-label="内容模式">
-            <button type="button" class="active" data-partner-mode="safe" aria-pressed="true">安全</button>
-            <button type="button" data-partner-mode="nsfw" aria-pressed="false">NSFW</button>
-          </div>
-        </header>
-
-        <div id="partnerRoleCardBar" class="partner-rolecard-bar">
-          <button id="partnerRoleCardToggle" class="partner-rolecard-toggle" type="button" aria-expanded="false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span class="partner-rolecard-label">角色卡</span>
-            <span id="partnerRoleCardSummary" class="partner-rolecard-summary"></span>
-            <svg class="partner-rolecard-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div id="partnerRoleCardPanel" class="partner-rolecard-panel hidden">
-            <div class="partner-rolecard-fields">
-              <label class="partner-rolecard-field">
-                <span>名字</span>
-                <input id="partnerRCName" type="text" maxlength="20" placeholder="给你的角色起个名字" autocomplete="off" />
-              </label>
-              <div class="partner-rolecard-row">
-                <label class="partner-rolecard-field">
-                  <span>年龄</span>
-                  <input id="partnerRCAge" type="text" maxlength="8" placeholder="18+" autocomplete="off" />
-                </label>
-                <label class="partner-rolecard-field">
-                  <span>性别</span>
-                  <input id="partnerRCGender" type="text" maxlength="10" placeholder="女 / 男 / …" autocomplete="off" />
-                </label>
-              </div>
-              <label class="partner-rolecard-field">
-                <span>性格</span>
-                <input id="partnerRCPersonality" type="text" maxlength="80" placeholder="温柔、害羞、爱撒娇…" autocomplete="off" />
-              </label>
-              <label class="partner-rolecard-field">
-                <span>外貌 / 描述</span>
-                <textarea id="partnerRCDescription" rows="2" maxlength="200" placeholder="长发及腰、肤白、声音软糯…" autocomplete="off"></textarea>
-              </label>
-              <label class="partner-rolecard-field">
-                <span>背景故事</span>
-                <textarea id="partnerRCBackground" rows="2" maxlength="300" placeholder="你们是怎么认识的、她的身份…" autocomplete="off"></textarea>
-              </label>
-            </div>
-            <div class="partner-rolecard-actions">
-              <button id="partnerRCSave" class="primary-btn" type="button">保存角色卡</button>
-              <button id="partnerRCClear" class="secondary-btn" type="button">清除</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="partnerPrivacyNotice" class="partner-privacy-notice" role="status">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          <span>安全模式会拦截 18+ 内容。Partner 对话与 Agent、移动端和工作区日志隔离。</span>
-        </div>
-
-        <div id="partnerChatScroll" class="partner-chat-scroll">
-          <div id="partnerEmpty" class="partner-empty">
-            <span class="partner-empty-mark" aria-hidden="true">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
-            </span>
-            <strong>Yan Partner</strong>
-            <span id="partnerEmptyHint" class="partner-empty-hint hidden"></span>
-          </div>
-          <div id="partnerMessages" class="partner-messages" aria-live="polite"></div>
-          <div id="partnerTyping" class="partner-typing hidden" aria-label="Yan Partner 正在回复">
-            <span></span><span></span><span></span>
-          </div>
-        </div>
-
-        <div class="partner-composer-stage">
-          <div class="partner-composer">
-            <textarea id="partnerInput" rows="1" maxlength="20000" placeholder="和 Yan Partner 聊聊" aria-label="发送给 Yan Partner"></textarea>
-            <button id="partnerSend" class="send-btn partner-send" type="button" title="发送" aria-label="发送" disabled>
-              <svg class="partner-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>
-              <svg class="partner-stop-icon hidden" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-            </button>
-          </div>
-          <div class="partner-composer-meta">
-            <span>DS V4 Flash</span>
-            <span id="partnerModeLabel">安全模式</span>
-          </div>
-        </div>
-      </section>
 
       <!-- ===== Main: Skill Market ===== -->
       <section id="pageSkills" class="page-view page-panel capability-page hidden">
@@ -493,7 +439,9 @@
           </div>
           <div class="capability-header-actions">
             <span id="skillMarketCount" class="page-header-stats" aria-live="polite"></span>
-            <button id="skillImportBtn" class="ghost-btn capability-header-btn">导入 Skill</button>
+            <button id="skillImportBtn" class="capability-circle-btn capability-header-circle-btn" type="button" title="添加自定义 Skill" aria-label="添加自定义 Skill">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
             <input id="skillImportInput" type="file" accept=".json,application/json" hidden />
           </div>
         </div>
@@ -515,29 +463,39 @@
             <div id="skillMarketGrid" class="skill-market-grid"></div>
           </section>
 
-          <section id="skillInstalledSection" class="skill-installed-section" aria-labelledby="installedSkillHeading">
-            <div class="capability-section-head">
-              <div>
-                <h3 id="installedSkillHeading">自定义 Skill</h3>
-                <p>从市场安装或从本地 JSON 导入的能力。</p>
-              </div>
-              <span id="customSkillCount" class="capability-section-count"></span>
+        </div>
+      </section>
+
+      <dialog id="skillImportDialog" class="capability-dialog" aria-labelledby="skillImportTitle">
+        <div class="capability-dialog-shell">
+          <header class="capability-dialog-head">
+            <div>
+              <h3 id="skillImportTitle">添加自定义 Skill</h3>
+              <p>准备一个 Skill JSON 文件，然后从资源管理器选择它。</p>
             </div>
-            <div id="customSkillList" class="skill-custom-list"></div>
-            <details class="skill-import-details import-guide">
-              <summary>查看 JSON 格式说明</summary>
-              <p class="page-desc">文件需包含 <code>id</code>、<code>name</code>、<code>desc</code>、<code>prompt</code>，可选 <code>tags</code>。导入后可通过输入框上方的“技能调用”选择。</p>
-              <pre class="code-sample">{
+            <button id="skillImportCloseBtn" class="capability-dialog-close" type="button" aria-label="关闭添加 Skill 弹窗">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+          </header>
+          <div class="capability-dialog-body">
+            <p class="capability-dialog-copy">文件至少包含 <code>id</code>、<code>name</code>、<code>desc</code> 和 <code>prompt</code> 字段。导入后会出现在“已安装”筛选中，也可以从输入框上方的“技能”调用。</p>
+            <pre class="code-sample">{
   "id": "my-skill",
   "name": "My Skill",
   "desc": "一句话描述",
   "tags": ["code"],
   "prompt": "请帮我完成以下任务：\n\n{{cursor}}"
 }</pre>
-            </details>
-          </section>
+            <div class="capability-file-picker-row">
+              <button id="skillImportOpenFileBtn" class="capability-dialog-link" type="button">打开资源管理器</button>
+              <span id="skillImportFilePath" class="capability-file-path" title="尚未选择文件">尚未选择文件</span>
+              <button id="skillImportConfirmBtn" class="capability-circle-btn" type="button" title="添加所选 Skill" aria-label="添加所选 Skill" disabled>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
-      </section>
+      </dialog>
 
       <!-- ===== Main: MCP Services ===== -->
       <section id="pageMcp" class="page-view page-panel capability-page hidden">
@@ -548,9 +506,8 @@
           </div>
           <div class="capability-header-actions">
             <div class="page-header-stats" id="mcpStats"></div>
-            <button id="mcpOpenCreateBtn" class="primary-btn capability-create-btn" type="button">
+            <button id="mcpOpenCreateBtn" class="capability-circle-btn capability-header-circle-btn" type="button" title="新增 MCP 服务" aria-label="新增 MCP 服务">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-              添加服务器
             </button>
           </div>
         </div>
@@ -565,44 +522,49 @@
             </div>
             <div class="mgmt-registry">
               <div id="mcpRegistryHead" class="mgmt-registry-head" aria-hidden="true">
-                <span>服务与命令</span><span>状态</span><span>操作</span>
+                <span>服务与命令</span><span>操作</span>
               </div>
               <div id="mcpPageList" class="mgmt-list"></div>
             </div>
           </div>
         </div>
-        <dialog id="mcpCreateDialog" class="capability-drawer" aria-labelledby="mcpCreateTitle">
+        <dialog id="mcpCreateDialog" class="capability-drawer mcp-create-dialog" aria-labelledby="mcpCreateTitle">
           <div class="capability-drawer-shell">
             <header class="capability-drawer-head">
               <div>
                 <h3 id="mcpCreateTitle">添加服务器</h3>
-                <p>填写启动命令，保存后立即测试连接。</p>
+                <p>填写启动命令，可先测试连接，再添加服务。</p>
               </div>
-              <button id="mcpCloseCreateBtn" class="capability-drawer-close" type="button" aria-label="关闭添加服务器面板">
+              <button id="mcpCloseCreateBtn" class="capability-drawer-close" type="button" aria-label="关闭添加服务器弹窗">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
               </button>
             </header>
             <div class="capability-drawer-body">
               <div class="form-panel">
-                <div class="form-grid">
-                  <div class="form-field">
+                <div class="form-grid mcp-form-grid">
+                  <div class="form-field form-field-full">
                     <label for="mcpNewName">名称</label>
                     <input id="mcpNewName" class="input" type="text" placeholder="例如 OCR、数据库" />
                   </div>
-                  <div class="form-field">
-                    <label for="mcpNewCmd">启动命令</label>
-                    <input id="mcpNewCmd" class="input" type="text" placeholder="npx 或 uvx" />
-                  </div>
-                  <div class="form-field form-field-full">
-                    <label for="mcpNewArgs">命令参数</label>
-                    <input id="mcpNewArgs" class="input" type="text" placeholder="-y @playwright/mcp@latest" />
-                    <span class="form-hint">多个参数用空格分隔，含空格的路径用引号包裹</span>
+                  <div class="mcp-command-row">
+                    <div class="form-field">
+                      <label for="mcpNewCmd">启动命令</label>
+                      <input id="mcpNewCmd" class="input" type="text" placeholder="npx 或 uvx" />
+                    </div>
+                    <div class="form-field">
+                      <label for="mcpNewArgs">命令参数</label>
+                      <input id="mcpNewArgs" class="input" type="text" placeholder="-y @playwright/mcp@latest" />
+                      <span class="form-hint">多个参数用空格分隔，含空格的路径用引号包裹</span>
+                    </div>
                   </div>
                 </div>
-                <button id="mcpAddBtn" class="primary-btn block">添加并测试连接</button>
-                <div class="form-callout">
-                  <strong>内置连接</strong>
-                  <p>Playwright 用于浏览器自动化，Windows-MCP 用于桌面操控。</p>
+                <div class="mcp-create-actions">
+                  <button id="mcpTestCreateBtn" class="capability-circle-btn" type="button" data-test-state="idle" title="测试连接" aria-label="测试连接">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  </button>
+                  <button id="mcpAddBtn" class="capability-circle-btn" type="button" title="添加 MCP 服务" aria-label="添加 MCP 服务">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -699,6 +661,132 @@
         </dialog>
       </section>
 
+      <!-- ===== Main: Yan Work GUI (placeholder) ===== -->
+      <section id="pageWorkGui" class="page-view work-gui-page hidden" aria-label="Yan Work GUI"></section>
+
+      <!-- Media generation is handled directly from the Agent model selector. -->
+      <!-- Legacy standalone media studio removed from the application surface.
+      <section id="pagePhotoVideo" class="page-view photo-video-page hidden" aria-label="媒体生成">
+        <header class="media-studio-header">
+          <div>
+            <h1>媒体生成</h1>
+            <span id="mediaStudioStatus" role="status" aria-live="polite">就绪</span>
+          </div>
+          <button id="mediaManageModels" class="media-header-action" type="button">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.38.26.61.68.6 1.14V13.6h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+            <span>模型与 API</span>
+          </button>
+        </header>
+        <div class="media-studio-body">
+          <aside class="media-studio-controls">
+            <div id="mediaModeControl" class="media-mode-control" role="tablist" aria-label="生成类型">
+              <button class="active" type="button" role="tab" data-media-mode="image" aria-selected="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg>
+                <span>图片</span>
+              </button>
+              <button type="button" role="tab" data-media-mode="video" aria-selected="false">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3V9Z"/></svg>
+                <span>视频</span>
+              </button>
+            </div>
+            <label class="media-control-field" for="mediaModelSelect">
+              <span>模型</span>
+              <select id="mediaModelSelect" class="media-model-select"></select>
+            </label>
+            <label class="media-control-field media-prompt-field" for="mediaPromptInput">
+              <span>提示词</span>
+              <textarea id="mediaPromptInput" rows="7" maxlength="4000" placeholder="描述你想生成的内容"></textarea>
+            </label>
+            <div class="media-control-field">
+              <span>比例</span>
+              <div id="mediaAspectControl" class="media-aspect-control" role="group" aria-label="画面比例">
+                <button type="button" data-aspect-ratio="1:1">1:1</button>
+                <button type="button" data-aspect-ratio="4:3">4:3</button>
+                <button type="button" data-aspect-ratio="3:4">3:4</button>
+                <button type="button" data-aspect-ratio="3:2">3:2</button>
+                <button type="button" data-aspect-ratio="2:3">2:3</button>
+                <button class="active" type="button" data-aspect-ratio="16:9">16:9</button>
+                <button type="button" data-aspect-ratio="9:16">9:16</button>
+                <button type="button" data-aspect-ratio="21:9">21:9</button>
+              </div>
+            </div>
+            <div id="mediaVideoOptions" class="media-video-options hidden">
+              <div class="media-control-field">
+                <span>时长</span>
+                <div id="mediaDurationControl" class="media-choice-control media-duration-control" role="group" aria-label="视频时长">
+                  <button type="button" data-video-duration="3">3 秒</button>
+                  <button class="active" type="button" data-video-duration="5">5 秒</button>
+                  <button type="button" data-video-duration="10">10 秒</button>
+                  <button type="button" data-video-duration="18">18 秒</button>
+                </div>
+              </div>
+              <div class="media-control-field">
+                <span>分辨率</span>
+                <div id="mediaResolutionControl" class="media-choice-control" role="group" aria-label="视频分辨率">
+                  <button type="button" data-video-resolution="480p">480p</button>
+                  <button class="active" type="button" data-video-resolution="720p">720p</button>
+                  <button type="button" data-video-resolution="1080p">1080p</button>
+                </div>
+              </div>
+              <details class="media-video-advanced">
+                <summary>更多设置</summary>
+                <label class="media-control-field media-compact-prompt" for="mediaNegativePrompt">
+                  <span>反向提示词</span>
+                  <textarea id="mediaNegativePrompt" rows="3" maxlength="2000" placeholder="描述不希望出现在视频中的内容"></textarea>
+                </label>
+                <label class="media-control-field media-seed-field" for="mediaSeed">
+                  <span>随机种子</span>
+                  <input id="mediaSeed" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="随机" />
+                </label>
+              </details>
+            </div>
+            <div id="mediaSourceField" class="media-source-field">
+              <input id="mediaSourceInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+              <button id="mediaSourceButton" class="media-source-button" type="button">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                <span>添加参考图</span>
+              </button>
+              <div id="mediaSourcePreview" class="media-source-preview hidden">
+                <img id="mediaSourceImage" alt="参考图" />
+                <span id="mediaSourceName"></span>
+                <button id="mediaSourceRemove" type="button" title="移除参考图" aria-label="移除参考图">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                </button>
+              </div>
+            </div>
+            <p id="mediaApiNotice" class="media-api-notice hidden"></p>
+            <button id="mediaGenerateButton" class="media-generate-button" type="button" disabled>
+              <svg class="media-generate-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.6 4.7a3 3 0 0 0 1.8 1.8L20 11l-4.6 1.6a3 3 0 0 0-1.8 1.8L12 19l-1.6-4.6a3 3 0 0 0-1.8-1.8L4 11l4.6-1.5a3 3 0 0 0 1.8-1.8L12 3Z"/></svg>
+              <span>生成图片</span>
+            </button>
+          </aside>
+          <main class="media-studio-canvas">
+            <div id="mediaEmptyState" class="media-empty-state">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg>
+              <span>等待生成</span>
+            </div>
+            <div id="mediaLoadingState" class="media-loading-state hidden" role="status">
+              <span class="media-loading-spinner" aria-hidden="true"></span>
+              <strong id="mediaLoadingTitle">正在生成图片</strong>
+              <span id="mediaLoadingModel"></span>
+            </div>
+            <button id="mediaImageResult" class="media-image-result hidden" type="button" title="打开图片预览">
+              <img id="mediaResultImage" alt="生成的图片" />
+            </button>
+            <div id="mediaVideoResult" class="media-video-result hidden">
+              <video id="mediaResultVideo" controls preload="metadata" playsinline></video>
+              <div id="mediaVideoMeta" class="media-video-meta"></div>
+            </div>
+            <div id="mediaErrorState" class="media-error-state hidden" role="alert">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 17h.01"/></svg>
+              <strong>生成失败</strong>
+              <span id="mediaErrorMessage"></span>
+            </div>
+          </main>
+        </div>
+      </section>
+      -->
+
       <!-- ===== Built-in terminal (real PTY + xterm) ===== -->
       <div id="terminalPanel" class="tool-panel terminal-panel hidden" aria-label="内置终端">
         <div class="tool-panel-header terminal-header">
@@ -732,151 +820,307 @@
         </div>
       </div>
 
-      <!-- ===== Browser panel ===== -->
-      <div id="browserPanel" class="tool-panel hidden">
-        <div class="tool-panel-header">
-          <div class="tool-panel-nav">
-            <button id="browserBack" class="tool-panel-nav-btn" title="后退"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
-            <button id="browserForward" class="tool-panel-nav-btn" title="前进"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>
-            <button id="browserReload" class="tool-panel-nav-btn" title="刷新"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-          </div>
-          <input id="browserUrl" class="tool-panel-url" type="text" placeholder="输入网址或搜索..." />
-          <button id="browserGo" class="tool-panel-go">前往</button>
-          <span id="browserAgentStatus" class="browser-agent-status hidden" aria-hidden="true">Agent 操作中</span>
-          <button id="browserClose" class="tool-panel-close" title="关闭浏览器">×</button>
-        </div>
-        <webview id="browserWebview" class="browser-webview" src="about:blank" partition="persist:yan-browser"></webview>
-      </div>
-
-
       <!-- ===== Resize handle (right sidebar) ===== -->
       <div id="rightResizeHandle" class="resize-handle resize-handle-right"></div>
 
       <!-- ===== Right Sidebar ===== -->
       <aside id="rightSidebar" class="right-sidebar">
-        <div class="rs-tabs">
-          <button class="rs-tab active" data-rs-tab="todo">待办</button>
-          <button class="rs-tab" data-rs-tab="context">上下文</button>
-          <button class="rs-tab" data-rs-tab="files">文件</button>
+        <div class="rs-tabbar">
+          <div id="rightSidebarTabStrip" class="rs-tab-strip" role="tablist" aria-label="右侧面板标签页"></div>
+          <div id="rightSidebarAddWrap" class="rs-add-wrap">
+              <button id="rightSidebarAddBtn" class="rs-tabbar-btn" type="button" title="新建标签页" aria-label="新建标签页" aria-haspopup="menu" aria-controls="rightSidebarAddMenu" aria-expanded="false">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <div id="rightSidebarAddMenu" class="rs-add-menu hidden" role="menu" aria-label="新建右侧面板标签页">
+                <button type="button" role="menuitem" data-rs-open-tool="files">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"/></svg>
+                  <span>文件</span>
+                </button>
+                <button type="button" role="menuitem" data-rs-open-tool="browser">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+                  <span>浏览器</span>
+                </button>
+                <button type="button" role="menuitem" data-rs-open-tool="review">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>
+                  <span>审阅</span>
+                </button>
+              </div>
+          </div>
+          <button id="rightSidebarFocusBtn" class="rs-tabbar-btn right-sidebar-focus-toggle" type="button" title="全屏显示右侧面板" aria-label="全屏显示右侧面板" aria-controls="rightSidebar" aria-pressed="false">
+            <svg class="right-sidebar-focus-expand-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+            <svg class="right-sidebar-focus-collapse-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"/></svg>
+          </button>
         </div>
         <div class="rs-content">
-          <!-- Todo tab -->
-          <div id="rs-todo" class="rs-panel active">
-            <div id="todoList" class="todo-list">
-              <div class="rs-empty">Agent 执行任务时，任务计划会显示在这里</div>
+          <div id="rightSidebarLauncher" class="rs-launcher active">
+            <div class="rs-launcher-list" aria-label="打开右侧工具">
+              <button type="button" data-rs-open-tool="files">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"/></svg>
+                <span>文件</span>
+              </button>
+              <button type="button" data-rs-open-tool="browser">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+                <span>浏览器</span>
+              </button>
+              <button type="button" data-rs-open-tool="review">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>
+                <span>审阅</span>
+              </button>
             </div>
           </div>
-          <!-- Context tab -->
-          <div id="rs-context" class="rs-panel">
-            <div id="contextInfo" class="context-info" data-status="idle" data-budget="normal">
-              <section class="ctx-overview" aria-label="当前运行状态">
-                <div class="ctx-overview-top">
-                  <span class="ctx-status-chip">
-                    <span class="ctx-status-dot" aria-hidden="true"></span>
-                    <span id="ctxStatus">空闲</span>
-                  </span>
-                  <span class="ctx-model-label">当前模型</span>
-                </div>
-                <div id="ctxModel" class="ctx-model-name" title="当前模型">—</div>
-              </section>
-
-              <section class="ctx-budget" aria-labelledby="ctxBudgetTitle">
-                <div class="ctx-section-head">
-                  <span id="ctxBudgetTitle">上下文预算</span>
-                  <span id="ctxTokenPercent" class="ctx-token-percent">0%</span>
-                </div>
-                <div class="ctx-token-value">
-                  <strong id="ctxTokenUsed">—</strong>
-                  <span>/ <span id="ctxTokenLimit">—</span></span>
-                </div>
-                <div id="ctxTokenTrack" class="ctx-token-track" role="progressbar" aria-label="上下文 token 使用率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                  <div id="ctxTokenBar" class="ctx-token-bar"></div>
-                  <span class="ctx-compress-marker" aria-hidden="true"></span>
-                </div>
-                <div id="ctxTokenHint" class="ctx-token-hint">正在计算模型上下文预算</div>
-              </section>
-
-              <section class="ctx-activity" aria-labelledby="ctxActivityTitle">
-                <div id="ctxActivityTitle" class="ctx-section-label">本次活动</div>
-                <div class="ctx-metric-grid">
-                  <div class="ctx-metric"><strong id="ctxIteration">0</strong><span>迭代</span></div>
-                  <div class="ctx-metric"><strong id="ctxToolCalls">0</strong><span>工具</span></div>
-                  <div class="ctx-metric"><strong id="ctxMsgCount">0</strong><span>消息</span></div>
-                </div>
-              </section>
-            </div>
-          </div>
-          <!-- Files tab -->
-          <div id="rs-files" class="rs-panel">
+          <div id="rs-files" class="rs-panel" role="tabpanel" aria-label="文件">
             <div id="rsFileTree" class="rs-file-tree">
               <div class="rs-empty">未设置工作区</div>
             </div>
           </div>
+          <section id="rs-review" class="rs-panel rs-review-panel" role="tabpanel" aria-label="审阅" data-state="idle">
+            <header class="review-toolbar">
+              <div class="review-heading">
+                <strong>改动审阅</strong>
+                <span id="reviewRunLabel">当前任务</span>
+              </div>
+              <div class="review-toolbar-meta">
+                <span id="reviewTotals" class="review-totals"></span>
+                <button id="reviewRefreshBtn" class="review-refresh-btn" type="button" title="刷新审阅" aria-label="刷新审阅">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
+              </div>
+            </header>
+            <div id="reviewEmpty" class="review-empty">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>
+              <strong>暂无可审阅的改动</strong>
+              <span>Agent 修改文件后会显示在这里</span>
+            </div>
+            <div id="reviewWorkspace" class="review-workspace hidden">
+              <nav id="reviewFileList" class="review-file-list" aria-label="改动文件"></nav>
+              <section class="review-diff-pane" aria-label="文件差异">
+                <header id="reviewDiffHeader" class="review-diff-header"></header>
+                <div id="reviewDiffRows" class="review-diff-rows" role="table" aria-label="行级差异"></div>
+              </section>
+            </div>
+          </section>
+          <div id="rsBrowserHost"></div>
+          <template id="browserTabTemplate">
+            <section class="rs-panel rs-browser-panel" role="tabpanel" aria-label="浏览器">
+              <div class="right-browser-shell" data-browser-role="panel">
+                <div class="right-browser-toolbar">
+                  <div class="right-browser-toolbar-row">
+                    <div class="tool-panel-nav">
+                      <button class="tool-panel-nav-btn" data-browser-action="back" type="button" title="后退" aria-label="后退"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+                      <button class="tool-panel-nav-btn" data-browser-action="forward" type="button" title="前进" aria-label="前进"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 5 7 7-7 7"/><path d="M5 12h14"/></svg></button>
+                      <button class="tool-panel-nav-btn" data-browser-action="reload" type="button" title="刷新" aria-label="刷新"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+                    </div>
+                    <div class="browser-address-pill">
+                      <input class="tool-panel-url" data-browser-role="url" type="text" placeholder="输入URL" aria-label="URL" autocomplete="off" spellcheck="false" />
+                      <button class="browser-go-btn" data-browser-action="go" type="button" title="前往" aria-label="前往">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                      </button>
+                    </div>
+                    <span class="browser-agent-status hidden" data-browser-role="agent-status" aria-hidden="true">Agent 操作中</span>
+                    <div class="browser-settings-wrap" data-browser-settings-wrap>
+                      <button class="tool-panel-nav-btn browser-settings-btn" data-browser-action="settings" type="button" title="浏览器设置" aria-label="浏览器设置" aria-haspopup="menu" aria-expanded="false">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+                      </button>
+                      <div class="browser-settings-menu hidden" data-browser-role="settings-menu" role="menu">
+                        <div class="browser-zoom-row" role="group" aria-label="页面缩放">
+                          <span>缩放</span>
+                          <button type="button" data-browser-zoom="out" title="缩小" aria-label="缩小">−</button>
+                          <button class="browser-zoom-value" type="button" data-browser-zoom="reset" title="恢复自动缩放">自动</button>
+                          <button type="button" data-browser-zoom="in" title="放大" aria-label="放大">+</button>
+                        </div>
+                        <div class="browser-settings-divider"></div>
+                        <button class="browser-settings-item" type="button" data-browser-clear="cache" role="menuitem">清除缓存</button>
+                        <button class="browser-settings-item" type="button" data-browser-clear="cookies" role="menuitem">清除 Cookie</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="browser-empty-state active" data-browser-role="empty-state" aria-hidden="false">
+                  <div class="browser-empty-brand">
+                    <span class="browser-empty-logo" aria-hidden="true">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+                    </span>
+                    <strong>浏览器</strong>
+                  </div>
+                  <p>输入URL以浏览</p>
+                </div>
+                <webview class="browser-webview" data-browser-role="webview" src="about:blank" partition="persist:yan-browser" allowpopups></webview>
+                <div class="browser-agent-takeover" data-browser-role="agent-takeover" aria-hidden="true">
+                  <div class="browser-agent-input-shield" data-browser-role="agent-input-shield" tabindex="-1" aria-label="Agent 正在操控此网页"></div>
+                  <div class="browser-agent-cursor" data-browser-role="agent-cursor" aria-hidden="true">
+                    <svg width="26" height="31" viewBox="0 0 26 31" fill="none" aria-hidden="true">
+                      <path d="M3 2.6v21.1l5.4-5.1 4.4 9.7 4.2-1.9-4.3-9.4h7.8L3 2.6Z" fill="currentColor" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <div class="browser-agent-control-label" data-browser-role="agent-control-label">Agent正在操控该网页，按Esc退出</div>
+                </div>
+                <div class="browser-x-scrollbar" data-browser-role="x-scrollbar" data-scrollable="false" aria-label="页面横向滚动" role="scrollbar" tabindex="0" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+                  <div class="browser-x-scroll-track" data-browser-role="x-scroll-track">
+                    <div class="browser-x-scroll-thumb" data-browser-role="x-scroll-thumb"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </template>
         </div>
       </aside>
+
+      <button id="rightSidebarToggleBtn" class="task-bar-icon-btn right-sidebar-fixed-toggle hidden" type="button" title="打开右侧面板" aria-label="打开右侧面板" aria-controls="rightSidebar" aria-expanded="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+      </button>
+
+      <!-- Detailed context remains wired while its next UI location is decided. -->
+      <div id="retainedAgentUi" class="hidden" aria-hidden="true">
+        <div id="contextInfo" class="context-info" data-status="idle" data-budget="normal">
+          <span id="ctxStatus">空闲</span>
+          <span id="ctxModel">—</span>
+          <span id="ctxIteration">0</span>
+          <span id="ctxToolCalls">0</span>
+          <span id="ctxMsgCount">0</span>
+          <span id="ctxTokenUsed">—</span>
+          <span id="ctxTokenLimit">—</span>
+          <span id="ctxTokenPercent">0%</span>
+          <div id="ctxTokenTrack" role="progressbar" aria-label="上下文 token 使用率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="ctxTokenBar"></div>
+          </div>
+          <span id="ctxTokenHint"></span>
+        </div>
+      </div>
     </div>
 
-    <!-- ===== Settings sheet ===== -->
-    <div id="settingsOverlay" class="overlay hidden">
-      <div class="sheet" role="dialog" aria-modal="true">
-        <div class="sheet-header">
-          <h2>设置</h2>
-          <button id="closeSettings" class="icon-btn" aria-label="关闭">
+    <!-- ===== Settings workspace ===== -->
+    <div id="settingsOverlay" class="settings-page-layer hidden">
+      <section class="sheet settings-page-shell" aria-label="设置">
+        <div class="sheet-header settings-header">
+          <div class="settings-brand">
+            <span class="settings-brand-mark" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            </span>
+            <div><strong>设置</strong><span>Yan Agent</span></div>
+          </div>
+          <div class="settings-header-copy" aria-live="polite">
+            <h2 id="settingsSectionTitle">关于</h2>
+            <p id="settingsSectionDescription">版本信息与本次更新</p>
+          </div>
+          <button id="closeSettings" class="icon-btn settings-close-btn" type="button" title="关闭设置" aria-label="关闭设置">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         <div class="sheet-body">
-          <nav class="sheet-nav">
-            <button class="sheet-nav-btn" data-tab="api">API 配置</button>
-            <button class="sheet-nav-btn" data-tab="model">模型</button>
-            <button class="sheet-nav-btn" data-tab="permissions">权限</button>
-            <button class="sheet-nav-btn" data-tab="remote">移动端</button>
-            <button class="sheet-nav-btn active" data-tab="about">关于</button>
+          <nav id="settingsSidebarNav" class="sheet-nav settings-sidebar-nav" role="tablist" aria-label="设置分类">
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="api" title="API 配置" aria-controls="tab-api" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="8" cy="15" r="3"/><path d="m10.5 13.5 7-7M15 5l4 4M14 10l2 2"/></svg><span class="sheet-nav-text">API 配置</span>
+            </button>
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="model" title="模型" aria-controls="tab-model" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 9h6v6H9zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M19 9h3M2 15h3M19 15h3"/></svg><span class="sheet-nav-text">模型</span>
+            </button>
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="vision-relay" title="视觉中继" aria-controls="tab-vision-relay" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg><span class="sheet-nav-text">视觉中继</span>
+            </button>
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="permissions" title="权限" aria-controls="tab-permissions" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg><span class="sheet-nav-text">权限</span>
+            </button>
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="tone" title="口吻" aria-controls="tab-tone" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/></svg><span class="sheet-nav-text">口吻</span>
+            </button>
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="quick-launch" title="快速启动" aria-controls="tab-quick-launch" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-9 12h8l-1 8 9-12h-8l1-8Z"/></svg><span class="sheet-nav-text">快速启动</span>
+            </button>
+            <button class="sheet-nav-btn" type="button" role="tab" data-tab="remote" title="移动端" aria-controls="tab-remote" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4M11 18h2"/></svg><span class="sheet-nav-text">移动端</span>
+            </button>
+            <button class="sheet-nav-btn active" type="button" role="tab" data-tab="about" title="关于" aria-controls="tab-about" aria-selected="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg><span class="sheet-nav-text">关于</span>
+            </button>
           </nav>
           <div class="sheet-content">
             <!-- API -->
             <section id="tab-api" class="tab-panel">
-              <p class="tab-desc">选择模型厂商并填入对应的 API Key（均兼容 OpenAI 协议）。</p>
-              <div class="field"><label>选择厂商</label>
-                <div id="providerList" class="provider-list"></div>
-              </div>
-              <div class="field"><label id="cfgApiKeyLabel">API Key</label>
-                <div class="input-with-action">
-                  <input id="cfgApiKey" class="input" type="password" placeholder="sk-..." />
-                  <button id="toggleKey" class="ghost-btn" type="button">显示</button>
-                </div>
-                <p id="apiApplyHint" class="api-apply-hint hidden">你可以在<a id="apiApplyLink" href="https://blankusing.com/">这里</a>申请一个<span id="apiApplyProviderName"></span>的 API</p>
-              </div>
-              <div class="field"><label id="cfgBaseUrlLabel" for="cfgBaseUrl">Base URL</label>
-                <input id="cfgBaseUrl" class="input" type="url" placeholder="https://api.example.com/v1" />
-                <p id="cfgBaseUrlHint" class="field-hint">可填写官方 API、CC Switch、中转站或自建 OpenAI 兼容网关。</p>
-              </div>
-              <div class="form-grid provider-image-endpoints">
-                <div class="field"><label for="cfgImageGenerationUrl">文生图 POST URL（可选）</label>
-                  <input id="cfgImageGenerationUrl" class="input" type="url" placeholder="https://.../images/generations" />
-                </div>
-                <div class="field"><label for="cfgImageEditUrl">P 图 POST URL（可选）</label>
-                  <input id="cfgImageEditUrl" class="input" type="url" placeholder="https://.../images/edits" />
+              <div class="settings-form-section">
+                <div class="settings-group-heading"><h3>厂商</h3><p>选择要连接的模型服务。</p></div>
+                <div class="field"><label>选择厂商</label>
+                  <div id="providerList" class="provider-list"></div>
                 </div>
               </div>
-              <div id="customModelField" class="field hidden"><label for="cfgCustomModelId">模型 ID</label>
-                <input id="cfgCustomModelId" class="input" type="text" placeholder="例如：my-model-v1" />
-                <p class="field-hint">自定义模型直接按 OpenAI Chat Completions 协议请求，不做本地连接、代理或模型映射。</p>
+              <div class="settings-form-section">
+                <div class="settings-group-heading"><h3>API</h3><p>凭据只保存在当前设备。</p></div>
+                <div class="field"><label id="cfgApiKeyLabel">API Key</label>
+                  <div class="input-with-action">
+                    <input id="cfgApiKey" class="input" type="password" placeholder="sk-..." />
+                    <button id="toggleKey" class="ghost-btn" type="button">显示</button>
+                  </div>
+                </div>
+                <div class="field"><label id="cfgBaseUrlLabel" for="cfgBaseUrl">Base URL</label>
+                  <input id="cfgBaseUrl" class="input" type="url" placeholder="https://api.example.com/v1" />
+                  <p id="cfgBaseUrlHint" class="field-hint">可填写官方 API、CC Switch、中转站或自建 OpenAI 兼容网关。</p>
+                  <p id="providerMediaSupportNote" class="field-hint hidden"></p>
+                </div>
+                <div id="providerWorkspaceField" class="field hidden"><label for="cfgWorkspaceId">Workspace ID（可选）</label>
+                  <input id="cfgWorkspaceId" class="input" type="text" placeholder="百炼业务空间 ID" />
+                  <p class="field-hint">仅用于通义千问 DashScope 原生图片与视频接口；默认业务空间可留空。</p>
+                </div>
               </div>
-              <p class="field-hint">图片端点留空时按 Base URL 自动使用 <code>/images/generations</code> 与 <code>/images/edits</code>。</p>
-              <button id="saveApi" class="primary-btn">保存配置</button>
+              <div id="providerImageEndpointSection" class="settings-form-section hidden">
+                <div class="settings-group-heading"><h3>图像端点</h3><p>留空时使用 Base URL 自动补全。</p></div>
+                <div class="form-grid provider-image-endpoints">
+                  <div class="field"><label for="cfgImageGenerationUrl">文生图 POST URL（可选）</label>
+                    <input id="cfgImageGenerationUrl" class="input" type="url" placeholder="https://.../images/generations" />
+                  </div>
+                  <div class="field"><label for="cfgImageEditUrl">P 图 POST URL（可选）</label>
+                    <input id="cfgImageEditUrl" class="input" type="url" placeholder="https://.../images/edits" />
+                  </div>
+                </div>
+                <p id="imageEndpointHint" class="field-hint">图片端点留空时按 Base URL 自动使用 <code>/images/generations</code> 与 <code>/images/edits</code>。</p>
+              </div>
+              <div class="settings-actions">
+                <button id="removeProviderConfig" class="settings-danger-btn hidden" type="button">取消配置</button>
+                <button id="saveApi" class="primary-btn" type="button">保存配置</button>
+              </div>
             </section>
 
             <!-- Model -->
             <section id="tab-model" class="tab-panel">
-              <div class="model-tab-header">
-                <p class="tab-desc">选择当前使用的模型。</p>
-                <button id="refreshModels" class="ghost-btn hidden" type="button" title="从 API 重新加载模型">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0 2 5.3"/><polyline points="20 4 20 11 13 11"/></svg>
-                  <span>刷新模型</span>
-                </button>
-              </div>
+              <p class="tab-desc">已配置厂商的模型会按用途归类显示。</p>
               <div id="modelGrid" class="model-grid"></div>
+            </section>
+
+            <!-- Vision relay -->
+            <section id="tab-vision-relay" class="tab-panel">
+              <div class="settings-form-section vision-relay-intro">
+                <div class="settings-group-heading"><h3>视觉中继</h3><p>让不支持读图的文本模型也能可靠理解图片和浏览器截图。</p></div>
+                <p class="vision-relay-copy">当主模型不能直接接收图像时，Yan 会把图片交给视觉模型读取，再把可核验的事实描述交回主模型继续工作。视觉中继只负责观察和转述，不执行用户任务；图片生成成功后不会自动重复读图。</p>
+              </div>
+              <div class="settings-form-section vision-relay-provider-grid">
+                <article class="vision-relay-provider">
+                  <div class="vision-relay-provider-head">
+                    <div><h3>GLM · 智谱 AI</h3><p>首选视觉中继</p></div>
+                    <span id="visionRelayGlmStatus" class="vision-relay-status">未配置</span>
+                  </div>
+                  <div class="vision-relay-detail"><span>调用顺序</span><strong>GLM-5V Turbo → GLM-4.6V Flash → GLM-4.1V Thinking Flash → GLM-4V Flash</strong></div>
+                  <div class="vision-relay-detail"><span>费用</span><strong>完全免费</strong></div>
+                  <div class="vision-relay-detail"><span>网络</span><strong>无需 VPN；连接失败时先检查 API Key 和网络状态</strong></div>
+                  <div class="vision-relay-detail"><span>官网</span><strong>https://open.bigmodel.cn/</strong></div>
+                </article>
+                <article class="vision-relay-provider">
+                  <div class="vision-relay-provider-head">
+                    <div><h3>Agnes AI</h3><p>GLM 失败后的后备中继</p></div>
+                    <span id="visionRelayAgnesStatus" class="vision-relay-status">未配置</span>
+                  </div>
+                  <div class="vision-relay-detail"><span>调用顺序</span><strong>Agnes 2.5 Flash → Agnes 2.0 Flash</strong></div>
+                  <div class="vision-relay-detail"><span>费用</span><strong>完全免费</strong></div>
+                  <div class="vision-relay-detail"><span>网络</span><strong>需要 VPN；连接失败时先检查 VPN、API Key 和网络状态</strong></div>
+                  <div class="vision-relay-detail"><span>官网</span><strong>https://apihub.agnes-ai.com/</strong></div>
+                </article>
+              </div>
+              <div class="settings-form-section vision-relay-requirements">
+                <div class="settings-group-heading"><h3>使用前准备</h3><p>只需配置其中一家即可启用视觉中继。</p></div>
+                <ul>
+                  <li>在“API 配置”中填写 GLM 或 Agnes 的 API Key；状态显示“已配置”后才会进入候选链路。</li>
+                  <li>需要开启网络访问；读取本地图片或浏览器截图时，还需要允许文件读取。</li>
+                  <li>每次中继会消耗对应厂商的 API 调用额度，Yan 不承诺任何模型永久免费。</li>
+                </ul>
+                <p class="vision-relay-note">遇到 429、5xx 或临时网络故障，Yan 会按上面的顺序自动切换；普通参数错误不会伪装成成功。</p>
+              </div>
             </section>
 
             <!-- Permissions -->
@@ -902,6 +1146,59 @@
               </div>
             </section>
 
+            <!-- Response voice -->
+            <section id="tab-tone" class="tab-panel">
+              <div class="settings-form-section tone-settings-section">
+                <div class="tone-settings-heading-row">
+                  <div class="settings-group-heading"><h3>口吻方案</h3><p>最多保存 4 种，启用项会用于 Agent 的工作过程与最终回复。</p></div>
+                  <div class="tone-settings-controls">
+                    <span id="toneProfileCount" class="tone-profile-count">0 / 4</span>
+                    <button id="addToneProfile" class="tone-circle-button tone-add-button" type="button" title="新建口吻" aria-label="新建口吻">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div id="toneProfileGrid" class="tone-profile-grid">
+                  <button id="toneDefaultChoice" class="provider-item tone-profile-card active" type="button" aria-pressed="true">
+                    <span class="provider-info">
+                      <span class="provider-name">默认口吻</span>
+                      <span class="provider-status">由当前模型自然表达</span>
+                    </span>
+                    <span class="provider-check"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></span>
+                  </button>
+                  <div id="toneProfileList" class="tone-profile-list"></div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Quick launch -->
+            <section id="tab-quick-launch" class="tab-panel">
+              <div class="quick-launch-layout">
+                <div class="quick-launch-controls">
+                  <div class="settings-group-heading"><h3>快捷唤醒</h3><p>关闭主窗口后，Yan Agent 仍可从系统托盘驻留并被全局快捷键唤醒。</p></div>
+                  <label class="toggle-row quick-launch-toggle-row">
+                    <div><div class="toggle-title">启用快速启动</div><div class="toggle-sub">在其他软件或桌面上直接呼出快速输入</div></div>
+                    <input type="checkbox" id="quickLaunchEnabled" class="switch" />
+                  </label>
+                  <div class="field quick-launch-shortcut-field">
+                    <label>全局快捷键</label>
+                    <div class="quick-launch-shortcut-control">
+                      <button id="quickLaunchShortcutRecorder" class="quick-launch-shortcut-button" type="button" aria-label="修改快速启动快捷键">
+                        <span id="quickLaunchShortcutLabel">Ctrl+Shift+Y</span>
+                      </button>
+                      <button id="quickLaunchReset" class="quick-launch-reset-button" type="button" title="恢复默认快捷键" aria-label="恢复默认快捷键">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                      </button>
+                    </div>
+                    <p id="quickLaunchStatus" class="field-hint quick-launch-status" aria-live="polite"></p>
+                  </div>
+                </div>
+                <figure class="quick-launch-preview">
+                  <img src="assets/quick-launch-preview.png" alt="Yan Agent 快速启动效果预览" />
+                </figure>
+              </div>
+            </section>
+
             <!-- Mobile remote -->
             <section id="tab-remote" class="tab-panel">
               <p class="tab-desc">启动后自动开放局域网端口，手机浏览器访问即可遥控 Agent。</p>
@@ -912,15 +1209,21 @@
               <div class="field" style="margin-top:16px"><label>访问地址</label>
                 <div id="remoteUrls" class="remote-url-list"></div>
               </div>
+              <div class="remote-ip-guide" aria-labelledby="remoteIpGuideTitle">
+                <h3 id="remoteIpGuideTitle">查询你的电脑 IP</h3>
+                <ol>
+                  <li>按 <kbd>Win</kbd> + <kbd>R</kbd> 唤出运行框</li>
+                  <li>输入 <code>cmd</code> 并回车</li>
+                  <li>输入 <code>ipconfig</code>，在当前网络连接下找到 IPv4 地址</li>
+                </ol>
+              </div>
               <div class="field"><label>访问密码</label>
                 <div class="input-with-action">
                   <input id="remotePassword" class="input" type="password" placeholder="至少 4 位" minlength="4" autocomplete="new-password" />
                   <button id="remoteSavePassword" class="ghost-btn" type="button">保存</button>
+                  <button id="remoteRestart" class="ghost-btn" type="button">重启服务</button>
                 </div>
                 <p id="remotePasswordHint" class="field-hint">手机端连接时需输入此密码</p>
-              </div>
-              <div class="row" style="gap:8px; flex-wrap:wrap">
-                <button id="remoteRestart" class="ghost-btn" type="button">重启服务</button>
               </div>
               <p id="remoteStatus" class="field-hint"></p>
             </section>
@@ -928,91 +1231,100 @@
             <!-- About -->
             <section id="tab-about" class="tab-panel active">
               <div class="about">
-                <div class="welcome-logo small"><img src="assets/logo.png" alt="Yan Agent" width="56" height="56" /></div>
-                <h2>Yan Agent</h2>
-                <p class="about-version">v1.3.2</p>
-                <p class="muted">面向真实工作区的桌面端自主 Agent</p>
+                <div class="about-product">
+                  <div class="welcome-logo small"><img src="assets/logo.png" alt="Yan Agent" width="56" height="56" /></div>
+                  <h2>Yan Agent</h2>
+                  <p class="about-version">v1.4.0</p>
+                  <p class="muted">面向真实工作区的桌面端自主 Agent</p>
+                  <p class="about-platform muted">Electron 31 · Windows · MIT License</p>
+                </div>
                 <div class="about-changelog">
-                  <h3>v1.3.2 主要更新</h3>
+                  <h3>v1.4.0 完整更新</h3>
                   <div class="about-group">
-                    <h4>更稳的任务内核</h4>
+                    <h4>Yan Kernel（基于 OpenCode 二次开发）</h4>
                     <ul>
-                      <li>修复模型断流、空响应和工具失败后的任务状态错乱，让对话、按钮、桌宠和 Windows 通知保持一致</li>
-                      <li>增加明确的错误收尾、上下文压缩和重复错误熔断，长任务不会悄悄停在“正在工作”</li>
+                      <li>全新 Yan Kernel 成为唯一执行权威，统一处理事件流、权限、提问、错误收尾、上下文压缩与最终总结</li>
+                      <li>新增 DeepSeek DSML 适配，协议片段不会泄露到用户正文；重复错误会熔断并给出可见原因</li>
+                      <li>工作阶段与无工具最终总结分离，完成后可展开同一套正文 UI 查看工作过程</li>
                     </ul>
                   </div>
                   <div class="about-group">
-                    <h4>更聪明的工具调用</h4>
+                    <h4>工作区与目标模式</h4>
                     <ul>
-                      <li>新增动态能力判断，Agent 会根据目标选择必要的 Skill、MCP、浏览器和电脑操作能力</li>
-                      <li>Skill 调用改为输入框内的已安装 Skill 选择器，支持一次任务组合多个技能，减少无关工具调用</li>
+                      <li>Blank 可进行问答、浏览、应用操作、媒体生成和 Yan Skill 安装；用户文件写入必须先选择工作区</li>
+                      <li>常规、计划、目标三种工作方式落地；目标模式只按原始要求定点验收和最小修复，最多 6 轮</li>
+                      <li>工作区、任务和工具快照隔离；跨工作区/跨会话交接需要授权并复用目标工作区最近任务</li>
                     </ul>
                   </div>
                   <div class="about-group">
-                    <h4>工作区与验证体验</h4>
+                    <h4>Skill、MCP 与浏览器</h4>
                     <ul>
-                      <li>任务工作区、终端目录和新建空任务彻底隔离；进入新文件夹后会真正切换 Agent 工作区</li>
-                      <li>内置浏览器成为网页和小游戏的默认验收入口，Computer Use、MCP 与 Playwright 按任务需要才启用</li>
+                      <li>Yan Skills、Yan Media、Yan Session、CodeGraph、Serena 和 Yan 内置浏览器按任务需要暴露</li>
+                      <li>Skill 的查找、安装、调用和删除锁定在 Yan 自己的 Skill 根目录；内置浏览器优先，Playwright 只作后备</li>
+                      <li>内置浏览器按 ChatGPT 内置浏览器范式重做，支持专属标签页、完整交互操控、截图、显式等待、页面检查和交互证据</li>
+                      <li>Canvas/WebGL/3D 不再只看 DOM 或像素变化，Agent 控制状态会显示在页面和标签上</li>
                     </ul>
                   </div>
                   <div class="about-group">
-                    <h4>输入框与权限访问</h4>
+                    <h4>多模态与可靠交付</h4>
                     <ul>
-                      <li>新增推理速度、工作方式和权限访问控制，可在常规、计划、目标及三档审批策略之间切换</li>
-                      <li>完全访问启用前增加确认，并保留文件、网络和高风险系统命令的安全边界</li>
+                      <li>主文本模型与图片/视频次模型共存，文件、视觉中继、媒体生成、编辑和上下文修改组成完整多模态链路</li>
+                      <li>支持会话内媒体修改和 9 种图片比例；成功生成不会默认再次读图，图片/视频结果会进入最终输出</li>
+                      <li>主模型不能读图时，可按 GLM 优先、Agnes 后备的视觉中继把截图事实转告主模型</li>
+                      <li>审阅面板支持实时/持久化 diff、单文件打开、刷新恢复和回滚，并过滤图片、视频等二进制文件</li>
+                    </ul>
+                  </div>
+                  <div class="about-group">
+                    <h4>记忆、设置与生态</h4>
+                    <ul>
+                      <li>输入框上下文状态线实时同步模型、模式、预算和运行阶段；完成头部展示真实缓存 token 与命中率</li>
+                      <li>新增模型感知的上下文压缩、长期记忆、缓存命中显示和跨会话有限交接</li>
+                      <li>设置页加入视觉中继、最多 4 个用户口吻、快速启动（默认 Ctrl+Shift+Y）和移动端 LAN 指引</li>
+                      <li>二代 Yan Agent Pet 实时同步当前任务、状态灯、工作阶段，支持拖动、展开、打开任务和结束任务</li>
+                      <li>加入 Yan Prompt Optimizer，用户主动点击时只优化表达，不扩张原始任务</li>
+                      <li>旧代码地图能力已进化为开箱即用的 Understand Anything；CodeGraph 作为其底层项目索引继续工作</li>
+                      <li>Yan Computer Use 正在开发，计划 v1.5.0 上线；Web UI 暂未更新，不建议使用；Yan Agent GUI 也计划 v1.5.0 上线</li>
                     </ul>
                   </div>
                 </div>
-                <p class="about-footer muted">Electron 31 · Windows · MIT License</p>
               </div>
             </section>
           </div>
         </div>
-      </div>
+      </section>
+      <dialog id="toneEditorDialog" class="tone-editor-dialog" aria-labelledby="toneEditorTitle">
+        <form id="toneEditorForm" class="tone-editor-shell" novalidate>
+          <header class="tone-editor-head">
+            <div>
+              <h3 id="toneEditorTitle">新建口吻</h3>
+              <p>设置昵称与具体语气。</p>
+            </div>
+            <button id="toneEditorClose" class="tone-editor-close" type="button" title="关闭" aria-label="关闭口吻编辑窗口">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+          </header>
+          <div class="tone-editor-body">
+            <label class="tone-editor-field" for="toneEditorName">
+              <span>昵称</span>
+              <input id="toneEditorName" class="input" type="text" maxlength="48" autocomplete="off" placeholder="例如：爽快" aria-describedby="toneEditorError" />
+            </label>
+            <label class="tone-editor-field" for="toneEditorInstructions">
+              <span>具体语气</span>
+              <textarea id="toneEditorInstructions" class="input" rows="6" maxlength="4000" placeholder="例如：没素质，爽快" aria-describedby="toneEditorError"></textarea>
+            </label>
+            <p id="toneEditorError" class="tone-editor-error" role="alert" aria-live="polite"></p>
+          </div>
+          <footer class="tone-editor-footer">
+            <button id="toneEditorSave" class="tone-circle-button tone-save-button" type="submit" title="保存口吻" aria-label="保存口吻">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+            </button>
+          </footer>
+        </form>
+      </dialog>
     </div>
 
     <!-- ===== Toast ===== -->
     <div id="toast" class="toast hidden"></div>
-
-    <!-- ===== Yan Partner NSFW confirmation ===== -->
-    <div id="partnerNsfwModal" class="overlay hidden">
-      <div class="perm-dialog partner-nsfw-dialog" role="dialog" aria-modal="true" aria-labelledby="partnerNsfwTitle">
-        <div class="partner-nsfw-symbol" aria-hidden="true">18+</div>
-        <h3 id="partnerNsfwTitle" class="perm-dialog-title">进入 NSFW 模式</h3>
-        <p class="perm-dialog-desc">仅限已满 18 岁用户。NSFW 模式下，你无权复制任何聊天文本；Yan Partner 会禁用文本选择、复制按钮、复制/剪切与拖拽。</p>
-        <p class="partner-nsfw-boundary">内容使用及后果由用户自行承担，与 Yan Partner 无关；该提示不替代适用法律与服务条款。消息仍需发送至你配置的 DeepSeek API，软件无法阻止截图、录屏、开发者工具或操作系统级抓取。</p>
-        <div class="perm-dialog-actions">
-          <button type="button" id="partnerNsfwCancel" class="secondary-btn">取消</button>
-          <button type="button" id="partnerNsfwConfirm" class="primary-btn">我已满 18 岁并进入</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Rename Partner conversation ===== -->
-    <div id="partnerRenameModal" class="overlay hidden">
-      <div class="perm-dialog rename-task-dialog" role="dialog" aria-modal="true" aria-labelledby="partnerRenameTitle">
-        <h3 id="partnerRenameTitle" class="perm-dialog-title">重命名对话</h3>
-        <label class="rename-task-label" for="partnerRenameInput">对话名称</label>
-        <input id="partnerRenameInput" class="input rename-task-input" type="text" maxlength="80" autocomplete="off" />
-        <div class="perm-dialog-actions">
-          <button type="button" id="partnerRenameCancel" class="secondary-btn">取消</button>
-          <button type="button" id="partnerRenameConfirm" class="primary-btn">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Delete Partner conversation ===== -->
-    <div id="partnerDeleteModal" class="overlay hidden">
-      <div class="perm-dialog delete-task-dialog" role="dialog" aria-modal="true" aria-labelledby="partnerDeleteTitle">
-        <h3 id="partnerDeleteTitle" class="perm-dialog-title">删除对话？</h3>
-        <p id="partnerDeleteDesc" class="perm-dialog-desc"></p>
-        <p class="delete-task-warning">删除后无法恢复这段对话及其全部消息。</p>
-        <div class="perm-dialog-actions">
-          <button type="button" id="partnerDeleteCancel" class="secondary-btn">取消</button>
-          <button type="button" id="partnerDeleteConfirm" class="delete-task-confirm">删除对话</button>
-        </div>
-      </div>
-    </div>
 
     <!-- ===== Rename task ===== -->
     <div id="renameTaskModal" class="overlay hidden">
@@ -1040,6 +1352,36 @@
       </div>
     </div>
 
+    <!-- ===== Remove workspace confirmation ===== -->
+    <div id="removeWorkspaceModal" class="overlay hidden">
+      <div class="perm-dialog delete-task-dialog" role="dialog" aria-modal="true" aria-labelledby="removeWorkspaceTitle">
+        <h3 id="removeWorkspaceTitle" class="perm-dialog-title">移除工作区？</h3>
+        <p id="removeWorkspaceDesc" class="perm-dialog-desc"></p>
+        <div class="workspace-perm-target">
+          <span id="removeWorkspaceName"></span>
+          <code id="removeWorkspacePath"></code>
+        </div>
+        <p class="delete-task-warning">仅从左侧任务列表移除，不会删除本机文件或任务记录。</p>
+        <div class="perm-dialog-actions">
+          <button type="button" id="removeWorkspaceCancel" class="secondary-btn">取消</button>
+          <button type="button" id="removeWorkspaceConfirm" class="delete-task-confirm">移除工作区</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Remove Skill confirmation ===== -->
+    <div id="removeSkillModal" class="overlay hidden">
+      <div class="perm-dialog delete-task-dialog remove-skill-dialog" role="dialog" aria-modal="true" aria-labelledby="removeSkillTitle">
+        <h3 id="removeSkillTitle" class="perm-dialog-title">删除 Skill？</h3>
+        <p id="removeSkillDesc" class="perm-dialog-desc"></p>
+        <p class="delete-task-warning">删除后 Agent 将无法继续调用它，需要重新安装才能恢复。</p>
+        <div class="perm-dialog-actions">
+          <button type="button" id="removeSkillCancel" class="secondary-btn">取消</button>
+          <button type="button" id="removeSkillConfirm" class="delete-task-confirm">删除 Skill</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== Workspace permission dialog ===== -->
     <div id="workspacePermModal" class="overlay hidden">
       <div class="perm-dialog workspace-perm-dialog" role="dialog" aria-modal="true" aria-labelledby="workspacePermTitle">
@@ -1053,20 +1395,6 @@
           <button type="button" id="workspacePermDeny" class="ghost-btn">拒绝</button>
           <button type="button" id="workspacePermChoose" class="secondary-btn">选择其他文件夹</button>
           <button type="button" id="workspacePermAllow" class="primary-btn">允许</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Shell permission dialog ===== -->
-    <div id="shellPermModal" class="overlay hidden">
-      <div class="perm-dialog" role="dialog" aria-modal="true">
-        <h3 class="perm-dialog-title">Shell / PowerShell 执行请求</h3>
-        <p class="perm-dialog-desc">Agent 需要运行以下命令。请选择是否允许：</p>
-        <pre id="shellPermCommand" class="perm-dialog-cmd"></pre>
-        <div class="perm-dialog-actions">
-          <button type="button" id="shellPermAlways" class="primary-btn">总是允许</button>
-          <button type="button" id="shellPermOnce" class="secondary-btn">本次允许</button>
-          <button type="button" id="shellPermDeny" class="ghost-btn">拒绝</button>
         </div>
       </div>
     </div>
@@ -1085,36 +1413,12 @@
     </div>
   </div>
 
-  <script src="kernel/index.js"></script>
-  <script src="kernel/constants.js"></script>
-  <script src="kernel/model-budget.js"></script>
-  <script src="kernel/tool-protocol.js"></script>
-  <script src="kernel/path.js"></script>
-  <script src="kernel/edits.js"></script>
-  <script src="kernel/tools-registry.js"></script>
-  <script src="kernel/progress.js"></script>
-  <script src="kernel/capability-planner.js"></script>
-  <script src="kernel/code-understanding.js"></script>
-  <script src="kernel/prompt.js"></script>
-  <script src="kernel/context.js"></script>
-  <script src="kernel/policies.js"></script>
-  <script src="kernel/run-state.js"></script>
-  <script src="kernel/tool-executor.js"></script>
-  <script src="kernel/tool-retry.js"></script>
-  <script src="kernel/tool-scheduler.js"></script>
-  <script src="kernel/subagent.js"></script>
-  <script src="kernel/stream.js"></script>
-  <script src="kernel/multimodal.js"></script>
-  <script src="kernel/agent-loop.js"></script>
-  <script src="code-map/store.js"></script>
-  <script src="code-map/graph-view.js"></script>
-  <script src="code-map/index.js"></script>
+  <script src="understand-anything/index.js"></script>
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
   <script src="terminal/index.js"></script>
   <script src="browser-agent.js"></script>
   <script src="skill-market.js"></script>
-  <script src="partner.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

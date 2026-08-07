@@ -1,0 +1,12 @@
+{
+  "id": "awesome-design-md",
+  "name": "Awesome DESIGN.md",
+  "desc": "按品牌单项读取 74 套 DESIGN.md 视觉语言参考，避免把整库塞入上下文",
+  "aliases": ["DESIGN.md Library", "品牌设计参考", "设计语言库"],
+  "tags": ["web-design"],
+  "triggers": ["参考品牌设计", "设计语言", "DESIGN.md", "网页风格参考"],
+  "source": "bundled",
+  "repo": "VoltAgent/awesome-design-md",
+  "version": 1,
+  "promptFile": "../awesome-design-md/SKILL.md"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "gsap-core",
+  "name": "GSAP Core",
+  "desc": "GreenSock 官方 GSAP 核心 API、缓动、交错与响应式动画规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-core/SKILL.md"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "hallmark",
+  "name": "Hallmark",
+  "desc": "Anti-AI-slop design guidance for new pages, UI components, audits, redesigns, and design studies",
+  "aliases": ["hallmark design", "anti-slop design", "界面反套路"],
+  "tags": ["web-design"],
+  "triggers": ["hallmark", "网页设计", "UI美化", "设计审阅", "设计重做", "反AI套路", "study screenshot"],
+  "source": "bundled",
+  "version": 110,
+  "promptFile": "../hallmark/SKILL.md"
+}

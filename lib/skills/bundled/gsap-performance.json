@@ -1,0 +1,12 @@
+{
+  "id": "gsap-performance",
+  "name": "GSAP Performance",
+  "desc": "GreenSock 官方动画帧率、布局、绘制与批处理优化规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-performance/SKILL.md"
+}

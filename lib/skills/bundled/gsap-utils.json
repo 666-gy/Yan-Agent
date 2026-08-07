@@ -1,0 +1,12 @@
+{
+  "id": "gsap-utils",
+  "name": "GSAP Utils",
+  "desc": "GreenSock 官方数值映射、插值、吸附、随机与集合辅助规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-utils/SKILL.md"
+}

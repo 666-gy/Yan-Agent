@@ -10,21 +10,16 @@
 </head>
 <body>
   <main class="viewer-shell">
-    <header class="viewer-toolbar">
-      <div class="viewer-title">
-        <span>图片预览</span>
-        <span id="imageMeta" class="image-meta"></span>
-      </div>
-      <button id="downloadBtn" class="download-button" type="button" disabled>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path>
-        </svg>
-        <span>下载</span>
-      </button>
-    </header>
+    <button id="downloadBtn" class="download-button" type="button" title="下载图片" aria-label="下载图片" disabled>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path>
+      </svg>
+    </button>
     <section class="image-stage" aria-live="polite">
-      <div id="viewerStatus" class="viewer-status">正在加载图片…</div>
-      <img id="generatedImage" alt="Agent 生成的图片" hidden draggable="false">
+      <div id="imageCanvas" class="image-canvas">
+        <div id="viewerStatus" class="viewer-status">正在加载图片…</div>
+        <img id="generatedImage" alt="Agent 生成的图片" hidden draggable="false">
+      </div>
     </section>
     <div id="downloadStatus" class="download-status" role="status"></div>
   </main>

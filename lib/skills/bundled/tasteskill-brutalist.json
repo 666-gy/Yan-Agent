@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-brutalist",
+  "name": "TasteSkill Brutalist",
+  "desc": "机械、瑞士排版与高对比的粗野主义界面规则",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-brutalist/SKILL.md"
+}

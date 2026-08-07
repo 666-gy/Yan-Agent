@@ -1,0 +1,4 @@
+interface:
+  display_name: "Understand Anything"
+  short_description: "Browse a local CodeGraph knowledge graph for codebase structure"
+  default_prompt: "Use Understand Anything to orient yourself in the current workspace"

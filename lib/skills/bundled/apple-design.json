@@ -1,0 +1,12 @@
+{
+  "id": "apple-design",
+  "name": "Apple Design",
+  "desc": "面向 Web 的 Apple 流体交互、手势、弹簧、材质、排版与克制原则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "emilkowalski/skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "emil-motion",
+  "promptFile": "../apple-design/SKILL.md"
+}

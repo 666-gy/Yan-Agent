@@ -1,827 +1,881 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Yan Agent v1.3.2 — 面向真实工作区的桌面端自主 Agent，连接 Yan Project Map 与 Yanxi Code。" />
-  <title>Yan Agent v1.3.2 · 面向真实工作区的自主 Agent</title>
-  <link rel="icon" href="assets/logo-light.png" type="image/png" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Yan Agent 1.4.0 — 完全多模态，完整软实力。面向真实 Windows 工作区的桌面 Agent，把模型、工具、文件与验收放进同一条可检查的任务链。">
+  <meta name="theme-color" content="#f7f3ec" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
+  <title>Yan Agent · 完全多模态，完整软实力</title>
+  <link rel="icon" href="assets/logo.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,450;6..72,500;6..72,600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    /* ============================================================
+       Yan Agent · Apple × Claude 风格
+       Claude: 暖纸基底 · Newsreader 衬线 · Anthropic 珊瑚
+       Apple : 系统字体 · 透明材质 · pill · spring · optical type
+       ============================================================ */
+
     :root {
-      --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-      --font-serif: "Instrument Serif", "Times New Roman", Georgia, serif;
-      --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+      /* Claude warm paper */
+      --paper:        #f7f3ec;
+      --paper-2:      #f1ece1;
+      --paper-3:      #e9e2d3;
+      --ink:          #1a1815;
+      --ink-2:        #34302a;
+      --muted:        #6b6357;
+      --faint:        #9a9183;
+      --rule:         #ddd5c5;
+      --rule-2:       #c9bfa9;
 
-      --bg: #0c0b0a;
-      --bg-elev: #141312;
-      --bg-card: #1a1917;
-      --bg-card-hi: #211f1c;
-      --border: #2a2825;
-      --border-hi: #3a3633;
+      /* Anthropic coral */
+      --coral:        #c15f3c;
+      --coral-2:      #a84d2d;
+      --coral-soft:   #f0d9cc;
+      --coral-ink:    #fbf5ef;
 
-      --text: #f5f1ea;
-      --text-dim: #a8a39b;
-      --text-faint: #6b665e;
+      /* sage / status */
+      --sage:         #5a7a5e;
+      --amber:        #b8843a;
 
-      --accent: #d97757;
-      --accent-hover: #e8896a;
-      --accent-deep: #b85d3f;
-      --accent-soft: rgba(217, 119, 87, 0.12);
-      --accent-glow: rgba(217, 119, 87, 0.35);
-      --accent-line: rgba(217, 119, 87, 0.4);
+      /* Apple translucent material */
+      --glass:        rgba(247, 243, 236, 0.72);
+      --glass-border: rgba(26, 24, 21, 0.08);
+      --shadow-sm:    0 1px 2px rgba(26, 24, 21, 0.04), 0 2px 8px rgba(26, 24, 21, 0.04);
+      --shadow-md:    0 2px 8px rgba(26, 24, 21, 0.06), 0 12px 32px rgba(26, 24, 21, 0.08);
+      --shadow-lg:    0 8px 24px rgba(26, 24, 21, 0.08), 0 32px 80px rgba(26, 24, 21, 0.12);
+
+      /* night (Claude dark editorial) */
+      --night:        #16181d;
+      --night-2:      #1d2026;
+      --night-3:      #262a31;
+      --night-ink:    #f0ebe0;
+      --night-muted:  #a39a8c;
+      --night-faint:  #6e6759;
+      --night-rule:   #2f333b;
+
+      /* fonts — Newsreader serif display + system sans body (SF Pro / Segoe) + Geist Mono */
+      --font-serif:   "Newsreader", "Songti SC", "Noto Serif SC", Georgia, serif;
+      --font-sans:    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono:    "Geist Mono", "SF Mono", "Cascadia Mono", ui-monospace, monospace;
 
       --r-sm: 8px;
-      --r: 14px;
-      --r-lg: 20px;
-      --max: 1120px;
+      --r-md: 12px;
+      --r-lg: 18px;
+      --r-xl: 28px;
+      --r-pill: 999px;
+
+      /* Apple spring curves */
+      --ease-spring:    cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring-2:  cubic-bezier(0.32, 0.72, 0, 1);
+      --ease-out:       cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+      --maxw: 1200px;
+      --gutter: clamp(20px, 4vw, 48px);
     }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
+    [data-theme="dark"] {
+      --paper:        #16181d;
+      --paper-2:      #1d2026;
+      --paper-3:      #262a31;
+      --ink:          #f0ebe0;
+      --ink-2:        #d4ccbe;
+      --muted:        #a39a8c;
+      --faint:        #6e6759;
+      --rule:         #2f333b;
+      --rule-2:       #3a3f48;
+      --coral:        #e07a55;
+      --coral-2:      #ec8a64;
+      --coral-soft:   #2a1f1a;
+      --coral-ink:    #fbf5ef;
+      --glass:        rgba(22, 24, 29, 0.72);
+      --glass-border: rgba(240, 235, 224, 0.08);
+      --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-md:    0 12px 32px rgba(0, 0, 0, 0.4);
+      --shadow-lg:    0 32px 80px rgba(0, 0, 0, 0.5);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
     body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
       font-family: var(--font-sans);
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.65;
+      font-size: 17px;
+      line-height: 1.55;
+      font-feature-settings: "ss01", "cv01", "cv11";
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-      overflow-x: hidden;
-      font-weight: 400;
+      text-rendering: optimizeLegibility;
+      overflow-x: clip;
+      transition: background 0.4s var(--ease-spring), color 0.4s var(--ease-spring);
     }
+    ::selection { background: var(--coral-soft); color: var(--ink); }
+    img { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--coral); outline-offset: 3px; border-radius: 4px; }
 
-    /* Atmospheric grain overlay */
-    body::before {
-      content: "";
-      position: fixed; inset: 0;
-      pointer-events: none;
-      z-index: 200;
-      opacity: 0.035;
-      mix-blend-mode: overlay;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    }
+    .wrap { width: min(var(--maxw), 100% - var(--gutter) * 2); margin-inline: auto; }
 
-    a { color: var(--accent-hover); text-decoration: none; transition: color 0.2s; }
-    a:hover { color: #f0a48a; }
+    /* ---------- skip + a11y ---------- */
+    .skip {
+      position: fixed; left: 16px; top: 16px; z-index: 100;
+      transform: translateY(-160%); transition: transform 0.2s var(--ease-spring);
+      padding: 10px 16px; border-radius: var(--r-pill);
+      background: var(--ink); color: var(--paper); font-size: 14px;
+    }
+    .skip:focus { transform: translateY(0); }
 
-    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 28px; }
-
-    /* ---------- Nav ---------- */
-    nav {
-      position: sticky; top: 0; z-index: 100;
-      backdrop-filter: blur(18px) saturate(1.2);
-      -webkit-backdrop-filter: blur(18px) saturate(1.2);
-      background: rgba(12, 11, 10, 0.72);
-      border-bottom: 1px solid rgba(42, 40, 37, 0.6);
-    }
-    .nav-inner {
-      display: flex; align-items: center; justify-content: space-between;
-      height: 62px;
-    }
-    .brand {
-      display: flex; align-items: center; gap: 11px;
-      font-weight: 700; font-size: 15px; color: var(--text);
-      letter-spacing: -0.01em;
-    }
-    .brand-logo {
-      width: 30px; height: 30px;
-      object-fit: contain;
-    }
-    .nav-links { display: flex; align-items: center; gap: 4px; font-size: 14px; }
-    .nav-links a {
-      color: var(--text-dim);
-      padding: 8px 14px;
-      border-radius: var(--r-sm);
-      font-weight: 500;
-      transition: color 0.2s, background 0.2s;
-    }
-    .nav-links a:hover { color: var(--text); background: var(--bg-elev); }
-    .nav-links a.nav-dl {
-      color: #fff;
-      background: var(--accent);
-      box-shadow: 0 2px 12px rgba(217, 119, 87, 0.3);
-    }
-    .nav-links a.nav-dl:hover {
-      color: #fff;
-      background: var(--accent-hover);
-      box-shadow: 0 4px 18px rgba(217, 119, 87, 0.45);
-    }
-
-    /* ---------- Hero ---------- */
-    .hero {
-      padding: 110px 0 90px;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-    .hero::before {
-      content: "";
-      position: absolute; inset: -30% -30% auto;
-      height: 720px;
-      background:
-        radial-gradient(ellipse 60% 50% at 50% 0%, var(--accent-glow) 0%, transparent 60%),
-        radial-gradient(ellipse 40% 40% at 20% 30%, rgba(217, 119, 87, 0.18) 0%, transparent 50%),
-        radial-gradient(ellipse 40% 40% at 80% 20%, rgba(184, 93, 63, 0.15) 0%, transparent 50%);
-      pointer-events: none;
-      animation: hero-drift 18s ease-in-out infinite alternate;
-    }
-    @keyframes hero-drift {
-      0% { transform: translate(0, 0) scale(1); }
-      100% { transform: translate(-2%, 1%) scale(1.05); }
-    }
-    .hero::after {
-      content: "";
-      position: absolute; left: 0; right: 0; bottom: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
-      opacity: 0.6;
-    }
-
-    .hero-logo-wrap {
-      position: relative;
-      width: 96px; height: 96px;
-      margin: 0 auto 32px;
-    }
-    .hero-logo-wrap::before {
-      display: none;
-    }
-    .hero-logo {
-      position: relative;
-      width: 96px; height: 96px;
-      object-fit: contain;
-    }
-
-    .badge {
+    /* ---------- typography ---------- */
+    .eyebrow {
       display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 14px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--accent-hover);
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-line);
-      margin-bottom: 24px;
-      letter-spacing: 0.02em;
+      font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--coral);
     }
-    .badge::before {
-      content: "";
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
-      animation: dot-pulse 2s ease-in-out infinite;
+    .eyebrow::before {
+      content: ""; width: 18px; height: 1px; background: currentColor; opacity: 0.6;
     }
-    @keyframes dot-pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+    h1, h2, h3 {
+      margin: 0; font-family: var(--font-serif); font-weight: 400;
+      letter-spacing: -0.022em; line-height: 1.04;
+      font-optical-sizing: auto; overflow-wrap: anywhere;
+    }
+    h1 { font-size: clamp(2.8rem, 7.5vw, 6rem); font-weight: 380; letter-spacing: -0.035em; }
+    h2 { font-size: clamp(2rem, 4.6vw, 3.6rem); letter-spacing: -0.028em; }
+    h3 { font-size: clamp(1.35rem, 2.4vw, 1.85rem); font-weight: 450; letter-spacing: -0.018em; line-height: 1.15; }
+    .serif-italic { font-style: italic; font-weight: 380; }
+    .lead {
+      font-size: clamp(1.05rem, 1.6vw, 1.25rem); line-height: 1.62;
+      color: var(--muted); max-width: 56ch; font-weight: 400;
     }
 
-    .hero h1 {
-      font-family: var(--font-serif);
-      font-size: clamp(40px, 6.5vw, 68px);
-      font-weight: 400;
-      letter-spacing: -0.02em;
-      line-height: 1.05;
-      margin-bottom: 24px;
-    }
-    .hero h1 em {
-      font-style: italic;
-      background: linear-gradient(135deg, var(--accent-hover) 0%, #f0a48a 50%, var(--accent) 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .hero-lead {
-      font-size: clamp(16px, 2.2vw, 18px);
-      color: var(--text-dim);
-      max-width: 580px;
-      margin: 0 auto 40px;
-      line-height: 1.7;
-      font-weight: 400;
-    }
-    .hero-actions {
-      display: flex; flex-wrap: wrap; gap: 12px;
-      justify-content: center;
-    }
+    /* ---------- buttons (Apple pill) ---------- */
     .btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 13px 24px;
-      border-radius: var(--r-sm);
-      font-size: 14px; font-weight: 600;
-      letter-spacing: -0.005em;
-      transition: transform 0.15s, background 0.2s, box-shadow 0.2s, border-color 0.2s;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      min-height: 44px; padding: 0 22px; border-radius: var(--r-pill);
+      font-size: 15px; font-weight: 500; white-space: nowrap;
+      transition: transform 0.25s var(--ease-spring), background 0.25s var(--ease-spring),
+                  color 0.25s var(--ease-spring), box-shadow 0.25s var(--ease-spring),
+                  border-color 0.25s var(--ease-spring);
+      -webkit-tap-highlight-color: transparent;
     }
     .btn:active { transform: scale(0.97); }
     .btn-primary {
-      background: var(--accent);
-      color: #fff;
-      box-shadow: 0 4px 24px rgba(217, 119, 87, 0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+      background: var(--coral); color: var(--coral-ink);
+      box-shadow: 0 1px 2px rgba(193, 95, 60, 0.3), 0 8px 24px rgba(193, 95, 60, 0.22);
     }
-    .btn-primary:hover {
-      background: var(--accent-hover);
-      color: #fff;
-      box-shadow: 0 8px 32px rgba(217, 119, 87, 0.5), inset 0 1px 0 rgba(255,255,255,0.2);
-      transform: translateY(-1px);
-    }
+    .btn-primary:hover { background: var(--coral-2); transform: translateY(-1px); box-shadow: 0 12px 32px rgba(193, 95, 60, 0.32); }
     .btn-ghost {
-      background: rgba(26, 25, 23, 0.6);
-      color: var(--text);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(8px);
+      background: transparent; color: var(--ink); border: 1px solid var(--rule-2);
     }
-    .btn-ghost:hover {
-      background: var(--bg-card-hi);
-      color: var(--text);
-      border-color: var(--border-hi);
-      transform: translateY(-1px);
-    }
+    .btn-ghost:hover { background: var(--paper-2); border-color: var(--ink-2); transform: translateY(-1px); }
+    .btn .arr { transition: transform 0.25s var(--ease-spring); }
+    .btn:hover .arr { transform: translate(2px, -2px); }
 
-    /* ---------- Sections ---------- */
-    .section { padding: 80px 0; position: relative; }
-    .section-head { text-align: center; margin-bottom: 48px; }
-    .section-head h2 {
-      font-family: var(--font-serif);
-      font-size: clamp(30px, 4vw, 42px);
-      font-weight: 400;
-      letter-spacing: -0.015em;
-      margin-bottom: 12px;
-      line-height: 1.1;
+    /* ---------- translucent nav (Apple material) ---------- */
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--glass);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid var(--glass-border);
     }
-    .section-head p { color: var(--text-dim); font-size: 15px; }
-
-    .eyebrow {
-      display: inline-block;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 14px;
+    [data-theme="dark"] .nav { backdrop-filter: blur(20px) saturate(160%); }
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between; gap: 24px;
+      min-height: 60px;
     }
+    .brand { display: inline-flex; align-items: center; gap: 11px; }
+    .brand img { width: 26px; height: 26px; border-radius: 6px; box-shadow: var(--shadow-sm); }
+    .brand-name { font-family: var(--font-serif); font-size: 1.2rem; font-weight: 500; letter-spacing: -0.01em; }
+    .brand-ver { font-family: var(--font-mono); font-size: 11px; color: var(--faint); padding: 3px 8px; border: 1px solid var(--rule); border-radius: var(--r-pill); }
+    .nav-mid { display: flex; align-items: center; gap: 28px; font-size: 14px; color: var(--muted); }
+    .nav-mid a { position: relative; padding: 8px 0; transition: color 0.2s var(--ease-spring); }
+    .nav-mid a::after {
+      content: ""; position: absolute; left: 0; bottom: 4px; width: 0; height: 1.5px;
+      background: var(--coral); transition: width 0.3s var(--ease-spring);
+    }
+    .nav-mid a:hover { color: var(--ink); }
+    .nav-mid a:hover::after { width: 100%; }
+    .nav-end { display: flex; align-items: center; gap: 12px; }
+    .theme-btn {
+      width: 38px; height: 38px; border-radius: var(--r-pill); border: 1px solid var(--rule);
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--muted); transition: all 0.25s var(--ease-spring);
+    }
+    .theme-btn:hover { color: var(--ink); border-color: var(--rule-2); transform: rotate(-15deg); }
+    .theme-btn svg { width: 17px; height: 17px; }
+    [data-theme="dark"] .theme-btn .sun { display: block; }
+    [data-theme="dark"] .theme-btn .moon { display: none; }
+    .theme-btn .sun { display: none; }
+    .theme-btn .moon { display: block; }
 
-    /* ---------- Changelog ---------- */
-    #changelog { padding-top: 24px; }
-    .changelog {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 36px 40px;
-      border-radius: var(--r-lg);
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, var(--bg-elev) 0%, var(--bg-card) 100%);
-      position: relative;
+    /* ---------- hero ---------- */
+    .hero {
+      position: relative; padding: clamp(64px, 10vw, 128px) 0 clamp(56px, 8vw, 96px);
       overflow: hidden;
     }
-    .changelog::before {
-      content: "";
-      position: absolute; top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
-    }
-    .changelog-meta {
-      display: flex; align-items: center; gap: 14px;
-      margin-bottom: 24px; flex-wrap: wrap;
-    }
-    .version-tag {
-      font-family: var(--font-mono);
-      font-size: 13px; font-weight: 500;
-      color: var(--accent-hover);
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-line);
-      padding: 4px 10px; border-radius: 6px;
-    }
-    .changelog-date {
-      font-family: var(--font-mono);
-      font-size: 13px; color: var(--text-faint);
-    }
-    .changelog h3 {
-      font-family: var(--font-serif);
-      font-size: 22px; font-weight: 400;
-      margin-bottom: 18px;
-      letter-spacing: -0.01em;
-    }
-    .changelog ul {
-      list-style: none;
-      display: flex; flex-direction: column; gap: 10px;
-    }
-    .changelog li {
-      font-size: 14px; color: var(--text-dim);
-      padding-left: 22px; position: relative;
-      line-height: 1.6;
-    }
-    .changelog li::before {
-      content: "";
-      position: absolute; left: 0; top: 10px;
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 6px var(--accent-glow);
-    }
-    .changelog li strong { color: var(--text); font-weight: 600; }
-    .changelog-more {
-      margin-top: 24px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-      font-size: 13px;
-    }
-
-    /* ---------- Download ---------- */
-    .download-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 18px;
-      max-width: 720px;
-      margin: 0 auto;
-    }
-    @media (max-width: 560px) {
-      .wrap { padding-left: 16px; padding-right: 16px; }
-      .nav-inner { height: 56px; }
-      .brand { flex-shrink: 0; gap: 8px; font-size: 14px; white-space: nowrap; }
-      .brand-logo { width: 26px; height: 26px; }
-      .brand > span { font-size: 10px !important; }
-      .nav-links { gap: 0; flex-shrink: 0; }
-      .nav-links a { padding: 8px 7px; white-space: nowrap; }
-      .download-grid { grid-template-columns: 1fr; }
-    }
-    .dl-card {
-      padding: 32px;
-      border-radius: var(--r-lg);
-      border: 1px solid var(--border);
-      background: var(--bg-elev);
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-      transition: transform 0.25s, border-color 0.25s, background 0.25s;
-    }
-    .dl-card:hover {
-      transform: translateY(-3px);
-      border-color: var(--border-hi);
-    }
-    .dl-card.recommended {
-      border-color: var(--accent-line);
-      background: linear-gradient(155deg, rgba(217,119,87,0.1) 0%, var(--bg-elev) 55%);
-    }
-    .dl-card.recommended::before {
-      content: "";
-      position: absolute; top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    }
-    .dl-badge {
-      font-size: 11px; font-weight: 700;
-      color: var(--accent-hover);
-      margin-bottom: 12px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .dl-card h3 {
-      font-family: var(--font-serif);
-      font-size: 22px; font-weight: 400;
-      margin-bottom: 8px;
-      letter-spacing: -0.01em;
-    }
-    .dl-card p { font-size: 13px; color: var(--text-dim); margin-bottom: 22px; }
-    .dl-card .btn { width: 100%; justify-content: center; }
-    .dl-note {
-      text-align: center;
-      margin-top: 24px;
-      font-size: 13px;
-      color: var(--text-faint);
-    }
-
-    /* ---------- Duo ---------- */
-    .duo {
-      padding: 80px 0;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      position: relative;
-    }
-    .duo-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 20px;
-    }
-    @media (max-width: 760px) {
-      .duo-grid { grid-template-columns: 1fr; }
-      .nav-links .nav-extra { display: none; }
-    }
-    .duo-card {
-      padding: 36px 32px;
-      border-radius: var(--r-lg);
-      border: 1px solid var(--border);
-      background: var(--bg-elev);
-      position: relative;
-      overflow: hidden;
-      transition: transform 0.3s, border-color 0.3s;
-    }
-    .duo-card:hover { transform: translateY(-2px); border-color: var(--border-hi); }
-    .duo-card.highlight {
-      border-color: var(--accent-line);
+    .hero-glow {
+      position: absolute; inset: -20% -10% auto -10%; height: 80%; z-index: -1;
       background:
-        radial-gradient(ellipse 80% 50% at 100% 0%, rgba(217,119,87,0.12) 0%, transparent 60%),
-        var(--bg-elev);
+        radial-gradient(60% 50% at 75% 20%, var(--coral-soft) 0%, transparent 60%),
+        radial-gradient(50% 40% at 15% 30%, color-mix(in oklab, var(--coral-soft) 60%, transparent) 0%, transparent 70%);
+      filter: blur(8px);
+      opacity: 0.85;
     }
-    .duo-card.highlight::after {
-      content: "";
-      position: absolute; top: 0; right: 0;
-      width: 120px; height: 120px;
-      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
-      opacity: 0.5;
-      pointer-events: none;
+    [data-theme="dark"] .hero-glow { opacity: 0.4; }
+    .hero-grid {
+      display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(40px, 6vw, 88px); align-items: center;
     }
-    .duo-label {
-      font-family: var(--font-mono);
-      font-size: 11px; font-weight: 500;
-      text-transform: uppercase; letter-spacing: 0.12em;
-      color: var(--text-faint); margin-bottom: 14px;
+    .hero-copy { max-width: 640px; }
+    .hero h1 { margin-top: 22px; }
+    .hero h1 .accent { color: var(--coral); font-style: italic; font-weight: 380; }
+    .hero h1 .dot { color: var(--coral); }
+    .hero-lead { margin: 28px 0 0; font-size: clamp(1.08rem, 1.7vw, 1.32rem); line-height: 1.6; color: var(--ink-2); max-width: 48ch; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 36px; }
+    .hero-meta {
+      display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 40px;
+      padding-top: 28px; border-top: 1px solid var(--rule);
+      font-family: var(--font-mono); font-size: 12px; color: var(--faint);
     }
-    .duo-card.highlight .duo-label { color: var(--accent); }
-    .duo-card h3 {
-      font-family: var(--font-serif);
-      font-size: 26px; font-weight: 400;
-      margin-bottom: 14px;
-      letter-spacing: -0.015em;
-      line-height: 1.2;
-    }
-    .duo-card p { color: var(--text-dim); font-size: 14px; line-height: 1.7; }
-    .duo-link { margin-top: 16px; font-size: 13px; font-weight: 600; }
+    .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+    .hero-meta span::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage) 22%, transparent); }
 
-    /* ---------- Features ---------- */
-    .features {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
+    /* multimodal viz (right column of hero) */
+    .mm-card {
+      position: relative; padding: 28px; border-radius: var(--r-xl);
+      background: linear-gradient(160deg, var(--paper-2) 0%, var(--paper-3) 100%);
+      border: 1px solid var(--rule); box-shadow: var(--shadow-lg);
     }
-    @media (max-width: 860px) { .features { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 520px) { .features { grid-template-columns: 1fr; } }
-    .feat {
-      padding: 26px 24px;
-      border-radius: var(--r-lg);
-      border: 1px solid var(--border);
-      background: var(--bg-elev);
-      transition: transform 0.3s, border-color 0.3s, background 0.3s;
-      position: relative;
-      overflow: hidden;
+    [data-theme="dark"] .mm-card { background: linear-gradient(160deg, var(--night-2) 0%, var(--night-3) 100%); }
+    .mm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    .mm-title { font-family: var(--font-mono); font-size: 11px; color: var(--faint); letter-spacing: 0.08em; text-transform: uppercase; }
+    .mm-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 11px; color: var(--sage); }
+    .mm-live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--sage); animation: pulse 2s var(--ease-spring) infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
+    .mm-rows { display: grid; gap: 10px; }
+    .mm-row {
+      display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 14px;
+      padding: 14px 16px; border-radius: var(--r-md);
+      background: var(--paper); border: 1px solid var(--rule);
+      transition: transform 0.3s var(--ease-spring), border-color 0.3s var(--ease-spring);
     }
-    .feat::before {
-      content: "";
-      position: absolute; top: 0; left: 0;
-      width: 100%; height: 1px;
-      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
-      opacity: 0;
-      transition: opacity 0.3s;
+    [data-theme="dark"] .mm-row { background: var(--night-2); border-color: var(--night-rule); }
+    .mm-row:hover { transform: translateX(4px); border-color: var(--coral); }
+    .mm-ic {
+      width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+      background: var(--coral-soft); color: var(--coral); flex-shrink: 0;
     }
-    .feat:hover {
-      transform: translateY(-3px);
-      border-color: var(--border-hi);
-      background: var(--bg-card-hi);
+    [data-theme="dark"] .mm-ic { background: color-mix(in oklab, var(--coral) 18%, transparent); color: var(--coral); }
+    .mm-ic svg { width: 18px; height: 18px; }
+    .mm-label { font-size: 14px; font-weight: 500; }
+    .mm-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .mm-tag { font-family: var(--font-mono); font-size: 10px; color: var(--faint); padding: 4px 9px; border: 1px solid var(--rule); border-radius: var(--r-pill); }
+    .mm-relay {
+      margin-top: 16px; padding: 14px 16px; border-radius: var(--r-md);
+      background: color-mix(in oklab, var(--coral) 6%, var(--paper));
+      border: 1px dashed var(--coral);
+      font-size: 12.5px; color: var(--ink-2); line-height: 1.5;
     }
-    .feat:hover::before { opacity: 1; }
-    .feat-icon {
-      width: 40px; height: 40px;
-      border-radius: 10px;
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-line);
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 16px;
-      color: var(--accent-hover);
-    }
-    .feat-icon svg { width: 20px; height: 20px; }
-    .feat h4 { font-size: 15px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.01em; }
-    .feat p { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+    .mm-relay strong { font-family: var(--font-mono); font-size: 10px; color: var(--coral); letter-spacing: 0.08em; text-transform: uppercase; display: block; margin-bottom: 4px; }
 
-    /* ---------- Flow ---------- */
-    #flow { padding-top: 0; padding-bottom: 90px; }
-    .flow {
-      display: flex; flex-wrap: wrap;
-      justify-content: center; align-items: stretch;
-      gap: 8px;
-      position: relative;
-    }
-    .flow-step {
-      flex: 1 1 170px; max-width: 220px;
-      text-align: center; padding: 24px 16px;
-      position: relative;
-    }
-    .flow-step:not(:last-child)::after {
-      content: "";
-      position: absolute; right: -10px; top: 42px;
-      width: 24px; height: 1px;
-      background: linear-gradient(90deg, var(--accent-line), transparent);
-    }
-    @media (max-width: 720px) {
-      .flow-step:not(:last-child)::after { display: none; }
-    }
-    .flow-num {
-      width: 44px; height: 44px; border-radius: 50%;
-      background: var(--bg-elev);
-      border: 1px solid var(--accent-line);
-      color: var(--accent-hover);
-      font-family: var(--font-serif);
-      font-size: 20px;
-      display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 16px;
-      box-shadow: 0 0 0 4px var(--bg), 0 0 24px rgba(217,119,87,0.2);
-    }
-    .flow-step h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.01em; }
-    .flow-step p { font-size: 12px; color: var(--text-faint); line-height: 1.5; }
-
-    /* ---------- Models ---------- */
-    .models-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-      max-width: 860px;
-      margin: 0 auto;
-    }
-    @media (max-width: 860px) { .models-grid { grid-template-columns: repeat(3, 1fr); } }
-    @media (max-width: 560px) { .models-grid { grid-template-columns: repeat(2, 1fr); } }
-    .model-item {
-      padding: 16px 14px;
-      border-radius: var(--r);
-      border: 1px solid var(--border);
-      background: var(--bg-elev);
-      text-align: center;
-      transition: transform 0.25s, border-color 0.25s;
-    }
-    .model-item:hover {
-      transform: translateY(-2px);
-      border-color: var(--border-hi);
-    }
-    .model-item .model-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 4px;
-    }
-    .model-item .model-vendor {
-      font-size: 11px;
-      color: var(--text-faint);
+    /* ---------- section base ---------- */
+    section { position: relative; }
+    .sec { padding: clamp(72px, 11vw, 140px) 0; }
+    .sec-head { max-width: 720px; margin-bottom: clamp(48px, 6vw, 80px); }
+    .sec-head .lead { margin-top: 20px; }
+    .sec-num {
+      font-family: var(--font-mono); font-size: 12px; color: var(--faint);
+      letter-spacing: 0.1em; margin-bottom: 18px; display: block;
     }
 
-    /* ---------- Footer ---------- */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 40px 0;
-      text-align: center;
-      font-size: 13px;
-      color: var(--text-faint);
-      position: relative;
+    /* divider */
+    .div-line { height: 1px; background: var(--rule); border: 0; margin: 0; }
+
+    /* ---------- multimodal deep section ---------- */
+    .mm-deep { background: var(--paper-2); border-block: 1px solid var(--rule); }
+    [data-theme="dark"] .mm-deep { background: var(--night-2); }
+    .mm-chain {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden;
     }
-    footer::before {
-      content: "";
-      position: absolute; top: 0; left: 50%;
-      transform: translateX(-50%);
-      width: 200px; height: 1px;
-      background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+    [data-theme="dark"] .mm-chain { background: var(--night-rule); border-color: var(--night-rule); }
+    .mm-cell {
+      padding: clamp(28px, 3vw, 44px); background: var(--paper);
+      transition: background 0.3s var(--ease-spring);
     }
-    footer .links {
-      display: flex; flex-wrap: wrap; gap: 24px;
-      justify-content: center; margin-bottom: 16px;
+    [data-theme="dark"] .mm-cell { background: var(--night); }
+    .mm-cell:hover { background: var(--paper-2); }
+    [data-theme="dark"] .mm-cell:hover { background: var(--night-3); }
+    .mm-cell-num { font-family: var(--font-mono); font-size: 12px; color: var(--coral); margin-bottom: 16px; }
+    .mm-cell h3 { margin-bottom: 12px; }
+    .mm-cell p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.65; }
+    .mm-cell-meta { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+
+    .mm-features {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
+      background: var(--rule); margin-top: 32px; border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden;
     }
-    footer a { color: var(--text-dim); font-weight: 500; }
-    footer a:hover { color: var(--accent-hover); }
-    footer .credit {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      letter-spacing: 0.02em;
+    [data-theme="dark"] .mm-features { background: var(--night-rule); border-color: var(--night-rule); }
+    .mm-feat { padding: 24px clamp(24px, 3vw, 32px); background: var(--paper); }
+    [data-theme="dark"] .mm-feat { background: var(--night); }
+    .mm-feat-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+    .mm-feat h4 { margin: 0; font-family: var(--font-sans); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+    .mm-feat-tag { font-family: var(--font-mono); font-size: 10px; color: var(--coral); }
+    .mm-feat p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+
+    /* ---------- soft power grid ---------- */
+    .power-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden;
+    }
+    [data-theme="dark"] .power-grid { background: var(--night-rule); border-color: var(--night-rule); }
+    .power-cell {
+      padding: clamp(28px, 3vw, 40px); background: var(--paper); position: relative;
+      transition: background 0.3s var(--ease-spring);
+      min-height: 200px; display: flex; flex-direction: column;
+    }
+    [data-theme="dark"] .power-cell { background: var(--night); }
+    .power-cell:hover { background: var(--paper-2); }
+    [data-theme="dark"] .power-cell:hover { background: var(--night-3); }
+    .power-ic {
+      width: 38px; height: 38px; border-radius: 10px; margin-bottom: 18px;
+      display: grid; place-items: center; background: var(--coral-soft); color: var(--coral);
+    }
+    [data-theme="dark"] .power-ic { background: color-mix(in oklab, var(--coral) 18%, transparent); }
+    .power-ic svg { width: 19px; height: 19px; }
+    .power-cell h3 { margin-bottom: 8px; font-size: 1.15rem; }
+    .power-cell p { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+    .power-tags { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+    .power-tag { font-family: var(--font-mono); font-size: 10px; color: var(--faint); padding: 3px 8px; border: 1px solid var(--rule); border-radius: var(--r-pill); }
+
+    /* ---------- modes section ---------- */
+    .modes { background: var(--paper-2); border-block: 1px solid var(--rule); }
+    [data-theme="dark"] .modes { background: var(--night-2); }
+    .modes-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(20px, 2.5vw, 32px); }
+    .mode-card {
+      padding: clamp(28px, 3vw, 40px); border-radius: var(--r-lg);
+      background: var(--paper); border: 1px solid var(--rule);
+      transition: transform 0.35s var(--ease-spring), box-shadow 0.35s var(--ease-spring), border-color 0.35s var(--ease-spring);
+    }
+    [data-theme="dark"] .mode-card { background: var(--night); border-color: var(--night-rule); }
+    .mode-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); border-color: var(--coral); }
+    .mode-num {
+      font-family: var(--font-serif); font-style: italic; font-size: 2.4rem; font-weight: 380;
+      color: var(--coral); line-height: 1; margin-bottom: 16px;
+    }
+    .mode-card h3 { margin-bottom: 10px; }
+    .mode-card .mode-en { font-family: var(--font-mono); font-size: 11px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; display: block; }
+    .mode-card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.62; }
+    .mode-card .mode-scene { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--ink-2); }
+    .mode-card .mode-scene::before { content: "适用 · "; font-family: var(--font-mono); font-size: 10px; color: var(--coral); letter-spacing: 0.08em; }
+
+    /* ---------- truth / boundaries ---------- */
+    .truth-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+      background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden;
+    }
+    [data-theme="dark"] .truth-grid { background: var(--night-rule); border-color: var(--night-rule); }
+    .truth-col { padding: clamp(32px, 4vw, 52px); background: var(--paper); }
+    [data-theme="dark"] .truth-col { background: var(--night); }
+    .truth-col h3 { font-family: var(--font-sans); font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px; }
+    .truth-col .truth-sub { color: var(--muted); font-size: 13.5px; margin-bottom: 22px; }
+    .truth-col ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+    .truth-col li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; font-size: 14px; color: var(--ink-2); line-height: 1.55; }
+    .truth-col li::before {
+      content: ""; width: 14px; height: 14px; margin-top: 3px; border-radius: 50%;
+      border: 1.5px solid var(--sage); position: relative;
+    }
+    .truth-col--future li::before { border-color: var(--faint); }
+    .truth-col--future li::after {
+      content: ""; position: absolute; left: 4px; top: 7px; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--faint);
     }
 
-    /* ---------- Entrance animations ---------- */
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
+    /* ---------- ecosystem ---------- */
+    .eco-grid { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: clamp(40px, 6vw, 88px); align-items: start; }
+    .eco-links { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden; }
+    [data-theme="dark"] .eco-links { background: var(--night-rule); border-color: var(--night-rule); }
+    .eco-link {
+      display: flex; flex-direction: column; justify-content: space-between; gap: 8px;
+      padding: 24px clamp(22px, 2.5vw, 32px); background: var(--paper); min-height: 120px;
+      transition: background 0.3s var(--ease-spring);
     }
-    .hero-logo-wrap { animation: rise 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
-    .badge { animation: rise 0.8s 0.1s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
-    .hero h1 { animation: rise 0.8s 0.2s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
-    .hero-lead { animation: rise 0.8s 0.35s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
-    .hero-actions { animation: rise 0.8s 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+    [data-theme="dark"] .eco-link { background: var(--night); }
+    .eco-link:hover { background: var(--paper-2); }
+    [data-theme="dark"] .eco-link:hover { background: var(--night-3); }
+    .eco-link-name { font-family: var(--font-serif); font-size: 1.3rem; font-weight: 450; letter-spacing: -0.015em; }
+    .eco-link-meta { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+    .eco-link-meta .arr { color: var(--coral); transition: transform 0.25s var(--ease-spring); }
+    .eco-link:hover .arr { transform: translate(3px, -3px); }
+
+    /* ---------- closing ---------- */
+    .closing {
+      padding: clamp(96px, 14vw, 180px) 0; text-align: center; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, var(--paper) 0%, var(--paper-2) 100%);
+      border-top: 1px solid var(--rule);
+    }
+    [data-theme="dark"] .closing { background: linear-gradient(180deg, var(--night) 0%, var(--night-2) 100%); }
+    .closing-glow {
+      position: absolute; inset: 0; z-index: 0; opacity: 0.6;
+      background: radial-gradient(50% 60% at 50% 50%, var(--coral-soft) 0%, transparent 70%);
+    }
+    [data-theme="dark"] .closing-glow { opacity: 0.25; }
+    .closing-inner { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; }
+    .closing h2 { font-size: clamp(2.4rem, 6vw, 4.8rem); font-weight: 380; letter-spacing: -0.035em; }
+    .closing h2 .serif-italic { color: var(--coral); }
+    .closing p { margin: 24px auto 0; font-size: clamp(1.05rem, 1.6vw, 1.2rem); color: var(--muted); max-width: 48ch; line-height: 1.6; }
+    .closing-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 40px; }
+
+    /* ---------- footer ---------- */
+    .footer { padding: 40px 0 56px; border-top: 1px solid var(--rule); }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .footer-mark { display: inline-flex; align-items: center; gap: 10px; }
+    .footer-mark img { width: 22px; height: 22px; border-radius: 5px; }
+    .footer-mark span { font-family: var(--font-serif); font-size: 1.05rem; font-weight: 500; }
+    .footer-links { display: flex; gap: 24px; font-size: 13.5px; color: var(--muted); }
+    .footer-links a { transition: color 0.2s var(--ease-spring); }
+    .footer-links a:hover { color: var(--coral); }
+    .footer-meta { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+
+    /* ---------- scroll reveal ---------- */
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.7s var(--ease-spring), transform 0.7s var(--ease-spring); will-change: opacity, transform; }
+    .reveal.in { opacity: 1; transform: none; }
+    .reveal[data-d="1"] { transition-delay: 0.06s; }
+    .reveal[data-d="2"] { transition-delay: 0.12s; }
+    .reveal[data-d="3"] { transition-delay: 0.18s; }
+    .reveal[data-d="4"] { transition-delay: 0.24s; }
+    .reveal[data-d="5"] { transition-delay: 0.30s; }
+
+    /* ---------- responsive ---------- */
+    @media (max-width: 980px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+      .hero-media { order: -1; }
+      .mm-chain, .power-grid { grid-template-columns: 1fr; }
+      .mm-features { grid-template-columns: 1fr; }
+      .modes-grid { grid-template-columns: 1fr; }
+      .truth-grid { grid-template-columns: 1fr; }
+      .eco-grid { grid-template-columns: 1fr; gap: 40px; }
+      .nav-mid { display: none; }
+    }
+    @media (max-width: 640px) {
+      body { font-size: 16px; }
+      .hero { padding: 56px 0 48px; }
+      .sec { padding: 64px 0; }
+      .hero-meta { font-size: 11px; gap: 8px 14px; }
+      .btn { min-height: 42px; padding: 0 18px; font-size: 14px; }
+      .hero-actions .btn { flex: 1; }
+      .eco-links { grid-template-columns: 1fr; }
+      .footer-inner { flex-direction: column; align-items: flex-start; gap: 16px; }
+      .brand-ver { display: none; }
+    }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important; scroll-behavior: auto !important;
       }
+      .reveal { opacity: 1; transform: none; }
     }
   </style>
 </head>
 <body>
+  <a class="skip" href="#main">跳到主要内容</a>
 
-  <nav>
+  <nav class="nav" aria-label="主导航">
     <div class="wrap nav-inner">
-      <a class="brand" href="#">
-        <img class="brand-logo" src="assets/logo-light.png" alt="" width="30" height="30" />
-        Yan Agent <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">v1.3.2</span>
+      <a class="brand" href="#main" aria-label="Yan Agent 首页">
+        <img src="assets/logo.png" alt="" width="26" height="26">
+        <span class="brand-name">Yan Agent</span>
+        <span class="brand-ver">1.4.0</span>
       </a>
-      <div class="nav-links">
-        <a href="#ecosystem">生态</a>
-        <a href="#features">能力</a>
-        <a href="#download" class="nav-dl">下载</a>
-        <a href="https://github.com/666-gy/Yan-Agent" class="nav-extra" target="_blank" rel="noopener">GitHub</a>
+      <div class="nav-mid">
+        <a href="#multimodal">多模态</a>
+        <a href="#power">软实力</a>
+        <a href="#modes">工作方式</a>
+        <a href="#truth">边界</a>
+      </div>
+      <div class="nav-end">
+        <button class="theme-btn" id="themeToggle" aria-label="切换主题">
+          <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </button>
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载 <span class="arr" aria-hidden="true">↗</span></a>
       </div>
     </div>
   </nav>
 
-  <header class="hero">
-    <div class="wrap">
-      <div class="hero-logo-wrap">
-        <img class="hero-logo" src="assets/logo-light.png" alt="Yan Agent" width="96" height="96" />
+  <main id="main">
+
+    <!-- ============ HERO ============ -->
+    <section class="hero">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow reveal">Yan Agent · 1.4.0 · Yan Kernel</p>
+          <h1 class="reveal" data-d="1">完全<span class="accent">多模态</span>。<br>完整<span class="accent">软实力</span><span class="dot">。</span></h1>
+          <p class="hero-lead reveal" data-d="2">面向真实 Windows 工作区的桌面 Agent。文本、图像、视频三种模型同链路协作；工具、Skill、MCP、内置浏览器、记忆与审阅各司其职。你描述目标，Yan Kernel 负责理解、执行、回读，并把可核对的结果交回工作区。</p>
+          <div class="hero-actions reveal" data-d="3">
+            <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载 Yan Agent <span class="arr" aria-hidden="true">↗</span></a>
+            <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">阅读 README</a>
+          </div>
+          <div class="hero-meta reveal" data-d="4">
+            <span>Windows 桌面端</span>
+            <span>Yan Kernel 运行时</span>
+            <span>OpenCode 1.18.11 基础</span>
+            <span>多厂商动态模型目录</span>
+          </div>
+        </div>
+
+        <div class="hero-media reveal" data-d="2">
+          <div class="mm-card" role="img" aria-label="Yan Agent 多模态链路示意">
+            <div class="mm-head">
+              <span class="mm-title">multimodal · runtime</span>
+              <span class="mm-live">live</span>
+            </div>
+            <div class="mm-rows">
+              <div class="mm-row">
+                <span class="mm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h16"/></svg></span>
+                <span>
+                  <span class="mm-label">主模型 · 文本</span>
+                  <span class="mm-sub">理解 · 规划 · 工具调用 · 最终交付</span>
+                </span>
+                <span class="mm-tag">TEXT</span>
+              </div>
+              <div class="mm-row">
+                <span class="mm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span>
+                <span>
+                  <span class="mm-label">次模型 · 图像</span>
+                  <span class="mm-sub">生成 · 编辑 · 资源 ID 复用</span>
+                </span>
+                <span class="mm-tag">IMAGE</span>
+              </div>
+              <div class="mm-row">
+                <span class="mm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span>
+                <span>
+                  <span class="mm-label">次模型 · 视频</span>
+                  <span class="mm-sub">生成 · 编辑 · 回到主上下文</span>
+                </span>
+                <span class="mm-tag">VIDEO</span>
+              </div>
+            </div>
+            <div class="mm-relay">
+              <strong>visual relay</strong>
+              主模型不能读图时，由 GLM / Agnes 视觉中继把读图报告交还主模型——不抢占对话，不替代决策。
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="badge">v1.3.2 · Yan Project Map · Yanxi Code · 多模态</div>
-      <h1>不只是聊天<br /><em>让想法真正落地</em></h1>
-      <p class="hero-lead">
-        Yan Agent 在 Windows 工作区里读写代码、执行命令、操作浏览器并验证结果。你只需要描述目标，Agent 会把计划、工具调用和最终文件变更串成一条可检查的交付链路。
-      </p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe">下载安装版</a>
-        <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2">前往 v1.3.2 Release</a>
+    </section>
+
+    <hr class="div-line">
+
+    <!-- ============ MULTIMODAL DEEP ============ -->
+    <section class="sec mm-deep" id="multimodal">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-num">01 / 完全多模态</span>
+          <h2>不是切一次模型，<br>就丢一次<span class="serif-italic">上下文</span>。</h2>
+          <p class="lead">Yan 把模型角色拆为三类，互不抢占。文本、图像、视频可以同时存在；生成、编辑、预览、下载和会话持久化是一条链路。同一会话修改媒体时复用资源 ID，无需下载再上传。</p>
+        </div>
+
+        <div class="mm-chain reveal" data-d="1">
+          <div class="mm-cell">
+            <div class="mm-cell-num">01</div>
+            <h3>主模型 · 文本</h3>
+            <p>负责理解用户、规划、工具调用、代码修改和最终回答。多厂商动态目录，按文本 / 视觉输入 / 图片输出 / 视频输出分类。</p>
+            <div class="mm-cell-meta">OPENAI · GROK · GLM · DEEPSEEK · QWEN · DOUBAO · KIMI · YI · HUNYUAN · SILICONFLOW</div>
+          </div>
+          <div class="mm-cell">
+            <div class="mm-cell-num">02</div>
+            <h3>次模型 · 图像</h3>
+            <p>生成或编辑图片，结果回到主模型上下文，由主模型向用户解释和交付。支持 auto、1:1、4:3、3:4、3:2、2:3、16:9、9:16、21:9。</p>
+            <div class="mm-cell-meta">GENERATE · EDIT · RESOURCE REUSE</div>
+          </div>
+          <div class="mm-cell">
+            <div class="mm-cell-num">03</div>
+            <h3>次模型 · 视频</h3>
+            <p>生成或编辑视频，结果同样回到主模型上下文。媒体模型可不选；不选就不会出现在任务里，也不会伪装成可用。</p>
+            <div class="mm-cell-meta">GENERATE · EDIT · CONTEXT RETURN</div>
+          </div>
+        </div>
+
+        <div class="mm-features reveal" data-d="2">
+          <div class="mm-feat">
+            <div class="mm-feat-head"><h4>视觉中继</h4><span class="mm-feat-tag">RELAY</span></div>
+            <p>主文本模型不能读图时，由 GLM-5V Turbo → 4.6V Flash → 4.1V Thinking Flash → 4V Flash，或 Agnes 2.5 Flash → 2.0 Flash 接力。只报告它实际看到的事实，不替代主模型执行任务。</p>
+          </div>
+          <div class="mm-feat">
+            <div class="mm-feat-head"><h4>不自动复读</h4><span class="mm-feat-tag">NO WASTE</span></div>
+            <p>生成图片或视频后不会因为"结果存在"而自动调用 read_image 再读一遍。只有任务确实需要视觉理解、主模型不能读图或用户明确要求时，才走视觉中继或读图工具。</p>
+          </div>
+          <div class="mm-feat">
+            <div class="mm-feat-head"><h4>上下文压缩</h4><span class="mm-feat-tag">CONTEXT</span></div>
+            <p>内核按模型上下文窗口管理预算，默认约 70% 处进入软压缩，约 85% 处显示硬安全线。压缩前后 token、阈值、上下文窗口和压缩次数会被记录并可见。</p>
+          </div>
+          <div class="mm-feat">
+            <div class="mm-feat-head"><h4>缓存观测</h4><span class="mm-feat-tag">CACHE</span></div>
+            <p>每次完成运行可查看真实缓存读取量、输入总量和缓存命中率——不是估算值，不是固定百分比。不同会话、不同厂商、不同上下文的命中率会不同。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="div-line">
+
+    <!-- ============ SOFT POWER ============ -->
+    <section class="sec" id="power">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-num">02 / 完整软实力</span>
+          <h2>把复杂度放进<span class="serif-italic">内核</span>，<br>把能力放进工作区。</h2>
+          <p class="lead">Yan Kernel 是唯一执行权威。它把模型连接到受权限约束的工具、工作区和验证流程。没有被需要或没有配置的服务不会伪装成可用工具。</p>
+        </div>
+
+        <div class="power-grid">
+          <div class="power-cell reveal" data-d="1">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg></div>
+            <h3>Yan Kernel</h3>
+            <p>基于 OpenCode 1.18.11 二次开发的执行权威。事件结构化、DeepSeek DSML 兼容、错误熔断、独立总结阶段、运行结果可审计。</p>
+            <div class="power-tags"><span class="power-tag">RUNTIME</span><span class="power-tag">EVENTS</span><span class="power-tag">DSML</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="2">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+            <h3>内置浏览器</h3>
+            <p>ChatGPT 风格工作面板。打开、读取、点击、输入、选择、悬停、拖拽、滚动、截图、检查页面。Agent 不抢用户正在看的页面。</p>
+            <div class="power-tags"><span class="power-tag">BROWSER MCP</span><span class="power-tag">VERIFY</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="3">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+            <h3>Yan Skills</h3>
+            <p>查找、安装、读取、列出、移除 Yan 管理的 Skill 与设计参考。代码辅助、UI 美化、网页设计、Agent 规则、办公辅助分类管理。</p>
+            <div class="power-tags"><span class="power-tag">MARKET</span><span class="power-tag">CODE</span><span class="power-tag">UI</span><span class="power-tag">OFFICE</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="1">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+            <h3>MCP 服务</h3>
+            <p>JSON-RPC 2.0 over stdio。设置页填写启动命令、测试连接、启用 / 停用、删除。每个任务保存自己的工具快照，任务之间不互相覆盖配置。</p>
+            <div class="power-tags"><span class="power-tag">JSON-RPC</span><span class="power-tag">STDIO</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="2">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M22 2 12 12"/><path d="M16 2h6v6"/></svg></div>
+            <h3>记忆与上下文</h3>
+            <p>全局记忆与工作区记忆按 global / machine / workspace 区分。隔离审阅器只提候选事实，敏感内容和疑似提示注入会过滤。</p>
+            <div class="power-tags"><span class="power-tag">MEMORY</span><span class="power-tag">REVIEW</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="3">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+            <h3>审阅与回滚</h3>
+            <p>本次运行的文件、增删行、diff 和单文件审阅。支持刷新、恢复和回滚本次运行。二进制文件从审阅列表过滤，但媒体仍可预览。</p>
+            <div class="power-tags"><span class="power-tag">DIFF</span><span class="power-tag">ROLLBACK</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="1">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+            <h3>CodeGraph · Serena</h3>
+            <p>工作区代码图、索引和结构关系。Serena 负责代码定位与定点编辑辅助。Understand Anything 开箱即用打开知识图谱。</p>
+            <div class="power-tags"><span class="power-tag">CODEGRAPH</span><span class="power-tag">SERENA</span><span class="power-tag">UA</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="2">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></div>
+            <h3>权限与提问</h3>
+            <p>请求批准 / 替我审批 / 完全访问三档策略。折叠面板而非强制弹窗，显示即将执行的命令，提供"总是允许 / 本次允许 / 拒绝"。</p>
+            <div class="power-tags"><span class="power-tag">PERMISSION</span><span class="power-tag">APPROVAL</span></div>
+          </div>
+
+          <div class="power-cell reveal" data-d="3">
+            <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+            <h3>Interrupt 插话</h3>
+            <p>任务工作期间发送插话，隔离观察者判断属于检查 / 引导 / 结束类。主任务继续工作，不会被普通询问误杀，也不绕过权限。</p>
+            <div class="power-tags"><span class="power-tag">INTERRUPT</span><span class="power-tag">OBSERVER</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="div-line">
+
+    <!-- ============ MODES ============ -->
+    <section class="sec modes" id="modes">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-num">03 / 三种工作方式</span>
+          <h2>从一句目标开始，<br>不从一堆设置<span class="serif-italic">开始</span>。</h2>
+          <p class="lead">输入框底栏集中显示访问策略、目标 / 计划状态和文本模型选择。你不需要先配置一堆参数才能开始工作。</p>
+        </div>
+
+        <div class="modes-grid">
+          <div class="mode-card reveal" data-d="1">
+            <div class="mode-num">01</div>
+            <h3>常规</h3>
+            <span class="mode-en">NORMAL</span>
+            <p>直接理解、调用工具并交付。不绕路，不预设步骤。适合问答、查资料、一次性修改。</p>
+            <div class="mode-scene">问答、查资料、一次性修改</div>
+          </div>
+
+          <div class="mode-card reveal" data-d="2">
+            <div class="mode-num">02</div>
+            <h3>计划</h3>
+            <span class="mode-en">PLAN</span>
+            <p>先形成只读计划，用户确认后再执行。多步骤改造、需要先审方案时使用。</p>
+            <div class="mode-scene">多步骤改造、需要先审方案</div>
+          </div>
+
+          <div class="mode-card reveal" data-d="3">
+            <div class="mode-num">03</div>
+            <h3>目标</h3>
+            <span class="mode-en">GOAL</span>
+            <p>第一轮完成后按原始要求定点验收。有证据证明问题才修复，再次验收。最多 6 轮，达到稳定通过后进入总结。</p>
+            <div class="mode-scene">小游戏、网页、项目级任务</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="div-line">
+
+    <!-- ============ TRUTH / BOUNDARIES ============ -->
+    <section class="sec" id="truth">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-num">04 / 边界</span>
+          <h2>现在能做什么，<br>也明确不<span class="serif-italic">做什么</span>。</h2>
+          <p class="lead">一款可靠的 Agent 必须把边界写在官网上。以下内容对应当前 1.4.0 的真实状态，不把未来能力包装成今天的承诺。</p>
+        </div>
+
+        <div class="truth-grid reveal" data-d="1">
+          <div class="truth-col">
+            <h3>1.4.0 已支持</h3>
+            <p class="truth-sub">适合日常开发、资料处理和工作区内的可复核任务。</p>
+            <ul>
+              <li>Windows 桌面工作区与真实 PTY 终端</li>
+              <li>Yan Kernel · Skill · MCP · 内置浏览器</li>
+              <li>常规 / 计划 / 目标 三种工作方式与权限</li>
+              <li>完全多模态：文本、图片理解、图片与视频生成</li>
+              <li>上下文压缩、长期记忆与审阅面板</li>
+              <li>第二代 Yan Agent Pet 与移动端远程控制</li>
+            </ul>
+          </div>
+          <div class="truth-col truth-col--future">
+            <h3>正在开发</h3>
+            <p class="truth-sub">有明确计划，但不属于 1.4.0 的稳定承诺。</p>
+            <ul>
+              <li>Yan Computer Use：计划随 v1.5.0 上线</li>
+              <li>Yan Agent GUI：计划随 v1.5.0 上线</li>
+              <li>移动 Web UI 尚未同步完成，不建议作为主界面</li>
+              <li>更完整的 Git 生态与常驻子 Agent</li>
+              <li>PowerShell 7 专属运行时切换</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="div-line">
+
+    <!-- ============ ECOSYSTEM ============ -->
+    <section class="sec" id="ecosystem">
+      <div class="wrap eco-grid">
+        <div class="reveal">
+          <span class="sec-num">05 / 生态</span>
+          <h2>一个入口，<br>几条清晰的<span class="serif-italic">路</span>。</h2>
+          <p class="lead">Yan Agent 是桌面入口，Yan Kernel 是执行权威。源码、中文文档、英文文档和配套 IDE 分开维护，也分开说明。</p>
+        </div>
+        <div class="eco-links reveal" data-d="1">
+          <a class="eco-link" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">
+            <span class="eco-link-name">Yan Agent</span>
+            <span class="eco-link-meta"><span>SOURCE · GITHUB</span><span class="arr">↗</span></span>
+          </a>
+          <a class="eco-link" href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">
+            <span class="eco-link-name">Yanxi Code</span>
+            <span class="eco-link-meta"><span>IDE · GITHUB</span><span class="arr">↗</span></span>
+          </a>
+          <a class="eco-link" href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">
+            <span class="eco-link-name">中文 README</span>
+            <span class="eco-link-meta"><span>DOC · ZH</span><span class="arr">↗</span></span>
+          </a>
+          <a class="eco-link" href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">
+            <span class="eco-link-name">English README</span>
+            <span class="eco-link-meta"><span>DOC · EN</span><span class="arr">↗</span></span>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ CLOSING ============ -->
+  <section class="closing" aria-labelledby="closing-title">
+    <div class="closing-glow" aria-hidden="true"></div>
+    <div class="wrap closing-inner">
+      <h2 id="closing-title" class="reveal">把任务交给<br><span class="serif-italic">工作区</span>。</h2>
+      <p class="reveal" data-d="1">从一个真实目录和一句清楚的目标开始。Yan Agent 会把过程、证据和结果留在你看得见的地方。</p>
+      <div class="closing-actions reveal" data-d="2">
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">获取 1.4.0 <span class="arr" aria-hidden="true">↗</span></a>
         <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">查看源码</a>
       </div>
     </div>
-  </header>
-
-  <section class="section" id="models">
-    <div class="wrap">
-      <div class="section-head">
-        <span class="eyebrow">Model choice</span>
-        <h2>把模型选择权留给你</h2>
-        <p>每家独立保存 API Key 与 Base URL，并支持自定义图片 POST 端点，让官方 API、CC Switch 和中转站都能接入</p>
-      </div>
-      <div class="models-grid">
-        <div class="model-item"><div class="model-name">OpenAI</div><div class="model-vendor">Dynamic catalog · Vision</div></div>
-        <div class="model-item"><div class="model-name">Grok</div><div class="model-vendor">Dynamic catalog · Imagine</div></div>
-        <div class="model-item"><div class="model-name">Agnes</div><div class="model-vendor">Agnes AI gateway</div></div>
-        <div class="model-item"><div class="model-name">自定义模型</div><div class="model-vendor">OpenAI Chat Completions · 自填 Base URL</div></div>
-        <div class="model-item"><div class="model-name">DeepSeek</div><div class="model-vendor">V4 Flash / V4 Pro</div></div>
-        <div class="model-item"><div class="model-name">通义千问</div><div class="model-vendor">Qwen3.7 / Qwen3.6</div></div>
-        <div class="model-item"><div class="model-name">智谱 GLM</div><div class="model-vendor">GLM-5.2 / GLM-4.7 Flash</div></div>
-        <div class="model-item"><div class="model-name">豆包</div><div class="model-vendor">Seed 2.1 / 2.0</div></div>
-        <div class="model-item"><div class="model-name">Kimi</div><div class="model-vendor">K3 / K2.7 Code</div></div>
-        <div class="model-item"><div class="model-name">StepFun</div><div class="model-vendor">Step 3.7 / 3.5 Flash</div></div>
-        <div class="model-item"><div class="model-name">MiniMax</div><div class="model-vendor">M3 / M2.7</div></div>
-        <div class="model-item"><div class="model-name">百川智能</div><div class="model-vendor">Baichuan 4 / 3 Turbo</div></div>
-        <div class="model-item"><div class="model-name">零一万物</div><div class="model-vendor">Yi Large / Lightning</div></div>
-        <div class="model-item"><div class="model-name">腾讯混元</div><div class="model-vendor">Turbo S / Pro</div></div>
-        <div class="model-item"><div class="model-name">硅基流动</div><div class="model-vendor">Dynamic model catalog</div></div>
-      </div>
-    </div>
   </section>
 
-  <section class="section" id="changelog">
-    <div class="wrap">
-      <div class="section-head">
-        <span class="eyebrow">Changelog</span>
-        <h2>v1.3.2 更新公告</h2>
-        <p>这次更新把重点放在真实任务的可靠执行、动态工具选择和更清楚的权限反馈上</p>
+  <!-- ============ FOOTER ============ -->
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-mark">
+        <img src="assets/logo.png" alt="" width="22" height="22">
+        <span>Yan Agent</span>
       </div>
-      <div class="changelog">
-        <div class="changelog-meta"><span class="version-tag">v1.3.2</span><span class="changelog-date">2026-07-23</span></div>
-        <h3>这次更新，不只是换了一个版本号</h3>
-        <ul>
-          <li><strong>更稳的任务内核</strong> — 流读取失败、空响应、MCP 启动失败和工具异常都会进入对话错误，不再让任务停了却继续显示“正在工作”。上下文压缩、长任务上限和重复错误熔断也会在后台保护运行。</li>
-          <li><strong>动态能力调用</strong> — Agent 会先判断任务是否真的需要 Git、MCP、Skill、浏览器或电脑控制，再按需加载能力。网页和小游戏验收优先使用内置浏览器，减少无关脚本和工具调用。</li>
-          <li><strong>Skill 与工作区</strong> — 输入框支持选择多个已安装 Skill；每个任务拥有独立工作区和终端目录，进入新建子文件夹后会同步切换工作区，新建空任务也不会继承上一个任务的目录。</li>
-          <li><strong>权限访问</strong> — 新增“请求批准”“替我审批”“完全访问”三档策略。完全访问支持必要的绝对路径，但开启前必须确认，文件、网络和高风险系统命令仍受安全边界约束。</li>
-          <li><strong>Computer Use 反馈</strong> — 电脑操作增加调用提示、蓝色氛围边框和专用导航光标，工具执行、对话、桌宠和中止状态会同步变化，让每一步都可见。</li>
-          <li><strong>Yan Project Map</strong> — 把目录、文件、符号和依赖边变成可以缩放和探索的地图。你可以先看全局结构，再沿着入口节点定位到需要修改的模块。</li>
-          <li><strong>Yanxi Code 双向协同</strong> — Yan Agent 会检测已安装的 IDE，并以带回执的协议交接工作区。Yanxi Code 无论冷启动还是已经运行，都会刷新到当前工作区，而不是停在欢迎页。</li>
-          <li><strong>内置终端与浏览器</strong> — 命令执行、网页预览和结果验证都留在任务上下文旁边。Agent 可以边读代码边运行真实检查，把“应该可以”变成可复核的证据。</li>
-          <li><strong>桌面宠物与移动端</strong> — 桌面宠物跟随当前任务，显示运行状态和资源占用，并提供停止入口。移动端可以搜索、切换和管理任务，模型和生成图片会与桌面端同步。</li>
-          <li><strong>多模态工作流</strong> — 图片入口会根据模型能力动态出现，视觉模型可以处理截图和界面问题。图片生成、编辑、预览和下载都保留在任务历史中，刷新后仍可继续使用。</li>
-          <li><strong>更开放的模型目录</strong> — 新增 Agnes、自定义模型，并加入百川、Yi、腾讯混元和硅基流动。自定义模型只需填写 Base URL、API Key 与模型 ID，即可直接连接任意 OpenAI 兼容服务，不依赖本地路由或模型映射。</li>
-          <li><strong>更可靠的任务交付</strong> — 五个任务拥有独立状态、工作区、中止控制和 MCP 工具快照。写入后回读、完成门控和文件变更摘要让每一步都更容易检查。</li>
-        </ul>
-        <p class="changelog-more"><a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">查看中文版 README →</a> <span style="margin:0 8px;color:var(--border-hi);">·</span> <a href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">Read in English →</a></p>
+      <div class="footer-links">
+        <a href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/666-gy/Yan-Agent/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
-    </div>
-  </section>
-
-  <section class="section" id="download">
-    <div class="wrap">
-      <div class="section-head">
-        <span class="eyebrow">Download</span>
-        <h2>现在就开始一个真实任务</h2>
-        <p>Windows 10/11 · 选择供应商 · 选择工作区 · 让 Agent 动手</p>
-      </div>
-      <div class="download-grid">
-        <div class="dl-card recommended">
-          <div class="dl-badge">推荐 · v1.3.2</div>
-          <h3>安装版</h3>
-          <p>NSIS 安装包会创建快捷方式并接入桌面环境。适合把 Yan Agent 作为日常开发工具使用。</p>
-          <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe">Yan.Agent.Setup.1.3.2.exe</a>
-        </div>
-        <div class="dl-card">
-          <div class="dl-badge">PORTABLE · v1.3.2</div>
-          <h3>便携版</h3>
-          <p>不需要安装，双击即可运行。适合临时项目、移动硬盘或不想修改系统环境的场景。</p>
-          <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2">前往 v1.3.2 Release</a>
-        </div>
-      </div>
-      <p class="dl-note"><a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">查看全部 Releases</a></p>
-    </div>
-  </section>
-
-  <section class="duo" id="ecosystem">
-    <div class="wrap">
-      <div class="section-head">
-        <span class="eyebrow">Yan ecosystem</span>
-        <h2>读、看、写，在同一条工作流里</h2>
-        <p>三个产品各自负责一件事，但共享同一个工作区和交付目标</p>
-      </div>
-      <div class="duo-grid">
-        <div class="duo-card highlight">
-          <div class="duo-label">Yan Agent · Autonomous desktop agent</div>
-          <h3>动手执行，交付结果</h3>
-          <p>它负责把自然语言目标变成计划、工具调用和文件变更。五个任务可以独立推进，完成后留下清晰的验证结果，而不是一段无法执行的建议。</p>
-        </div>
-        <div class="duo-card">
-          <div class="duo-label">Yan Project Map · Code intelligence</div>
-          <h3>先看清，再开始改</h3>
-          <p>它负责把陌生仓库变成可探索的结构图，告诉你入口、模块和依赖关系。地图的节点可以成为 Agent 的上下文，让修改建立在真实代码结构上。</p>
-          <p class="duo-link"><a href="https://github.com/666-gy/Yan-Agent#yan-生态" target="_blank" rel="noopener">了解项目地图 →</a></p>
-        </div>
-        <div class="duo-card">
-          <div class="duo-label">Yanxi Code · IDE</div>
-          <h3>边写边懂，保持工作区一致</h3>
-          <p>它负责编辑、阅读和运行代码，让每个修改都能回到熟悉的 IDE 表面。来自 Yan Agent 的工作区交接会自动刷新打开的项目，减少手动寻找和重复打开。</p>
-          <p class="duo-link"><a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">了解 Yanxi Code →</a></p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="features">
-    <div class="wrap">
-      <div class="section-head">
-        <span class="eyebrow">Capabilities</span>
-        <h2>Agent 能做什么</h2>
-        <p>每一项能力都围绕一个问题：如何让真实工作更快、更清楚、更可恢复</p>
-      </div>
-      <div class="features">
-        <div class="feat">
-          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-          <h4>五任务并行</h4>
-          <p>每个任务拥有独立的 agentState、工作区、中止控制和 MCP 快照。切换任务只改变你正在看的内容，后台任务不会被打断。</p>
-        </div>
-        <div class="feat">
-          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
-          <h4>终端与浏览器</h4>
-          <p>Agent 可以在内置终端执行命令，在内置浏览器打开本地页面或验证结果。执行和观察留在同一工作区里，减少来回切换带来的遗漏。</p>
-        </div>
-        <div class="feat">
-          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><line x1="12" y1="9" x2="6" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg></div>
-          <h4>Yan Project Map</h4>
-          <p>本地索引负责事实，地图负责让事实变得可浏览。你可以沿着符号和依赖关系定位问题，再把相关节点交给 Agent 深入处理。</p>
-        </div>
-        <div class="feat">
-          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 5-3.5 7.5-8.5 9.5C7.5 19.5 4 17 4 12V6l8.5-3.5L21 6z"/></svg></div>
-          <h4>可靠编辑与验证</h4>
-          <p>精确编辑要求旧文本唯一匹配，写入之后还会回读确认。Todo 完成门控和文件变更摘要让你能快速判断结果是否真的落地。</p>
-        </div>
-        <div class="feat">
-          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
-          <h4>多模态与图片</h4>
-          <p>图片输入会按模型能力开启，视觉模型可以理解截图、界面和设计稿。生成或编辑的图片会被保留，可从桌面端和移动端继续查看。</p>
-        </div>
-        <div class="feat">
-          <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
-          <h4>Skill 与 MCP</h4>
-          <p>Skill 把团队方法沉淀为可复用的任务入口，MCP 则把浏览器、桌面和外部服务接进来。每个任务保留自己的工具快照，复杂工作也能并行推进。</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="flow">
-    <div class="wrap">
-      <div class="section-head">
-        <span class="eyebrow">Workflow</span>
-        <h2>从想法到结果</h2>
-        <p>你说目标，Agent 负责把中间过程变成可见、可验证的步骤</p>
-      </div>
-      <div class="flow">
-        <div class="flow-step"><div class="flow-num">1</div><h4>描述目标</h4><p>用自然语言告诉 Agent 你想交付什么。无需先知道应该改哪个文件。</p></div>
-        <div class="flow-step"><div class="flow-num">2</div><h4>看见计划</h4><p>Agent 自动拆分 Todo 和验收条件。每一步都能在右侧面板里跟踪。</p></div>
-        <div class="flow-step"><div class="flow-num">3</div><h4>调用工具</h4><p>读取、编辑、执行、浏览和分析按需组合。失败会被分类处理，而不是默默跳过。</p></div>
-        <div class="flow-step"><div class="flow-num">4</div><h4>验证结果</h4><p>写后回读、运行检查并记录文件变更。完成时你拿到的是结果和证据，不只是回答。</p></div>
-      </div>
-    </div>
-  </section>
-
-  <footer>
-    <div class="wrap">
-      <div class="links">
-        <a href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">Yan Agent</a>
-        <a href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">Yanxi Code</a>
-        <a href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">中文文档</a>
-        <a href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">English README</a>
-      </div>
-      <p class="credit">MIT License · Built with Electron · Yan Agent v1.3.2</p>
+      <span class="footer-meta">1.4.0 · Windows desktop</span>
     </div>
   </footer>
 
+  <script>
+    // ---------- theme toggle (Apple-style, persisted) ----------
+    (function () {
+      const root = document.documentElement;
+      const stored = localStorage.getItem('yan-theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = stored || (prefersDark ? 'dark' : 'light');
+      root.setAttribute('data-theme', theme);
+
+      document.getElementById('themeToggle').addEventListener('click', function () {
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem('yan-theme', next);
+      });
+    })();
+
+    // ---------- scroll reveal (IntersectionObserver, spring stagger) ----------
+    (function () {
+      if (!('IntersectionObserver' in window)) {
+        document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+        return;
+      }
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in');
+            io.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+
+      document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+    })();
+  </script>
 </body>
 </html>

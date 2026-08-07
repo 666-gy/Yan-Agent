@@ -1,0 +1,12 @@
+{
+  "id": "ponytail-review",
+  "name": "Ponytail Review",
+  "desc": "仅在用户明确选择时审阅当前差异中的过度设计，并给出可删除或替换项",
+  "aliases": ["过度设计审阅", "精简审阅"],
+  "tags": ["code-assist"],
+  "source": "bundled",
+  "repo": "DietrichGebert/ponytail",
+  "version": 1,
+  "userOnly": true,
+  "promptFile": "../ponytail-review/SKILL.md"
+}

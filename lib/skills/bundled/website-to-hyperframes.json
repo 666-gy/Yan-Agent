@@ -1,0 +1,13 @@
+{
+  "id": "website-to-hyperframes",
+  "name": "Website to HyperFrames",
+  "desc": "HyperFrames 内部配套：将网站捕获、脚本、分镜、配音和构建串成完整视频流程",
+  "tags": ["office-assist"],
+  "triggers": ["网站转视频", "website to video", "product promo video"],
+  "source": "bundled",
+  "repo": "heygen-com/hyperframes",
+  "version": 102,
+  "hidden": true,
+  "parentSkillId": "hyperframes",
+  "promptFile": "../website-to-hyperframes/SKILL.md"
+}

@@ -1,0 +1,37 @@
+{
+  "id": "yan-codegraph",
+  "name": "CodeGraph",
+  "desc": "用本地增量代码图快速理解架构、依赖、调用链、符号关系与改动影响，减少反复搜索和通读文件",
+  "aliases": [
+    "codegraph",
+    "code graph",
+    "代码图",
+    "代码知识图谱"
+  ],
+  "tags": [
+    "code-assist"
+  ],
+  "triggers": [
+    "理解代码库",
+    "项目架构",
+    "调用链",
+    "依赖关系",
+    "影响分析",
+    "符号关系",
+    "代码图",
+    "codebase architecture",
+    "call chain",
+    "dependency graph",
+    "impact analysis"
+  ],
+  "source": "bundled",
+  "repo": "colbymchenry/codegraph",
+  "version": 2,
+  "requires": [
+    {
+      "kind": "mcp",
+      "match": "codegraph"
+    }
+  ],
+  "promptFile": "../yan-codegraph/SKILL.md"
+}

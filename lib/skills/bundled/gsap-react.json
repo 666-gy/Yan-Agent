@@ -1,0 +1,12 @@
+{
+  "id": "gsap-react",
+  "name": "GSAP React",
+  "desc": "GreenSock 官方 React 与 Next.js 动画生命周期、作用域和清理规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-react/SKILL.md"
+}

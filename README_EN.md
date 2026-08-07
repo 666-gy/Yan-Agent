@@ -5,188 +5,293 @@
 <h1 align="center">Yan Agent</h1>
 
 <p align="center">
-  An autonomous desktop agent for real workspaces
+  A Windows desktop Agent for real workspaces
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.3.2-111111">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.4.0-111111">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848f">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a">
 </p>
 
-<p align="center"><a href="README.md">中文 README</a></p>
+<p align="center"><a href="README.md">Chinese README</a></p>
 
-Yan Agent brings conversation, code understanding, and local tool execution into one Windows workspace. Describe an outcome, choose a project folder, and the agent plans, edits, runs, browses, verifies, and reports the result instead of stopping at a suggestion.
+Yan Agent understands tasks, uses tools, changes projects, verifies results, and delivers evidence the user can review.
 
-## v1.3.2
+## Release Positioning
 
-This release focuses on the reliability of real agent work. Yan Agent now makes tool selection more deliberate, keeps failures visible, and gives users a clearer boundary around approvals and filesystem access. The packaged application is now version 1.3.2.
+Yan Agent 1.4.0 is a full runtime upgrade from 1.3.2, not only a UI refresh or model-catalog update. Its runtime is now **Yan Kernel**, an extensively adapted kernel based on OpenCode. Yan adds its own workspace and permission model, Skills, MCP services, built-in browser automation, multimodal roles, memory, review workflow, and desktop integration.
 
-- **More reliable task runs.** Stream disconnects, empty responses, MCP startup failures, and tool errors now become explicit conversation errors instead of leaving the task stuck in a working state. Long runs compact context when needed and stop repeated identical failures with a concrete explanation.
-- **Dynamic capability selection.** The agent evaluates whether a task actually needs Git, MCP, Skills, browser verification, or computer control before loading optional capabilities. Local HTML and game tasks use the built-in browser first, without inventing a Playwright verifier or unrelated tool calls.
-- **Skills inside the composer.** The input area now offers an installed-Skill picker that can combine multiple Skills in one task. The market catalog and installed capabilities stay separate, so the agent only receives Skills that are actually available locally.
-- **Real workspace isolation.** Each task keeps its own workspace, terminal directory, tool snapshot, and runtime state. New blank tasks return to the user's default directory, and entering a newly created subfolder updates the task workspace instead of leaving the agent at the parent folder.
-- **Clearer access policies.** The composer exposes “Request approval”, “Approve on my behalf”, and “Full access”. Full access can use absolute paths when necessary, but requires confirmation and keeps file, network, and high-risk system-command boundaries in place.
-- **Computer Use feedback.** Computer control now has visible narration, a blue activity frame, and a dedicated navigation cursor. Conversation output, tool state, desktop pet status, and the stop control stay aligned while an action is running.
+Model availability, billing, quota, regional access, and VPN requirements always depend on the user's real API account and network. A model name appearing in the catalog is not a promise that the remote service is available.
 
-## v1.3.0
+## What Yan Agent Is
 
-Version 1.3.0 completes the first Yan desktop ecosystem loop:
+Yan Agent is a Windows desktop Agent for real workspace tasks. The primary text model understands the user, plans the work, calls tools, and owns the final answer. Yan Kernel connects that model to permissioned tools, workspace state, and verification workflows.
 
-| Product | What it does |
+- **Product identity:** Yan Agent. Its runtime is Yan Kernel, based on and extensively adapted from OpenCode. The active provider and model ID remain separate and are reported truthfully.
+- **What it can do:** read and edit a selected workspace, run commands, use Yan Skills and MCP, control the Yan built-in browser, understand images, generate or edit images and videos, validate goals, retain memory, and present reviewable changes.
+- **What it is designed for:** grounded tool use, explicit workspace and permission boundaries, browser-first web automation, media roles that do not replace the text model, targeted goal validation, and evidence-backed delivery.
+- **What it does not pretend:** an unconfigured model, Skill, MCP server, balance, network, or VPN is never treated as available. Results that cannot be verified are marked as unverified or failed.
+
+## What's New in 1.4.0
+
+| Area | 1.4.0 change |
 | --- | --- |
-| **Yan Agent** | Runs up to five isolated tasks with filesystem, shell, Git, browser, image, and MCP tools |
-| **Yan Project Map** | Turns directories, symbols, and dependencies into an interactive project map with AI explanations |
-| **Yanxi Code** | Opens the selected workspace from the task bar and synchronizes it in both cold-start and already-running states |
-| **Shared surfaces** | Keeps the desktop app, mobile control page, and desktop pet aligned around the same tasks and runtime state |
+| **Yan Kernel** | OpenCode-based runtime adapted for Yan sessions, tools, permissions, final summaries, DSML, and goal acceptance |
+| **Agent output** | Live reasoning summaries and tool activity share the final-answer surface; completed work collapses behind a process toggle |
+| **Built-in browser** | Multi-tab browser that the Agent can open, read, click, type into, scroll, capture, and verify without taking over the user's tab |
+| **Multimodal roles** | A primary text model can coexist with optional image and video models; generated assets stay in conversation context |
+| **Workspace continuity** | Blank tasks, task-local workspaces, authorized workspace transitions, and bounded cross-session handoffs follow one model |
+| **Extensions** | Yan Skills, MCP, CodeGraph, Serena, AnySearch, OfficeCLI, and Understand Anything are exposed through Yan Kernel |
+| **Desktop experience** | New composer, settings, review panel, startup animation, global quick launch, and second-generation Yan Agent Pet |
 
-### Highlights
+### Yan Kernel Runtime
 
-- **Project mapping.** Incremental code indexing, dependency edges, zoomable exploration, model selection, and AI explanations make an unfamiliar repository easier to navigate. Local analysis still works when no analysis model is available.
-- **Yanxi Code integration.** Yan Agent detects the installed IDE, writes an atomic workspace handoff, and waits for a receipt. A running Yanxi Code window refreshes its title and file tree instead of falling back to the welcome screen.
-- **A complete workbench.** The built-in terminal and browser keep execution and verification beside the conversation. The agent can inspect a file, run a command, open a local page, and return with evidence without switching applications.
-- **Desktop pet supervision.** The pet follows the selected task, reports runtime status and resource usage, and exposes a direct stop action. It is a small always-available view of what the agent is doing in the background.
-- **Mobile control.** Search, switch, rename, and delete tasks from the mobile page while desktop and mobile stay synchronized. Image upload, model changes, and generated-image previews follow the same session rules.
-- **Multimodal work.** Image input is exposed only for models that support it, while image generation and editing keep their outputs as persistent local assets. The same generated result can be previewed, opened, or downloaded from desktop and mobile.
-- **Current models.** The catalog includes Kimi K3, Kimi K2.7 Code, DeepSeek V4, Qwen3.7, GLM-5.2, Doubao Seed, Step 3.7, MiniMax M3, Baichuan, Yi, Hunyuan, and separate dynamic OpenAI/Grok/Agnes/SiliconFlow catalogs. A Custom Model provider accepts any OpenAI-compatible endpoint. Prices and availability remain subject to each provider's billing page.
-- **Reliable delivery.** Five tasks run with isolated state, workspace, abort control, and MCP snapshots. File edits are checked after writing, todo completion requires evidence, and side-effect tools are not blindly retried.
+- Yan Kernel is the only authoritative task runtime. `lib/opencode-sidecar.js` coordinates OpenCode sessions, tool exposure, permissions, goal validation, interruption, and final summaries; the retired renderer Agent loop no longer executes tasks.
+- Model messages, tool calls, tool results, permission requests, questions, compaction, goal rounds, media generation, and failures reach the desktop as structured events.
+- DeepSeek DSML tool calls are parsed and adapted into real Yan/OpenCode tool calls. DSML protocol fragments are kept out of user-facing output.
+- The final summary is a separate tool-free stage grounded in the conversation, actual tool results, and verified workspace state.
+- Stream failures, empty responses, unavailable tools, repeated failures, cancellations, and MCP startup errors end in explicit visible states instead of leaving a task spinning forever.
+- OpenCode manages model-aware context budgets. Yan records context size, thresholds, compaction events, token usage, and cache reads for the UI.
+- Yan Kernel currently uses OpenCode `1.18.11` as its underlying runtime component. OpenCode is an implementation foundation, not Yan Agent's product identity.
 
-## Core capabilities
+### Normal, Plan, and Goal Modes
 
-### Autonomous execution
-
-```text
-Goal -> Plan -> Tools -> Verification -> Refinement -> Delivery
-```
-
-- Run up to five tasks at once, each with its own workspace, context, and cancellation control. Switching conversations only changes the visible surface; background work continues independently.
-- Read files, apply exact edits, write patches, scan directories, and verify the result after every write. This makes the agent's changes inspectable rather than magical.
-- Use shell commands, Git operations, the built-in terminal, and the built-in browser in one workflow. The agent can gather evidence before it claims that a task is complete.
-- Todos and completion gates keep unfinished work visible. A run cannot quietly finish while required steps or acceptance evidence are still missing.
-- Transient read failures can be retried automatically, while permissions and side-effect failures are surfaced instead of being repeated blindly.
-
-### Code understanding
-
-- File outlines, symbol search, reference tracing, import analysis, project scanning, and related-file discovery help the agent build a grounded view of a codebase first.
-- The persistent index at `.yanagent/code-index.json` reuses unchanged analysis. Large files can be inspected by range, keeping context focused on the code that matters.
-- Yan Project Map presents directories, files, symbols, and dependency edges as an explorable surface. Select a node to understand its role, then bring that context back into an Agent task.
-- Natural-language explanations are an enhancement layer over local facts. The map still provides useful structure when the configured model is unavailable.
-
-### Multimodal work
-
-- The attachment menu follows the active model's capabilities. Text-only models do not receive image bytes, and vision actions appear only when they are supported.
-- Vision models can inspect screenshots, UI states, diagrams, and code interfaces. This turns a visual problem into a concrete workspace task instead of a vague description.
-- OpenAI and Grok image-generation flows support generation and reference-image editing. Results are retained as local conversation assets so they remain available after a refresh.
-- Generated images can be previewed, opened, and downloaded from both desktop and mobile surfaces. The task history keeps the asset reference alongside the agent output.
-
-### Skills and MCP
-
-- Seventeen built-in Skills and fifty-two marketplace templates cover code review, refactoring, UI work, documentation, and web workflows. Skills combine reusable instructions with explicit tool access without changing the kernel.
-- Installed and custom Skills can be read and audited separately from the built-in catalog. The app no longer performs background Skill synchronization, so local capability state stays explicit and predictable.
-- MCP servers connect through JSON-RPC 2.0 over stdio. Each running task receives an isolated tool snapshot so parallel tasks cannot overwrite one another's server mapping.
-- Playwright and Windows-MCP templates are included, with support for custom servers and per-server environment variables for credentials or project services.
-
-## Yan ecosystem
-
-```mermaid
-flowchart LR
-  Agent["Yan Agent\nTasks and execution"]
-  Map["Yan Project Map\nCode structure and dependencies"]
-  Code["Yanxi Code\nEditing and workspace"]
-  Agent <--> Code
-  Agent --> Map
-  Map --> Code
-```
-
-Choose a workspace once in Yan Agent, then open the project map or Yanxi Code from the task bar. The handoff protocol includes a request ID and a receipt, so an already-running Yanxi Code instance can switch workspaces without returning to its welcome page.
-
-## Supported model providers
-
-| Provider | Examples |
-| --- | --- |
-| OpenAI | Dynamic model catalog with vision and image-generation capability detection |
-| Grok | Dynamic model catalog with Imagine image generation |
-| Agnes | Dynamic Agnes AI gateway model catalog |
-| Custom Model | User-defined Base URL, API key, and model ID through OpenAI Chat Completions |
-| DeepSeek | DeepSeek V4 Flash / V4 Pro |
-| Qwen | Qwen3.7, Qwen3.6, Qwen3, Qwen Plus / Turbo / Long |
-| Zhipu GLM | GLM-5.2, GLM-5 series, GLM-4.7 and Flash series |
-| Doubao | Doubao Seed 2.1 / 2.0 series |
-| Kimi | Kimi K3, Kimi K2.7 Code, Kimi K2.6, Kimi K2.5 |
-| StepFun | Step 3.7 Flash / 3.5 Flash |
-| MiniMax | MiniMax M3 / M2.7 |
-| Baichuan | Baichuan 4 / Baichuan 3 Turbo |
-| Yi | Yi Large / Yi Lightning |
-| Tencent Hunyuan | Hunyuan Turbo S / Hunyuan Pro |
-| SiliconFlow | Dynamic model catalog |
-
-Each provider has its own API key, editable base URL, model list, and capability metadata. You can connect an official API, CC Switch, a relay, or a self-hosted OpenAI-compatible gateway. Custom Model only asks for a Base URL, API key, and model ID, then sends requests directly through OpenAI Chat Completions without a local router or model mapping. Image providers can also use separate generation and edit POST URLs. Provider prices and availability can change; billing is determined by the provider.
-
-## Quick start
-
-1. Download and install Yan Agent.
-2. Open `Settings -> API Configuration`, choose a provider, and enter its base URL and API key.
-3. Create a task and choose a workspace folder.
-4. Describe the outcome and inspect the final file-change summary when the agent finishes.
-
-### Downloads
-
-| Build | Description | Download |
+| Mode | Behavior | Typical use |
 | --- | --- | --- |
-| Installer | NSIS installer with shortcuts for daily use | [Yan.Agent.Setup.1.3.2.exe](https://github.com/666-gy/Yan-Agent/releases/download/v1.3.2/Yan.Agent.Setup.1.3.2.exe) |
-| Portable | No installation required; run it directly | [Open the v1.3.2 release page](https://github.com/666-gy/Yan-Agent/releases/tag/v1.3.2) |
+| **Normal** | Understand, use tools, verify, and deliver directly | Questions, research, focused edits |
+| **Plan** | Inspect in read-only mode and produce an actionable plan before execution | Multi-step changes that need review first |
+| **Goal** | Complete a first pass, validate only the original requirements, repair evidenced defects, and validate again | Games, websites, and project-level outcomes |
 
-[View all releases](https://github.com/666-gy/Yan-Agent/releases)
+Goal mode is deliberately bounded:
 
-## Permissions and data
+- It checks only explicit requirements and essential runnability. It must not invent features, expand gameplay, or redesign UI that the user did not request.
+- A repair round requires concrete failure evidence. Repairs should locate the relevant file and position, then make the smallest useful change rather than rewrite the project.
+- Browser and command evidence must be meaningful. A successful command, changing hash, color count, or single-frame pixel delta alone does not prove that a Canvas, WebGL, animation, or 3D result works.
+- Goal acceptance is capped at six rounds. Stable success, a user request to finish, or the round limit all lead to a final summary that states the evidence and remaining issue.
 
-Yan Agent performs real operations in the workspace you select. File reads, writes, network access, and command execution can be controlled from Settings, and command execution is intended to remain an explicit permission.
+### Workspaces, Blank Tasks, and Session Handoffs
 
-Application data includes configuration, sessions, task logs, generated images, and local memory. Workspace code indexes are stored in `.yanagent/code-index.json`.
+- Every task owns its workspace binding, terminal directory, OpenCode session, tool snapshot, review history, and runtime state.
+- Blank tasks can answer questions, browse the web, operate the built-in browser, generate media, and install Yan Skills without forcing a workspace selection.
+- A request that creates, changes, deletes, downloads, or saves user files ends cleanly in Blank and asks the user to choose a workspace first. It does not silently reuse another task's folder.
+- Skill installation is an explicit exception because it writes only to Yan Agent's application-owned SkillStore.
+- Moving from workspace A to B requires an explicit transition and authorization. Permissions are not inherited across workspace boundaries.
+- `Yan Session` MCP carries bounded conversation history, goals, and outcomes into a destination task. It never transfers approvals, running tools, or filesystem authority.
+- Returning to a previously used parent or child workspace reuses its most recently updated task when possible. A new task is created only when that workspace has none.
+- Task deletion is serialized. Removing the final task immediately creates a fresh Blank task so the sidebar and active view cannot enter a zero-task split state.
 
-Use Yan Agent in a trusted workspace, keep recoverable Git history for important projects, and configure credentials only for MCP servers you trust.
+### Permissions and High-Risk Commands
 
-## Development
+The composer provides three access policies:
 
-### Requirements
+- **Request approval:** side-effecting actions request user approval.
+- **Approve for me:** ordinary commands can proceed under policy; high-risk commands still require the in-app approval panel.
+- **Full access:** relaxes ordinary read, write, and command approval after confirmation, while workspace boundaries and high-risk system protections remain active.
+
+Permission requests use a workbench panel instead of disruptive system popups. Users can always allow, allow once, or deny. Authorization is owned by the main process and stays aligned with the active run across later turns.
+
+### Yan Agent Interrupt
+
+While a task is running, **Yan Agent Interrupt** accepts a message without cancelling the main job. An isolated observer classifies and grounds the interruption:
+
+- **Status check:** reports whether an install, download, wait, or command is still progressing or is actually stuck.
+- **Guidance:** asks the active run to change direction, use another tool, inspect a page, or shorten optional validation at the next safe checkpoint.
+- **Finish request:** gracefully stops optional work and enters delivery only when the user clearly asks to finish.
+
+An interruption does not become a second task, inherit new permissions, or bypass workspace rules.
+
+### Skills, MCP, and Code Understanding
+
+- The composer `+` menu combines attachments, plan/goal modes, and installed Skills. Selected Skills travel with the user's message and can be removed like ordinary composer content.
+- Installation, lookup, invocation, and removal use Yan Agent's own SkillStore only. Yan does not silently scan another agent's `.codex/skills` or `.agents/skills` directory.
+- Skills are exposed when the user selects them or when the task genuinely needs them. Installed Skills that are not selected or relevant do not interfere with the run.
+- The catalog covers coding, code simplification, UI, web design, Agent rules, search, office work, animation, and video workflows. It includes AnySearch, OfficeCLI, Hallmark, TasteSkill, HyperFrames, Remotion guidance, and Skill Creator families.
+- Built-in Yan capabilities include the Yan browser, Yan Skills, Yan Media, Yan Session, CodeGraph, Serena, and Understand Anything. Playwright is available as a fallback when isolated scripted browser automation is genuinely required.
+- Custom MCP servers can be added, tested, enabled, disabled, and removed. MCP uses JSON-RPC 2.0 over stdio, and each task retains its own tool snapshot.
+- **Understand Anything** replaces the old project-map workflow. CodeGraph produces repository structure and relationships, which Yan converts into the ready-to-use knowledge graph under `.ua/`.
+- Goal mode can expose Serena for precise code location and targeted edits instead of broad rewrites.
+
+### Built-in Browser Automation
+
+- The redesigned browser follows a multi-tab workbench model. Agent work opens a dedicated tab instead of replacing the page the user is reading.
+- Yan browser tools cover navigation, page snapshots, structured reading, inspection, clicking, typing, selection, checking, focusing, hovering, dragging, pointer movement, key presses, scrolling, waiting, screenshots, history, and status.
+- The built-in browser is the first choice for research, URL reading, local HTML preview, interaction, and visual acceptance. Playwright is a fallback; external Chrome is reserved for work that truly depends on the user's Chrome profile, extensions, or signed-in state.
+- Agent-owned browser calls are associated with the active run so parallel tasks cannot control the wrong tab.
+- While the Agent controls a page, the tab receives a visible control state and input protection. The user can press `Esc` to take control, and refresh or close remains available.
+- Readiness checks and explicit waits avoid treating one short timeout as proof that a network page failed to open.
+- Canvas, WebGL, animation, and 3D acceptance combines real interaction, screenshots, and visible state. DOM presence or a synthetic metric is not enough to claim playability.
+
+Yan Agent 1.4.0 does **not** ship complete Windows Computer Use. The former native cursor host, desktop overlay, and related Skill were removed. A new Yan Computer Use backend/MCP is planned for a later release; browser automation in 1.4.0 must not be presented as full desktop control.
+
+### Text, Image, Video, and Vision Relay
+
+Yan separates model responsibilities so media work does not discard text context:
+
+1. **Primary text model:** understands the user, plans, calls tools, edits code, and writes the final answer.
+2. **Image model:** optionally generates or edits images and returns the asset to the primary model and conversation.
+3. **Video model:** optionally generates or edits videos and returns the asset through the same workflow.
+
+- Image and video roles are optional. Generated assets retain session IDs so follow-up edits can reuse them without download and re-upload.
+- Supported image ratios include `auto`, `1:1`, `4:3`, `3:4`, `3:2`, `2:3`, `16:9`, `9:16`, and `21:9`.
+- Successful media generation does not automatically call image reading again. Vision is used only when the task requires inspection, the text model cannot see, or the user asks for it.
+- Provider catalogs are dynamically loaded where supported and separated into text, image, and video groups. Catalog discovery does not replace endpoint, quota, or network validation.
+- The application does not label models with prices or long-term free-tier promises.
+
+When a text model cannot read an attachment or screenshot, Yan Vision Relay can inspect it and return a grounded report to the primary model. The current order is:
+
+1. GLM: `GLM-5V Turbo` -> `GLM-4.6V Flash` -> `GLM-4.1V Thinking Flash` -> `GLM-4V Flash`
+2. Agnes: `Agnes 2.5 Flash` -> `Agnes 2.0 Flash`
+
+Yan currently describes GLM as not requiring a VPN in the application's target network setup, while Agnes commonly requires one. Real access still depends on API configuration, service state, quota, rate limits, and the user's network.
+
+### Output, Review, Memory, and Cache
+
+- Work-stage text, reasoning summaries, tool calls, and tool results come from real OpenCode events instead of placeholder workflow text.
+- Once delivery is ready, intermediate work collapses and the final answer remains visible. **View work process** expands the same content surface rather than opening a separate log UI.
+- Markdown code blocks include an icon-only copy action.
+- Generated images and videos appear with the completed result and remain available in task history.
+- Every actual file edit can produce a review summary, including a one-line change to one file. The review panel can refresh, open an individual diff, restore, or roll back a run.
+- Binary files such as images and videos are excluded from text diff review while remaining available as media assets.
+- Completed runs can display real cache-read tokens, total input tokens, and cache hit rate from provider usage rather than a fabricated percentage.
+- Short-term context lives in the OpenCode session. Yan compacts around a model-aware soft threshold and records before/after token counts, limits, and compression count.
+- Global long-term memory is stored in `YanData/memory.json`; workspace memory is stored under `<workspace>/.yanagent/memory.json`. Memory candidates retain scope, evidence, confidence, and type.
+- Cross-session handoff is bounded to prevent uncontrolled context growth and does not treat old conversation text as filesystem truth.
+
+### Composer and Desktop Experience
+
+- The compact composer combines file attachment, plan/goal modes, Skills, access policy, prompt optimization, reasoning speed, context status, and separate text/image/video model selection.
+- The context status line updates with the active model, mode, budget, and runtime state.
+- **Yan Prompt Optimizer** runs only when selected by the user. It preserves intent, tone, paths, URLs, code, numbers, model names, and constraints while reducing ambiguity; it does not invent features or tools.
+- Tone settings support up to four named profiles. A profile controls expression, including direct or playful styles, but cannot change facts, permissions, or safety boundaries.
+- `Ctrl+Shift+Y` opens the global quick-input surface while Yan remains available in the system tray. The shortcut is configurable.
+- The startup animation, theme switcher, settings navigation, full-screen layouts, and model configuration surfaces were redesigned for 1.4.0.
+
+The second-generation **Yan Agent Pet** follows real Yan Kernel workflow state instead of displaying one generic loading message:
+
+- Its status light and panel reflect standby, working, attention required, paused, completed, and failed states.
+- Workflow stages map actual activity such as understanding, reading, reasoning, writing, compiling/testing, browser acceptance, and summarization.
+- Clicking the Pet expands or collapses the task panel; the panel provides icon controls to open or stop the active task.
+
+## Supported Providers
+
+Yan Agent keeps credentials and discovered catalogs separate for each provider. Where supported, it loads the provider's real model list rather than filling the interface with hard-coded media-model shells.
+
+| Provider | Integration |
+| --- | --- |
+| OpenAI | Configurable OpenAI-compatible endpoint with dynamic text and media capability detection |
+| Grok | Configurable endpoint with dynamic discovery and image-generation support |
+| Agnes | Dynamic text, image, and video catalog |
+| DeepSeek | DeepSeek catalog with DSML adaptation for tool calls |
+| Qwen | DashScope-compatible text, image, and video discovery |
+| Zhipu GLM | GLM text, vision, and media catalog adapters for the official BigModel endpoint |
+| Doubao | Volcengine Ark-compatible models |
+| Kimi | Moonshot/Kimi dynamic catalog |
+| StepFun | Step text model families |
+| MiniMax | MiniMax text model families |
+| Baichuan | Baichuan OpenAI-compatible endpoint |
+| Yi | Lingyi Wanwu OpenAI-compatible endpoint |
+| Tencent Hunyuan | Hunyuan text and vision families |
+| SiliconFlow | Dynamic OpenAI-compatible model catalog |
+
+Yan Agent does not promise a provider's price, quota, regional access, or temporary free tier. Availability and billing are determined by the connected account.
+
+## Quick Start
+
+### Run from source
+
+Requirements:
 
 - Windows 10 or 11
 - Node.js 18+
 - npm 9+
+- Optional Git, compiler toolchains, and dependencies required by selected Skills or MCP servers
 
-```bash
+```powershell
 git clone https://github.com/666-gy/Yan-Agent.git
 cd Yan-Agent
 npm install
 npm start
 ```
 
-### Build commands
+First use:
 
-```bash
-npm start                # Run locally
-npm run build            # Build the Windows installer
-npm run build:portable  # Build the Windows portable executable
+1. Open `Settings -> API`, choose a real provider, and enter its API key and Base URL when required.
+2. Check the dynamically loaded model inventory under `Settings -> Models`.
+3. Start a Blank task for conversation, browsing, Skill installation, or media generation. Select a workspace before creating or changing user files.
+4. Choose Normal, Plan, or Goal mode, then select Skills, reasoning speed, and access policy as needed.
+5. Review the work process, verification evidence, final answer, and file review when the task completes.
+
+### Build
+
+```powershell
+npm run bundle:opencode-provider
+npm run build              # Build the Windows NSIS installer only
+npm run build:portable     # Build the portable executable separately
 ```
 
-### Project structure
+The default v1.4.0 packaging run produces only the installer. The build bundles the DeepSeek DSML provider and then validates packaged provider runtimes and CodeGraph.
+
+### Download
+
+The official v1.4.0 installer is published through GitHub Releases:
+
+<https://github.com/666-gy/Yan-Agent/releases>
+
+## Data and Security
+
+| Location | Contents |
+| --- | --- |
+| Electron user data `YanData/` | API configuration, sessions, task logs, generated media, global memory, and Skill state |
+| `YanData/memory.json` | Global long-term memory |
+| `<workspace>/.yanagent/memory.json` | Workspace memory and related run data |
+| `<workspace>/.codegraph/codegraph.db` | CodeGraph database |
+| `<workspace>/.ua/` | Understand Anything knowledge-graph bridge files |
+| Yan Skill root | Yan-managed built-in, installed, and imported Skills |
+
+Deleting a task does not delete its workspace. The uninstaller option **Clear all Yan Agent data from this computer** removes Yan user data, sessions, configuration, memory, and local Skills. It does not delete workspace code or unrelated application data.
+
+- Keep important work in recoverable Git history.
+- Use real file writes, deletes, downloads, and commands only inside an explicitly selected workspace.
+- Provide API keys and MCP credentials only to trusted services.
+- Full access is not a bypass for system security; high-risk commands can still require approval.
+- Text inside images, web pages, and Skill documents is untrusted data and cannot override user authority or system policy.
+- Final answers report observed tool results and workspace facts. Unverified outcomes are identified as such.
+
+## Current Boundaries and Roadmap
+
+- **Yan Computer Use is under development and planned for v1.5.0.** It will target isolated desktop operation, independent input, cross-application screenshots, and software UI control. Browser automation is the supported interaction path in 1.4.0.
+- **Yan Agent GUI is under development and planned for v1.5.0.** The current Yan Work GUI entry is a development placeholder.
+- **The mobile Web UI has not received the full 1.4.0 redesign and is not recommended** as the primary interface for this release.
+- Resident subagents, dynamic concurrency scheduling, a fuller Git workflow, and a bundled PowerShell 7 runtime are not part of the stable 1.4.0 promise.
+- Dynamic model discovery does not guarantee that every media endpoint, request format, balance, rate limit, or region is usable.
+- Vision relay, web search, and third-party MCP services depend on user API configuration, network access, VPN conditions, and service health.
+
+## Project Structure
 
 ```text
 Yan-Agent/
-|-- main.js                  Electron main process, IPC, and local services
-|-- preload.js               Sandboxed renderer bridge
-|-- lib/                     Code index, project map, terminal, skills, and runtime libraries
-|-- renderer/                Desktop UI, kernel, project map, terminal, mobile, and pet surfaces
-|-- build/                   Installer configuration used by electron-builder
-|-- docs/                    Project homepage and architecture notes
-|-- package.json             Runtime and build configuration
-`-- README.md                Chinese documentation
+|-- main.js                    Electron main process, IPC, permissions, MCP, and local services
+|-- preload.js                 Sandboxed renderer bridge
+|-- lib/opencode-sidecar.js    Yan Kernel execution, goals, summaries, and event stream
+|-- lib/*-mcp.js               Yan built-in MCP services
+|-- lib/skills/                Built-in Skills and market catalog
+|-- opencode-runtime/          Application-owned OpenCode runtime data and configuration
+|-- renderer/index.html        Main workbench and settings structure
+|-- renderer/renderer.js       Sessions, composer, output, browser, and review coordination
+|-- renderer/browser-agent.js  Built-in browser control UI and state
+|-- renderer/pet/              Yan Agent Pet
+|-- renderer/remote/           Mobile Web UI
+|-- build/                     NSIS installer configuration
+`-- package.json               Runtime and packaging configuration
 ```
 
-## Technology
+## Technology and Attribution
 
 Electron 31 · Node.js · Vanilla JavaScript · OpenAI-compatible APIs · MCP · electron-builder
+
+Yan Kernel is based on OpenCode and extensively adapted for Yan Agent. Third-party components and bundled capabilities retain their respective licenses and notices.
 
 ## License
 

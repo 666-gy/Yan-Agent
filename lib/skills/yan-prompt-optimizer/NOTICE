@@ -1,0 +1,8 @@
+Yan Prompt Optimizer includes ideas adapted from the prompt-enhancer skill in
+sammcj/agentic-coding:
+https://github.com/sammcj/agentic-coding/tree/main/Skills/prompt-enhancer
+
+Copyright 2025 Sam McLeod and contributors.
+The upstream work is licensed under the Apache License, Version 2.0.
+A copy of the Apache License, Version 2.0 is distributed with Yan Agent at
+lib/skills/anysearch/LICENSE.

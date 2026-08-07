@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-redesign",
+  "name": "TasteSkill Redesign",
+  "desc": "审计并改造已有项目的视觉层级、间距、交互状态和响应式问题",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-redesign/SKILL.md"
+}

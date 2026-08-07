@@ -4,16 +4,37 @@ contextBridge.exposeInMainWorld('yan', {
   // Config / API / models / skills
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (partial) => ipcRenderer.invoke('config:set', partial),
+  getQuickLaunch: () => ipcRenderer.invoke('quick-launch:get'),
+  updateQuickLaunch: (settings) => ipcRenderer.invoke('quick-launch:update', settings),
   listProviders: () => ipcRenderer.invoke('providers:list'),
   setProvider: (providerId) => ipcRenderer.invoke('provider:set', providerId),
   configureProvider: (providerId, config) => ipcRenderer.invoke('provider:configure', {
     providerId,
     ...(config && typeof config === 'object' ? config : { apiKey: config })
   }),
-  refreshProviderModels: (providerId) => ipcRenderer.invoke('provider:models:refresh', providerId),
-  openExternal: (url) => ipcRenderer.invoke('external:open', url),
+  removeProviderConfig: (providerId) => ipcRenderer.invoke('provider:remove-config', providerId),
+  browserRecoverNetwork: (url) => ipcRenderer.invoke('browser:recover-network', url),
+  browserClearData: (type) => ipcRenderer.invoke('browser:clear-data', type),
+  onBrowserNewTabRequest: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('browser:new-tab-request', handler);
+    return () => ipcRenderer.removeListener('browser:new-tab-request', handler);
+  },
+  onBrowserAgentCommand: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('browser:agent-command', handler);
+    return () => ipcRenderer.removeListener('browser:agent-command', handler);
+  },
+  browserAgentCommandResult: (payload) => ipcRenderer.send('browser:agent-command-result', payload),
   listModels: () => ipcRenderer.invoke('models:list'),
+  listQuickModels: () => ipcRenderer.invoke('models:quick-list'),
+  listMediaModels: () => ipcRenderer.invoke('models:media-list'),
   setModel: (modelId) => ipcRenderer.invoke('model:set', modelId),
+  setModelRole: (providerId, modelId, modelType) => ipcRenderer.invoke('model:role-set', {
+    providerId,
+    modelId,
+    modelType
+  }),
   onModelChanged: (cb) => {
     const handler = (_e, detail) => cb(detail);
     ipcRenderer.on('model:changed', handler);
@@ -22,6 +43,7 @@ contextBridge.exposeInMainWorld('yan', {
   listSkills: () => ipcRenderer.invoke('skills:list'),
   getSkillMarket: () => ipcRenderer.invoke('skills:market'),
   getSkillCatalog: () => ipcRenderer.invoke('skills:catalog'),
+  getSkillStoreInfo: () => ipcRenderer.invoke('skills:store-info'),
   getSkillPromptSection: () => ipcRenderer.invoke('skills:prompt-section'),
   readSkill: (id, taskContext) => ipcRenderer.invoke('skills:read', { id, taskContext }),
 
@@ -36,6 +58,7 @@ contextBridge.exposeInMainWorld('yan', {
   inspectWorkspace: (dirPath, workspace) => ipcRenderer.invoke('workspace:inspect', { dirPath, workspace }),
   pickWorkspace: () => ipcRenderer.invoke('workspace:pick'),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
+  openWorkspaceInExplorer: (workspace) => ipcRenderer.invoke('workspace:open-explorer', workspace),
   listWorkspace: (dir) => ipcRenderer.invoke('workspace:list', dir),
   clearWorkspace: () => ipcRenderer.invoke('workspace:clear'),
 
@@ -48,16 +71,31 @@ contextBridge.exposeInMainWorld('yan', {
   setSessionPinned: (id, pinned) => ipcRenderer.invoke('session:set-pinned', { id, pinned }),
   setSessionWorkspace: (id, workspace, activate = true) => ipcRenderer.invoke('session:set-workspace', { id, workspace, activate }),
   activateWorkspace: (workspace) => ipcRenderer.invoke('workspace:activate', workspace),
-  deleteSession: (id, confirmed = false) => ipcRenderer.invoke('session:delete', { id, confirmed }),
+  deleteSession: (id, confirmed = false) => ipcRenderer.invoke('session:delete', {
+    id,
+    confirmed
+  }),
   onSessionChanged: (cb) => {
     const handler = (_e, detail) => cb(detail);
     ipcRenderer.on('session:changed', handler);
     return () => ipcRenderer.removeListener('session:changed', handler);
   },
-
-  // Yan Partner uses isolated local storage and is not exposed to remote control.
-  getPartnerState: () => ipcRenderer.invoke('partner:state:get'),
-  savePartnerState: (state) => ipcRenderer.invoke('partner:state:save', state),
+  onSessionAgentCommand: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('session:agent-command', handler);
+    return () => ipcRenderer.removeListener('session:agent-command', handler);
+  },
+  sessionAgentCommandResult: (payload) => ipcRenderer.send('session:agent-command-result', payload),
+  onSessionAgentHandoffReady: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('session:agent-handoff-ready', handler);
+    return () => ipcRenderer.removeListener('session:agent-handoff-ready', handler);
+  },
+  onQuickInputSubmit: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('quick-input:submit', handler);
+    return () => ipcRenderer.removeListener('quick-input:submit', handler);
+  },
 
   // Desktop pet supervision bridge
   petUpdate: (payload) => ipcRenderer.send('pet:update', payload),
@@ -75,15 +113,19 @@ contextBridge.exposeInMainWorld('yan', {
   },
 
   // Long-term memory
-  getMemory: () => ipcRenderer.invoke('memory:get'),
+  getMemory: (options = {}) => ipcRenderer.invoke('memory:get', options),
+  getMemoryContext: (options = {}) => ipcRenderer.invoke('memory:get-context', options),
   saveMemory: (mem) => ipcRenderer.invoke('memory:save', mem),
   addMemoryFact: (fact) => ipcRenderer.invoke('memory:add-fact', fact),
-  clearMemory: () => ipcRenderer.invoke('memory:clear'),
+  addMemoryBatch: (payload) => ipcRenderer.invoke('memory:add-batch', payload),
+  clearMemory: (options = {}) => ipcRenderer.invoke('memory:clear', options),
 
   // Skills
   addCustomSkill: (skill) => ipcRenderer.invoke('skills:add-custom', skill),
   removeCustomSkill: (id) => ipcRenderer.invoke('skills:remove-custom', id),
   getCustomSkills: () => ipcRenderer.invoke('skills:get-custom'),
+  getLearningCandidates: () => ipcRenderer.invoke('learning:candidates'),
+  recordLearningReview: (payload) => ipcRenderer.invoke('learning:record-review', payload),
 
   // Files — pass { filePath, workspace } for sandbox enforcement (session workspace)
   readFile: (filePath, workspace) => {
@@ -106,6 +148,8 @@ contextBridge.exposeInMainWorld('yan', {
   readImageAttachment: (filePath) => ipcRenderer.invoke('file:image-data', filePath),
   generateImage: (payload) => ipcRenderer.invoke('image:generate', payload),
   cancelImageGeneration: (requestId) => ipcRenderer.invoke('image:cancel', requestId),
+  generateVideo: (payload) => ipcRenderer.invoke('video:generate', payload),
+  cancelVideoGeneration: (requestId) => ipcRenderer.invoke('video:cancel', requestId),
   readGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-read', assetId),
   openGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-open', assetId),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
@@ -115,12 +159,14 @@ contextBridge.exposeInMainWorld('yan', {
   },
 
   // Shell execution — cwd forced inside workspace by main process
-  executeShell: (command, cwd, oneShot, workspace) => ipcRenderer.invoke('shell:execute', {
+  executeShell: (command, cwd, oneShot, workspace, runId) => ipcRenderer.invoke('shell:execute', {
     command,
     cwd,
     oneShot,
-    workspace: workspace || cwd
+    workspace: workspace || cwd,
+    runId
   }),
+  cancelShellRun: (runId) => ipcRenderer.invoke('shell:cancel-run', runId),
 
   // Built-in terminal (real PTY, independent from Agent workspaces)
   terminalCreate: (options) => ipcRenderer.invoke('terminal:create', options || {}),
@@ -135,7 +181,13 @@ contextBridge.exposeInMainWorld('yan', {
   yanagentEnsure: (workspace) => ipcRenderer.invoke('yanagent:ensure', workspace),
   yanagentLog: (message, workspace) => ipcRenderer.invoke('yanagent:log', { message, workspace }),
   yanagentRecordChange: (payload) => ipcRenderer.invoke('yanagent:record-change', payload),
-  yanagentRunChanges: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:run-changes', { sessionId, runId, workspace }),
+  yanagentRunChanges: (sessionId, runId, workspace, options = {}) => ipcRenderer.invoke('yanagent:run-changes', {
+    sessionId,
+    runId,
+    workspace,
+    includeDiff: !!options.includeDiff,
+    allRuns: !!options.allRuns
+  }),
   yanagentRollbackRun: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:rollback-run', { sessionId, runId, workspace }),
 
   // Search (supports options object or legacy positional args)
@@ -157,14 +209,8 @@ contextBridge.exposeInMainWorld('yan', {
   codeScanProject: (workspace) => ipcRenderer.invoke('code:scan-project', { workspace }),
   codeTraceSymbol: (opts) => ipcRenderer.invoke('code:trace-symbol', opts || {}),
 
-  // Code map
-  getCodeMap: (workspace, force = false) => ipcRenderer.invoke('code-map:get', { workspace, force }),
-  enrichCodeMap: (workspace, limit) => ipcRenderer.invoke('code-map:enrich', { workspace, limit }),
-  clearCodeMapCache: (workspace) => ipcRenderer.invoke('code-map:clear-cache', workspace),
-  listCodeMapModels: () => ipcRenderer.invoke('code-map:models:list'),
-  getCodeMapModel: () => ipcRenderer.invoke('code-map:model:get'),
-  setCodeMapModel: (modelId) => ipcRenderer.invoke('code-map:model:set', modelId),
   launchYanxiCode: (workspace, mode = 'workspace') => ipcRenderer.invoke('yanxi:launch', { workspace, mode }),
+  openExternalPowerShell: (workspace = '') => ipcRenderer.invoke('powershell:open-external', { workspace }),
 
   // Workspace tree
   getWorkspaceTree: (directory, maxDepth) => ipcRenderer.invoke('workspace:tree', { directory, maxDepth }),
@@ -226,11 +272,17 @@ contextBridge.exposeInMainWorld('yan', {
   mcpAdd: (cfg) => ipcRenderer.invoke('mcp:add', cfg),
   mcpRemove: (id) => ipcRenderer.invoke('mcp:remove', id),
   mcpUpdate: (id, changes) => ipcRenderer.invoke('mcp:update', { id, ...changes }),
+  mcpTest: (cfg) => ipcRenderer.invoke('mcp:test', cfg),
   mcpStart: (id) => ipcRenderer.invoke('mcp:start', id),
   mcpStop: (id) => ipcRenderer.invoke('mcp:stop', id),
   mcpListTools: () => ipcRenderer.invoke('mcp:list-tools'),
-  mcpCallTool: (serverId, toolName, args) => ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args),
-  setComputerUseActive: (active) => ipcRenderer.send('computer-use:set-active', !!active),
+  mcpCallTool: (serverId, toolName, args, runId) => ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args, runId),
+  cancelMcpRun: (runId) => ipcRenderer.invoke('mcp:cancel-run', runId),
+  codeGraphEnsure: (workspace) => ipcRenderer.invoke('codegraph:ensure', workspace),
+  understandAnythingOpen: (workspace) => ipcRenderer.invoke('understand-anything:open', workspace),
+  understandAnythingRefresh: (workspace) => ipcRenderer.invoke('understand-anything:refresh', workspace),
+  understandAnythingStop: (workspace) => ipcRenderer.invoke('understand-anything:stop', workspace),
+  understandAnythingList: () => ipcRenderer.invoke('understand-anything:list'),
 
   // Window controls (custom title bar)
   window: {
@@ -250,7 +302,6 @@ contextBridge.exposeInMainWorld('yan', {
     ipcRenderer.on('mcp:status', handler);
     return () => ipcRenderer.removeListener('mcp:status', handler);
   },
-
   onTerminalEvent: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('terminal:event', handler);
@@ -271,22 +322,38 @@ contextBridge.exposeInMainWorld('yan', {
 
   consumePendingYanxiWorkspace: () => ipcRenderer.invoke('yanxi:consume-pending-workspace'),
 
-  onCodeMapProgress: (cb) => {
-    const handler = (_e, data) => cb(data);
-    ipcRenderer.on('code-map:progress', handler);
-    return () => ipcRenderer.removeListener('code-map:progress', handler);
-  },
-
-  onCodeMapChanged: (cb) => {
-    const handler = (_e, data) => cb(data);
-    ipcRenderer.on('code-map:changed', handler);
-    return () => ipcRenderer.removeListener('code-map:changed', handler);
-  },
-
   onSkillsChanged: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('skills:changed', handler);
     return () => ipcRenderer.removeListener('skills:changed', handler);
+  },
+
+  // OpenCode runtime
+  openCodeStartRun: (request) => ipcRenderer.invoke('opencode:start-run', request),
+  openCodeRunChanges: (runId, options = {}) => ipcRenderer.invoke('opencode:run-changes', {
+    runId,
+    includeDiff: options.includeDiff !== false
+  }),
+  openCodeSessionChanges: (yanSessionId, runId, options = {}) => ipcRenderer.invoke('opencode:session-changes', {
+    yanSessionId,
+    runId,
+    includeDiff: options.includeDiff !== false
+  }),
+  openCodeCancelRun: (runId) => ipcRenderer.invoke('opencode:cancel-run', runId),
+  openCodeInterject: (payload) => ipcRenderer.invoke('opencode:interject', payload),
+  openCodeStatus: () => ipcRenderer.invoke('opencode:status'),
+  classifyOpenCodeShellCommand: (command) => ipcRenderer.invoke('opencode:classify-shell-command', command),
+  openCodeReplyPermission: (payload) => ipcRenderer.invoke('opencode:permission-reply', payload),
+  openCodeReplyQuestion: (payload) => ipcRenderer.invoke('opencode:question-reply', payload),
+  onOpenCodeEvent: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('opencode:event', handler);
+    return () => ipcRenderer.removeListener('opencode:event', handler);
+  },
+  onOpenCodeCompleted: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('opencode:completed', handler);
+    return () => ipcRenderer.removeListener('opencode:completed', handler);
   },
 
   // Platform

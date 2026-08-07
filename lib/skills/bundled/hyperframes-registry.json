@@ -1,0 +1,13 @@
+{
+  "id": "hyperframes-registry",
+  "name": "HyperFrames Registry",
+  "desc": "HyperFrames 内部配套：发现、安装并接入视频区块与组件",
+  "tags": ["office-assist"],
+  "triggers": ["hyperframes registry", "hyperframes add", "视频组件"],
+  "source": "bundled",
+  "repo": "heygen-com/hyperframes",
+  "version": 102,
+  "hidden": true,
+  "parentSkillId": "hyperframes",
+  "promptFile": "../hyperframes-registry/SKILL.md"
+}

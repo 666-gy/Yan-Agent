@@ -1,0 +1,12 @@
+{
+  "id": "gsap-frameworks",
+  "name": "GSAP Frameworks",
+  "desc": "GreenSock 官方 Vue、Svelte 与其他框架生命周期和清理规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-frameworks/SKILL.md"
+}

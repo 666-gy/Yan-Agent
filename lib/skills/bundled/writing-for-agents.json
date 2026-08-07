@@ -1,0 +1,12 @@
+{
+  "id": "writing-for-agents",
+  "name": "Writing for Agents",
+  "desc": "编写稳定、精确且节省上下文的 Skill、AGENTS.md 与 Agent 指令文档",
+  "aliases": ["Agent Writing", "Agent 文档", "Skill 编写"],
+  "tags": ["agent-rules"],
+  "triggers": ["编写 Skill", "修改 AGENTS.md", "Agent 指令", "优化 Skill 描述"],
+  "source": "bundled",
+  "repo": "mattpocock/skills",
+  "version": 1,
+  "promptFile": "../writing-for-agents/SKILL.md"
+}

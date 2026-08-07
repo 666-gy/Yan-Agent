@@ -1,7 +1,11 @@
-/* Agent output — aligned with desktop Yan Agent styles */
+/* Hallmark · component: Agent output · genre: modern-minimal · theme: inherited Yan
+ * pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass · motion: restrained
+ */
+/* Agent output — OpenCode part structure with Yan typography */
 :root {
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-reading: Georgia, 'Times New Roman', 'Songti SC', serif;
+  --font-reading: Charter, "Iowan Old Style", "Palatino Linotype", "Noto Serif SC",
+    "Source Han Serif SC", Georgia, serif;
   --r-sm: 8px;
   --fast: 0.15s;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
@@ -60,7 +64,7 @@
 .msg-body.agent-output {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
   width: 100%;
   max-width: 100%;
   padding: 0;
@@ -78,59 +82,130 @@
 }
 
 .agent-run-header {
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  margin: 0 0 2px;
+  margin: 0;
   border: 0;
   background: transparent;
 }
 .agent-run-summary {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: fit-content;
-  min-height: 26px;
-  padding: 3px 6px;
-  border-radius: var(--r-sm);
+  gap: 4px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 0 8px;
+  border-radius: 0;
   color: var(--text-faint);
-  cursor: pointer;
-  list-style: none;
+  cursor: default;
   user-select: none;
 }
-.agent-run-summary::-webkit-details-marker { display: none; }
-.agent-run-header .run-chevron {
-  display: inline-flex;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--text-faint);
-  transform: rotate(0deg);
-  transition: transform var(--fast) var(--ease);
-}
-.agent-run-header[open] .run-chevron { transform: rotate(90deg); }
 .agent-activity-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 4px 0 8px 7px;
-  padding: 2px 0 4px 12px;
-  border-left: 1px solid var(--border);
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
 }
 .agent-activity-body:empty { display: none; }
-.agent-run-header .run-pulse {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-  animation: runPulse 1.4s ease-in-out infinite;
+.agent-activity-body > [data-agent-part-key] { min-width: 0; }
+.agent-run-header.agent-work-collapsed .agent-activity-body > [data-agent-stage="work"] {
+  display: none;
 }
-@keyframes runPulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.92); }
-  50% { opacity: 1; transform: scale(1); }
+.agent-run-header .run-status {
+  min-width: 0;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
-.agent-run-header .run-status { font-weight: 500; font-size: 12px; }
-.agent-run-header .run-status.interrupted { color: #d97706; }
-.agent-run-header .run-status.error { color: var(--danger); }
-.agent-run-header .run-meta { color: var(--text-faint); font-size: 11.5px; }
+.agent-run-header .run-elapsed { font-family: var(--font-mono); }
+.agent-run-header .run-divider,
+.agent-run-header .run-terminal {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.agent-run-header .run-cache-hit {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.agent-run-header .run-cache-hit.is-active { color: var(--text-dim); }
+.agent-run-header .run-cache-hit.is-high { color: var(--success); }
+.agent-run-header .run-cache-rate {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.agent-run-header .run-terminal.error { color: var(--danger); }
+.agent-work-toggle {
+  appearance: none;
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+.agent-work-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -14px -6px;
+}
+@media (hover: hover) {
+  .agent-work-toggle:hover { color: var(--text); }
+}
+.agent-work-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.agent-work-toggle:active { color: var(--accent); }
+.agent-work-toggle:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.agent-work-narration,
+.agent-summary-output {
+  width: 100%;
+  color: var(--text);
+  font-family: var(--font-reading);
+  font-size: 15.5px;
+  font-weight: 400;
+  line-height: 1.82;
+  overflow-wrap: anywhere;
+}
+.agent-work-narration p,
+.agent-summary-output p { margin-bottom: 12px; }
+.agent-work-narration strong,
+.agent-summary-output strong { font-weight: 600; }
+.agent-summary-output {
+  animation: agentFinalOutputIn 180ms var(--ease) both;
+}
+@keyframes agentFinalOutputIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
 
 .run-change-summary {
   width: 100%;
@@ -200,6 +275,66 @@
   overflow-x: auto;
 }
 .msg-body pre code { background: none; border: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
+.md-code-block {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  margin: 10px 0;
+}
+.msg-body .md-code-block pre {
+  margin: 0;
+  padding-top: 42px;
+}
+.md-code-copy {
+  appearance: none;
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.md-code-copy::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+.md-code-copy svg { display: block; pointer-events: none; }
+.md-code-copy-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: mdCodeCopySpin 0.7s linear infinite;
+}
+@keyframes mdCodeCopySpin { to { transform: rotate(360deg); } }
+@media (hover: hover) {
+  .md-code-copy:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-active);
+    color: var(--text);
+  }
+}
+.md-code-copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.md-code-copy:active { background: var(--bg-active); color: var(--text); }
+.md-code-copy:disabled { cursor: default; }
+.md-code-copy[data-state="loading"] { cursor: wait; opacity: 0.72; }
+.md-code-copy[data-state="success"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--border-soft)); }
+.md-code-copy[data-state="error"] { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border-soft)); }
 .msg-body ul, .msg-body ol { margin: 8px 0 12px; padding-left: 1.4em; }
 .msg-body li { margin-bottom: 4px; }
 .msg-body h1, .msg-body h2, .msg-body h3 { margin: 16px 0 8px; font-weight: 600; line-height: 1.35; }
@@ -246,6 +381,11 @@
   user-select: none;
 }
 .tool-step > summary.tc-header:hover { background: var(--bg-hover); }
+.tool-step > summary.tc-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tool-step > summary.tc-header:active { background: var(--bg-active); }
 .tool-step > summary.tc-header::-webkit-details-marker { display: none; }
 .tool-step .tc-badge {
   flex-shrink: 0;
@@ -263,8 +403,20 @@
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
+.tool-step .tc-badge.running {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  background: transparent;
+  animation: agentToolSpin 0.7s linear infinite;
+}
+.tool-step .tc-badge.interrupted {
+  color: var(--text-faint);
+  background: var(--bg-elev);
+}
+@keyframes agentToolSpin { to { transform: rotate(360deg); } }
 .tool-step .tc-icon-svg { flex-shrink: 0; display: inline-flex; color: var(--text-faint); }
-.tool-step .tc-name { font-weight: 500; color: var(--text-dim); font-size: 12px; flex-shrink: 0; }
+.tool-step .tc-name { font-weight: 600; color: var(--text-dim); font-size: 13px; flex-shrink: 0; }
 .tool-step .tc-preview {
   color: var(--text-faint);
   font-size: 10.5px;
@@ -316,23 +468,6 @@
   border: none;
   padding: 0;
 }
-.lane-badge {
-  flex-shrink: 0;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1.2;
-}
-.lane-badge.main { display: none; }
-.lane-badge.sub {
-  color: var(--accent-text);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-soft));
-}
-.tool-step.delegation-step .tc-name { color: var(--accent-text); font-weight: 600; }
-
 .thinking-block {
   margin: 0;
   border: none;
@@ -354,6 +489,11 @@
   border-radius: var(--r-sm);
 }
 .thinking-block summary::-webkit-details-marker { display: none; }
+.thinking-block summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.thinking-block.streaming summary { color: var(--text-dim); }
 .thinking-block summary .think-icon {
   width: 14px; height: 14px;
   flex-shrink: 0;
@@ -418,4 +558,29 @@
   color: var(--text-faint);
   font-size: 12px;
   line-height: 1.55;
+}
+.msg-round.streaming .stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: remoteCursorBlink 1s step-end infinite;
+}
+@keyframes remoteCursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-summary-output,
+  .tool-step,
+  .md-code-copy-spinner,
+  .tool-step .tc-badge.running,
+  .msg-round.streaming .stream-cursor {
+    animation: none;
+  }
+  .agent-work-toggle,
+  .md-code-copy { transition: none; }
 }

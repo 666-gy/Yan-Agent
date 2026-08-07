@@ -645,7 +645,6 @@ async function confirmRename() {
 function beginDelete() {
   const session = state.sessions.find((item) => item.id === state.menuSessionId);
   if (!session) return;
-  if (state.sessions.length <= 1) { showToast('至少保留一个任务'); return; }
   if (session.running) { showToast('任务运行中，无法删除'); return; }
   closeModal('taskMenuOverlay');
   if (isBlankNewChat(session)) return deleteSelectedTask(false);
@@ -656,17 +655,25 @@ function beginDelete() {
 async function deleteSelectedTask(confirmed) {
   const sessionId = state.menuSessionId;
   try {
-    await api(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    const result = await api(`/api/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE', body: JSON.stringify({ confirmed }),
     });
     closeModal('deleteOverlay');
+    const deletedActiveSession = state.activeSessionId === sessionId;
     if (state.activeSessionId === sessionId) {
       state.activeSessionId = null;
       state.messages = [];
       showView('listView');
     }
     await loadSessions();
-    showToast('任务已删除');
+    if (deletedActiveSession) {
+      const replacementId = String(result.replacementSession?.id || '');
+      const nextId = state.sessions.some((session) => session.id === replacementId)
+        ? replacementId
+        : state.sessions[0]?.id;
+      if (nextId) await openChat(nextId);
+    }
+    showToast(result.replacedLast ? '已删除任务并新建空白任务' : '任务已删除');
   } catch (error) {
     showToast(friendlyError(error, '删除失败'));
   }

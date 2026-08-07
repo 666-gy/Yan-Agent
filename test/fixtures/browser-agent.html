@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yan Browser Agent Fixture</title>
+  <style>
+    body { margin: 0; padding: 24px; font: 16px/1.5 system-ui, sans-serif; color: #17211b; background: #f4f7f5; }
+    main { display: grid; gap: 18px; max-width: 720px; }
+    label { display: grid; gap: 5px; }
+    input, select, button { min-height: 38px; font: inherit; }
+    .drag-row { display: flex; gap: 20px; }
+    .drag-box { width: 140px; height: 72px; display: grid; place-items: center; border: 2px solid #37955d; background: #fff; }
+    #dropTarget { border-style: dashed; }
+    #hoverState { min-height: 24px; }
+    canvas { width: 320px; height: 120px; border: 2px solid #263d30; background: #fff; }
+    .spacer { height: 900px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Yan Browser Agent Test</h1>
+    <label>Name<input id="nameInput" name="name" required placeholder="Name"></label>
+    <label>Required email<input id="requiredEmail" name="requiredEmail" type="email" required placeholder="Email"></label>
+    <button id="actionButton" type="button">Run action</button>
+    <output id="actionState">idle</output>
+    <output id="keyboardState" data-x="0" data-down="0" data-up="0" data-held="false">keyboard idle</output>
+    <label>Mode
+      <select id="modeSelect">
+        <option value="standard">Standard</option>
+        <option value="advanced">Advanced</option>
+      </select>
+    </label>
+    <label><input id="featureCheck" type="checkbox"> Enable feature</label>
+    <button id="hoverButton" type="button">Hover target</button>
+    <output id="hoverState">not hovered</output>
+    <div class="drag-row">
+      <button id="dragSource" class="drag-box" type="button">Drag source</button>
+      <button id="dropTarget" class="drag-box" type="button">Drop target</button>
+    </div>
+    <output id="dragState">not dropped</output>
+    <canvas id="testCanvas" width="320" height="120" tabindex="0" aria-label="Test canvas"></canvas>
+    <output id="canvasState">canvas idle</output>
+    <img src="missing-image-for-browser-agent-test.png" alt="Broken test image">
+    <div class="spacer"></div>
+    <p id="pageBottom">Page bottom reached</p>
+  </main>
+  <script>
+    const actionButton = document.getElementById('actionButton');
+    const actionState = document.getElementById('actionState');
+    const keyboardState = document.getElementById('keyboardState');
+    const hoverButton = document.getElementById('hoverButton');
+    const hoverState = document.getElementById('hoverState');
+    const dragSource = document.getElementById('dragSource');
+    const dropTarget = document.getElementById('dropTarget');
+    const dragState = document.getElementById('dragState');
+    const canvas = document.getElementById('testCanvas');
+    const canvasState = document.getElementById('canvasState');
+    let dragging = false;
+    let rightHeld = false;
+    let keyboardX = 0;
+    let keyDownCount = 0;
+    let keyUpCount = 0;
+    let keyboardTick = performance.now();
+
+    const renderKeyboardState = () => {
+      keyboardState.dataset.x = String(Math.round(keyboardX));
+      keyboardState.dataset.down = String(keyDownCount);
+      keyboardState.dataset.up = String(keyUpCount);
+      keyboardState.dataset.held = String(rightHeld);
+      keyboardState.textContent = `keyboard x=${Math.round(keyboardX)} down=${keyDownCount} up=${keyUpCount} held=${rightHeld}`;
+    };
+    const updateKeyboardState = now => {
+      const elapsed = Math.min(50, Math.max(0, now - keyboardTick));
+      keyboardTick = now;
+      if (rightHeld) keyboardX += elapsed * 0.25;
+      renderKeyboardState();
+      requestAnimationFrame(updateKeyboardState);
+    };
+    window.addEventListener('keydown', event => {
+      if (event.key !== 'ArrowRight' || event.repeat) return;
+      rightHeld = true;
+      keyDownCount++;
+    });
+    window.addEventListener('keyup', event => {
+      if (event.key !== 'ArrowRight') return;
+      rightHeld = false;
+      keyUpCount++;
+    });
+    requestAnimationFrame(updateKeyboardState);
+
+    actionButton.addEventListener('click', () => { actionState.textContent = 'action complete'; });
+    hoverButton.addEventListener('mouseenter', () => { hoverState.textContent = 'hover complete'; });
+    dragSource.addEventListener('mousedown', () => { dragging = true; });
+    dropTarget.addEventListener('mouseup', () => {
+      if (dragging) dragState.textContent = 'drop complete';
+      dragging = false;
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+    canvas.addEventListener('mousedown', event => {
+      canvasState.textContent = `canvas ${Math.round(event.offsetX)},${Math.round(event.offsetY)}`;
+    });
+    console.error('fixture console diagnostic');
+  </script>
+</body>
+</html>

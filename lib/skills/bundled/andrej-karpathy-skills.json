@@ -1,0 +1,12 @@
+{
+  "id": "andrej-karpathy-skills",
+  "name": "Andrej Karpathy Guidelines",
+  "desc": "减少错误假设、过度工程化和无关修改的编码 Agent 行为准则",
+  "aliases": ["Karpathy Guidelines", "Karpathy", "编码行为准则", "最小修改"],
+  "tags": ["code-assist", "agent-rules"],
+  "triggers": ["Karpathy", "编码准则", "减少过度工程", "最小改动", "先验证再完成"],
+  "source": "bundled",
+  "repo": "multica-ai/andrej-karpathy-skills",
+  "version": 1,
+  "promptFile": "../andrej-karpathy-skills/SKILL.md"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "codebase-design",
+  "name": "Codebase Design",
+  "desc": "以深模块、清晰接口和可测试边界设计或改善代码库结构",
+  "aliases": ["Deep Modules", "代码库设计", "模块设计"],
+  "tags": ["code-assist"],
+  "triggers": ["设计模块", "改善接口", "代码架构", "可测试性"],
+  "source": "bundled",
+  "repo": "mattpocock/skills",
+  "version": 1,
+  "promptFile": "../codebase-design/SKILL.md"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "review-animations",
+  "name": "Review Animations",
+  "desc": "按严格的动效工艺、交互与性能标准审阅现有动画代码",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "emilkowalski/skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "emil-motion",
+  "promptFile": "../review-animations/SKILL.md"
+}

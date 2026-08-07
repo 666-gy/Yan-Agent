@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-brandkit",
+  "name": "TasteSkill Brandkit",
+  "desc": "品牌视觉系统与品牌套件图像方向",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-brandkit/SKILL.md"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "gsap-scrolltrigger",
+  "name": "GSAP ScrollTrigger",
+  "desc": "GreenSock 官方滚动触发、固定、scrub 与视差动画规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-scrolltrigger/SKILL.md"
+}

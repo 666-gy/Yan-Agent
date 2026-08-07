@@ -10,42 +10,35 @@
 </head>
 <body data-state="idle">
   <main class="pet-app">
-    <section class="pet-panel" aria-label="Agent 监督面板" aria-hidden="true" inert hidden>
+    <section class="pet-panel" aria-label="Yan Agent Pet 状态面板" aria-hidden="true" inert hidden>
       <div class="panel-drag" aria-hidden="true"><span></span><span></span><span></span></div>
       <header class="panel-header">
         <div>
-          <div class="panel-kicker"><span class="state-dot"></span><span id="stateLabel">待命</span></div>
-          <h1>Yan Agent Pet</h1>
+          <div class="panel-brand-row">
+            <h1>Yan Agent Pet</h1>
+            <span class="panel-state"><span class="state-dot"></span><span id="stateLabel">待命</span></span>
+          </div>
         </div>
         <div class="panel-window-actions">
-          <button id="collapseBtn" type="button" title="收起监督面板" aria-label="收起监督面板">−</button>
-          <button id="hideBtn" type="button" title="关闭桌宠" aria-label="关闭桌宠">×</button>
+          <button id="openTaskBtn" class="header-action-btn open" type="button" title="打开任务" aria-label="打开任务">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+          </button>
+          <button id="stopTaskBtn" class="header-action-btn stop" type="button" title="结束任务" aria-label="结束任务" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
+          </button>
         </div>
       </header>
 
       <div class="task-section">
         <div class="section-label">当前任务</div>
         <div id="taskTitle" class="task-title">Yan Agent</div>
-        <div id="taskMessage" class="task-message">随时待命</div>
       </div>
 
-      <div class="assessment-row">
-        <span class="assessment-label">监督判断</span>
-        <span id="assessmentText">本地监督已就绪</span>
+      <div class="status-row">
+        <span class="status-label">状态</span>
+        <span id="statusText">随时待命</span>
       </div>
 
-      <div class="stat-row" aria-label="任务运行统计">
-        <div><strong id="iterationStat">0</strong><span>轮次</span></div>
-        <div><strong id="toolStat">0</strong><span>工具</span></div>
-        <div><strong id="changeStat">0</strong><span>改动</span></div>
-        <div><strong id="memoryStat">--</strong><span>MB</span></div>
-        <div><strong id="cpuStat">--</strong><span>CPU</span></div>
-      </div>
-
-      <footer class="panel-actions">
-        <button id="openTaskBtn" class="secondary-action" type="button">打开任务</button>
-        <button id="stopTaskBtn" class="danger-action" type="button" disabled>停止任务</button>
-      </footer>
     </section>
 
     <section class="pet-stage" aria-label="Yan 桌宠">

@@ -1,0 +1,12 @@
+{
+  "id": "liquid-glass-react",
+  "name": "Liquid Glass React",
+  "desc": "rdev Liquid Glass React 的本地实现参考与接入规则，按需读取源码，不自动安装依赖",
+  "aliases": ["Liquid Glass", "苹果液态玻璃", "液态玻璃 React"],
+  "tags": ["ui-beautify", "web-design"],
+  "triggers": ["Liquid Glass", "liquid-glass-react", "液态玻璃", "苹果玻璃效果", "React 玻璃效果"],
+  "source": "bundled",
+  "repo": "rdev/liquid-glass-react",
+  "version": 1,
+  "promptFile": "../liquid-glass-react/SKILL.md"
+}

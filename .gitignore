@@ -7,12 +7,14 @@ Thumbs.db
 .env.*
 !.env.example
 .workbuddy/
-scripts/test-output.txt
-/scripts/
 .playwright-cli/
 .playwright-mcp/
 .reasonix/
 .yanagent/
+.hallmark/
+.trae-html-share-packages/
+opencode-runtime/
+.codegraph/
 .agents/
 backup/
 output/

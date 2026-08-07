@@ -1,0 +1,12 @@
+{
+  "id": "greensock-gsap",
+  "name": "GreenSock GSAP",
+  "desc": "GreenSock 官方 GSAP 动画套装入口，按任务只加载时间线、框架、滚动、插件或性能模块",
+  "aliases": ["GSAP Official", "GreenSock", "网页动画"],
+  "tags": ["ui-beautify"],
+  "triggers": ["GSAP", "网页动效", "滚动动画", "时间线动画"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "promptFile": "../greensock-gsap/SKILL.md"
+}

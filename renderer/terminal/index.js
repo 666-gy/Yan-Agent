@@ -34,14 +34,13 @@
       this.pendingSessionEvents = [];
       this.resizeObserver = null;
       this.unsubscribe = null;
-      this.elementsReady = !!(this.panel && this.button && this.screen && this.mount && this.tabs && this.newButton);
+      this.elementsReady = !!(this.panel && this.screen && this.mount && this.tabs && this.newButton);
       if (!this.elementsReady) return;
       this.bindEvents();
       this.updateNewButton();
     }
 
     bindEvents() {
-      this.button.addEventListener('click', () => this.toggle());
       document.getElementById('terminalClose')?.addEventListener('click', () => this.close());
       document.getElementById('terminalClear')?.addEventListener('click', () => this.clear());
       this.newButton.addEventListener('click', () => this.createSession());
@@ -66,7 +65,7 @@
       this.hooks.closeBrowser?.();
       this.hooks.closeCodeMap?.();
       this.panel.classList.remove('hidden');
-      this.button.classList.add('active');
+      document.getElementById('terminalPanel')?.classList.add('terminal-agent-active');
       this.opened = true;
       if (!this.ensureRuntime()) return;
       const workspace = this.currentWorkspace();
@@ -83,7 +82,7 @@
     close() {
       if (!this.elementsReady) return;
       this.panel.classList.add('hidden');
-      this.button.classList.remove('active');
+      document.getElementById('terminalPanel')?.classList.remove('terminal-agent-active');
       this.opened = false;
     }
 

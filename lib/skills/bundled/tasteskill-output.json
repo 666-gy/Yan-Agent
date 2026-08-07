@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-output",
+  "name": "TasteSkill Output",
+  "desc": "保证代码输出完整，禁止省略和占位代码",
+  "tags": ["agent-rules"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-output/SKILL.md"
+}

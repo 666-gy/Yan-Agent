@@ -1,0 +1,7 @@
+interface:
+  display_name: "Yan Prompt Optimizer"
+  short_description: "在不扩张用户意图和任务范围的前提下优化用户 Prompt"
+  default_prompt: "Use $yan-prompt-optimizer to improve this prompt without changing its intent."
+
+policy:
+  allow_implicit_invocation: false

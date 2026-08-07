@@ -1,0 +1,13 @@
+{
+  "id": "hyperframes-cli",
+  "name": "HyperFrames CLI",
+  "desc": "HyperFrames 内部配套：脚手架、检查、预览、渲染、转录与语音合成命令",
+  "tags": ["office-assist"],
+  "triggers": ["hyperframes cli", "hyperframes render", "hyperframes preview"],
+  "source": "bundled",
+  "repo": "heygen-com/hyperframes",
+  "version": 102,
+  "hidden": true,
+  "parentSkillId": "hyperframes",
+  "promptFile": "../hyperframes-cli/SKILL.md"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "gsap-plugins",
+  "name": "GSAP Plugins",
+  "desc": "GreenSock 官方插件注册、Flip、Draggable、SVG、文本与物理动画规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-plugins/SKILL.md"
+}

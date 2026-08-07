@@ -1,0 +1,17 @@
+{
+  "id": "hyperframes",
+  "name": "HyperFrames",
+  "desc": "用 HTML、CSS 与 GSAP 创建、检查、预览并渲染视频，支持字幕、配音、音频响应和网站转视频",
+  "aliases": ["HyperFrames by HeyGen", "HTML video", "HTML 视频"],
+  "tags": ["office-assist"],
+  "triggers": ["生成视频", "制作视频", "动画视频", "HTML 视频", "字幕视频", "网站转视频", "hyperframes"],
+  "source": "bundled",
+  "repo": "heygen-com/hyperframes",
+  "version": 102,
+  "requires": [
+    { "kind": "command", "match": "node>=22" },
+    { "kind": "command", "match": "npx" },
+    { "kind": "command", "match": "ffmpeg" }
+  ],
+  "promptFile": "../hyperframes/SKILL.md"
+}

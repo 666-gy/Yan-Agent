@@ -1,0 +1,21 @@
+{
+  "id": "yan-prompt-optimizer",
+  "name": "Yan Prompt Optimizer",
+  "desc": "在不扩张意图与任务范围的前提下，让用户 Prompt 更清晰、更可执行",
+  "tags": [
+    "agent-rules"
+  ],
+  "triggers": [
+    "优化 prompt",
+    "优化提示词",
+    "改进 prompt",
+    "prompt optimizer",
+    "prompt enhancer",
+    "提示词优化"
+  ],
+  "source": "bundled",
+  "repo": "sammcj/agentic-coding",
+  "version": 2,
+  "logo": "assets/skill-logos/prompt-optimizer.svg",
+  "promptFile": "../yan-prompt-optimizer/SKILL.md"
+}

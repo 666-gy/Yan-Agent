@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-imagegen-mobile",
+  "name": "TasteSkill Imagegen Mobile",
+  "desc": "移动端产品界面视觉参考图与屏幕流程生成",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-imagegen-mobile/SKILL.md"
+}

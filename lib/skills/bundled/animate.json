@@ -1,0 +1,12 @@
+{
+  "id": "animate",
+  "name": "Animate",
+  "desc": "从目的、工具、属性、曲线、时长和中断行为出发实现高品质界面动画",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "emilkowalski/skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "emil-motion",
+  "promptFile": "../animate/SKILL.md"
+}

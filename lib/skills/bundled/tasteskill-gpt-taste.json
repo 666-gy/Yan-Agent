@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-gpt-taste",
+  "name": "TasteSkill GPT Taste",
+  "desc": "Awwwards 级前端结构、GSAP 动效与高端页面编排规则",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-gpt-taste/SKILL.md"
+}

@@ -1,0 +1,177 @@
+/* Hallmark · component: launch splash · genre: modern-minimal · theme: Yan graphite */
+:root {
+  --splash-bg: #14191d;
+  --splash-ink: #f3eee8;
+  --splash-muted: #c8b8b0;
+  --splash-accent: #df8668;
+  --splash-rule: rgba(223, 134, 104, .28);
+  --splash-ease: cubic-bezier(.22, .61, .36, 1);
+  --splash-brand-font: "Avenir Next", "Segoe UI", "PingFang SC", sans-serif;
+  --splash-motto-font: "STKaiti", "KaiTi", "Source Han Serif SC", "Noto Serif CJK SC", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--splash-bg);
+}
+
+body {
+  color: var(--splash-ink);
+  font-family: var(--splash-brand-font);
+  user-select: none;
+}
+
+.splash-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  opacity: 0;
+  background: var(--splash-bg);
+  animation: shell-in 500ms var(--splash-ease) forwards;
+}
+
+.splash-shell::before,
+.splash-shell::after {
+  position: absolute;
+  left: 9%;
+  right: 9%;
+  height: 1px;
+  content: "";
+  pointer-events: none;
+  background: var(--splash-rule);
+  transform: scaleX(0);
+  transform-origin: center;
+  animation: rule-in 780ms var(--splash-ease) 350ms forwards;
+}
+
+.splash-shell::before {
+  top: 19%;
+}
+
+.splash-shell::after {
+  bottom: 18%;
+  opacity: .55;
+  animation-delay: 700ms;
+}
+
+.brand-lockup {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+.brand-mark {
+  width: 106px;
+  height: 106px;
+  flex: 0 0 106px;
+  opacity: 0;
+  transform: translateX(88px) scale(.94);
+  animation: mark-settle 1000ms var(--splash-ease) forwards;
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.brand-name {
+  color: var(--splash-ink);
+  font-family: var(--splash-brand-font);
+  font-size: clamp(34px, 4.2vw, 58px);
+  font-weight: 560;
+  line-height: 1;
+  letter-spacing: 0;
+  opacity: 0;
+  transform: translateX(-18px);
+  animation: wordmark-in 620ms var(--splash-ease) 380ms forwards;
+}
+
+.motto {
+  position: absolute;
+  top: 62%;
+  left: 50%;
+  margin: 0;
+  color: var(--splash-muted);
+  font-family: var(--splash-motto-font);
+  font-size: clamp(19px, 2.1vw, 28px);
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, 12px);
+  animation: motto-in 900ms var(--splash-ease) 900ms forwards;
+}
+
+@keyframes shell-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rule-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes mark-settle {
+  0% {
+    opacity: 0;
+    transform: translateX(88px) scale(.94);
+  }
+  18% { opacity: 1; }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes wordmark-in {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes motto-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: .92;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-shell,
+  .splash-shell::before,
+  .splash-shell::after,
+  .brand-mark,
+  .brand-name,
+  .motto {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}

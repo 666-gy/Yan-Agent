@@ -1,0 +1,13 @@
+{
+  "id": "gsap",
+  "name": "GSAP for HyperFrames",
+  "desc": "HyperFrames 内部配套：可寻址动画、时间线、缓动与性能规则",
+  "tags": ["office-assist"],
+  "triggers": ["gsap", "hyperframes animation", "视频动画时间线"],
+  "source": "bundled",
+  "repo": "heygen-com/hyperframes",
+  "version": 102,
+  "hidden": true,
+  "parentSkillId": "hyperframes",
+  "promptFile": "../gsap/SKILL.md"
+}

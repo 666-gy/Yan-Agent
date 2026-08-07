@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill",
+  "name": "TasteSkill",
+  "desc": "反模板的高质量前端设计入口，覆盖布局、排版、颜色、动效与视觉实现质量",
+  "aliases": ["Taste Skill", "Design Taste", "反 AI 套路网页设计", "高质量网页设计"],
+  "tags": ["ui-beautify", "web-design"],
+  "triggers": ["TasteSkill", "网页设计", "UI 美化", "高级前端", "反模板设计", "设计品味"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "promptFile": "../tasteskill/SKILL.md"
+}

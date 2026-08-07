@@ -1,0 +1,60 @@
+* { box-sizing: border-box; }
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+
+.quick-input-edge {
+  position: fixed;
+  inset: 0;
+  border: 2px solid transparent;
+  border-image: linear-gradient(90deg, #62b7ff, #b476ff, #62b7ff, #6be2c0, #62b7ff) 1;
+  box-shadow:
+    inset 0 0 38px rgba(74, 166, 255, 0.24),
+    inset 0 0 10px rgba(126, 205, 255, 0.42),
+    0 0 22px rgba(73, 162, 255, 0.22);
+  animation: quick-input-edge-march 2.4s linear infinite, quick-input-edge-breathe 1.5s ease-in-out infinite;
+}
+
+.quick-input-edge::before,
+.quick-input-edge::after {
+  content: '';
+  position: absolute;
+  inset: -18px;
+  border: 1px solid rgba(87, 179, 255, 0.2);
+  filter: blur(18px);
+  opacity: 0.7;
+  animation: quick-input-halo 2.2s ease-out infinite;
+}
+
+.quick-input-edge::after {
+  inset: -42px;
+  border-color: rgba(126, 114, 255, 0.14);
+  animation-delay: 1.1s;
+}
+
+@keyframes quick-input-edge-march {
+  to { filter: hue-rotate(360deg); }
+}
+
+@keyframes quick-input-edge-breathe {
+  0%, 100% { opacity: 0.58; }
+  50% { opacity: 1; }
+}
+
+@keyframes quick-input-halo {
+  0% { transform: scale(0.985); opacity: 0.72; }
+  100% { transform: scale(1.025); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-input-edge,
+  .quick-input-edge::before,
+  .quick-input-edge::after { animation: none; opacity: 0.9; }
+}

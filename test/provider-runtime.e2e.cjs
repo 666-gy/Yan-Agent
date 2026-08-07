@@ -1,0 +1,186 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { spawn } = require('node:child_process');
+const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+
+const appRoot = path.resolve(__dirname, '..');
+const executable = path.resolve(process.env.YAN_OPENCODE_EXECUTABLE || path.join(
+  appRoot,
+  'node_modules',
+  `opencode-windows-${process.arch}`,
+  'bin',
+  process.platform === 'win32' ? 'opencode.exe' : 'opencode'
+));
+const providerModule = path.resolve(process.env.YAN_PROVIDER_MODULE_PATH || path.join(
+  appRoot,
+  'lib',
+  'opencode-dsml-provider.mjs'
+));
+const providerId = String(process.env.YAN_TEST_PROVIDER_ID || 'deepseek').trim();
+const providerName = String(process.env.YAN_TEST_PROVIDER_NAME || providerId).trim();
+const modelId = `${providerId}-packaged-test`;
+
+function runProcess(command, args, options, timeoutMs = 30_000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, options);
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Provider runtime test timed out. stdout=${stdout} stderr=${stderr}`));
+    }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.once('error', error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('exit', code => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+function stageProviderPackage(runtimeRoot) {
+  const packageName = '@yan-agent/deepseek-dsml-provider';
+  const packageDir = path.join(runtimeRoot, 'config', 'opencode', 'node_modules', '@yan-agent', 'deepseek-dsml-provider');
+  const sourceRoot = path.dirname(providerModule);
+  const sourceNodeModules = path.resolve(sourceRoot, '..', 'node_modules');
+  const targetNodeModules = path.join(runtimeRoot, 'config', 'opencode', 'node_modules');
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.copyFileSync(providerModule, path.join(packageDir, 'index.mjs'));
+  fs.copyFileSync(path.join(sourceRoot, 'dsml-tool-call.js'), path.join(packageDir, 'dsml-tool-call.js'));
+  fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({
+    name: packageName,
+    version: '1.0.0',
+    type: 'module',
+    exports: './index.mjs'
+  }));
+  for (const dependency of ['@ai-sdk', '@standard-schema', 'eventsource-parser', 'json-schema', 'zod']) {
+    const source = path.join(sourceNodeModules, dependency);
+    const target = path.join(targetNodeModules, dependency);
+    if (fs.existsSync(source)) fs.cpSync(source, target, { recursive: true, force: true });
+  }
+  return packageName;
+}
+
+function stageProviderBundle(runtimeRoot) {
+  const targetDir = path.join(runtimeRoot, 'provider');
+  const target = path.join(targetDir, 'deepseek-dsml-provider.mjs');
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.copyFileSync(providerModule, target);
+  return pathToFileURL(target).href;
+}
+
+(async () => {
+  assert.equal(fs.existsSync(executable), true, `Missing OpenCode executable: ${executable}`);
+  assert.equal(fs.existsSync(providerModule), true, `Missing provider module: ${providerModule}`);
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-provider-runtime-'));
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      requests.push({ method: request.method, url: request.url, body });
+      if (request.url?.endsWith('/models')) {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ object: 'list', data: [{ id: 'deepseek-packaged-test', object: 'model' }] }));
+        return;
+      }
+      response.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive'
+      });
+      const created = Math.floor(Date.now() / 1000);
+      response.write(`data: ${JSON.stringify({
+        id: 'yan-provider-test',
+        object: 'chat.completion.chunk',
+        created,
+        model: 'deepseek-packaged-test',
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'PACKAGED_PROVIDER_OK' }, finish_reason: null }]
+      })}\n\n`);
+      response.write(`data: ${JSON.stringify({
+        id: 'yan-provider-test',
+        object: 'chat.completion.chunk',
+        created,
+        model: 'deepseek-packaged-test',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
+      })}\n\n`);
+      response.end('data: [DONE]\n\n');
+    });
+  });
+
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+    const config = buildOpenCodeConfig({
+      providerId,
+      providerName,
+      modelId,
+      modelName: `${providerName} Packaged Test`,
+      apiKey: 'local-test-key',
+      baseUrl,
+      capabilities: { reasoning: true, contextWindow: 32_768, maxOutputTokens: 8_192 },
+      permissions: { allowFileRead: true, allowFileWrite: false, allowNetwork: true }
+    });
+    if (providerId === 'deepseek') {
+      config.provider[providerId].npm = process.env.YAN_PROVIDER_PACKAGE_MODE === '1'
+        ? stageProviderPackage(runtimeRoot)
+        : (process.env.YAN_PROVIDER_BUNDLE_STAGE === '1'
+          ? stageProviderBundle(runtimeRoot)
+          : (process.env.YAN_PROVIDER_MODULE_SPECIFIER || pathToFileURL(providerModule).href));
+    }
+    const env = {
+      ...process.env,
+      XDG_DATA_HOME: path.join(runtimeRoot, 'data'),
+      XDG_CONFIG_HOME: path.join(runtimeRoot, 'config'),
+      XDG_CACHE_HOME: path.join(runtimeRoot, 'cache'),
+      XDG_STATE_HOME: path.join(runtimeRoot, 'state'),
+      OPENCODE_TEST_HOME: path.join(runtimeRoot, 'home'),
+      OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
+      OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
+      OPENCODE_DISABLE_AUTOUPDATE: 'true',
+      OPENCODE_CONFIG_CONTENT: JSON.stringify(config)
+    };
+    const result = await runProcess(executable, [
+      'run',
+      '--model', `${providerId}/${modelId}`,
+      '--print-logs',
+      '--log-level', 'INFO',
+      'Reply with the supplied test response.'
+    ], {
+      cwd: runtimeRoot,
+      env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const combined = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.code, 0, combined);
+    assert.equal(combined.includes('PACKAGED_PROVIDER_OK'), true, combined);
+    assert.equal(combined.includes('Failed to initialize provider'), false, combined);
+    assert.ok(requests.length >= 1, combined);
+    console.log(JSON.stringify({
+      ok: true,
+      providerModule,
+      requestCount: requests.length,
+      requestedUrls: requests.map(item => item.url)
+    }));
+  } finally {
+    server.close();
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
+  }
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

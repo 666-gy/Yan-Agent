@@ -1,0 +1,12 @@
+{
+  "id": "diagnosing-bugs",
+  "name": "Diagnosing Bugs",
+  "desc": "面向疑难故障与性能回退的证据化诊断循环，先定位根因再决定修复",
+  "aliases": ["Bug Diagnosis", "故障诊断", "调试诊断"],
+  "tags": ["code-assist"],
+  "triggers": ["诊断故障", "定位 bug", "性能回退", "难复现错误"],
+  "source": "bundled",
+  "repo": "mattpocock/skills",
+  "version": 1,
+  "promptFile": "../diagnosing-bugs/SKILL.md"
+}

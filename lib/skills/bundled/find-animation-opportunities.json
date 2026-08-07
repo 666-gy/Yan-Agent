@@ -1,0 +1,12 @@
+{
+  "id": "find-animation-opportunities",
+  "name": "Find Animation Opportunities",
+  "desc": "只读发现真正值得加入动效的位置，并拒绝无意义动画",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "emilkowalski/skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "emil-motion",
+  "promptFile": "../find-animation-opportunities/SKILL.md"
+}

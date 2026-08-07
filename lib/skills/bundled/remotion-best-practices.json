@@ -1,0 +1,17 @@
+{
+  "id": "remotion-best-practices",
+  "name": "Remotion",
+  "desc": "用 React 程序化生成视频，覆盖动画、音频、字幕、图表、3D、转场与渲染",
+  "aliases": ["Remotion Best Practices", "React video", "React 视频"],
+  "tags": ["office-assist"],
+  "triggers": ["remotion", "React 视频", "程序化视频", "动态图表", "视频渲染", "视频字幕"],
+  "source": "bundled",
+  "repo": "remotion-dev/skills",
+  "version": 1003,
+  "requires": [
+    { "kind": "command", "match": "node" },
+    { "kind": "command", "match": "npx" },
+    { "kind": "command", "match": "ffmpeg" }
+  ],
+  "promptFile": "../remotion-best-practices/SKILL.md"
+}

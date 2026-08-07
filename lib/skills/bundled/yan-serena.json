@@ -1,0 +1,35 @@
+{
+  "id": "yan-serena",
+  "name": "Serena",
+  "desc": "用 LSP 符号、引用、诊断与符号级编辑完成更小、更准确的代码修改",
+  "aliases": [
+    "serena",
+    "符号定位",
+    "语义代码编辑",
+    "lsp edit"
+  ],
+  "tags": [
+    "code-assist"
+  ],
+  "triggers": [
+    "定位函数",
+    "查找引用",
+    "符号重构",
+    "定点修改",
+    "最小补丁",
+    "代码诊断",
+    "find symbol",
+    "find references",
+    "symbol edit"
+  ],
+  "source": "bundled",
+  "repo": "https://github.com/oraios/serena",
+  "version": 2,
+  "requires": [
+    {
+      "kind": "mcp",
+      "match": "serena"
+    }
+  ],
+  "promptFile": "../yan-serena/SKILL.md"
+}

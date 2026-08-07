@@ -1,0 +1,33 @@
+{
+  "id": "yan-understand-anything",
+  "name": "Understand Anything",
+  "desc": "用本地 CodeGraph 图谱浏览项目结构、文件职责、符号关系和影响范围",
+  "aliases": [
+    "understand anything",
+    "代码库理解",
+    "项目理解",
+    "代码地图"
+  ],
+  "tags": [
+    "code-assist"
+  ],
+  "triggers": [
+    "理解代码库",
+    "项目架构",
+    "代码地图",
+    "影响分析",
+    "codebase understanding",
+    "repository onboarding",
+    "architecture overview"
+  ],
+  "source": "bundled",
+  "repo": "Egonex-AI/Understand-Anything",
+  "version": 2,
+  "requires": [
+    {
+      "kind": "mcp",
+      "match": "codegraph"
+    }
+  ],
+  "promptFile": "../yan-understand-anything/SKILL.md"
+}

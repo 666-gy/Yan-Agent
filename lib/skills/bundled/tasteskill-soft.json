@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-soft",
+  "name": "TasteSkill Soft",
+  "desc": "柔和、昂贵感、留白、层次和流畅动效的界面方向",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-soft/SKILL.md"
+}

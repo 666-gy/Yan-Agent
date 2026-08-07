@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-imagegen-web",
+  "name": "TasteSkill Imagegen Web",
+  "desc": "按页面区块生成高质量网站视觉参考图",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-imagegen-web/SKILL.md"
+}

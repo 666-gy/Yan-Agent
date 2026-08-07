@@ -1,0 +1,12 @@
+{
+  "id": "gsap-timeline",
+  "name": "GSAP Timeline",
+  "desc": "GreenSock 官方时间线、位置参数、嵌套与播放控制规则",
+  "tags": ["ui-beautify"],
+  "source": "bundled",
+  "repo": "greensock/gsap-skills",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "greensock-gsap",
+  "promptFile": "../gsap-timeline/SKILL.md"
+}

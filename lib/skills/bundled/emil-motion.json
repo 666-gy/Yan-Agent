@@ -1,0 +1,12 @@
+{
+  "id": "emil-motion",
+  "name": "Emil Motion",
+  "desc": "高品质界面动效入口，按任务加载动画实现、动效审阅、机会发现或 Apple 交互模块",
+  "aliases": ["Emil Kowalski Motion", "动效设计", "Apple 动效"],
+  "tags": ["ui-beautify"],
+  "triggers": ["界面动画", "动效审阅", "Apple 风格交互", "手势动画"],
+  "source": "bundled",
+  "repo": "emilkowalski/skills",
+  "version": 1,
+  "promptFile": "../emil-motion/SKILL.md"
+}

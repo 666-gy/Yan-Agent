@@ -1,0 +1,12 @@
+{
+  "id": "ponytail-audit",
+  "name": "Ponytail Audit",
+  "desc": "仅在用户明确选择时扫描整个仓库，按收益排序列出可删除、简化或替换的复杂度",
+  "aliases": ["过度设计审计", "代码库精简审计"],
+  "tags": ["code-assist"],
+  "source": "bundled",
+  "repo": "DietrichGebert/ponytail",
+  "version": 1,
+  "userOnly": true,
+  "promptFile": "../ponytail-audit/SKILL.md"
+}

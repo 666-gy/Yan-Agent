@@ -7,19 +7,17 @@ description: Create, analyze, proofread, and modify Office documents (.docx, .xl
 
 AI-friendly CLI for .docx, .xlsx, .pptx. Single binary, no dependencies, no Office installation needed.
 
-## Install
+## Yan Agent runtime
 
-If `officecli` is not installed:
+When this Skill is used inside Yan Agent, run every command through the exact Yan OfficeCLI runner path appended by Yan Agent:
 
-```bash
-# macOS / Linux
-curl -fsSL https://d.officecli.ai/install.sh | bash
+`node "<Yan OfficeCLI runner>" <officecli command> ...`
 
-# Windows (PowerShell)
-irm https://d.officecli.ai/install.ps1 | iex
-```
+Do not run an installer, use `npm install`, or search another Agent's Skill directory. Yan manages the bundled runtime and stores any downloaded fallback under its own `YanData` directory.
 
-Verify with `officecli --version`. If still not found after install, open a new terminal.
+## Runtime availability
+
+Yan Agent provides the runner and resolves the bundled binary, an existing user installation, or a Yan-owned downloaded fallback. If the runner reports that the runtime cannot be obtained, report that concrete error; do not install another copy or use another Agent's directory.
 
 ---
 

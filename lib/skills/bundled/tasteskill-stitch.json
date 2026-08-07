@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-stitch",
+  "name": "TasteSkill Stitch",
+  "desc": "为 Google Stitch 生成语义化 DESIGN.md 的设计系统规则",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-stitch/SKILL.md"
+}

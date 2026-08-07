@@ -1,0 +1,12 @@
+{
+  "id": "tasteskill-minimalist",
+  "name": "TasteSkill Minimalist",
+  "desc": "克制、编辑式与黑白高可读性的界面规则",
+  "tags": ["ui-beautify", "web-design"],
+  "source": "bundled",
+  "repo": "tasteskill/tasteskill",
+  "version": 1,
+  "hidden": true,
+  "parentSkillId": "tasteskill",
+  "promptFile": "../tasteskill-minimalist/SKILL.md"
+}
