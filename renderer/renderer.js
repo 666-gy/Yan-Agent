@@ -8722,7 +8722,8 @@ async function updateApiKeyField(providerId) {
     label.textContent = p.name + ' API Key';
   }
   const removeButton = $('#removeProviderConfig');
-  removeButton?.classList.toggle('hidden', !p.configured);
+  // 自定义厂商即使未配置也始终可删除（避免空壳厂商残留无入口清理）
+  removeButton?.classList.toggle('hidden', !p.configured && !p.custom);
 }
 
 const MAX_TONE_PROFILES = 4;
