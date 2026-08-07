@@ -4507,6 +4507,13 @@ ipcMain.handle('file:choose-open', async () => {
   return null;
 });
 
+ipcMain.handle('file:choose-directory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  return !result.canceled && result.filePaths.length ? result.filePaths[0] : null;
+});
+
 ipcMain.handle('file:choose-save', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {});
   if (!result.canceled) return result.filePath;

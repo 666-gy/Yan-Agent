@@ -228,6 +228,22 @@ test('turns source attachments into text before creating OpenCode file parts', (
   }
 });
 
+test('turns a selected directory attachment into a bounded path reference', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-directory-attachment-'));
+  try {
+    const parts = buildPromptParts({
+      prompt: '检查这个文件夹',
+      attachments: [{ path: root, name: '作业文件夹', kind: 'directory' }]
+    });
+    assert.equal(parts[1].type, 'text');
+    assert.equal(parts[1].text.includes('[Attached directory: 作业文件夹]'), true);
+    assert.equal(parts[1].text.includes(`Path: ${root}`), true);
+    assert.equal(parts[1].text.includes('contents are not embedded'), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('converts DSML split across stream chunks and preserves normal text', async () => {
   const { transformDsmlStream } = await providerModule;
   const readBlock = [

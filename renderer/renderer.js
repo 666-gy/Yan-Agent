@@ -801,7 +801,7 @@ async function init() {
   });
 
   api.onWorkspaceChanged?.((detail) => {
-    scheduleRightSidebarRefresh();
+    scheduleRightSidebarRefresh(detail);
     window.YanUnderstandAnything?.handleWorkspaceChanged(detail);
   });
 
@@ -853,7 +853,11 @@ async function init() {
   });
 
   window.addEventListener('focus', () => {
-    renderRightSidebarFiles();
+    if (rsFileTreeContext) {
+      void refreshRightSidebarFileTree(rsFileTreeContext.workspace, [rsFileTreeContext.workspace]);
+    } else {
+      void renderRightSidebarFiles();
+    }
     updateContextInfo();
   });
 
@@ -4102,6 +4106,15 @@ $('#uploadFileAction').addEventListener('click', () => {
   setAttachmentMenuOpen(false);
   $('#fileInput').click();
 });
+$('#uploadFolderAction')?.addEventListener('click', async () => {
+  setAttachmentMenuOpen(false);
+  try {
+    const directoryPath = await api.chooseOpenDirectory?.();
+    if (directoryPath) addDirectoryAttachment(directoryPath);
+  } catch (error) {
+    toast('选择文件夹失败：' + error.message);
+  }
+});
 $('#attachmentMenu')?.addEventListener('click', async event => {
   event.stopPropagation();
   if (event.target.closest('[data-retry-composer-skills]')) {
@@ -4188,6 +4201,25 @@ async function addAttachment(file, { imageOnly = false } = {}) {
   }
 }
 
+function addDirectoryAttachment(directoryPath) {
+  const normalizedPath = String(directoryPath || '').replace(/[\\/]+$/, '');
+  if (!normalizedPath) return;
+  const name = normalizedPath.split(/[\\/]/).filter(Boolean).pop() || normalizedPath;
+  if (state.attachments.some(item => item.kind === 'directory' && rsPathKey(item.path) === rsPathKey(normalizedPath))) {
+    toast('该文件夹已经添加');
+    return;
+  }
+  state.attachments.push({
+    name,
+    path: normalizedPath,
+    size: 0,
+    kind: 'directory',
+    mimeType: 'inode/directory'
+  });
+  renderAttachments();
+  updateSendState();
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -4211,10 +4243,11 @@ function renderAttachments() {
   const imageInputEnabled = !!getSelectedModelCapabilities().imageInput;
   box.innerHTML = state.attachments.map((a, i) => {
     const image = isImageAttachmentMeta(a);
+    const directory = a.kind === 'directory';
     const relay = image && !imageInputEnabled;
     return `
-    <div class="attachment-chip ${image ? 'image' : ''} ${relay ? 'relay' : ''}" title="${relay ? '当前模型不支持图像输入，将由已配置的视觉中继读取' : escapeHtml(a.name)}">
-      <span class="attachment-kind-icon">${image ? ICONS.image : ICONS.file}</span>
+    <div class="attachment-chip ${image ? 'image' : ''} ${directory ? 'directory' : ''} ${relay ? 'relay' : ''}" title="${relay ? '当前模型不支持图像输入，将由已配置的视觉中继读取' : escapeHtml(a.path || a.name)}">
+      <span class="attachment-kind-icon">${directory ? ICONS.folder : (image ? ICONS.image : ICONS.file)}</span>
       <span>${escapeHtml(a.name)}</span>
       <button class="remove" data-i="${i}" title="移除">${ICONS.close}</button>
     </div>`;
@@ -4795,11 +4828,13 @@ async function handleOpenCodePermission(runCtx, event) {
     }
     if (risk?.requiresApproval || risk?.level === 'high') {
       const decision = await requestAgentPermission({
+        requestId,
         title: '高危命令等待确认',
         description: 'Agent 即将执行下列高危命令，是否允许：',
         detail: command,
         sessionId: runCtx.sessionId
       }, runCtx);
+      if (!decision) return;
       reply = decision === 'deny' ? 'reject' : decision;
     } else {
       reply = 'once';
@@ -4810,22 +4845,26 @@ async function handleOpenCodePermission(runCtx, event) {
       || stringifyOpenCodeValue(data.metadata)
       || action;
     const decision = await requestAgentPermission({
+      requestId,
       title: '命令权限等待确认',
       description: 'Agent 即将执行下列命令，是否允许：',
       detail: command,
       sessionId: runCtx.sessionId
     }, runCtx);
+    if (!decision) return;
     reply = decision === 'deny' ? 'reject' : decision;
   } else if (accessMode === 'delegate' || accessMode === 'full') {
     reply = 'always';
   } else {
     const detail = [action, ...resources].filter(Boolean).join('\n');
     const decision = await requestAgentPermission({
+      requestId,
       title: '操作权限等待确认',
       description: 'Agent 请求执行下列受限操作，是否允许：',
       detail: detail || '执行受限操作',
       sessionId: runCtx.sessionId
     }, runCtx);
+    if (!decision) return;
     reply = decision === 'deny' ? 'reject' : decision;
   }
   let result;
@@ -5217,6 +5256,12 @@ function applyOpenCodeEvent(runCtx, event) {
     runCtx.openCodeError = data.error?.data?.message || data.error?.message || stringifyOpenCodeValue(data.error);
   } else if (event.type === 'permission.v2.asked' || event.type === 'permission.asked') {
     void handleOpenCodePermission(runCtx, event);
+  } else if (event.type === 'permission.v2.replied' || event.type === 'permission.replied') {
+    const requestId = String(data.requestID || data.id || '');
+    if (requestId) runCtx.openCodeHandledRequests.add(`permission:${requestId}`);
+    if (requestId && agentPermissionRequest?.runCtx === runCtx && agentPermissionRequest.requestId === requestId) {
+      settleAgentPermission(null, { silent: true });
+    }
   } else if (event.type === 'question.v2.asked' || event.type === 'question.asked') {
     void handleOpenCodeQuestion(runCtx, event);
   }
@@ -5971,16 +6016,16 @@ function positionAgentPermissionPanel() {
   panel.style.setProperty('--agent-permission-bottom', `${bottom}px`);
 }
 
-function settleAgentPermission(decision) {
+function settleAgentPermission(decision, { silent = false } = {}) {
   const request = agentPermissionRequest;
   agentPermissionRequest = null;
   $('#agentPermissionPanel')?.classList.add('hidden');
   $('#agentPermissionPanel')?.classList.remove('collapsed');
   $('#chatMainColumn')?.classList.remove('permission-pending');
-  request?.resolve(decision);
+  request?.resolve(decision, { silent });
 }
 
-function requestAgentPermission({ title, description, detail, sessionId, allowAlways = true }, runCtx) {
+function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true }, runCtx) {
   return new Promise((resolve) => {
     if (agentPermissionRequest) settleAgentPermission('deny');
     const panel = $('#agentPermissionPanel');
@@ -5999,15 +6044,17 @@ function requestAgentPermission({ title, description, detail, sessionId, allowAl
     panel.classList.remove('hidden', 'collapsed');
     $('#agentPermissionToggle')?.setAttribute('aria-expanded', 'true');
     $('#chatMainColumn')?.classList.add('permission-pending');
-    agentPermissionRequest = { resolve, runCtx, sessionId };
+    agentPermissionRequest = { resolve, runCtx, sessionId, requestId: String(requestId || '') };
     const previousResolve = resolve;
-    agentPermissionRequest.resolve = (decision) => {
-      if (decision === 'always') {
-        toast('已记住并允许这类操作');
-      } else if (decision === 'once') {
-        toast('已允许本次操作');
-      } else {
-        toast('已拒绝操作，Agent 将尝试其他方式');
+    agentPermissionRequest.resolve = (decision, { silent = false } = {}) => {
+      if (!silent) {
+        if (decision === 'always') {
+          toast('已记住并允许这类操作');
+        } else if (decision === 'once') {
+          toast('已允许本次操作');
+        } else if (decision === 'deny') {
+          toast('已拒绝操作，Agent 将尝试其他方式');
+        }
       }
       previousResolve(decision);
     };
@@ -7165,13 +7212,31 @@ function updateContextInfo(as, session = state.currentSession) {
 }
 
 let rsRefreshTimer = null;
-function scheduleRightSidebarRefresh() {
+const rsPendingStructuralDirectories = new Map();
+let rsPendingRefreshWorkspace = '';
+
+function scheduleRightSidebarRefresh(detail = {}) {
+  const workspace = String(detail?.workspace || '');
+  if (workspace) rsPendingRefreshWorkspace = workspace;
+  for (const change of Array.isArray(detail?.changes) ? detail.changes : []) {
+    if (String(change?.eventType || '').toLowerCase() !== 'rename') continue;
+    const directoryPath = rsParentDirectoryPath(change?.path, workspace);
+    if (directoryPath) rsPendingStructuralDirectories.set(rsPathKey(directoryPath), directoryPath);
+  }
   if (rsRefreshTimer) clearTimeout(rsRefreshTimer);
   rsRefreshTimer = setTimeout(async () => {
     rsRefreshTimer = null;
-    await Promise.all([renderRightSidebarFiles(), renderRightSidebarReview({ force: true })]);
-    updateContextInfo();
-  }, 250);
+    const changedDirectories = [...rsPendingStructuralDirectories.values()];
+    const changedWorkspace = rsPendingRefreshWorkspace;
+    rsPendingStructuralDirectories.clear();
+    rsPendingRefreshWorkspace = '';
+    await Promise.all([
+      changedDirectories.length
+        ? refreshRightSidebarFileTree(changedWorkspace, changedDirectories)
+        : Promise.resolve(),
+      renderRightSidebarReview({ force: true })
+    ]);
+  }, 300);
 }
 
 function parseTodos(content) {
@@ -7252,9 +7317,25 @@ document.addEventListener('keydown', event => {
 
 const rsExpandedDirectoriesByWorkspace = new Map();
 let rsFileTreeRenderVersion = 0;
+let rsFileTreeContext = null;
 
 function rsPathKey(value) {
   return String(value || '').replaceAll('/', '\\').toLowerCase();
+}
+
+function rsParentDirectoryPath(value, workspace = '') {
+  const filePath = String(value || '').replace(/[\\/]+$/, '');
+  const workspacePath = String(workspace || '').replace(/[\\/]+$/, '');
+  if (!filePath) return workspacePath;
+  if (workspacePath && rsPathKey(filePath) === rsPathKey(workspacePath)) return workspacePath;
+  const separatorIndex = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'));
+  const parent = separatorIndex > 2 ? filePath.slice(0, separatorIndex) : workspacePath;
+  if (!workspacePath) return parent;
+  const workspaceKey = rsPathKey(workspacePath);
+  const parentKey = rsPathKey(parent);
+  return parentKey === workspaceKey || parentKey.startsWith(`${workspaceKey}\\`)
+    ? parent
+    : workspacePath;
 }
 
 function getRsExpandedDirectories(workspace) {
@@ -7270,7 +7351,11 @@ async function renderRightSidebarFiles() {
   const ws = await api.getWorkspace();
   const tree = $('#rsFileTree');
   if (!tree || renderVersion !== rsFileTreeRenderVersion) return;
-  if (!ws) { tree.innerHTML = '<div class="rs-empty">未设置工作区</div>'; return; }
+  if (!ws) {
+    rsFileTreeContext = null;
+    tree.innerHTML = '<div class="rs-empty">未设置工作区</div>';
+    return;
+  }
 
   tree.innerHTML = '<div class="rs-empty">加载中…</div>';
   let entries;
@@ -7281,17 +7366,18 @@ async function renderRightSidebarFiles() {
   }
   if (renderVersion !== rsFileTreeRenderVersion) return;
   if (!Array.isArray(entries)) {
+    rsFileTreeContext = null;
     tree.innerHTML = '<div class="rs-empty">无法读取工作区</div>';
     toast('读取工作区失败: ' + (entries?.error || '未知错误'));
     return;
   }
-  if (!entries.length) { tree.innerHTML = '<div class="rs-empty">空目录</div>'; return; }
-
   const context = {
     workspace: ws,
     expanded: getRsExpandedDirectories(ws),
     renderVersion
   };
+  rsFileTreeContext = context;
+  if (!entries.length) { tree.innerHTML = '<div class="rs-empty">空目录</div>'; return; }
   tree.innerHTML = entries.map(entry => rsFileNodeHtml(entry, context.expanded)).join('');
   bindRsFileNodes(tree, context);
   await restoreRsExpandedDirectories(tree, context);
@@ -7329,7 +7415,7 @@ async function expandRsDirectoryNode(node, context, { restoring = false } = {}) 
   const directoryPath = node?.dataset.path;
   if (!directoryPath || context.renderVersion !== rsFileTreeRenderVersion) return;
   const pathKey = rsPathKey(directoryPath);
-  if (rsDirectoryChildren(node)) return;
+  if (rsDirectoryChildren(node) || node.classList.contains('is-loading')) return;
 
   context.expanded.add(pathKey);
   node.classList.add('is-expanded', 'is-loading');
@@ -7374,8 +7460,119 @@ async function restoreRsExpandedDirectories(root, context) {
   await Promise.all(directories.map(node => expandRsDirectoryNode(node, context, { restoring: true })));
 }
 
+function rsDirectoryContainer(directoryPath, context) {
+  const tree = $('#rsFileTree');
+  if (!tree || !context) return null;
+  const directoryKey = rsPathKey(directoryPath);
+  if (directoryKey === rsPathKey(context.workspace)) return tree;
+  return Array.from(tree.querySelectorAll('.rs-fs-children'))
+    .find(node => rsPathKey(node.dataset.parentPath) === directoryKey) || null;
+}
+
+function rsFileNodeElement(entry, expandedDirectories) {
+  const node = document.createElement('div');
+  const isDir = !!entry.isDirectory;
+  const expanded = isDir && expandedDirectories.has(rsPathKey(entry.path));
+  node.className = `rs-fs-node ${isDir ? 'dir' : 'file'}${expanded ? ' is-expanded' : ''}`;
+  node.dataset.path = entry.path;
+  if (isDir) {
+    node.setAttribute('role', 'button');
+    node.tabIndex = 0;
+    node.setAttribute('aria-expanded', String(expanded));
+  }
+  const icon = document.createElement('span');
+  icon.className = 'rs-fs-icon';
+  icon.textContent = isDir ? '📁' : '📄';
+  const name = document.createElement('span');
+  name.className = 'rs-fs-name';
+  name.textContent = entry.name;
+  node.append(icon, name);
+  return node;
+}
+
+function pruneRsExpandedBranch(expandedDirectories, directoryKey) {
+  for (const expandedKey of [...expandedDirectories]) {
+    if (expandedKey === directoryKey || expandedKey.startsWith(`${directoryKey}\\`)) {
+      expandedDirectories.delete(expandedKey);
+    }
+  }
+}
+
+async function reconcileRsDirectory(container, entries, context) {
+  const existing = new Map();
+  for (const node of directRsFileNodes(container, 'dir').concat(directRsFileNodes(container, 'file'))) {
+    existing.set(rsPathKey(node.dataset.path), {
+      node,
+      children: node.classList.contains('dir') ? rsDirectoryChildren(node) : null
+    });
+  }
+
+  const fragment = document.createDocumentFragment();
+  const retained = new Set();
+  for (const entry of entries) {
+    const entryKey = rsPathKey(entry.path);
+    const previous = existing.get(entryKey);
+    const expectedType = entry.isDirectory ? 'dir' : 'file';
+    const reusable = previous?.node.classList.contains(expectedType) ? previous : null;
+    const node = reusable?.node || rsFileNodeElement(entry, context.expanded);
+    node.dataset.path = entry.path;
+    node.querySelector('.rs-fs-name').textContent = entry.name;
+    if (entry.isDirectory) {
+      const expanded = context.expanded.has(entryKey);
+      node.classList.toggle('is-expanded', expanded);
+      node.setAttribute('aria-expanded', String(expanded));
+    }
+    fragment.append(node);
+    if (entry.isDirectory && reusable?.children && context.expanded.has(entryKey)) {
+      reusable.children.dataset.parentPath = entry.path;
+      fragment.append(reusable.children);
+    }
+    retained.add(entryKey);
+  }
+
+  for (const [entryKey, previous] of existing) {
+    if (!retained.has(entryKey) && previous.node.classList.contains('dir')) {
+      pruneRsExpandedBranch(context.expanded, entryKey);
+    }
+  }
+
+  const tree = $('#rsFileTree');
+  const scrollTop = tree?.scrollTop || 0;
+  if (entries.length) {
+    container.replaceChildren(fragment);
+    bindRsFileNodes(container, context);
+    await restoreRsExpandedDirectories(container, context);
+  } else {
+    container.innerHTML = '<div class="rs-empty">空目录</div>';
+  }
+  if (tree) tree.scrollTop = scrollTop;
+}
+
+async function refreshRightSidebarFileTree(workspace, directories) {
+  const context = rsFileTreeContext;
+  if (!context || !workspace || rsPathKey(context.workspace) !== rsPathKey(workspace)) return;
+  const ordered = [...new Map(directories.map(value => [rsPathKey(value), value])).values()]
+    .sort((left, right) => String(left).length - String(right).length);
+  for (const directoryPath of ordered) {
+    if (context !== rsFileTreeContext || context.renderVersion !== rsFileTreeRenderVersion) return;
+    const container = rsDirectoryContainer(directoryPath, context);
+    if (!container) continue;
+    let entries;
+    try {
+      entries = await api.listWorkspace(directoryPath);
+    } catch (error) {
+      console.warn('[workspace-tree-refresh]', error);
+      continue;
+    }
+    if (!Array.isArray(entries) || context !== rsFileTreeContext) continue;
+    await reconcileRsDirectory(container, entries, context);
+  }
+}
+
 function bindRsFileNodes(root, context) {
   directRsFileNodes(root, 'dir').forEach(node => {
+    if (node.dataset.rsBound === 'true') return;
+    node.dataset.rsBound = 'true';
     const toggle = async event => {
       event.stopPropagation();
       const pathKey = rsPathKey(node.dataset.path);
@@ -7390,6 +7587,8 @@ function bindRsFileNodes(root, context) {
     });
   });
   directRsFileNodes(root, 'file').forEach(node => {
+    if (node.dataset.rsBound === 'true') return;
+    node.dataset.rsBound = 'true';
     node.addEventListener('click', async (e) => {
       e.stopPropagation();
       const path = node.dataset.path;
@@ -9650,6 +9849,12 @@ async function selectAccessMode(mode, { closeMenu = true } = {}) {
     return;
   }
   state.config = await api.setConfig({ agent: { accessMode: mode } });
+  for (const entry of state.activeRuns.values()) {
+    if (entry?.runCtx) entry.runCtx.accessMode = mode;
+  }
+  if (mode === 'full' && agentPermissionRequest) {
+    settleAgentPermission('always');
+  }
   renderAccessModeControl();
   if (closeMenu) setAccessModeMenuOpen(false);
   toast(ACCESS_MODE_UI[mode].toast);

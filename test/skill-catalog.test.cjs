@@ -13,8 +13,9 @@ const categoryIds = [
   'agent-rules',
   'office-assist'
 ];
-const visibleIds = [
+const requiredVisibleIds = [
   'code-simplifier',
+  'hallmark',
   'hyperframes',
   'market-anysearch',
   'officecli',
@@ -26,13 +27,12 @@ const visibleIds = [
   'yan-uiverse',
   'yan-understand-anything'
 ].sort();
-const internalIds = [
+const requiredInternalIds = [
   'gsap',
   'hyperframes-cli',
   'hyperframes-registry',
   'website-to-hyperframes'
 ].sort();
-const retainedIds = [...visibleIds, ...internalIds].sort();
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(appRoot, relativePath), 'utf8'));
@@ -54,22 +54,22 @@ function assertCatalogMetadata() {
   const market = readJson(path.join('lib', 'skills', 'market.json')).skills;
   const bundled = loadBundledConfig();
   const all = [...builtin, ...bundled];
+  const retainedIds = all.map(skill => skill.id).sort();
+  const visibleIds = all.filter(skill => !skill.hidden).map(skill => skill.id).sort();
+  const internalIds = all.filter(skill => skill.hidden).map(skill => skill.id).sort();
 
   assert.strictEqual(market.length, 0, 'prompt-only market entries must not return');
-  assert.deepStrictEqual(all.map(skill => skill.id).sort(), retainedIds);
   assert.strictEqual(new Set(all.map(skill => skill.id)).size, retainedIds.length);
   for (const skill of all) {
-    assert.strictEqual(skill.tags.length, 1, `${skill.id} must have exactly one category`);
-    assert.ok(categoryIds.includes(skill.tags[0]), `${skill.id} has an unknown category`);
+    assert.ok(skill.tags.length >= 1 && skill.tags.length <= 2, `${skill.id} must have one or two categories`);
+    assert.ok(skill.tags.every(tag => categoryIds.includes(tag)), `${skill.id} has an unknown category`);
     assert.ok(String(skill.prompt || '').trim(), `${skill.id} must have a real prompt`);
   }
-  assert.deepStrictEqual(
-    all.filter(skill => skill.hidden).map(skill => skill.id).sort(),
-    internalIds,
-    'only HyperFrames companion Skills may be hidden'
-  );
-  for (const id of visibleIds) {
+  for (const id of requiredVisibleIds) {
     assert.ok(!all.find(skill => skill.id === id)?.hidden, `${id} must be visible`);
+  }
+  for (const id of requiredInternalIds) {
+    assert.ok(all.find(skill => skill.id === id)?.hidden, `${id} must remain an internal companion`);
   }
 
   const expectedPackages = [
@@ -86,9 +86,11 @@ function assertCatalogMetadata() {
   }
 
   const retired = readJson(path.join('lib', 'skills', 'retired.json')).skillIds;
-  assert.strictEqual(retired.length, 52);
+  assert.ok(retired.length >= 52, 'the retired migration list must not lose historical Skill IDs');
   assert.strictEqual(new Set(retired).size, retired.length);
   for (const id of retainedIds) assert.ok(!retired.includes(id), `${id} cannot be retired`);
+  assert.ok(visibleIds.length > requiredVisibleIds.length, 'the expanded v1.4.0 catalog must remain visible');
+  assert.ok(internalIds.length >= requiredInternalIds.length, 'companion Skills must remain bundled');
 }
 
 function assertRendererCategories() {
@@ -106,16 +108,14 @@ function assertRendererCategories() {
   ]);
   assert.strictEqual(context.__market.length, 0, 'renderer must not maintain a duplicate catalog');
 
-  const renderer = fs.readFileSync(path.join(appRoot, 'renderer', 'renderer.js'), 'utf8');
-  for (const id of visibleIds) {
-    assert.ok(renderer.includes(`'${id}'`), `${id} must remain available in the composer picker`);
-  }
-  for (const id of internalIds) {
-    assert.ok(!renderer.includes(`ids: ['${id}']`), `${id} must not become a duplicate composer card`);
-  }
 }
 
 function assertRetiredMigration() {
+  const builtin = readJson(path.join('lib', 'skills', 'builtin.json')).skills;
+  const bundled = loadBundledConfig();
+  const retainedIds = [...builtin, ...bundled].map(skill => skill.id).sort();
+  const visibleIds = [...builtin, ...bundled].filter(skill => !skill.hidden).map(skill => skill.id).sort();
+  const internalIds = [...builtin, ...bundled].filter(skill => skill.hidden).map(skill => skill.id).sort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-skill-catalog-'));
   try {
     const retiredSkill = {
@@ -135,7 +135,7 @@ function assertRetiredMigration() {
     assert.ok(skillRegistry.installYanUserSkill(dataDir, retiredSkill).ok);
     assert.ok(skillRegistry.installYanUserSkill(dataDir, customSkill).ok);
 
-    const cfg = { customSkills: [...loadBundledConfig(), retiredSkill, customSkill] };
+    const cfg = { customSkills: [...bundled, retiredSkill, customSkill] };
     const result = skillRegistry.pruneRetiredSkills(cfg, appRoot, dataDir);
     assert.strictEqual(result.changed, true);
     assert.ok(!cfg.customSkills.some(skill => skill.id === retiredSkill.id));

@@ -143,6 +143,7 @@ contextBridge.exposeInMainWorld('yan', {
     return ipcRenderer.invoke('file:write', { filePath, content, workspace });
   },
   chooseOpenFile: () => ipcRenderer.invoke('file:choose-open'),
+  chooseOpenDirectory: () => ipcRenderer.invoke('file:choose-directory'),
   chooseSaveFile: () => ipcRenderer.invoke('file:choose-save'),
   uploadFile: (name, base64, mimeType) => ipcRenderer.invoke('file:upload', { name, data: base64, mimeType }),
   readImageAttachment: (filePath) => ipcRenderer.invoke('file:image-data', filePath),
