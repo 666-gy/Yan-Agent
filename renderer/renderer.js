@@ -8591,7 +8591,7 @@ async function renderProviderList(selectedId) {
   }
   const list = $('#providerList');
   if (!list) return;
-  list.innerHTML = providerCache.map(p => {
+  const renderItem = p => {
     const logoStyle = providerLogoIds.has(p.id)
       ? ` style="--provider-logo: url('assets/provider-logos/${p.id}.png')"`
       : '';
@@ -8603,10 +8603,19 @@ async function renderProviderList(selectedId) {
         <div class="provider-status ${p.configured ? 'configured' : ''}">${p.configured ? '已配置' : '未配置'}</div>
       </div>
       <div class="provider-check">${p.id === selectedId ? ICONS.check : ''}</div>
-    </button>
-  `;
-  }).join('');
-  list.querySelectorAll('.provider-item').forEach(el => {
+    </button>`;
+  };
+  const builtins = providerCache.filter(p => !p.custom);
+  const customs = providerCache.filter(p => p.custom);
+  list.innerHTML = [
+    ...builtins.map(renderItem),
+    '<div class="provider-group-label">自定义供应商</div>',
+    ...customs.map(renderItem),
+    `<button id="addCustomProvider" class="provider-item provider-add" type="button">
+      <div class="provider-info"><div class="provider-name">+ 添加供应商</div></div>
+    </button>`
+  ].join('');
+  list.querySelectorAll('.provider-item[data-provider]').forEach(el => {
     el.addEventListener('click', async () => {
       const pid = el.dataset.provider;
       currentProviderId = pid;
@@ -8614,11 +8623,35 @@ async function renderProviderList(selectedId) {
       updateApiKeyField(pid);
     });
   });
+  $('#addCustomProvider')?.addEventListener('click', async () => {
+    const result = await api.createCustomProvider({ name: '自定义厂商' });
+    if (result?.error) { toast(result.error); return; }
+    state.config = result.config || state.config;
+    providerCache = await api.listProviders();
+    currentProviderId = result.providerId;
+    await renderProviderList(result.providerId);
+    updateApiKeyField(result.providerId);
+    toast('已创建自定义厂商，请填写名称、Base URL 与 API Key 后保存');
+  });
 }
 
 async function updateApiKeyField(providerId) {
   const p = providerCache.find(x => x.id === providerId);
   if (!p) return;
+  const customSection = $('#customProviderSection');
+  customSection?.classList.toggle('hidden', !p.custom);
+  customSection?.toggleAttribute('inert', !p.custom);
+  if (p.custom) {
+    const nameInput = $('#cfgProviderName');
+    if (nameInput) nameInput.value = p.name === '自定义厂商' ? '' : p.name;
+    const formatSelect = $('#cfgApiFormat');
+    if (formatSelect) formatSelect.value = p.apiFormat === 'anthropic' ? 'anthropic' : 'openai';
+    const removeBtn = $('#removeProviderConfig');
+    if (removeBtn) removeBtn.textContent = '删除厂商';
+  } else {
+    const removeBtn = $('#removeProviderConfig');
+    if (removeBtn) removeBtn.textContent = '取消配置';
+  }
   const supportsImageEndpoints = !!p.mediaCapabilities?.imageGeneration;
   const supportsImageEditing = !!p.mediaCapabilities?.imageEditing;
   const imageEndpointSection = $('#providerImageEndpointSection');
@@ -9234,12 +9267,17 @@ $('#saveApi').addEventListener('click', async () => {
   button.disabled = true;
   button.textContent = dynamicModels ? '正在加载模型…' : '正在保存…';
   try {
+    const isCustomProvider = !!providerCache.find(p => p.id === currentProviderId)?.custom;
     const result = await api.configureProvider(currentProviderId, {
       apiKey: apiKeyValue,
       baseUrl: baseUrlValue,
       imageGenerationUrl,
       imageEditUrl,
-      workspaceId
+      workspaceId,
+      ...(isCustomProvider ? {
+        providerName: $('#cfgProviderName')?.value.trim(),
+        apiFormat: $('#cfgApiFormat')?.value || 'openai'
+      } : {})
     });
     if (result?.error) {
       toast(result.error);
@@ -9271,13 +9309,16 @@ $('#removeProviderConfig')?.addEventListener('click', async () => {
   button.disabled = true;
   button.textContent = '正在取消…';
   try {
-    const result = await api.removeProviderConfig(providerId);
+    const isCustom = providerId.startsWith('custom-');
+    const result = isCustom
+      ? await api.deleteCustomProvider(providerId)
+      : await api.removeProviderConfig(providerId);
     if (result?.error) {
       toast(result.error);
       return;
     }
     state.config = result.config;
-    currentProviderId = providerId;
+    currentProviderId = isCustom ? (result.config?.api?.provider || 'openai') : providerId;
     providerCache = await api.listProviders();
     await renderProviderList(providerId);
     await updateApiKeyField(providerId);
@@ -9290,6 +9331,19 @@ $('#removeProviderConfig')?.addEventListener('click', async () => {
     button.disabled = false;
     button.textContent = originalText;
   }
+});
+
+$('#addManualModel')?.addEventListener('click', async () => {
+  const input = $('#cfgManualModelId');
+  const modelId = input?.value.trim() || '';
+  if (!modelId) { toast('请输入模型 ID'); return; }
+  if (!currentProviderId.startsWith('custom-')) { toast('仅自定义厂商支持手动添加'); return; }
+  const result = await api.addCustomModel({ providerId: currentProviderId, modelId });
+  if (result?.error) { toast(result.error); return; }
+  state.config = result.config || state.config;
+  input.value = '';
+  await renderModelGrid(state.config);
+  toast(`已添加模型 ${modelId}（当前共 ${result.modelCount} 个）`);
 });
 
 $('#toggleKey').addEventListener('click', () => {

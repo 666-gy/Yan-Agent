@@ -8506,3 +8506,18 @@ html[data-sidebar-transition="right-open"]::view-transition-new(right-resize-han
   .model-quick-advanced,
   .model-quick-back { transition: none; }
 }
+
+/* Custom provider group */
+.provider-group-label {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-3, #888);
+  margin: 10px 0 2px;
+  user-select: none;
+}
+.provider-item.provider-add {
+  border-style: dashed;
+  justify-content: center;
+  opacity: .8;
+}
+.provider-item.provider-add:hover { opacity: 1; }

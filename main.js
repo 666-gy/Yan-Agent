@@ -1612,6 +1612,27 @@ function normalizeProviderConfig(raw, provider) {
   };
 }
 
+function syncCustomProviders(cfg) {
+  for (const key of Object.keys(MODEL_PROVIDERS)) {
+    if (key.startsWith('custom-')) delete MODEL_PROVIDERS[key];
+  }
+  const customs = Array.isArray(cfg?.customProviders) ? cfg.customProviders : [];
+  for (const raw of customs) {
+    const id = String(raw?.id || '').trim();
+    if (!id.startsWith('custom-')) continue;
+    MODEL_PROVIDERS[id] = {
+      id,
+      name: String(raw?.name || '自定义厂商').trim() || '自定义厂商',
+      baseUrl: String(raw?.baseUrl || '').trim(),
+      apiKeyPlaceholder: 'sk-...',
+      dynamicModels: true,
+      models: Array.isArray(raw?.models) ? raw.models : [],
+      custom: true,
+      apiFormat: String(raw?.apiFormat || 'openai').trim().toLowerCase() === 'anthropic' ? 'anthropic' : 'openai'
+    };
+  }
+}
+
 function ensureProviderConfigs(cfg) {
   if (!cfg.api.providerConfigs || typeof cfg.api.providerConfigs !== 'object') {
     cfg.api.providerConfigs = buildDefaultProviderConfigs();
@@ -1960,6 +1981,7 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
     capabilities: model.capabilities || selection.capabilities || {},
     apiKey: connection.apiKey,
     baseUrl: connection.baseUrl,
+    apiFormat: provider.apiFormat || 'openai',
     deepSeekProviderModule: stageDeepSeekProviderModule({ appRoot, dataDir }),
     reasoningSpeed: cfg.api?.reasoningSpeed,
     workMode: cfg.agent?.workMode,
@@ -2400,6 +2422,7 @@ function loadConfig() {
     mcpServers: ensureDefaultMcp([]),
     skills: DEFAULT_SKILLS,
     customSkills: [],
+    customProviders: [],
     automations: [],
     executionKernel: {
       id: 'yan-kernel',
@@ -2422,6 +2445,7 @@ function loadConfig() {
     : (cfg.api?.thinking ? 'smart' : 'balanced');
   const merged = deepMerge(defaults, cfg);
   delete merged.codeMap;
+  syncCustomProviders(merged);
   merged.api.reasoningSpeed = storedReasoningSpeed;
   merged.api.thinking = storedReasoningSpeed === 'smart';
   merged.agent = normalizeAgentConfig(merged.agent);
@@ -3335,6 +3359,8 @@ ipcMain.handle('providers:list', () => {
       apiKeyPlaceholder: p.apiKeyPlaceholder,
       modelCount: models.length,
       dynamicModels: !!p.dynamicModels,
+      custom: !!p.custom,
+      apiFormat: p.apiFormat || '',
       configured: !!connection.apiKey,
       officialMediaCapabilities: { ...officialMediaCapabilities },
       mediaCapabilities: { ...mediaCapabilities },
@@ -3352,7 +3378,8 @@ async function refreshConfiguredProviderModelCache(providerId) {
   if (!connection.apiKey || !connection.baseUrl) return { ok: false, skipped: true };
   const models = await fetchRemoteModelCatalog({
     baseUrl: connection.baseUrl,
-    apiKey: connection.apiKey
+    apiKey: connection.apiKey,
+    apiFormat: provider.apiFormat || 'openai'
   });
   const cfg = loadConfig();
   const current = getProviderConnection(cfg, providerId);
@@ -3440,7 +3467,9 @@ ipcMain.handle('provider:configure', async (_e, {
   baseUrl,
   imageGenerationUrl,
   imageEditUrl,
-  workspaceId
+  workspaceId,
+  providerName,
+  apiFormat
 } = {}) => {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return { error: '未知厂商: ' + providerId };
@@ -3455,13 +3484,16 @@ ipcMain.handle('provider:configure', async (_e, {
   }
   const cfg = loadConfig();
   ensureProviderConfigs(cfg);
+  const effectiveApiFormat = String(apiFormat || provider.apiFormat || 'openai').trim().toLowerCase() === 'anthropic'
+    ? 'anthropic'
+    : 'openai';
   let models = provider.models;
   if (provider.dynamicModels) {
     if (!key) {
       models = [];
     } else {
       try {
-        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key });
+        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key, apiFormat: effectiveApiFormat });
       } catch (error) {
         return { error: `模型列表同步失败：${error.message}` };
       }
@@ -3477,6 +3509,16 @@ ipcMain.handle('provider:configure', async (_e, {
     imageEditUrl: mediaCapabilities.imageEditing ? nextImageEditUrl : '',
     workspaceId: providerId === 'qwen' ? String(workspaceId || '').trim() : ''
   }, provider);
+  if (provider.custom) {
+    const entry = (Array.isArray(cfg.customProviders) ? cfg.customProviders : []).find(item => item.id === providerId);
+    if (entry) {
+      const nextName = String(providerName || entry.name || '').trim();
+      if (nextName) entry.name = nextName;
+      entry.apiFormat = effectiveApiFormat;
+      entry.baseUrl = nextBaseUrl;
+    }
+    syncCustomProviders(cfg);
+  }
   if (!cfg.providerModels) cfg.providerModels = {};
   if (provider.dynamicModels) cfg.providerModels[providerId] = models;
   applyProviderSelection(cfg, providerId, key, models);
@@ -3534,6 +3576,94 @@ ipcMain.handle('provider:remove-config', (_e, providerId) => {
   saveConfig(cfg);
   publishModelState(cfg);
   return { ok: true, config: cfg };
+});
+
+ipcMain.handle('provider:create-custom', (_e, payload = {}) => {
+  const cfg = loadConfig();
+  if (!Array.isArray(cfg.customProviders)) cfg.customProviders = [];
+  const name = String(payload.name || '自定义厂商').trim() || '自定义厂商';
+  const slugBase = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
+  let id = `custom-${slugBase || 'provider'}`;
+  let seq = 2;
+  while (MODEL_PROVIDERS[id] || cfg.customProviders.some(item => item.id === id)) {
+    id = `custom-${slugBase || 'provider'}-${seq++}`;
+  }
+  const apiFormat = String(payload.apiFormat || 'openai').trim().toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';
+  const seedModels = Array.isArray(payload.models) ? payload.models : [];
+  cfg.customProviders.push({ id, name, baseUrl: '', apiFormat, models: seedModels });
+  syncCustomProviders(cfg);
+  ensureProviderConfigs(cfg);
+  if (!cfg.providerModels) cfg.providerModels = {};
+  cfg.providerModels[id] = seedModels;
+  saveConfig(cfg);
+  return { ok: true, providerId: id, config: loadConfig() };
+});
+
+ipcMain.handle('provider:delete-custom', (_e, providerId) => {
+  const id = String(providerId || '');
+  if (!id.startsWith('custom-')) return { error: '只能删除自定义厂商' };
+  const cfg = loadConfig();
+  cfg.customProviders = (Array.isArray(cfg.customProviders) ? cfg.customProviders : []).filter(item => item.id !== id);
+  delete MODEL_PROVIDERS[id];
+  if (cfg.api?.providerConfigs) delete cfg.api.providerConfigs[id];
+  if (cfg.api?.apiKeys) delete cfg.api.apiKeys[id];
+  if (cfg.providerModels) delete cfg.providerModels[id];
+
+  const activeTextProviderId = cfg.agentModel?.providerId || cfg.api.provider;
+  if (activeTextProviderId === id || cfg.api.provider === id) {
+    let fallback = null;
+    for (const candidateId of Object.keys(MODEL_PROVIDERS)) {
+      const connection = getProviderConnection(cfg, candidateId);
+      if (!connection.apiKey) continue;
+      const candidateModels = getProviderModels(cfg, candidateId);
+      const candidateModel = getFirstTextModel(candidateId, candidateModels);
+      if (!candidateModel) continue;
+      fallback = { providerId: candidateId, connection, models: candidateModels, model: candidateModel };
+      break;
+    }
+    const fallbackProviderId = fallback?.providerId || DEFAULT_MODEL_ROLES.text.providerId;
+    const fallbackModels = fallback?.models || getProviderModels(cfg, fallbackProviderId);
+    const fallbackModel = fallback?.model || getFirstTextModel(fallbackProviderId, fallbackModels);
+    const fallbackConnection = fallback?.connection || getProviderConnection(cfg, fallbackProviderId);
+    cfg.api.provider = fallbackProviderId;
+    cfg.api.baseUrl = fallbackConnection.baseUrl;
+    cfg.api.apiKey = fallbackConnection.apiKey;
+    cfg.api.model = fallbackModel?.id || '';
+    cfg.models = fallbackModels;
+    cfg.agentModel = {
+      providerId: fallbackProviderId,
+      modelId: fallbackModel?.id || '',
+      modelType: 'text',
+      name: fallbackModel?.name || fallbackModel?.id || '',
+      capabilities: fallbackModel?.capabilities || {}
+    };
+  } else {
+    cfg.models = getProviderModels(cfg, cfg.api.provider);
+  }
+
+  updateImageGenerationConfig(cfg);
+  saveConfig(cfg);
+  publishModelState(cfg);
+  return { ok: true, config: cfg };
+});
+
+ipcMain.handle('provider:add-custom-model', (_e, payload = {}) => {
+  const providerId = String(payload?.providerId || '');
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider?.custom) return { error: '仅自定义厂商支持手动添加模型' };
+  const modelId = String(payload?.modelId || '').trim();
+  if (!modelId) return { error: '模型 ID 不能为空' };
+  const cfg = loadConfig();
+  if (!cfg.providerModels) cfg.providerModels = {};
+  const list = Array.isArray(cfg.providerModels[providerId]) ? cfg.providerModels[providerId] : [];
+  const exists = list.some(item => String(typeof item === 'string' ? item : item?.id || '') === modelId);
+  if (exists) return { error: '该模型已在列表中' };
+  list.push({ id: modelId, name: String(payload?.name || modelId).trim() || modelId, source: 'manual' });
+  cfg.providerModels[providerId] = list;
+  if (cfg.api.provider === providerId) cfg.models = getProviderModels(cfg, providerId);
+  saveConfig(cfg);
+  publishModelState(cfg);
+  return { ok: true, config: cfg, modelCount: getProviderModels(cfg, providerId).length };
 });
 
 ipcMain.handle('models:list', () => loadConfig().models);

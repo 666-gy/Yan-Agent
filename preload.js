@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('yan', {
     ...(config && typeof config === 'object' ? config : { apiKey: config })
   }),
   removeProviderConfig: (providerId) => ipcRenderer.invoke('provider:remove-config', providerId),
+  createCustomProvider: (payload) => ipcRenderer.invoke('provider:create-custom', payload || {}),
+  deleteCustomProvider: (providerId) => ipcRenderer.invoke('provider:delete-custom', providerId),
+  addCustomModel: (payload) => ipcRenderer.invoke('provider:add-custom-model', payload || {}),
   browserRecoverNetwork: (url) => ipcRenderer.invoke('browser:recover-network', url),
   browserClearData: (type) => ipcRenderer.invoke('browser:clear-data', type),
   onBrowserNewTabRequest: (cb) => {

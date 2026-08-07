@@ -1048,6 +1048,27 @@
                   <div id="providerList" class="provider-list"></div>
                 </div>
               </div>
+              <div id="customProviderSection" class="settings-form-section hidden">
+                <div class="settings-group-heading"><h3>自定义厂商</h3><p>名称仅用于展示；API 格式决定调用协议。</p></div>
+                <div class="form-grid">
+                  <div class="field"><label for="cfgProviderName">厂商名称</label>
+                    <input id="cfgProviderName" class="input" type="text" placeholder="如：我的中转站" />
+                  </div>
+                  <div class="field"><label for="cfgApiFormat">API 格式</label>
+                    <select id="cfgApiFormat" class="input">
+                      <option value="openai">OpenAI 兼容（/v1/chat/completions）</option>
+                      <option value="anthropic">Anthropic Messages（/v1/messages）</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="cfgManualModelId">手动添加模型 ID（自动拉取失败时兜底）</label>
+                  <div class="input-with-action">
+                    <input id="cfgManualModelId" class="input" type="text" placeholder="如：deepseek-v4-pro" />
+                    <button id="addManualModel" class="ghost-btn" type="button">添加</button>
+                  </div>
+                </div>
+              </div>
               <div class="settings-form-section">
                 <div class="settings-group-heading"><h3>API</h3><p>凭据只保存在当前设备。</p></div>
                 <div class="field"><label id="cfgApiKeyLabel">API Key</label>
