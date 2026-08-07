@@ -8791,3 +8791,9 @@ html[data-sidebar-transition="right-open"]::view-transition-new(right-resize-han
 }
 #modelQuickList > .mq-item { padding-left: 10px; }
 
+/* Drill-down: hide the route card while a sub-view is active */
+.model-quick-menu[data-child="models"] #modelQuickAdvancedView,
+.model-quick-menu[data-child="reasoning"] #modelQuickAdvancedView { display: none; }
+.model-quick-menu[data-child="models"] #modelQuickModelsView,
+.model-quick-menu[data-child="reasoning"] #modelQuickReasoningView { border-top: none; }
+

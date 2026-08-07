@@ -9702,6 +9702,8 @@ function renderQuickModels(payload = null) {
 }
 
 $('#modelQuickSearch')?.addEventListener('input', () => renderQuickModels());
+$('#modelQuickModelsBack')?.addEventListener('click', () => setModelQuickChild(''));
+$('#modelQuickReasoningBack')?.addEventListener('click', () => setModelQuickChild(''));
 
 // ---------------------------------------------------------------------------
 // Model manager panel: per-model enable switches, stored in config.disabledModels
