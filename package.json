@@ -11,8 +11,8 @@
     "bundle:opencode-provider": "node scripts/build-opencode-provider.cjs",
     "verify:packaged-providers": "node test/provider-runtime-matrix.e2e.cjs",
     "verify:codegraph": "node test/codegraph-mcp.e2e.cjs",
-    "build": "npm run bundle:opencode-provider && electron-builder --win nsis && npm run verify:packaged-providers && npm run verify:codegraph",
-    "build:portable": "npm run bundle:opencode-provider && electron-builder --win portable && npm run verify:packaged-providers && npm run verify:codegraph"
+    "build": "npm run bundle:opencode-provider && electron-builder --win nsis --publish never && npm run verify:packaged-providers && npm run verify:codegraph",
+    "build:portable": "npm run bundle:opencode-provider && electron-builder --win portable --publish never && npm run verify:packaged-providers && npm run verify:codegraph"
   },
   "author": "",
   "license": "MIT",
