@@ -1836,6 +1836,22 @@ function buildYanSessionMcpServer(childAppRoot) {
   };
 }
 
+function buildYanComputerControlMcpServer(childAppRoot) {
+  return {
+    id: 'yan-computer-control',
+    name: 'Yan Computer Control',
+    description: '操控用户本地 Windows 电脑上的软件，执行点击、输入、截图等操作。',
+    runtime: 'yan-computer-control',
+    command: process.execPath,
+    args: [path.join(childAppRoot, 'lib', 'mcp-computer-control-server.js')],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+    enabled: true,
+    builtin: true,
+    systemManaged: true,
+    timeout: 30_000
+  };
+}
+
 function selectedSkillIds(skills) {
   return new Set((Array.isArray(skills) ? skills : []).map(skill => (
     String(skill?.id || skill || '').trim().toLowerCase()
@@ -1877,6 +1893,7 @@ function getOpenCodeMcpServers(cfg, options = {}) {
   if (browserServer) servers.push(browserServer);
   const sessionServer = buildYanSessionMcpServer(childAppRoot);
   if (sessionServer) servers.push(sessionServer);
+  servers.push(buildYanComputerControlMcpServer(childAppRoot));
   return servers;
 }
 

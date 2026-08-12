@@ -11672,6 +11672,12 @@ async function enterComputerControl({ targetHwnd, targetTitle }) {
 }
 
 window.enterComputerControl = enterComputerControl;
+window.yan.onComputerControlConfirmation = async (payload) => {
+  return enterComputerControl({
+    targetHwnd: payload?.targetHwnd,
+    targetTitle: payload?.targetTitle
+  });
+};
 
 // ============================================================
 // Boot
