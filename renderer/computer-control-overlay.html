@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Yan Agent 电脑操控覆盖层</title>
+</head>
+<body class="computer-control-overlay">
+  <div id="overlayGlow" class="computer-control-overlay-glow" aria-hidden="true"></div>
+  <div id="overlayTopPanel" class="computer-control-overlay-top-panel">
+    <span class="overlay-pulse-dot"></span>
+    <span id="overlayTopText">Yan Agent 正在操控你的电脑，按 Esc 退出</span>
+  </div>
+  <div id="overlayTargetBorder" class="computer-control-overlay-target-border" aria-hidden="true">
+    <div class="target-border-corner target-border-tl"></div>
+    <div class="target-border-corner target-border-tr"></div>
+    <div class="target-border-corner target-border-bl"></div>
+    <div class="target-border-corner target-border-br"></div>
+  </div>
+  <script src="computer-control-overlay.js"></script>
+</body>
+</html>

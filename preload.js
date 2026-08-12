@@ -7,12 +7,16 @@ contextBridge.exposeInMainWorld('yan', {
   getQuickLaunch: () => ipcRenderer.invoke('quick-launch:get'),
   updateQuickLaunch: (settings) => ipcRenderer.invoke('quick-launch:update', settings),
   listProviders: () => ipcRenderer.invoke('providers:list'),
-  setProvider: (providerId) => ipcRenderer.invoke('provider:set', providerId),
+  getProviderSecret: (providerId, supplierId) => ipcRenderer.invoke('provider:get-secret', { providerId, supplierId }),
+  addProviderSupplier: (providerId, name) => ipcRenderer.invoke('provider:add-supplier', { providerId, name }),
+  setProviderSupplier: (providerId, supplierId) => ipcRenderer.invoke('provider:set-supplier', { providerId, supplierId }),
+  deleteProviderSupplier: (providerId, supplierId) => ipcRenderer.invoke('provider:delete-supplier', { providerId, supplierId }),
   configureProvider: (providerId, config) => ipcRenderer.invoke('provider:configure', {
     providerId,
     ...(config && typeof config === 'object' ? config : { apiKey: config })
   }),
-  removeProviderConfig: (providerId) => ipcRenderer.invoke('provider:remove-config', providerId),
+  removeProviderConfig: (providerId, supplierId = '') => ipcRenderer.invoke('provider:remove-config', { providerId, supplierId }),
+  deleteCustomProvider: (providerId) => ipcRenderer.invoke('provider:delete-custom', providerId),
   browserRecoverNetwork: (url) => ipcRenderer.invoke('browser:recover-network', url),
   browserClearData: (type) => ipcRenderer.invoke('browser:clear-data', type),
   onBrowserNewTabRequest: (cb) => {
@@ -26,14 +30,13 @@ contextBridge.exposeInMainWorld('yan', {
     return () => ipcRenderer.removeListener('browser:agent-command', handler);
   },
   browserAgentCommandResult: (payload) => ipcRenderer.send('browser:agent-command-result', payload),
-  listModels: () => ipcRenderer.invoke('models:list'),
   listQuickModels: () => ipcRenderer.invoke('models:quick-list'),
   listMediaModels: () => ipcRenderer.invoke('models:media-list'),
-  setModel: (modelId) => ipcRenderer.invoke('model:set', modelId),
-  setModelRole: (providerId, modelId, modelType) => ipcRenderer.invoke('model:role-set', {
+  setModelRole: (providerId, modelId, modelType, supplierId = '') => ipcRenderer.invoke('model:role-set', {
     providerId,
     modelId,
-    modelType
+    modelType,
+    supplierId
   }),
   onModelChanged: (cb) => {
     const handler = (_e, detail) => cb(detail);
@@ -42,25 +45,35 @@ contextBridge.exposeInMainWorld('yan', {
   },
   listSkills: () => ipcRenderer.invoke('skills:list'),
   getSkillMarket: () => ipcRenderer.invoke('skills:market'),
-  getSkillCatalog: () => ipcRenderer.invoke('skills:catalog'),
-  getSkillStoreInfo: () => ipcRenderer.invoke('skills:store-info'),
-  getSkillPromptSection: () => ipcRenderer.invoke('skills:prompt-section'),
   readSkill: (id, taskContext) => ipcRenderer.invoke('skills:read', { id, taskContext }),
-
-  listUiKits: () => ipcRenderer.invoke('ui-kits:list'),
-  listUiKit: (kit, query) => ipcRenderer.invoke('ui-kits:catalog', { kit, query }),
-  getUiKitPromptSection: () => ipcRenderer.invoke('ui-kits:prompt-section'),
-  readUiKit: (kit, component, variant) => ipcRenderer.invoke('ui-kits:read', { kit, component, variant }),
 
   // Workspace
   getWorkspace: () => ipcRenderer.invoke('workspace:get'),
-  getKnownWorkspacePath: (name) => ipcRenderer.invoke('workspace:known-path', name),
-  inspectWorkspace: (dirPath, workspace) => ipcRenderer.invoke('workspace:inspect', { dirPath, workspace }),
   pickWorkspace: () => ipcRenderer.invoke('workspace:pick'),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
   openWorkspaceInExplorer: (workspace) => ipcRenderer.invoke('workspace:open-explorer', workspace),
   listWorkspace: (dir) => ipcRenderer.invoke('workspace:list', dir),
-  clearWorkspace: () => ipcRenderer.invoke('workspace:clear'),
+
+  // Git workspace
+  gitStatus: (workspace) => ipcRenderer.invoke('git:status', { workspace }),
+  gitInit: (workspace, initialBranch = 'main') => ipcRenderer.invoke('git:init', { workspace, initialBranch }),
+  gitStage: (workspace, paths = [], all = false) => ipcRenderer.invoke('git:stage', { workspace, paths, all }),
+  gitUnstage: (workspace, paths = [], all = false) => ipcRenderer.invoke('git:unstage', { workspace, paths, all }),
+  gitCommit: (workspace, message, amend = false) => ipcRenderer.invoke('git:commit', { workspace, message, amend }),
+  gitCreateBranch: (workspace, name, checkout = true) => ipcRenderer.invoke('git:branch-create', { workspace, name, checkout }),
+  gitSwitchBranch: (workspace, name, remoteBranch = '') => ipcRenderer.invoke('git:branch-switch', { workspace, name, remoteBranch }),
+  gitFetch: (workspace, remoteName = '') => ipcRenderer.invoke('git:fetch', { workspace, remoteName }),
+  gitPull: (workspace) => ipcRenderer.invoke('git:pull', { workspace }),
+  gitPush: (workspace, remoteName = '') => ipcRenderer.invoke('git:push', { workspace, remoteName }),
+  gitAddRemote: (workspace, name, url) => ipcRenderer.invoke('git:remote-add', { workspace, name, url }),
+  gitSetRemoteUrl: (workspace, name, url) => ipcRenderer.invoke('git:remote-set-url', { workspace, name, url }),
+  gitRemoveRemote: (workspace, name) => ipcRenderer.invoke('git:remote-remove', { workspace, name }),
+  gitSetIdentity: (workspace, name, email) => ipcRenderer.invoke('git:identity-set', { workspace, name, email }),
+  gitHistory: (workspace, limit = 40) => ipcRenderer.invoke('git:history', { workspace, limit }),
+  gitDiff: (workspace, filePath, staged = false) => ipcRenderer.invoke('git:diff', { workspace, path: filePath, staged }),
+  gitPickCloneDestination: () => ipcRenderer.invoke('git:pick-clone-destination'),
+  gitClone: (remoteUrl, destination) => ipcRenderer.invoke('git:clone', { remoteUrl, destination }),
+  gitOpenRemote: (remoteUrl) => ipcRenderer.invoke('git:open-remote', { remoteUrl }),
 
   // Sessions
   listSessions: () => ipcRenderer.invoke('session:list'),
@@ -112,41 +125,17 @@ contextBridge.exposeInMainWorld('yan', {
     return () => ipcRenderer.removeListener('pet:visibility', handler);
   },
 
-  // Long-term memory
-  getMemory: (options = {}) => ipcRenderer.invoke('memory:get', options),
-  getMemoryContext: (options = {}) => ipcRenderer.invoke('memory:get-context', options),
-  saveMemory: (mem) => ipcRenderer.invoke('memory:save', mem),
-  addMemoryFact: (fact) => ipcRenderer.invoke('memory:add-fact', fact),
-  addMemoryBatch: (payload) => ipcRenderer.invoke('memory:add-batch', payload),
-  clearMemory: (options = {}) => ipcRenderer.invoke('memory:clear', options),
-
   // Skills
   addCustomSkill: (skill) => ipcRenderer.invoke('skills:add-custom', skill),
   removeCustomSkill: (id) => ipcRenderer.invoke('skills:remove-custom', id),
-  getCustomSkills: () => ipcRenderer.invoke('skills:get-custom'),
-  getLearningCandidates: () => ipcRenderer.invoke('learning:candidates'),
-  recordLearningReview: (payload) => ipcRenderer.invoke('learning:record-review', payload),
 
   // Files — pass { filePath, workspace } for sandbox enforcement (session workspace)
   readFile: (filePath, workspace) => {
     if (filePath && typeof filePath === 'object') return ipcRenderer.invoke('file:read', filePath);
     return ipcRenderer.invoke('file:read', { filePath, workspace });
   },
-  readFileRange: (filePath, start_line, end_line, workspace) => {
-    if (filePath && typeof filePath === 'object') {
-      return ipcRenderer.invoke('file:read-range', filePath);
-    }
-    return ipcRenderer.invoke('file:read-range', { filePath, start_line, end_line, workspace });
-  },
-  writeFile: (filePath, content, workspace) => {
-    if (filePath && typeof filePath === 'object') return ipcRenderer.invoke('file:write', filePath);
-    return ipcRenderer.invoke('file:write', { filePath, content, workspace });
-  },
-  chooseOpenFile: () => ipcRenderer.invoke('file:choose-open'),
   chooseOpenDirectory: () => ipcRenderer.invoke('file:choose-directory'),
-  chooseSaveFile: () => ipcRenderer.invoke('file:choose-save'),
   uploadFile: (name, base64, mimeType) => ipcRenderer.invoke('file:upload', { name, data: base64, mimeType }),
-  readImageAttachment: (filePath) => ipcRenderer.invoke('file:image-data', filePath),
   generateImage: (payload) => ipcRenderer.invoke('image:generate', payload),
   cancelImageGeneration: (requestId) => ipcRenderer.invoke('image:cancel', requestId),
   generateVideo: (payload) => ipcRenderer.invoke('video:generate', payload),
@@ -154,34 +143,15 @@ contextBridge.exposeInMainWorld('yan', {
   readGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-read', assetId),
   openGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-open', assetId),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
-  deleteFile: (filePath, workspace) => {
-    if (filePath && typeof filePath === 'object') return ipcRenderer.invoke('file:delete', filePath);
-    return ipcRenderer.invoke('file:delete', { filePath, workspace });
-  },
-
-  // Shell execution — cwd forced inside workspace by main process
-  executeShell: (command, cwd, oneShot, workspace, runId) => ipcRenderer.invoke('shell:execute', {
-    command,
-    cwd,
-    oneShot,
-    workspace: workspace || cwd,
-    runId
-  }),
-  cancelShellRun: (runId) => ipcRenderer.invoke('shell:cancel-run', runId),
 
   // Built-in terminal (real PTY, independent from Agent workspaces)
   terminalCreate: (options) => ipcRenderer.invoke('terminal:create', options || {}),
-  terminalExecute: (sessionId, command) => ipcRenderer.invoke('terminal:execute', { sessionId, command }),
   terminalWrite: (sessionId, data) => ipcRenderer.invoke('terminal:write', { sessionId, data }),
   terminalResize: (sessionId, cols, rows) => ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
-  terminalInterrupt: (sessionId) => ipcRenderer.invoke('terminal:interrupt', sessionId),
-  terminalRestart: (sessionId) => ipcRenderer.invoke('terminal:restart', sessionId),
   terminalDestroy: (sessionId) => ipcRenderer.invoke('terminal:destroy', sessionId),
 
   // .yanagent (memory/logs/snapshots in workspace)
   yanagentEnsure: (workspace) => ipcRenderer.invoke('yanagent:ensure', workspace),
-  yanagentLog: (message, workspace) => ipcRenderer.invoke('yanagent:log', { message, workspace }),
-  yanagentRecordChange: (payload) => ipcRenderer.invoke('yanagent:record-change', payload),
   yanagentRunChanges: (sessionId, runId, workspace, options = {}) => ipcRenderer.invoke('yanagent:run-changes', {
     sessionId,
     runId,
@@ -191,60 +161,10 @@ contextBridge.exposeInMainWorld('yan', {
   }),
   yanagentRollbackRun: (sessionId, runId, workspace) => ipcRenderer.invoke('yanagent:rollback-run', { sessionId, runId, workspace }),
 
-  // Search (supports options object or legacy positional args)
-  searchFiles: (query, directory, extensions) => {
-    if (query && typeof query === 'object') {
-      return ipcRenderer.invoke('search:files', query);
-    }
-    return ipcRenderer.invoke('search:files', { query, directory, extensions });
-  },
-
-  // Code understanding
-  buildCodeIndex: (opts) => ipcRenderer.invoke('code:build-index', opts || {}),
-  codeIndexStatus: (workspace) => ipcRenderer.invoke('code:index-status', workspace),
-  codeSearchSymbols: (opts) => ipcRenderer.invoke('code:search-symbols', opts || {}),
-  codeFindSymbol: (opts) => ipcRenderer.invoke('code:find-symbol', opts || {}),
-  codeFindReferences: (opts) => ipcRenderer.invoke('code:find-references', opts || {}),
-  codeFindRelated: (opts) => ipcRenderer.invoke('code:find-related', opts || {}),
-  codeFileImports: (filePath) => ipcRenderer.invoke('code:file-imports', { path: filePath }),
-  codeScanProject: (workspace) => ipcRenderer.invoke('code:scan-project', { workspace }),
-  codeTraceSymbol: (opts) => ipcRenderer.invoke('code:trace-symbol', opts || {}),
-
   launchYanxiCode: (workspace, mode = 'workspace') => ipcRenderer.invoke('yanxi:launch', { workspace, mode }),
+  getVsCodeStatus: () => ipcRenderer.invoke('vscode:status'),
+  launchVsCode: (workspace = '') => ipcRenderer.invoke('vscode:launch', { workspace }),
   openExternalPowerShell: (workspace = '') => ipcRenderer.invoke('powershell:open-external', { workspace }),
-
-  // Workspace tree
-  getWorkspaceTree: (directory, maxDepth) => ipcRenderer.invoke('workspace:tree', { directory, maxDepth }),
-
-  // Git operations
-  gitStatus: (dirPath) => ipcRenderer.invoke('git:status', dirPath),
-  gitDiff: (stagedOrDirPath, maybeStaged) => {
-    const staged = typeof stagedOrDirPath === 'boolean' ? stagedOrDirPath : maybeStaged;
-    const dirPath = typeof stagedOrDirPath === 'string' ? stagedOrDirPath : undefined;
-    return ipcRenderer.invoke('git:diff', { dirPath, staged });
-  },
-  gitLog: (limitOrDirPath, maybeLimit) => {
-    const limit = typeof limitOrDirPath === 'number' ? limitOrDirPath : maybeLimit;
-    const dirPath = typeof limitOrDirPath === 'string' ? limitOrDirPath : undefined;
-    return ipcRenderer.invoke('git:log', { dirPath, limit });
-  },
-  gitCommit: (message, dirPath) => ipcRenderer.invoke('git:commit', { message, dirPath }),
-  gitPush: (remoteOrDirPath, branchOrRemote, maybeBranch) => {
-    const looksLikePath = typeof remoteOrDirPath === 'string' && /[\\/:]/.test(remoteOrDirPath);
-    const dirPath = looksLikePath ? remoteOrDirPath : undefined;
-    const remote = looksLikePath ? branchOrRemote : remoteOrDirPath;
-    const branch = looksLikePath ? maybeBranch : branchOrRemote;
-    return ipcRenderer.invoke('git:push', { dirPath, remote, branch });
-  },
-  gitPull: (remoteOrDirPath, branchOrRemote, maybeBranch) => {
-    const looksLikePath = typeof remoteOrDirPath === 'string' && /[\\/:]/.test(remoteOrDirPath);
-    const dirPath = looksLikePath ? remoteOrDirPath : undefined;
-    const remote = looksLikePath ? branchOrRemote : remoteOrDirPath;
-    const branch = looksLikePath ? maybeBranch : branchOrRemote;
-    return ipcRenderer.invoke('git:pull', { dirPath, remote, branch });
-  },
-  gitClone: (url, dirPath) => ipcRenderer.invoke('git:clone', { url, dirPath }),
-  gitBranch: (dirPath) => ipcRenderer.invoke('git:branch', dirPath),
 
   // Permissions
   getPermissions: () => ipcRenderer.invoke('permissions:get'),
@@ -276,14 +196,8 @@ contextBridge.exposeInMainWorld('yan', {
   mcpTest: (cfg) => ipcRenderer.invoke('mcp:test', cfg),
   mcpStart: (id) => ipcRenderer.invoke('mcp:start', id),
   mcpStop: (id) => ipcRenderer.invoke('mcp:stop', id),
-  mcpListTools: () => ipcRenderer.invoke('mcp:list-tools'),
-  mcpCallTool: (serverId, toolName, args, runId) => ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args, runId),
-  cancelMcpRun: (runId) => ipcRenderer.invoke('mcp:cancel-run', runId),
-  codeGraphEnsure: (workspace) => ipcRenderer.invoke('codegraph:ensure', workspace),
   understandAnythingOpen: (workspace) => ipcRenderer.invoke('understand-anything:open', workspace),
   understandAnythingRefresh: (workspace) => ipcRenderer.invoke('understand-anything:refresh', workspace),
-  understandAnythingStop: (workspace) => ipcRenderer.invoke('understand-anything:stop', workspace),
-  understandAnythingList: () => ipcRenderer.invoke('understand-anything:list'),
 
   // Window controls (custom title bar)
   window: {
@@ -342,7 +256,7 @@ contextBridge.exposeInMainWorld('yan', {
   }),
   openCodeCancelRun: (runId) => ipcRenderer.invoke('opencode:cancel-run', runId),
   openCodeInterject: (payload) => ipcRenderer.invoke('opencode:interject', payload),
-  openCodeStatus: () => ipcRenderer.invoke('opencode:status'),
+  openCodeCancelInterjection: (payload) => ipcRenderer.invoke('opencode:cancel-interjection', payload),
   classifyOpenCodeShellCommand: (command) => ipcRenderer.invoke('opencode:classify-shell-command', command),
   openCodeReplyPermission: (payload) => ipcRenderer.invoke('opencode:permission-reply', payload),
   openCodeReplyQuestion: (payload) => ipcRenderer.invoke('opencode:question-reply', payload),
@@ -351,12 +265,27 @@ contextBridge.exposeInMainWorld('yan', {
     ipcRenderer.on('opencode:event', handler);
     return () => ipcRenderer.removeListener('opencode:event', handler);
   },
+  onOpenCodeInterjectionEvent: (cb) => {
+    const handler = (_e, detail) => cb(detail);
+    ipcRenderer.on('opencode:interjection-event', handler);
+    return () => ipcRenderer.removeListener('opencode:interjection-event', handler);
+  },
   onOpenCodeCompleted: (cb) => {
     const handler = (_e, detail) => cb(detail);
     ipcRenderer.on('opencode:completed', handler);
     return () => ipcRenderer.removeListener('opencode:completed', handler);
   },
 
-  // Platform
-  platform: process.platform
+  // Computer control
+  computerStart: (opts) => ipcRenderer.invoke('computer:start', opts),
+  computerStop: () => ipcRenderer.invoke('computer:stop'),
+  computerStatus: () => ipcRenderer.invoke('computer:status')
+});
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  receive: (channel, callback) => {
+    const handler = (_event, ...args) => callback(...args);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  }
 });
