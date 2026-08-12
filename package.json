@@ -18,6 +18,7 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@nuphus/nuphus-mcp": "^0.1.11",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.25.9",
@@ -49,6 +50,7 @@
       "lib/yan-media-mcp.js",
       "lib/yan-browser-mcp.js",
       "lib/yan-session-mcp.js",
+      "lib/yan-harness-mcp.js",
       "lib/yan-skills-mcp.js",
       "lib/skill-registry.js",
       "lib/skill-store.js",
@@ -64,6 +66,7 @@
       "lib/opencode-dsml-provider.bundle.mjs",
       "lib/understand-anything/**/*",
       "lib/skills/**/*",
+      "node_modules/@ai-sdk/anthropic/**/*",
       "node_modules/@ai-sdk/openai-compatible/**/*",
       "node_modules/@ai-sdk/provider/**/*",
       "node_modules/@ai-sdk/provider-utils/**/*",
@@ -76,7 +79,8 @@
       "node_modules/opencode-ai/**/*",
       "node_modules/opencode-windows-*/**/*",
       "node_modules/@officecli/officecli/**/*",
-      "node_modules/node-pty/**/*"
+      "node_modules/node-pty/**/*",
+      "node_modules/@nuphus/nuphus-mcp*/**/*"
     ],
     "extraResources": [
       {
@@ -121,6 +125,7 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "3.0.42",
     "@ai-sdk/openai-compatible": "2.0.41",
     "@colbymchenry/codegraph": "1.5.0",
     "@officecli/officecli": "1.0.138",
