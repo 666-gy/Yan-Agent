@@ -11650,6 +11650,30 @@ async function agentBrowserScreenshot() {
 }
 
 // ============================================================
+// Computer Control entry
+// ============================================================
+async function enterComputerControl({ targetHwnd, targetTitle }) {
+  const { decision, useVisionRelay } = await requestAgentPermission({
+    title: '进入电脑操控模式',
+    description: `Agent 即将开始操控窗口：${targetTitle || '未命名窗口'}。你可以随时移动鼠标、操作其他软件，Agent 会自行找回该窗口继续工作。`,
+    detail: `窗口句柄: ${targetHwnd || '自动选择'}`,
+    allowAlways: false,
+    visionRelay: {
+      show: true,
+      checked: true,
+      description: 'Yan Agent 视觉中继完全免费。若当前模型支持多模态，可关闭以直接由主模型看图。'
+    }
+  }, { runId: 'computer-control' });
+
+  if (decision !== 'once' && decision !== 'always') return { ok: false, reason: 'denied' };
+
+  const result = await window.yan.computerStart({ targetHwnd, targetTitle, useVisionRelay });
+  return { ok: result.ok, useVisionRelay };
+}
+
+window.enterComputerControl = enterComputerControl;
+
+// ============================================================
 // Boot
 // ============================================================
 window.addEventListener('DOMContentLoaded', init);
