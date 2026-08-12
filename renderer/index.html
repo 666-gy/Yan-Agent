@@ -208,6 +208,16 @@
           </button>
           <div id="agentPermissionBody" class="agent-permission-body">
             <p id="agentPermissionDescription" class="agent-permission-description"></p>
+            <div id="agentPermissionVisionRelayOption" class="agent-permission-vision-relay hidden">
+              <label class="vision-relay-switch">
+                <input id="agentPermissionVisionRelayCheck" type="checkbox" checked />
+                <span class="vision-relay-slider" aria-hidden="true"></span>
+                <span class="vision-relay-text">
+                  <strong>使用视觉中继</strong>
+                  <span id="agentPermissionVisionRelayDesc">开启后 Yan Agent 会调用免费视觉中继模型辅助定位按钮与理解界面。</span>
+                </span>
+              </label>
+            </div>
             <pre id="agentPermissionDetail" class="agent-permission-command"></pre>
             <div class="agent-permission-actions">
               <button type="button" id="agentPermissionAlways" class="primary-btn">总是允许</button>

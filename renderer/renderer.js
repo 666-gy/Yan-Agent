@@ -4827,7 +4827,7 @@ async function handleOpenCodePermission(runCtx, event) {
       console.warn('[opencode-permission-risk]', error);
     }
     if (risk?.requiresApproval || risk?.level === 'high') {
-      const decision = await requestAgentPermission({
+      const { decision } = await requestAgentPermission({
         requestId,
         title: '高危命令等待确认',
         description: 'Agent 即将执行下列高危命令，是否允许：',
@@ -4844,7 +4844,7 @@ async function handleOpenCodePermission(runCtx, event) {
       || String(data.metadata?.command || data.metadata?.cmd || data.metadata?.input || '')
       || stringifyOpenCodeValue(data.metadata)
       || action;
-    const decision = await requestAgentPermission({
+    const { decision } = await requestAgentPermission({
       requestId,
       title: '命令权限等待确认',
       description: 'Agent 即将执行下列命令，是否允许：',
@@ -4857,7 +4857,7 @@ async function handleOpenCodePermission(runCtx, event) {
     reply = 'always';
   } else {
     const detail = [action, ...resources].filter(Boolean).join('\n');
-    const decision = await requestAgentPermission({
+    const { decision } = await requestAgentPermission({
       requestId,
       title: '操作权限等待确认',
       description: 'Agent 请求执行下列受限操作，是否允许：',
@@ -6025,7 +6025,7 @@ function settleAgentPermission(decision, { silent = false } = {}) {
   request?.resolve(decision, { silent });
 }
 
-function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true }, runCtx) {
+function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true, visionRelay = null }, runCtx) {
   return new Promise((resolve) => {
     if (agentPermissionRequest) settleAgentPermission('deny');
     const panel = $('#agentPermissionPanel');
@@ -6033,30 +6033,49 @@ function requestAgentPermission({ requestId = '', title, description, detail, se
     const descriptionEl = $('#agentPermissionDescription');
     const detailEl = $('#agentPermissionDetail');
     const alwaysButton = $('#agentPermissionAlways');
+    const visionRelayOption = $('#agentPermissionVisionRelayOption');
+    const visionRelayCheck = $('#agentPermissionVisionRelayCheck');
+    const visionRelayDesc = $('#agentPermissionVisionRelayDesc');
     if (!panel || !titleEl || !descriptionEl || !detailEl) {
-      resolve('deny');
+      resolve({ decision: 'deny', useVisionRelay: false });
       return;
     }
     titleEl.textContent = title || '权限确认';
     descriptionEl.textContent = description || 'Agent 请求执行受限操作，是否允许：';
     detailEl.textContent = detail || '(empty)';
     alwaysButton?.classList.toggle('hidden', allowAlways === false);
+
+    const showVisionRelay = !!visionRelay?.show;
+    visionRelayOption?.classList.toggle('hidden', !showVisionRelay);
+    if (showVisionRelay && visionRelayCheck) {
+      visionRelayCheck.checked = visionRelay.checked !== false;
+      visionRelayCheck.disabled = visionRelay.readOnly === true;
+      if (visionRelayDesc && visionRelay.description) {
+        visionRelayDesc.textContent = visionRelay.description;
+      }
+    }
+
     panel.classList.remove('hidden', 'collapsed');
     $('#agentPermissionToggle')?.setAttribute('aria-expanded', 'true');
     $('#chatMainColumn')?.classList.add('permission-pending');
-    agentPermissionRequest = { resolve, runCtx, sessionId, requestId: String(requestId || '') };
-    const previousResolve = resolve;
-    agentPermissionRequest.resolve = (decision, { silent = false } = {}) => {
-      if (!silent) {
-        if (decision === 'always') {
-          toast('已记住并允许这类操作');
-        } else if (decision === 'once') {
-          toast('已允许本次操作');
-        } else if (decision === 'deny') {
-          toast('已拒绝操作，Agent 将尝试其他方式');
+    agentPermissionRequest = {
+      resolve: (decision, extras = {}) => {
+        const useVisionRelay = showVisionRelay ? (visionRelayCheck?.checked ?? false) : false;
+        const { silent = false } = extras;
+        if (!silent) {
+          if (decision === 'always') {
+            toast('已记住并允许这类操作');
+          } else if (decision === 'once') {
+            toast('已允许本次操作');
+          } else if (decision === 'deny') {
+            toast('已拒绝操作，Agent 将尝试其他方式');
+          }
         }
-      }
-      previousResolve(decision);
+        resolve({ decision, useVisionRelay });
+      },
+      runCtx,
+      sessionId,
+      requestId: String(requestId || '')
     };
     requestAnimationFrame(positionAgentPermissionPanel);
   });
@@ -6070,7 +6089,7 @@ async function handleSessionAgentCommand(detail = {}) {
   const reason = String(detail.reason || '').trim();
   let decision = 'deny';
   try {
-    decision = await requestAgentPermission({
+    ({ decision } = await requestAgentPermission({
       title: '进入其他工作区任务',
       description: 'Agent 请求进入目标工作区；如已有任务将返回最新任务，否则创建新任务，是否允许：',
       detail: [
@@ -6080,7 +6099,7 @@ async function handleSessionAgentCommand(detail = {}) {
       ].filter(Boolean).join('\n'),
       sessionId: String(detail.sourceSessionId || ''),
       allowAlways: false
-    }, getRunCtx(String(detail.sourceSessionId || '')));
+    }, getRunCtx(String(detail.sourceSessionId || ''))));
   } catch (error) {
     console.error('[session-agent-approval]', error);
   }
