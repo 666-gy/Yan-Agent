@@ -443,6 +443,69 @@
     .footer-links a:hover { color: var(--coral); }
     .footer-meta { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
 
+    /* ---------- computer use ---------- */
+    .computer-use { background: var(--paper-2); border-block: 1px solid var(--rule); }
+    [data-theme="dark"] .computer-use { background: var(--night-2); }
+    .cu-blue { color: #2563eb; }
+    .cu-grid {
+      display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1px;
+      background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden;
+    }
+    [data-theme="dark"] .cu-grid { background: var(--night-rule); border-color: var(--night-rule); }
+    .cu-main {
+      padding: clamp(32px, 4vw, 52px); background: var(--paper);
+      display: flex; flex-direction: column; gap: 22px;
+    }
+    [data-theme="dark"] .cu-main { background: var(--night); }
+    .cu-visual {
+      position: relative; min-height: 260px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      display: grid; place-items: center; overflow: hidden;
+    }
+    .cu-visual::before {
+      content: ""; position: absolute; inset: -40%;
+      background: conic-gradient(from 180deg at 50% 50%, transparent 0deg, rgba(37,99,235,0.35) 60deg, transparent 120deg, rgba(37,99,235,0.25) 180deg, transparent 240deg, rgba(37,99,235,0.35) 300deg, transparent 360deg);
+      animation: cu-rotate 8s linear infinite;
+    }
+    @keyframes cu-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .cu-monitor {
+      position: relative; z-index: 1; width: min(280px, 80%); aspect-ratio: 16/10;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .cu-monitor-bar {
+      height: 28px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    }
+    .cu-monitor-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.25); }
+    .cu-monitor-glow {
+      flex: 1; margin: 10px; border-radius: 8px;
+      box-shadow: inset 0 0 24px rgba(37,99,235,0.25), 0 0 0 1px rgba(37,99,235,0.3);
+      border: 1px dashed rgba(37,99,235,0.5);
+      display: grid; place-items: center;
+      font-family: var(--font-mono); font-size: 10px; color: rgba(255,255,255,0.6); letter-spacing: 0.06em;
+    }
+    .cu-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--font-mono); font-size: 11px; color: #2563eb;
+      padding: 5px 10px; border: 1px solid rgba(37,99,235,0.3); border-radius: var(--r-pill); width: fit-content;
+    }
+    .cu-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #2563eb; }
+    .cu-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+    .cu-list li { display: grid; grid-template-columns: 20px 1fr; gap: 12px; font-size: 14px; color: var(--ink-2); line-height: 1.55; }
+    .cu-list li::before {
+      content: ""; width: 16px; height: 16px; margin-top: 2px; border-radius: 5px;
+      background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.25);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: center;
+    }
+    .cu-note {
+      margin-top: 8px; padding: 14px 16px; border-radius: var(--r-md);
+      background: color-mix(in oklab, #2563eb 6%, var(--paper)); border: 1px dashed rgba(37,99,235,0.35);
+      font-size: 13px; color: var(--ink-2); line-height: 1.6;
+    }
+    .cu-note strong { color: #2563eb; font-weight: 600; }
+
     /* ---------- scroll reveal ---------- */
     .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.7s var(--ease-spring), transform 0.7s var(--ease-spring); will-change: opacity, transform; }
     .reveal.in { opacity: 1; transform: none; }
@@ -460,6 +523,8 @@
       .mm-features { grid-template-columns: 1fr; }
       .modes-grid { grid-template-columns: 1fr; }
       .truth-grid { grid-template-columns: 1fr; }
+      .cu-grid { grid-template-columns: 1fr; }
+      .cu-visual { min-height: 220px; order: -1; }
       .eco-grid { grid-template-columns: 1fr; gap: 40px; }
       .nav-mid { display: none; }
     }
@@ -497,6 +562,7 @@
       <div class="nav-mid">
         <a href="#multimodal">多模态</a>
         <a href="#power">软实力</a>
+        <a href="#computer-use">桌面操控</a>
         <a href="#modes">工作方式</a>
         <a href="#truth">边界</a>
       </div>
@@ -519,7 +585,7 @@
         <div class="hero-copy">
           <p class="eyebrow reveal">Yan Agent · 1.4.0 · Yan Kernel</p>
           <h1 class="reveal" data-d="1">完全<span class="accent">多模态</span>。<br>完整<span class="accent">软实力</span><span class="dot">。</span></h1>
-          <p class="hero-lead reveal" data-d="2">面向真实 Windows 工作区的桌面 Agent。文本、图像、视频三种模型同链路协作；工具、Skill、MCP、内置浏览器、记忆与审阅各司其职。你描述目标，Yan Kernel 负责理解、执行、回读，并把可核对的结果交回工作区。</p>
+          <p class="hero-lead reveal" data-d="2">Yan Agent 1.4.0 基于全新 Yan Kernel 运行时。文本、图像、视频三种模型同链路协作；工具、Skill、MCP、内置浏览器、Yan Computer Use、记忆与审阅各司其职。你描述目标，Yan Kernel 负责理解、执行、回读，并把可核对的结果交回工作区。</p>
           <div class="hero-actions reveal" data-d="3">
             <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载 Yan Agent <span class="arr" aria-hidden="true">↗</span></a>
             <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">阅读 README</a>
@@ -696,9 +762,45 @@
 
           <div class="power-cell reveal" data-d="3">
             <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
-            <h3>Interrupt 插话</h3>
-            <p>任务工作期间发送插话，隔离观察者判断属于检查 / 引导 / 结束类。主任务继续工作，不会被普通询问误杀，也不绕过权限。</p>
-            <div class="power-tags"><span class="power-tag">INTERRUPT</span><span class="power-tag">OBSERVER</span></div>
+            <h3>辅助对话</h3>
+            <p>任务工作期间可在右侧面板询问进度或发送引导，隔离观察者判断属于检查 / 引导 / 结束类。主任务继续工作，不会被普通询问误杀，也不绕过权限。</p>
+            <div class="power-tags"><span class="power-tag">DIALOGUE</span><span class="power-tag">OBSERVER</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="div-line">
+
+    <!-- ============ COMPUTER USE ============ -->
+    <section class="sec computer-use" id="computer-use">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-num">02+ / 桌面操控</span>
+          <h2>让 Agent 落到<span class="cu-blue serif-italic">真实桌面</span>，<br>不锁键鼠，Esc 即停。</h2>
+          <p class="lead">Yan Computer Use 是 1.4.0 的初始集成：通过官方 Nuphus MCP 的 desktop_* 工具，Agent 可以激活窗口、理解界面、定位控件并执行点击、输入、截图等操作。所有动作先经视觉中继面板确认，执行时屏幕边缘显示蓝色光效，顶部提示“Yan Agent 正在操控你的电脑，按 Esc 退出”。</p>
+        </div>
+
+        <div class="cu-grid reveal" data-d="1">
+          <div class="cu-main">
+            <span class="cu-badge">v1.4.0 · Initial Integration</span>
+            <h3>不是远程控制，是带边界的桌面协作</h3>
+            <ul class="cu-list">
+              <li>视觉中继确认：首次操控目标软件前弹出面板，用户允许后才开始。</li>
+              <li>窗口自动找回：目标窗口被覆盖或最小化时，操作前会自动置前。</li>
+              <li>不抢占用户键鼠：Agent 执行动作的同时，用户仍可自由操作。</li>
+              <li>Esc 一键中止：全局热键立即退出电脑操控模式，覆盖层与热键同步清理。</li>
+              <li>双链路可用：既可通过内置 MCP 工具调用，也可通过 yan-computer-use Skill 触发。</li>
+            </ul>
+            <div class="cu-note">
+              <strong>初始集成说明</strong> Yan Computer Use 依赖 Nuphus MCP、目标软件可访问性与视觉感知质量；复杂 Canvas、自绘界面或权限窗口仍可能失败。这是 1.4.0 的实验性能力，不是全应用自动化承诺。
+            </div>
+          </div>
+          <div class="cu-visual" aria-hidden="true">
+            <div class="cu-monitor">
+              <div class="cu-monitor-bar"><span class="cu-monitor-dot"></span><span class="cu-monitor-dot"></span><span class="cu-monitor-dot"></span></div>
+              <div class="cu-monitor-glow">YAN COMPUTER USE · ACTIVE</div>
+            </div>
           </div>
         </div>
       </div>
@@ -763,6 +865,7 @@
               <li>Yan Kernel · Skill · MCP · 内置浏览器</li>
               <li>常规 / 计划 / 目标 三种工作方式与权限</li>
               <li>完全多模态：文本、图片理解、图片与视频生成</li>
+              <li>Yan Computer Use 桌面操控（初始集成）</li>
               <li>上下文压缩、长期记忆与审阅面板</li>
               <li>第二代 Yan Agent Pet 与移动端远程控制</li>
             </ul>
@@ -771,7 +874,6 @@
             <h3>正在开发</h3>
             <p class="truth-sub">有明确计划，但不属于 1.4.0 的稳定承诺。</p>
             <ul>
-              <li>Yan Computer Use：计划随 v1.5.0 上线</li>
               <li>Yan Agent GUI：计划随 v1.5.0 上线</li>
               <li>移动 Web UI 尚未同步完成，不建议作为主界面</li>
               <li>更完整的 Git 生态与常驻子 Agent</li>
@@ -786,16 +888,21 @@
 
     <!-- ============ ECOSYSTEM ============ -->
     <section class="sec" id="ecosystem">
-      <div class="wrap eco-grid">
-        <div class="reveal">
-          <span class="sec-num">05 / 生态</span>
-          <h2>一个入口，<br>几条清晰的<span class="serif-italic">路</span>。</h2>
-          <p class="lead">Yan Agent 是桌面入口，Yan Kernel 是执行权威。源码、中文文档、英文文档和配套 IDE 分开维护，也分开说明。</p>
+      <div class="wrap">
+        <div class="sec-head reveal" style="max-width: 760px;">
+          <span class="sec-num">05 / 生态与下载</span>
+          <h2>源码、发布与配套 IDE，<br>各走各的<span class="serif-italic">链接</span>。</h2>
+          <p class="lead">Yan Agent 是桌面入口，Yan Kernel 是执行权威。源码、Release、中文文档、英文文档和配套 IDE 分开维护，也分开说明。</p>
         </div>
+
         <div class="eco-links reveal" data-d="1">
           <a class="eco-link" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">
             <span class="eco-link-name">Yan Agent</span>
             <span class="eco-link-meta"><span>SOURCE · GITHUB</span><span class="arr">↗</span></span>
+          </a>
+          <a class="eco-link" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">
+            <span class="eco-link-name">Yan Agent Releases</span>
+            <span class="eco-link-meta"><span>INSTALLER · GITHUB</span><span class="arr">↗</span></span>
           </a>
           <a class="eco-link" href="https://github.com/666-gy/Yanxi-Code" target="_blank" rel="noopener">
             <span class="eco-link-name">Yanxi Code</span>
@@ -805,10 +912,11 @@
             <span class="eco-link-name">中文 README</span>
             <span class="eco-link-meta"><span>DOC · ZH</span><span class="arr">↗</span></span>
           </a>
-          <a class="eco-link" href="https://github.com/666-gy/Yan-Agent/blob/main/README_EN.md" target="_blank" rel="noopener">
-            <span class="eco-link-name">English README</span>
-            <span class="eco-link-meta"><span>DOC · EN</span><span class="arr">↗</span></span>
-          </a>
+        </div>
+
+        <div class="reveal" data-d="2" style="margin-top: 40px; padding: 24px; border-radius: var(--r-lg); background: var(--paper-2); border: 1px solid var(--rule);">
+          <h3 style="margin: 0 0 10px; font-family: var(--font-sans); font-size: 1.05rem; font-weight: 600;">与 Yanxi Code 对接</h3>
+          <p style="margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.65;">Yan Agent 可以把工作区交接给 Yanxi Code。若需启用此能力，<strong>Yan Agent 与 Yanxi Code 均需以管理员权限安装</strong>，否则跨进程工作区握手与 IDE 启动可能失败。Release 页面仅提供安装版，不提供便携版。</p>
         </div>
       </div>
     </section>
@@ -821,7 +929,7 @@
       <h2 id="closing-title" class="reveal">把任务交给<br><span class="serif-italic">工作区</span>。</h2>
       <p class="reveal" data-d="1">从一个真实目录和一句清楚的目标开始。Yan Agent 会把过程、证据和结果留在你看得见的地方。</p>
       <div class="closing-actions reveal" data-d="2">
-        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">获取 1.4.0 <span class="arr" aria-hidden="true">↗</span></a>
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载安装版 1.4.0 <span class="arr" aria-hidden="true">↗</span></a>
         <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">查看源码</a>
       </div>
     </div>
