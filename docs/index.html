@@ -778,7 +778,7 @@
         <div class="sec-head reveal">
           <span class="sec-num">02+ / 桌面操控</span>
           <h2>让 Agent 落到<span class="cu-blue serif-italic">真实桌面</span>，<br>不锁键鼠，Esc 即停。</h2>
-          <p class="lead">Yan Computer Use 是 1.4.0 的初始集成：通过官方 Nuphus MCP 的 desktop_* 工具，Agent 可以激活窗口、理解界面、定位控件并执行点击、输入、截图等操作。所有动作先经视觉中继面板确认，执行时屏幕边缘显示蓝色光效，顶部提示“Yan Agent 正在操控你的电脑，按 Esc 退出”。</p>
+          <p class="lead">Yan Computer Use 是 1.4.0 的初始集成：通过官方 Nuphus MCP 的 desktop_* 工具，Agent 可以激活窗口、理解界面、定位控件并执行点击、输入、截图等操作。只有真实桌面工具开始执行时才进入操控态；屏幕边缘显示蓝色光效，顶部提示“Yan Agent 正在操控你的电脑，按 Esc 退出”。</p>
         </div>
 
         <div class="cu-grid reveal" data-d="1">
@@ -786,11 +786,11 @@
             <span class="cu-badge">v1.4.0 · Initial Integration</span>
             <h3>不是远程控制，是带边界的桌面协作</h3>
             <ul class="cu-list">
-              <li>视觉中继确认：首次操控目标软件前弹出面板，用户允许后才开始。</li>
-              <li>窗口自动找回：目标窗口被覆盖或最小化时，操作前会自动置前。</li>
+              <li>权限边界：桌面工具仍受当前任务的访问策略、工作区规则与权限判断约束。</li>
+              <li>窗口激活流程：Skill 要求操作前激活目标窗口，焦点可能变化时再次激活。</li>
               <li>不抢占用户键鼠：Agent 执行动作的同时，用户仍可自由操作。</li>
               <li>Esc 一键中止：全局热键立即退出电脑操控模式，覆盖层与热键同步清理。</li>
-              <li>双链路可用：既可通过内置 MCP 工具调用，也可通过 yan-computer-use Skill 触发。</li>
+              <li>Skill + MCP 协作：yan-computer-use Skill 约束观察与验收流程，Nuphus MCP 执行原生桌面工具。</li>
             </ul>
             <div class="cu-note">
               <strong>初始集成说明</strong> Yan Computer Use 依赖 Nuphus MCP、目标软件可访问性与视觉感知质量；复杂 Canvas、自绘界面或权限窗口仍可能失败。这是 1.4.0 的实验性能力，不是全应用自动化承诺。
