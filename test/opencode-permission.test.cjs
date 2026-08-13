@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { OpenCodeSidecar } = require('../lib/opencode-sidecar');
+const { OpenCodeSidecar, permissionRulesForRun } = require('../lib/opencode-sidecar');
 
 function sidecarWithPermissionReply(reply) {
   const sidecar = new OpenCodeSidecar();
@@ -95,4 +95,19 @@ test('permission reply preserves real OpenCode failures', async () => {
     sidecar.replyPermission({ requestId: 'per_active', directory: 'C:\\workspace', reply: 'once' }),
     /OpenCode permission reply failed: OpenCode server unavailable/
   );
+});
+
+test('Nuphus desktop tools ask in request mode and allow in delegated modes', () => {
+  const mcpServers = [{
+    id: 'nuphus-desktop',
+    runtime: 'nuphus-desktop',
+    command: process.execPath,
+    enabled: true
+  }];
+  const actionFor = accessMode => permissionRulesForRun({ accessMode, mcpServers })
+    .find(rule => rule.permission === 'nuphus-desktop_*')?.action;
+
+  assert.equal(actionFor('request'), 'ask');
+  assert.equal(actionFor('delegate'), 'allow');
+  assert.equal(actionFor('full'), 'allow');
 });

@@ -6,8 +6,7 @@ const net = require('net');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const { pathToFileURL } = require('url');
-const { exec, execFile, spawn } = require('child_process');
-const codeIndex = require('./lib/code-index');
+const { execFile, spawn } = require('child_process');
 const { fetchRemoteModelCatalog, normalizeRemoteModels } = require('./lib/model-catalog');
 const {
   decorateModels,
@@ -20,7 +19,8 @@ const {
   DEFAULT_MODEL_ROLES,
   GLM_VISION_RELAY_MODELS,
   buildMediaModelList,
-  buildQuickModelList,
+  buildQuickSupplierGroups,
+  configuredSupplierModels,
   getModelType
 } = require('./lib/model-roles');
 const { detectImageType, generateImage } = require('./lib/image-generation');
@@ -48,10 +48,11 @@ const {
 const skillRegistry = require('./lib/skill-registry');
 const codeGraphRuntime = require('./lib/codegraph-runtime');
 const understandAnythingRuntime = require('./lib/understand-anything-runtime');
-const { LongTermMemoryStore } = require('./lib/long-term-memory');
+const { LongTermMemoryStore, tokenize: tokenizeMemoryText } = require('./lib/long-term-memory');
 const { SkillEvolutionStore } = require('./lib/skill-evolution');
-const uiKitRegistry = require('./lib/ui-kit-registry');
+const { ContinualHarnessStore } = require('./lib/continual-harness');
 const { launchYanxiCode } = require('./lib/yanxi-launcher');
+const { detectVsCode, launchVsCode } = require('./lib/vscode-launcher');
 const { parseOpenWorkspaceArg, parseYanxiRequestIdArg, createYanxiCodeReceiver } = require('./lib/yanxi-code-receiver');
 const { TerminalManager, resolveWindowsPowerShell } = require('./lib/terminal-manager');
 const crypto = require('crypto');
@@ -66,6 +67,7 @@ const {
 } = require('./lib/opencode-sidecar');
 const { normalizeAgentTone, getActiveToneProfile } = require('./lib/agent-tone');
 const { createSerenaServer } = require('./lib/serena-runtime');
+const gitService = require('./lib/git-service');
 
 const appRoot = __dirname;
 
@@ -135,6 +137,13 @@ let quickInputActive = false;
 let registeredQuickInputShortcut = '';
 const DEFAULT_QUICK_INPUT_SHORTCUT = 'CommandOrControl+Shift+Y';
 let petWindow = null;
+let computerUseOverlayWindow = null;
+let computerUseOverlayTimer = null;
+let computerUseOverlayActive = false;
+let computerUseOverlayReady = false;
+let computerUseOverlayDisplayId = null;
+const computerUseOverlayRunIds = new Set();
+let computerUseEscapeRegistered = false;
 let tray = null;
 let isQuiting = false;
 let remoteServer = null;
@@ -148,8 +157,6 @@ let petState = {
 const remotePending = new Map();
 const activeImageGenerations = new Map();
 const activeVideoGenerations = new Map();
-const activeShellExecutions = new Map();
-const cancelledShellRuns = new Map();
 const generatedImages = new Map();
 const generatedImageViewers = new Map();
 const terminalManager = new TerminalManager({
@@ -374,7 +381,29 @@ async function relayBrowserScreenshotForTextModel(result, runId) {
   };
 }
 
-async function dispatchBrowserAgentCommand(action, params = {}) {
+function cancelDispatchedBrowserAgentOperation(operationId, reason = 'client_cancelled') {
+  const id = String(operationId || '');
+  if (!id) return false;
+  let cancelled = false;
+  for (const [requestId, pending] of browserAgentBridgePending) {
+    if (pending.operationId !== id) continue;
+    browserAgentBridgePending.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve({ ok: false, error: 'Yan 内置浏览器操作已取消。', code: 'BROWSER_ACTION_CANCELLED' });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('browser:agent-command', {
+        requestId: '',
+        operationId: id,
+        action: 'cancel',
+        params: { yan_run_id: pending.runId, operation_id: id, reason }
+      });
+    }
+    cancelled = true;
+  }
+  return cancelled;
+}
+
+async function dispatchBrowserAgentCommand(action, params = {}, { operationId = '' } = {}) {
   if (!BROWSER_AGENT_BRIDGE_ACTIONS.has(action)) {
     return { ok: false, error: `不支持的内置浏览器操作：${action}`, code: 'UNKNOWN_BROWSER_ACTION' };
   }
@@ -388,13 +417,22 @@ async function dispatchBrowserAgentCommand(action, params = {}) {
     return { ok: false, error: 'Yan 主窗口尚未就绪，无法控制内置浏览器。', code: 'YAN_RENDERER_NOT_READY' };
   }
   const requestId = crypto.randomUUID();
+  const browserOperationId = String(operationId || requestId);
   const result = await new Promise(resolve => {
     const timer = setTimeout(() => {
       browserAgentBridgePending.delete(requestId);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('browser:agent-command', {
+          requestId: '',
+          operationId: browserOperationId,
+          action: 'cancel',
+          params: { yan_run_id: authority.runId, operation_id: browserOperationId, reason: 'bridge_timeout' }
+        });
+      }
       resolve({ ok: false, error: 'Yan 内置浏览器操作超时。', code: 'YAN_BROWSER_TIMEOUT' });
     }, 40_000);
-    browserAgentBridgePending.set(requestId, { resolve, timer });
-    mainWindow.webContents.send('browser:agent-command', { requestId, action, params: authorizedParams });
+    browserAgentBridgePending.set(requestId, { resolve, timer, operationId: browserOperationId, runId: authority.runId });
+    mainWindow.webContents.send('browser:agent-command', { requestId, operationId: browserOperationId, action, params: authorizedParams });
   });
   return action === 'screenshot'
     ? relayBrowserScreenshotForTextModel(result, authority.runId)
@@ -420,6 +458,8 @@ function handleBrowserAgentBridgeSocket(socket) {
   socket.setEncoding('utf8');
   let input = '';
   let handled = false;
+  let operationId = '';
+  let operationCompleted = false;
   socket.on('data', chunk => {
     if (handled) return;
     input += String(chunk || '');
@@ -444,14 +484,24 @@ function handleBrowserAgentBridgeSocket(socket) {
       return;
     }
     const action = String(request?.action || '');
+    operationId = String(request?.operationId || crypto.randomUUID());
     const params = request?.params && typeof request.params === 'object' && !Array.isArray(request.params)
       ? request.params
       : {};
-    dispatchBrowserAgentCommand(action, params)
-      .then(result => writeBrowserBridgeResponse(socket, { ok: true, result }))
-      .catch(error => writeBrowserBridgeResponse(socket, plainBrowserBridgeError(error)));
+    dispatchBrowserAgentCommand(action, params, { operationId })
+      .then(result => {
+        operationCompleted = true;
+        writeBrowserBridgeResponse(socket, { ok: true, result });
+      })
+      .catch(error => {
+        operationCompleted = true;
+        writeBrowserBridgeResponse(socket, plainBrowserBridgeError(error));
+      });
   });
   socket.on('error', () => {});
+  socket.on('close', () => {
+    if (operationId && !operationCompleted) cancelDispatchedBrowserAgentOperation(operationId);
+  });
 }
 
 function startBrowserAgentBridge() {
@@ -993,9 +1043,11 @@ const generatedMediaManifestDir = path.join(dataDir, 'generated-media');
 const legacyGeneratedImageTempDir = path.join(app.getPath('temp'), 'YanAgent', 'generated-images');
 const memoryPath = path.join(dataDir, 'memory.json');
 const skillEvolutionPath = path.join(dataDir, 'skill-evolution.json');
+const continualHarnessPath = path.join(dataDir, 'harness', 'harness-state.json');
 const YANAGENT_DIR = '.yanagent';
 const longTermMemory = new LongTermMemoryStore({ globalPath: memoryPath, yanagentDir: YANAGENT_DIR });
 const skillEvolution = new SkillEvolutionStore({ filePath: skillEvolutionPath });
+const continualHarness = new ContinualHarnessStore({ globalPath: continualHarnessPath, yanagentDir: YANAGENT_DIR });
 const MAX_STORED_GENERATED_IMAGES = 100;
 const MAX_STORED_GENERATED_IMAGE_BYTES = 1024 * 1024 * 1024;
 const GENERATED_IMAGE_MIME_BY_EXTENSION = {
@@ -1153,34 +1205,6 @@ function yanagentRoot(workspace) {
   return path.join(workspace, YANAGENT_DIR);
 }
 
-const workspaceIndexCache = new Map();
-
-function codeIndexPath(workspace) {
-  return path.join(yanagentRoot(workspace), 'code-index.json');
-}
-
-async function loadPersistedCodeIndex(workspace) {
-  if (workspaceIndexCache.has(workspace)) return workspaceIndexCache.get(workspace);
-  const p = codeIndexPath(workspace);
-  try {
-    const raw = await fsp.readFile(p, 'utf8');
-    const index = JSON.parse(raw);
-    if (index.workspace === workspace) {
-      workspaceIndexCache.set(workspace, index);
-      return index;
-    }
-  } catch { /* no index yet */ }
-  return null;
-}
-
-async function persistCodeIndex(index) {
-  const ws = index.workspace;
-  await ensureYanagent(ws);
-  await fsp.writeFile(codeIndexPath(ws), JSON.stringify(index), 'utf8');
-  workspaceIndexCache.set(ws, index);
-  return index;
-}
-
 function ensureYanagent(workspace) {
   const root = yanagentRoot(workspace);
   if (!root) return null;
@@ -1260,13 +1284,6 @@ function appendYanagentLog(workspace, line) {
     fs.appendFileSync(logFile, `[${ts}] ${line}\n`, 'utf8');
   } catch (e) { console.error('appendYanagentLog:', e.message); }
 }
-
-function isYanagentPath(filePath) {
-  if (!filePath) return false;
-  const norm = filePath.replace(/\\/g, '/').toLowerCase();
-  return norm.includes('/.yanagent/') || norm.endsWith('/.yanagent');
-}
-
 
 function ensureDirs() {
   for (const dir of [dataDir, sessionsDir, filesDir, skillsDir]) {
@@ -1575,10 +1592,6 @@ function getMergedSkills(cfg) {
   return skillRegistry.getMergedSkillsForList(cfg, appRoot, dataDir);
 }
 
-function getBuiltinSkillIds() {
-  return new Set(DEFAULT_SKILLS.map(s => s.id));
-}
-
 function buildDefaultApiKeys() {
   const keys = {};
   for (const id of Object.keys(MODEL_PROVIDERS)) {
@@ -1601,6 +1614,38 @@ function buildDefaultProviderConfigs() {
   return configs;
 }
 
+function normalizeProviderSupplier(raw, provider, fallbackId = 'official', fallbackName = '官方') {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const id = String(value.id || fallbackId).trim() || fallbackId;
+  const name = String(value.name || fallbackName).trim() || fallbackName;
+  return {
+    id,
+    name,
+    kind: String(value.kind || (id === 'official' ? 'official' : 'custom')).trim() || 'custom',
+    baseUrl: String(value.baseUrl || provider?.baseUrl || '').trim().replace(/\/$/, ''),
+    apiKey: String(value.apiKey || '').trim(),
+    imageGenerationUrl: String(value.imageGenerationUrl || '').trim(),
+    imageEditUrl: String(value.imageEditUrl || '').trim(),
+    videoGenerationUrl: String(value.videoGenerationUrl || '').trim(),
+    workspaceId: String(value.workspaceId || '').trim(),
+    models: normalizeRemoteModels(value.models || [])
+  };
+}
+
+function buildDefaultProviderSuppliers() {
+  const suppliers = {};
+  for (const [id, provider] of Object.entries(MODEL_PROVIDERS)) {
+    suppliers[id] = [normalizeProviderSupplier({
+      id: 'official',
+      name: '官方',
+      kind: 'official',
+      baseUrl: provider.baseUrl,
+      models: provider.dynamicModels ? [] : provider.models
+    }, provider)];
+  }
+  return suppliers;
+}
+
 function normalizeProviderConfig(raw, provider) {
   const value = raw && typeof raw === 'object' ? raw : {};
   return {
@@ -1608,22 +1653,155 @@ function normalizeProviderConfig(raw, provider) {
     apiKey: String(value.apiKey || '').trim(),
     imageGenerationUrl: String(value.imageGenerationUrl || '').trim(),
     imageEditUrl: String(value.imageEditUrl || '').trim(),
+    videoGenerationUrl: String(value.videoGenerationUrl || '').trim(),
     workspaceId: String(value.workspaceId || '').trim()
   };
 }
 
+function normalizeCustomModelEntry(raw = {}, legacy = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const legacyValue = legacy && typeof legacy === 'object' ? legacy : {};
+  const rawModels = Array.isArray(value.models) && value.models.length
+    ? value.models
+    : (Array.isArray(legacyValue.models) ? legacyValue.models : []);
+  const firstModel = rawModels.find(model => model && typeof model === 'object' && model.id)
+    || rawModels.find(model => typeof model === 'string');
+  const modelId = String(value.modelId || firstModel?.id || firstModel || legacyValue.modelId || '').trim();
+  const modelName = String(value.modelName || firstModel?.name || modelId || '自定义模型').trim() || '自定义模型';
+  const model = modelId
+    ? { id: modelId, name: modelName, modelType: 'text', source: 'custom' }
+    : null;
+  return {
+    id: 'custom-model',
+    name: '自定义模型',
+    modelName,
+    modelId,
+    baseUrl: String(value.baseUrl || legacyValue.baseUrl || '').trim().replace(/\/$/u, ''),
+    apiKey: String(value.apiKey || legacyValue.apiKey || '').trim(),
+    apiFormat: String(value.apiFormat || legacyValue.apiFormat || 'openai').trim().toLowerCase() === 'anthropic'
+      ? 'anthropic'
+      : 'openai',
+    models: model ? [model] : []
+  };
+}
+
+function syncCustomProviders(cfg) {
+  for (const key of Object.keys(MODEL_PROVIDERS)) {
+    if (key.startsWith('custom-')) delete MODEL_PROVIDERS[key];
+  }
+  const customs = Array.isArray(cfg?.customProviders) ? cfg.customProviders : [];
+  const activeLegacyId = String(cfg.api?.provider || '').startsWith('custom-')
+    ? String(cfg.api.provider)
+    : '';
+  const legacy = customs.find(item => item?.id === activeLegacyId)
+    || customs.find(item => {
+      const id = String(item?.id || '');
+      const supplierId = String(cfg.api?.providerActiveSupplierIds?.[id] || 'official');
+      const supplier = cfg.api?.providerSuppliers?.[id]?.find(candidate => candidate.id === supplierId)
+        || cfg.api?.providerSuppliers?.[id]?.[0];
+      return !!(supplier?.apiKey || cfg.api?.providerConfigs?.[id]?.apiKey || cfg.api?.apiKeys?.[id]);
+    })
+    || customs.find(item => item && typeof item === 'object')
+    || {};
+  const legacyId = String(legacy.id || '').trim();
+  const legacySupplierId = String(cfg.api?.providerActiveSupplierIds?.[legacyId] || 'official').trim();
+  const legacySupplier = cfg.api?.providerSuppliers?.[legacyId]?.find(item => item.id === legacySupplierId)
+    || cfg.api?.providerSuppliers?.[legacyId]?.[0]
+    || {};
+  const legacyProviderConfig = cfg.api?.providerConfigs?.[legacyId] || {};
+  const legacyModels = cfg.providerModels?.[legacyId] || legacy.models || [];
+  const storedCustomModel = cfg.customModel && (
+    cfg.customModel.modelId || cfg.customModel.baseUrl || cfg.customModel.apiKey || cfg.customModel.models?.length
+  ) ? cfg.customModel : legacy;
+  const entry = normalizeCustomModelEntry(
+    storedCustomModel,
+    {
+      ...legacy,
+      ...legacyProviderConfig,
+      ...legacySupplier,
+      apiKey: legacySupplier.apiKey || legacyProviderConfig.apiKey || cfg.api?.apiKeys?.[legacyId] || legacy.apiKey,
+      models: legacyModels
+    }
+  );
+  if (legacyId && legacyId !== 'custom-model') {
+    if (cfg.api?.provider === legacyId) cfg.api.provider = 'custom-model';
+    if (cfg.agentModel?.providerId === legacyId) {
+      cfg.agentModel = {
+        ...cfg.agentModel,
+        providerId: 'custom-model',
+        modelId: entry.modelId,
+        name: entry.modelName || entry.modelId
+      };
+    }
+  }
+  cfg.customModel = entry;
+  cfg.customProviders = [entry];
+  if (!cfg.providerModels || typeof cfg.providerModels !== 'object') cfg.providerModels = {};
+  cfg.providerModels['custom-model'] = entry.models;
+  if (!cfg.api || typeof cfg.api !== 'object') cfg.api = {};
+  if (!cfg.api.providerConfigs || typeof cfg.api.providerConfigs !== 'object') cfg.api.providerConfigs = {};
+  if (!cfg.api.apiKeys || typeof cfg.api.apiKeys !== 'object') cfg.api.apiKeys = {};
+  cfg.api.providerConfigs['custom-model'] = normalizeProviderConfig(entry, {
+    baseUrl: entry.baseUrl
+  });
+  cfg.api.apiKeys['custom-model'] = entry.apiKey;
+  MODEL_PROVIDERS['custom-model'] = {
+    id: 'custom-model',
+    name: '自定义模型',
+    baseUrl: entry.baseUrl,
+    apiKeyPlaceholder: 'sk-...',
+    dynamicModels: true,
+    models: entry.models,
+    custom: true,
+    apiFormat: entry.apiFormat
+  };
+}
+
 function ensureProviderConfigs(cfg) {
+  if (!cfg.api || typeof cfg.api !== 'object') cfg.api = {};
+  if (!cfg.api.providerSuppliers || typeof cfg.api.providerSuppliers !== 'object') {
+    cfg.api.providerSuppliers = buildDefaultProviderSuppliers();
+  }
+  if (!cfg.api.providerActiveSupplierIds || typeof cfg.api.providerActiveSupplierIds !== 'object') {
+    cfg.api.providerActiveSupplierIds = {};
+  }
   if (!cfg.api.providerConfigs || typeof cfg.api.providerConfigs !== 'object') {
     cfg.api.providerConfigs = buildDefaultProviderConfigs();
   }
   if (!cfg.api.apiKeys) cfg.api.apiKeys = buildDefaultApiKeys();
   for (const [id, provider] of Object.entries(MODEL_PROVIDERS)) {
-    const raw = cfg.api.providerConfigs[id];
-    const current = normalizeProviderConfig(raw, provider);
+    const legacy = normalizeProviderConfig(cfg.api.providerConfigs[id], provider);
+    let suppliers = Array.isArray(cfg.api.providerSuppliers[id])
+      ? cfg.api.providerSuppliers[id].map(item => normalizeProviderSupplier(item, provider))
+      : [];
+    if (!suppliers.length) {
+      suppliers = [normalizeProviderSupplier({
+        id: 'official',
+        name: provider.custom ? '自定义模型' : '官方',
+        kind: 'official',
+        ...legacy,
+        models: cfg.providerModels?.[id] || (provider.dynamicModels ? [] : provider.models)
+      }, provider)];
+    }
+    let activeId = String(cfg.api.providerActiveSupplierIds[id] || '').trim();
+    if (!activeId || !suppliers.some(item => item.id === activeId)) {
+      activeId = suppliers.find(item => item.id === 'official')?.id || suppliers[0].id;
+    }
+    const active = suppliers.find(item => item.id === activeId) || suppliers[0];
     const legacyKey = cfg.api.apiKeys[id];
-    if (!current.apiKey && legacyKey) current.apiKey = String(legacyKey).trim();
+    if (!active.apiKey && legacy.apiKey) active.apiKey = legacy.apiKey;
+    if (!active.apiKey && legacyKey) active.apiKey = String(legacyKey).trim();
+    if (!active.baseUrl && legacy.baseUrl) active.baseUrl = legacy.baseUrl;
+    cfg.api.providerSuppliers[id] = suppliers;
+    cfg.api.providerActiveSupplierIds[id] = activeId;
+    const current = normalizeProviderConfig(active, provider);
     cfg.api.providerConfigs[id] = current;
     cfg.api.apiKeys[id] = current.apiKey;
+    if (!cfg.providerModels || typeof cfg.providerModels !== 'object') cfg.providerModels = {};
+    cfg.providerModels[id] = active.models.length
+      ? active.models
+      : (cfg.providerModels[id] || (provider.dynamicModels ? [] : provider.models));
+    active.models = normalizeRemoteModels(cfg.providerModels[id] || []);
   }
   const providerIds = new Set(Object.keys(MODEL_PROVIDERS));
   for (const key of Object.keys(cfg.api.providerConfigs)) {
@@ -1647,10 +1825,117 @@ function getProviderConnection(cfg, providerId) {
     apiKey: '',
     imageGenerationUrl: '',
     imageEditUrl: '',
+    videoGenerationUrl: '',
     workspaceId: ''
   };
   ensureProviderConfigs(cfg);
   return normalizeProviderConfig(cfg.api.providerConfigs[providerId], provider);
+}
+
+/**
+ * Resolve a supplier without changing the provider-wide UI cursor.  The
+ * provider-wide active supplier is retained for the settings dialog and for
+ * backwards compatibility, while runtime roles carry their own supplierId.
+ */
+function getProviderSupplier(cfg, providerId, supplierId = '') {
+  const suppliers = getProviderSuppliers(cfg, providerId);
+  const requested = String(supplierId || '').trim();
+  const activeId = requested || String(cfg.api.providerActiveSupplierIds?.[providerId] || '').trim();
+  return suppliers.find(item => item.id === activeId)
+    || suppliers.find(item => item.id === 'official')
+    || suppliers[0]
+    || null;
+}
+
+function getProviderConnectionForSupplier(cfg, providerId, supplierId = '') {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider) return normalizeProviderConfig({}, { baseUrl: '' });
+  const supplier = getProviderSupplier(cfg, providerId, supplierId);
+  return normalizeProviderConfig(supplier || cfg.api?.providerConfigs?.[providerId], provider);
+}
+
+function getProviderSuppliers(cfg, providerId) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider) return [];
+  ensureProviderConfigs(cfg);
+  const raw = Array.isArray(cfg.api.providerSuppliers?.[providerId])
+    ? cfg.api.providerSuppliers[providerId]
+    : [];
+  cfg.api.providerSuppliers[providerId] = raw.map(item => normalizeProviderSupplier(item, provider));
+  return cfg.api.providerSuppliers[providerId];
+}
+
+function getActiveProviderSupplier(cfg, providerId) {
+  const suppliers = getProviderSuppliers(cfg, providerId);
+  const activeId = String(cfg.api.providerActiveSupplierIds?.[providerId] || '').trim();
+  return suppliers.find(item => item.id === activeId) || suppliers[0] || null;
+}
+
+function syncActiveProviderSupplier(cfg, providerId, supplier) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider || !supplier) return;
+  const normalized = normalizeProviderSupplier(supplier, provider);
+  cfg.api.providerActiveSupplierIds[providerId] = normalized.id;
+  cfg.api.providerConfigs[providerId] = normalizeProviderConfig(normalized, provider);
+  cfg.api.apiKeys[providerId] = normalized.apiKey;
+  if (!cfg.providerModels) cfg.providerModels = {};
+  cfg.providerModels[providerId] = normalized.models || [];
+}
+
+function rebindRolesAfterSupplierRemoval(cfg, providerId, supplierId) {
+  const removed = String(supplierId || '').trim();
+  if (!removed) return;
+  const providerOrder = [providerId, ...Object.keys(MODEL_PROVIDERS).filter(id => id !== providerId)];
+  const pick = (role, currentModelId) => {
+    let first = null;
+    for (const candidateProviderId of providerOrder) {
+      for (const supplier of getProviderSuppliers(cfg, candidateProviderId)) {
+        if (!supplier.apiKey || (candidateProviderId === providerId && supplier.id === removed)) continue;
+        const models = getProviderSupplierCatalog(candidateProviderId, supplier);
+        const exact = models.find(model => model.id === currentModelId && getModelType(candidateProviderId, model) === role);
+        if (exact) return { providerId: candidateProviderId, supplier, model: exact };
+        const model = models.find(item => getModelType(candidateProviderId, item) === role);
+        if (!first && model) first = { providerId: candidateProviderId, supplier, model };
+      }
+    }
+    return first;
+  };
+
+  if (cfg.agentModel?.providerId === providerId && cfg.agentModel?.supplierId === removed) {
+    const replacement = pick('text', cfg.agentModel.modelId);
+    if (replacement) {
+      cfg.agentModel.providerId = replacement.providerId;
+      cfg.agentModel.supplierId = replacement.supplier.id;
+      cfg.agentModel.modelId = replacement.model.id;
+      cfg.agentModel.name = replacement.model.name || replacement.model.id;
+      cfg.agentModel.capabilities = replacement.model.capabilities || {};
+      const connection = getProviderConnectionForSupplier(cfg, replacement.providerId, replacement.supplier.id);
+      cfg.api.provider = replacement.providerId;
+      cfg.api.baseUrl = connection.baseUrl;
+      cfg.api.apiKey = connection.apiKey;
+      cfg.api.model = replacement.model.id;
+      cfg.models = getProviderModels(cfg, replacement.providerId, replacement.supplier.id);
+    } else {
+      cfg.agentModel.supplierId = '';
+      cfg.agentModel.modelId = '';
+    }
+  }
+
+  for (const role of ['image', 'video']) {
+    if (cfg.media?.[`${role}Provider`] !== providerId || cfg.media?.[`${role}SupplierId`] !== removed) continue;
+    const replacement = pick(role, cfg.media[`${role}Model`]);
+    if (replacement) {
+      cfg.media[`${role}Provider`] = replacement.providerId;
+      cfg.media[`${role}SupplierId`] = replacement.supplier.id;
+      cfg.media[`${role}Model`] = replacement.model.id;
+      cfg.media[`${role}Name`] = replacement.model.name || replacement.model.id;
+    } else {
+      cfg.media[`${role}Provider`] = '';
+      cfg.media[`${role}Model`] = '';
+      cfg.media[`${role}SupplierId`] = '';
+      cfg.media[`${role}Name`] = '';
+    }
+  }
 }
 
 function mergeProviderModelCatalog(...groups) {
@@ -1665,15 +1950,47 @@ function mergeProviderModelCatalog(...groups) {
   return [...models.values()];
 }
 
-function getProviderModels(cfg, providerId) {
+function getProviderModels(cfg, providerId, supplierId = '') {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return [];
+  const activeSupplier = getProviderSupplier(cfg, providerId, supplierId);
   const models = provider.dynamicModels
     ? mergeProviderModelCatalog(
-        normalizeRemoteModels(cfg?.providerModels?.[providerId] || []),
+        normalizeRemoteModels(activeSupplier?.models || cfg?.providerModels?.[providerId] || []),
         STATIC_PROVIDER_MEDIA_MODELS[providerId] || []
       )
     : mergeProviderModelCatalog(provider.models, STATIC_PROVIDER_MEDIA_MODELS[providerId] || []);
+  return decorateModels(providerId, models);
+}
+
+function getRoleSupplierId(cfg, role, providerId) {
+  const id = String(providerId || '').trim();
+  if (!id) return '';
+  if (role === 'text') {
+    if (cfg.agentModel?.providerId === id && cfg.agentModel?.supplierId) {
+      return String(cfg.agentModel.supplierId).trim();
+    }
+  } else if (role === 'image' || role === 'video') {
+    if (cfg.media?.[`${role}Provider`] === id && cfg.media?.[`${role}SupplierId`]) {
+      return String(cfg.media[`${role}SupplierId`]).trim();
+    }
+  }
+  return String(cfg.api?.providerActiveSupplierIds?.[id] || '').trim();
+}
+
+function getProviderSupplierCatalog(providerId, supplier) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider || !supplier) return [];
+  const models = provider.dynamicModels
+    ? mergeProviderModelCatalog(
+        normalizeRemoteModels(supplier.models || []),
+        STATIC_PROVIDER_MEDIA_MODELS[providerId] || []
+      )
+    : mergeProviderModelCatalog(
+        provider.models,
+        supplier.models || [],
+        STATIC_PROVIDER_MEDIA_MODELS[providerId] || []
+      );
   return decorateModels(providerId, models);
 }
 
@@ -1687,11 +2004,13 @@ function getConfiguredMediaModels(cfg) {
   return ['image', 'video'].flatMap(role => {
     const providerId = String(media[`${role}Provider`] || '');
     const modelId = String(media[`${role}Model`] || '');
+    const supplierId = String(media[`${role}SupplierId`] || getRoleSupplierId(cfg, role, providerId) || '');
     if (!providerId || !modelId) return [];
-    const model = getProviderModels(cfg, providerId).find(item => item.id === modelId);
+    const model = getProviderModels(cfg, providerId, supplierId).find(item => item.id === modelId);
     return model ? [{
       role,
       providerId,
+      supplierId,
       providerName: MODEL_PROVIDERS[providerId]?.name || providerId,
       modelId,
       modelName: model.name || modelId
@@ -1716,7 +2035,7 @@ function buildYanMediaMcpServer(cfg, childAppRoot, options = {}) {
     }
   };
   for (const selection of configured) {
-    const connection = getProviderConnection(cfg, selection.providerId);
+    const connection = getProviderConnectionForSupplier(cfg, selection.providerId, selection.supplierId);
     if (!connection.apiKey) continue;
     if (selection.role === 'image' && cfg.imageGeneration?.available) {
       runtime.image = {
@@ -1739,7 +2058,8 @@ function buildYanMediaMcpServer(cfg, childAppRoot, options = {}) {
         baseUrl: connection.baseUrl,
         apiKey: connection.apiKey,
         providerOptions: {
-          workspaceId: connection.workspaceId
+          workspaceId: connection.workspaceId,
+          videoGenerationUrl: connection.videoGenerationUrl
         }
       };
     }
@@ -1780,10 +2100,6 @@ function buildYanSkillsMcpServer(cfg, childAppRoot, options = {}) {
       YAN_SKILLS_CONFIG_PATH: configPath,
       YAN_SKILLS_APP_ROOT: childAppRoot,
       YAN_SKILLS_CLI: cli,
-      YAN_SKILLS_SELECTED_IDS: Buffer.from(
-        JSON.stringify([...selectedSkillIds(options.selectedSkills)]),
-        'utf8'
-      ).toString('base64'),
       YAN_SKILLS_ALLOW_NETWORK: cfg.permissions?.allowNetwork === false ? 'false' : 'true'
     },
     enabled: true,
@@ -1836,19 +2152,57 @@ function buildYanSessionMcpServer(childAppRoot) {
   };
 }
 
-function buildYanComputerControlMcpServer(childAppRoot) {
+function buildYanHarnessMcpServer(childAppRoot, options = {}) {
+  const runId = String(options.runId || '');
+  if (!runId) return null;
+  const requestPath = path.join(dataDir, 'harness', 'pending', `${runId}.json`);
+  try { fs.rmSync(requestPath, { force: true }); } catch {}
   return {
-    id: 'yan-computer-control',
-    name: 'Yan Computer Control',
-    description: '操控用户本地 Windows 电脑上的软件，执行点击、输入、截图等操作。',
-    runtime: 'yan-computer-control',
+    id: 'yan_harness',
+    name: 'Yan Continual Harness',
+    description: '将重复失败、可复用策略或子智能体角色排队，在本轮完成后进行证据化演进；运行中不会改写当前提示。',
+    runtime: 'yan-harness',
     command: process.execPath,
-    args: [path.join(childAppRoot, 'lib', 'mcp-computer-control-server.js')],
-    env: { ELECTRON_RUN_AS_NODE: '1' },
+    args: [path.join(childAppRoot, 'lib', 'yan-harness-mcp.js')],
+    env: {
+      ELECTRON_RUN_AS_NODE: '1',
+      YAN_HARNESS_REQUEST_PATH: requestPath,
+      YAN_HARNESS_RUN_ID: runId,
+      YAN_HARNESS_SESSION_ID: String(options.yanSessionId || ''),
+      YAN_HARNESS_WORKSPACE: String(options.workspace || ''),
+      YAN_HARNESS_GLOBAL_STATE_PATH: continualHarnessPath,
+      YAN_HARNESS_WORKSPACE_STATE_PATH: options.workspace
+        ? continualHarness.statePath({ scope: 'workspace', workspace: options.workspace })
+        : ''
+    },
     enabled: true,
     builtin: true,
     systemManaged: true,
-    timeout: 30_000
+    timeout: 180_000
+  };
+}
+
+function buildNuphusDesktopMcpServer(cfg, childAppRoot) {
+  if (process.platform !== 'win32') return null;
+  const visionModel = cfg.permissions?.allowNetwork === false ? null : getVisionRelayModels(cfg)[0];
+  const env = { ELECTRON_RUN_AS_NODE: '1' };
+  if (visionModel) {
+    env.NUPHUS_MCP_VISION_API_KEY = visionModel.apiKey;
+    env.NUPHUS_MCP_VISION_BASE_URL = visionModel.baseUrl;
+    env.NUPHUS_MCP_VISION_MODEL = visionModel.modelId;
+  }
+  return {
+    id: 'nuphus-desktop',
+    name: 'Nuphus Desktop',
+    description: '官方 Nuphus Windows 桌面操控工具；Yan 仅隐藏其浏览器工具以避免与内置浏览器冲突。',
+    runtime: 'nuphus-desktop',
+    command: process.execPath,
+    args: [path.join(childAppRoot, 'lib', 'nuphus-desktop-mcp.js')],
+    env,
+    enabled: true,
+    builtin: true,
+    systemManaged: true,
+    timeout: 180_000
   };
 }
 
@@ -1893,7 +2247,12 @@ function getOpenCodeMcpServers(cfg, options = {}) {
   if (browserServer) servers.push(browserServer);
   const sessionServer = buildYanSessionMcpServer(childAppRoot);
   if (sessionServer) servers.push(sessionServer);
-  servers.push(buildYanComputerControlMcpServer(childAppRoot));
+  const harnessServer = buildYanHarnessMcpServer(childAppRoot, options);
+  if (harnessServer) servers.push(harnessServer);
+  const nuphusDesktopServer = buildNuphusDesktopMcpServer(cfg, childAppRoot);
+  if (nuphusDesktopServer && !servers.some(server => server.id === nuphusDesktopServer.id)) {
+    servers.push(nuphusDesktopServer);
+  }
   return servers;
 }
 
@@ -1967,8 +2326,8 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
   const selection = normalizeAgentModelSelection(cfg);
   const providerId = selection.providerId || cfg.api?.provider;
   const provider = MODEL_PROVIDERS[providerId] || { id: providerId, name: providerId };
-  const connection = getProviderConnection(cfg, providerId);
-  const model = getProviderModels(cfg, providerId).find(item => item.id === selection.modelId) || selection;
+  const connection = getProviderConnectionForSupplier(cfg, providerId, selection.supplierId);
+  const model = getProviderModels(cfg, providerId, selection.supplierId).find(item => item.id === selection.modelId) || selection;
   return buildOpenCodeConfig({
     providerId,
     providerName: provider.name || providerId,
@@ -1977,19 +2336,21 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
     capabilities: model.capabilities || selection.capabilities || {},
     apiKey: connection.apiKey,
     baseUrl: connection.baseUrl,
+    apiFormat: provider.apiFormat || 'openai',
     deepSeekProviderModule: stageDeepSeekProviderModule({ appRoot, dataDir }),
     reasoningSpeed: cfg.api?.reasoningSpeed,
     workMode: cfg.agent?.workMode,
     accessMode: cfg.agent?.accessMode,
     permissions: cfg.permissions,
     yanSkillDirectory: skillsDir,
-    mcpServers: Array.isArray(options.mcpServers) ? options.mcpServers : getOpenCodeMcpServers(cfg),
-    skillPaths: [skillsDir]
+    mcpServers: Array.isArray(options.mcpServers) ? options.mcpServers : getOpenCodeMcpServers(cfg)
   });
 }
 
-function getOpenCodeCapabilityContext(cfg, mcpServers) {
-  const skills = getMergedSkills(cfg).filter(skill => !skill.userOnly).map(skill => ({
+function getOpenCodeCapabilityContext(cfg, mcpServers, options = {}) {
+  const skippedIds = new Set((Array.isArray(options.skippedSkills) ? options.skippedSkills : [])
+    .map(skill => String(skill?.id || '').trim().toLowerCase()).filter(Boolean));
+  const skills = getMergedSkills(cfg).filter(skill => !skill.userOnly && !skippedIds.has(String(skill?.id || '').trim().toLowerCase())).map(skill => ({
     id: String(skill.id || ''),
     name: String(skill.name || skill.id || ''),
     description: String(skill.desc || ''),
@@ -2026,10 +2387,11 @@ function isImageAttachmentForRelay(attachment = {}) {
 }
 
 function resolveVisionRelayModel(cfg, providerId, modelId) {
-  const connection = getProviderConnection(cfg, providerId);
+  const supplierId = getRoleSupplierId(cfg, 'text', providerId);
+  const connection = getProviderConnectionForSupplier(cfg, providerId, supplierId);
   if (!connection.apiKey || !connection.baseUrl) return null;
   const fallbackModels = providerId === 'glm' ? GLM_VISION_RELAY_MODELS : AGNES_FALLBACK_MODELS;
-  const model = getProviderModels(cfg, providerId).find(item => item.id === modelId)
+  const model = getProviderModels(cfg, providerId, supplierId).find(item => item.id === modelId)
     || fallbackModels.find(item => item.id === modelId);
   const capabilities = model ? resolveModelCapabilities(providerId, model) : null;
   if (!model || capabilities?.modelType !== 'text' || capabilities.imageInput !== true) return null;
@@ -2156,15 +2518,23 @@ function normalizeMediaConfig(cfg) {
   for (const role of ['image', 'video']) {
     const providerKey = `${role}Provider`;
     const modelKey = `${role}Model`;
+    const supplierKey = `${role}SupplierId`;
     const nameKey = `${role}Name`;
     const providerId = MODEL_PROVIDERS[next[providerKey]] ? String(next[providerKey]) : '';
     const modelId = String(next[modelKey] || '').trim();
+    const requestedSupplierId = providerId
+      ? String(next[supplierKey] || cfg.api?.providerActiveSupplierIds?.[providerId] || '').trim()
+      : '';
+    const supplierId = providerId
+      ? String(getProviderSupplier(cfg, providerId, requestedSupplierId)?.id || '')
+      : '';
     const model = providerId && modelId
-      ? getProviderModels(cfg, providerId).find(item => item.id === modelId && getModelType(providerId, item) === role)
+      ? getProviderModels(cfg, providerId, supplierId).find(item => item.id === modelId && getModelType(providerId, item) === role)
       : null;
-    const configured = providerId && !!String(getProviderConnection(cfg, providerId).apiKey || '').trim();
+    const configured = providerId && !!String(getProviderConnectionForSupplier(cfg, providerId, supplierId).apiKey || '').trim();
     next[providerKey] = model && configured ? providerId : '';
     next[modelKey] = model && configured ? model.id : '';
+    next[supplierKey] = model && configured ? supplierId : '';
     next[nameKey] = model && configured ? String(model.name || model.id) : '';
   }
   cfg.media = next;
@@ -2175,11 +2545,13 @@ function updateImageGenerationConfig(cfg) {
   const media = normalizeMediaConfig(cfg);
   const imageProvider = media.imageProvider;
   cfg.imageGeneration = imageProvider && media.imageModel
-    ? resolveImageGenerationConfig(imageProvider, media.imageModel, getProviderModels(cfg, imageProvider))
+    ? resolveImageGenerationConfig(imageProvider, media.imageModel, getProviderModels(cfg, imageProvider, media.imageSupplierId))
     : { available: false, strategy: '', providerId: '', model: '' };
   cfg.videoGeneration = media.videoProvider && media.videoModel
-    ? resolveVideoGenerationConfig(media.videoProvider, media.videoModel, getProviderModels(cfg, media.videoProvider))
+    ? resolveVideoGenerationConfig(media.videoProvider, media.videoModel, getProviderModels(cfg, media.videoProvider, media.videoSupplierId))
     : { available: false, providerId: '', model: '' };
+  if (cfg.imageGeneration?.available) cfg.imageGeneration.supplierId = media.imageSupplierId || '';
+  if (cfg.videoGeneration?.available) cfg.videoGeneration.supplierId = media.videoSupplierId || '';
   return cfg.imageGeneration;
 }
 
@@ -2190,10 +2562,13 @@ function resolveRequestedGenerationConfig(cfg, type, providerId = '', modelId = 
   const fallbackModelId = media[`${role}Model`];
   const selectedProviderId = MODEL_PROVIDERS[providerId] ? providerId : fallbackProviderId;
   const selectedModelId = String(modelId || '').trim() || fallbackModelId;
+  const selectedSupplierId = selectedProviderId === fallbackProviderId
+    ? String(media[`${role}SupplierId`] || getRoleSupplierId(cfg, role, selectedProviderId) || '')
+    : getRoleSupplierId(cfg, role, selectedProviderId);
   if (!selectedProviderId || !selectedModelId) {
     return { error: `尚未选择${role === 'image' ? '生图' : '生视频'}模型` };
   }
-  const models = getProviderModels(cfg, selectedProviderId);
+  const models = getProviderModels(cfg, selectedProviderId, selectedSupplierId);
   const selected = models.find(item => item.id === selectedModelId);
   if (!selected || getModelType(selectedProviderId, selected) !== role) {
     return { error: `所选${role === 'image' ? '图像' : '视频'}模型不可用，请重新选择模型` };
@@ -2204,7 +2579,7 @@ function resolveRequestedGenerationConfig(cfg, type, providerId = '', modelId = 
   if (!config.available || config.model !== selectedModelId) {
     return { error: `所选${role === 'image' ? '图像' : '视频'}模型没有可用的生成能力` };
   }
-  return config;
+  return { ...config, supplierId: selectedSupplierId };
 }
 
 function normalizeAgentModelSelection(cfg) {
@@ -2215,15 +2590,21 @@ function normalizeAgentModelSelection(cfg) {
   };
   const stored = cfg.agentModel && typeof cfg.agentModel === 'object' ? cfg.agentModel : fallback;
   const providerId = MODEL_PROVIDERS[stored.providerId] ? stored.providerId : fallback.providerId;
-  const models = getProviderModels(cfg, providerId);
+  const storedSupplierId = String(stored.supplierId || '').trim();
+  const supplier = getProviderSupplier(cfg, providerId, storedSupplierId);
+  const supplierId = supplier?.id || storedSupplierId || getRoleSupplierId(cfg, 'text', providerId);
+  const models = getProviderModels(cfg, providerId, supplierId);
   const modelId = String(stored.modelId || stored.model || '').trim();
   const model = models.find(item => item.id === modelId);
-  const fallbackModels = getProviderModels(cfg, fallback.providerId);
+  const fallbackSupplier = getProviderSupplier(cfg, fallback.providerId, String(fallback.supplierId || '').trim());
+  const fallbackSupplierId = fallbackSupplier?.id || getRoleSupplierId(cfg, 'text', fallback.providerId);
+  const fallbackModels = getProviderModels(cfg, fallback.providerId, fallbackSupplierId);
   const fallbackModel = fallbackModels.find(item => item.id === fallback.modelId && getModelType(fallback.providerId, item) === 'text')
     || fallbackModels.find(item => getModelType(fallback.providerId, item) === 'text');
   const selected = model && getModelType(providerId, model) === 'text'
     ? {
         providerId,
+        supplierId,
         modelId: model.id,
         modelType: getModelType(providerId, model),
         name: model.name || model.id,
@@ -2231,6 +2612,7 @@ function normalizeAgentModelSelection(cfg) {
       }
     : {
         providerId: fallback.providerId,
+        supplierId: fallbackSupplierId,
         modelId: fallbackModel?.id || fallback.modelId,
         modelType: 'text',
         name: fallbackModel?.name || fallback.modelId,
@@ -2241,20 +2623,21 @@ function normalizeAgentModelSelection(cfg) {
 }
 
 function buildPublicModelState(cfg = loadConfig()) {
-  const provider = cfg.api?.provider || '';
-  const models = getProviderModels(cfg, provider).map(model => ({
+  const agentModel = cfg.agentModel || normalizeAgentModelSelection(cfg);
+  const provider = agentModel.providerId || cfg.api?.provider || '';
+  const models = getProviderModels(cfg, provider, agentModel.supplierId).map(model => ({
     id: model.id,
     name: model.name || model.id,
     capabilities: model.capabilities || {}
   }));
-  const current = models.find(model => model.id === cfg.api?.model) || null;
+  const current = models.find(model => model.id === agentModel.modelId) || null;
   return {
     provider,
     providerName: MODEL_PROVIDERS[provider]?.name || provider,
     model: current?.id || '',
     capabilities: current?.capabilities || {},
     models,
-    agentModel: cfg.agentModel || normalizeAgentModelSelection(cfg),
+    agentModel,
     media: normalizeMediaConfig(cfg)
   };
 }
@@ -2270,16 +2653,18 @@ function publishModelState(cfg) {
 
 function setActiveModel(modelId) {
   const cfg = loadConfig();
-  return setActiveModelRole(cfg.api.provider, modelId);
+  const selection = normalizeAgentModelSelection(cfg);
+  return setActiveModelRole(selection.providerId, modelId, 'text', selection.supplierId);
 }
 
-function setActiveModelRole(providerId, modelId, expectedType = '') {
+function setActiveModelRole(providerId, modelId, expectedType = '', supplierId = '') {
   const cfg = loadConfig();
   const id = String(modelId || '').trim();
   if (!id && ['image', 'video'].includes(expectedType)) {
     normalizeMediaConfig(cfg);
     cfg.media[`${expectedType}Provider`] = '';
     cfg.media[`${expectedType}Model`] = '';
+    cfg.media[`${expectedType}SupplierId`] = '';
     normalizeAgentModelSelection(cfg);
     updateImageGenerationConfig(cfg);
     saveConfig(cfg);
@@ -2288,14 +2673,23 @@ function setActiveModelRole(providerId, modelId, expectedType = '') {
   }
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return { error: '未知模型厂商' };
-  const models = getProviderModels(cfg, providerId);
+  const requestedSupplierId = String(supplierId || '').trim();
+  const role = expectedType === 'image' || expectedType === 'video' ? expectedType : 'text';
+  const selectedSupplier = getProviderSupplier(cfg, providerId, requestedSupplierId || getRoleSupplierId(cfg, role, providerId));
+  if (!selectedSupplier) return { error: '供应商不存在' };
+  if (requestedSupplierId && !selectedSupplier.apiKey) return { error: '供应商尚未配置' };
+  const selectedSupplierId = selectedSupplier.id;
+  // Keep the text picker cursor aligned with the text role. Media choices must
+  // not move that cursor: image/video suppliers are independent roles.
+  if (role === 'text') cfg.api.providerActiveSupplierIds[providerId] = selectedSupplierId;
+  const models = getProviderModels(cfg, providerId, selectedSupplierId);
   const model = models.find(item => item.id === id);
   if (!model) return { error: '模型不属于指定厂商' };
   const modelType = getModelType(providerId, model);
   if (expectedType && expectedType !== modelType) return { error: '模型类型与目标角色不匹配' };
 
   if (modelType === 'text') {
-    const connection = getProviderConnection(cfg, providerId);
+    const connection = getProviderConnectionForSupplier(cfg, providerId, selectedSupplierId);
     cfg.api.provider = providerId;
     cfg.api.baseUrl = connection.baseUrl;
     cfg.api.apiKey = connection.apiKey;
@@ -2303,6 +2697,7 @@ function setActiveModelRole(providerId, modelId, expectedType = '') {
     cfg.models = models;
     cfg.agentModel = {
       providerId,
+      supplierId: selectedSupplierId,
       modelId: id,
       modelType: 'text',
       name: model.name || id,
@@ -2312,6 +2707,7 @@ function setActiveModelRole(providerId, modelId, expectedType = '') {
     normalizeMediaConfig(cfg);
     cfg.media[`${modelType}Provider`] = providerId;
     cfg.media[`${modelType}Model`] = id;
+    cfg.media[`${modelType}SupplierId`] = selectedSupplierId;
     normalizeAgentModelSelection(cfg);
   }
   updateImageGenerationConfig(cfg);
@@ -2320,19 +2716,30 @@ function setActiveModelRole(providerId, modelId, expectedType = '') {
   return cfg;
 }
 
-function applyProviderSelection(cfg, providerId, apiKey, models) {
+function applyProviderSelection(cfg, providerId, apiKey, supplierId = '') {
   ensureProviderConfigs(cfg);
-  const connection = getProviderConnection(cfg, providerId);
+  const supplier = getProviderSupplier(cfg, providerId, supplierId);
+  const selectedSupplierId = supplier?.id || String(supplierId || '').trim();
+  const connection = getProviderConnectionForSupplier(cfg, providerId, selectedSupplierId);
   connection.apiKey = String(apiKey || '').trim();
   cfg.api.providerConfigs[providerId] = connection;
   cfg.api.apiKeys[providerId] = connection.apiKey;
   cfg.api.provider = providerId;
   cfg.api.baseUrl = connection.baseUrl;
   cfg.api.apiKey = connection.apiKey;
-  cfg.models = getProviderModels(cfg, providerId);
+  cfg.models = getProviderModels(cfg, providerId, selectedSupplierId);
   if (!cfg.models.some(model => model.id === cfg.api.model && getModelType(providerId, model) === 'text')) {
     cfg.api.model = getFirstTextModel(providerId, cfg.models)?.id || '';
   }
+  const selectedModel = cfg.models.find(model => model.id === cfg.api.model && getModelType(providerId, model) === 'text');
+  cfg.agentModel = {
+    providerId,
+    supplierId: selectedSupplierId,
+    modelId: selectedModel?.id || '',
+    modelType: 'text',
+    name: selectedModel?.name || selectedModel?.id || '',
+    capabilities: selectedModel?.capabilities || {}
+  };
   updateImageGenerationConfig(cfg);
   return cfg;
 }
@@ -2354,12 +2761,15 @@ function loadConfig() {
       apiKey: '',
       apiKeys: buildDefaultApiKeys(),
       providerConfigs: buildDefaultProviderConfigs(),
+      providerSuppliers: buildDefaultProviderSuppliers(),
+      providerActiveSupplierIds: {},
       model: DEFAULT_MODEL_ROLES.text.model,
       thinking: false,
       reasoningSpeed: 'balanced'
     },
     agentModel: {
       providerId: DEFAULT_MODEL_ROLES.text.providerId,
+      supplierId: 'official',
       modelId: DEFAULT_MODEL_ROLES.text.model,
       modelType: 'text',
       name: 'Agnes 2.0 Flash',
@@ -2374,6 +2784,7 @@ function loadConfig() {
       }
     },
     workspace: path.join(app.getPath('home'), 'YanWorkspace'),
+    userName: 'Yanxi',
     theme: 'dark',
     permissions: {
       allowFileRead: true,
@@ -2382,12 +2793,14 @@ function loadConfig() {
       allowNetwork: true
     },
     models: DEFAULT_MODELS,
-    providerModels: { openai: [], grok: [], agnes: [], glm: [], siliconflow: [] },
+    providerModels: { openai: [], grok: [], agnes: [], glm: [], siliconflow: [], 'custom-model': [] },
     media: {
       imageProvider: '',
+      imageSupplierId: '',
       imageModel: '',
       imageName: '',
       videoProvider: '',
+      videoSupplierId: '',
       videoModel: '',
       videoName: ''
     },
@@ -2417,6 +2830,26 @@ function loadConfig() {
     mcpServers: ensureDefaultMcp([]),
     skills: DEFAULT_SKILLS,
     customSkills: [],
+    customModel: {
+      id: 'custom-model',
+      name: '自定义模型',
+      modelName: '',
+      modelId: '',
+      baseUrl: '',
+      apiKey: '',
+      apiFormat: 'openai',
+      models: []
+    },
+    customProviders: [{
+      id: 'custom-model',
+      name: '自定义模型',
+      modelName: '',
+      modelId: '',
+      baseUrl: '',
+      apiKey: '',
+      apiFormat: 'openai',
+      models: []
+    }],
     automations: [],
     executionKernel: {
       id: 'yan-kernel',
@@ -2427,10 +2860,15 @@ function loadConfig() {
     }
   };
 
-  if (!cfg) return defaults;
-
+  if (!cfg) {
+    syncCustomProviders(defaults);
+    ensureProviderConfigs(defaults);
+    return defaults;
+  }
   const storedProviderId = String(cfg.api?.provider || defaults.api.provider);
   const storedProviderConfig = cfg.api?.providerConfigs?.[storedProviderId];
+  const hasStoredProviderSuppliers = !!cfg.api?.providerSuppliers
+    && typeof cfg.api.providerSuppliers === 'object';
   const hasStoredProviderBaseUrl = !!storedProviderConfig
     && Object.prototype.hasOwnProperty.call(storedProviderConfig, 'baseUrl');
   const legacyBaseUrl = String(cfg.api?.baseUrl || '').trim().replace(/\/$/, '');
@@ -2439,10 +2877,27 @@ function loadConfig() {
     : (cfg.api?.thinking ? 'smart' : 'balanced');
   const merged = deepMerge(defaults, cfg);
   delete merged.codeMap;
+  syncCustomProviders(merged);
   merged.api.reasoningSpeed = storedReasoningSpeed;
   merged.api.thinking = storedReasoningSpeed === 'smart';
   merged.agent = normalizeAgentConfig(merged.agent);
   merged.quickLaunch = normalizeQuickLaunchConfig(merged.quickLaunch);
+  merged.userName = normalizeUserName(merged.userName);
+
+  // Migrate the former one-connection-per-provider layout into a supplier
+  // registry. Existing credentials, endpoints, and cached models become the
+  // provider's official supplier and remain mirrored to legacy fields.
+  if (!merged.api.providerSuppliers || typeof merged.api.providerSuppliers !== 'object') {
+    merged.api.providerSuppliers = {};
+  }
+  if (!hasStoredProviderSuppliers) {
+    // Force ensureProviderConfigs to seed each official supplier from the
+    // legacy providerConfigs/providerModels values instead of the defaults.
+    merged.api.providerSuppliers = {};
+  }
+  if (!merged.api.providerActiveSupplierIds || typeof merged.api.providerActiveSupplierIds !== 'object') {
+    merged.api.providerActiveSupplierIds = {};
+  }
 
   // One-time migration for configurations created before providerConfigs.
   // Never repeat this inside ensureProviderConfigs: doing so overwrites an
@@ -2529,6 +2984,11 @@ function normalizeAgentConfig(agent = {}) {
     : 'request';
   next.tone = normalizeAgentTone(next.tone);
   return next;
+}
+
+function normalizeUserName(value) {
+  const name = String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return name.slice(0, 32) || 'Yanxi';
 }
 
 function isRemotePasswordSet(cfg) {
@@ -3002,6 +3462,103 @@ function sendQuickInputPromptToMain(text) {
   else mainWindow.webContents.once('did-finish-load', deliver);
 }
 
+function createComputerUseOverlayWindow() {
+  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) return computerUseOverlayWindow;
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+  computerUseOverlayDisplayId = display.id;
+  computerUseOverlayReady = false;
+  computerUseOverlayWindow = new BrowserWindow({
+    ...display.bounds,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    hasShadow: false,
+    title: 'Yan Computer Use Overlay',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false
+    }
+  });
+  computerUseOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  computerUseOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  computerUseOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  computerUseOverlayWindow.loadFile(path.join(__dirname, 'renderer', 'computer-use-overlay', 'index.html'));
+  computerUseOverlayWindow.webContents.once('did-finish-load', () => {
+    computerUseOverlayReady = true;
+    if (computerUseOverlayActive && computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) {
+      computerUseOverlayWindow.showInactive();
+    }
+  });
+  computerUseOverlayWindow.on('closed', () => {
+    computerUseOverlayWindow = null;
+    computerUseOverlayReady = false;
+    computerUseOverlayDisplayId = null;
+  });
+  return computerUseOverlayWindow;
+}
+
+function updateComputerUseOverlay() {
+  if (!computerUseOverlayActive) return;
+  const overlay = createComputerUseOverlayWindow();
+  if (!overlay || overlay.isDestroyed()) return;
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+  if (computerUseOverlayDisplayId !== display.id) {
+    computerUseOverlayDisplayId = display.id;
+    overlay.setBounds(display.bounds, false);
+  }
+  if (!overlay.isVisible() && computerUseOverlayReady) overlay.showInactive();
+}
+
+function setComputerUseOverlayRun(runId, active) {
+  const key = String(runId || 'foreground');
+  if (active) computerUseOverlayRunIds.add(key);
+  else computerUseOverlayRunIds.delete(key);
+  computerUseOverlayActive = computerUseOverlayRunIds.size > 0;
+  if (computerUseOverlayActive) {
+    createComputerUseOverlayWindow();
+    updateComputerUseOverlay();
+    if (!computerUseOverlayTimer) computerUseOverlayTimer = setInterval(updateComputerUseOverlay, 80);
+    if (!computerUseEscapeRegistered) {
+      computerUseEscapeRegistered = globalShortcut.register('Esc', () => {
+        for (const activeRunId of computerUseOverlayRunIds) void cancelOpenCodeRun(activeRunId);
+      });
+      if (!computerUseEscapeRegistered) console.warn('[computer-use] failed to register Esc');
+    }
+    return;
+  }
+  if (computerUseOverlayTimer) {
+    clearInterval(computerUseOverlayTimer);
+    computerUseOverlayTimer = null;
+  }
+  if (computerUseEscapeRegistered) {
+    globalShortcut.unregister('Esc');
+    computerUseEscapeRegistered = false;
+  }
+  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) computerUseOverlayWindow.hide();
+}
+
+function destroyComputerUseOverlay() {
+  computerUseOverlayRunIds.clear();
+  setComputerUseOverlayRun('foreground', false);
+  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) computerUseOverlayWindow.destroy();
+  computerUseOverlayWindow = null;
+  computerUseOverlayReady = false;
+  computerUseOverlayDisplayId = null;
+}
+
 function openGeneratedImageViewer(assetId) {
   const asset = getGeneratedImageAsset(assetId);
   if (!asset) return { error: '会话图片已失效，请重新生成' };
@@ -3262,6 +3819,7 @@ ipcMain.handle('config:set', (_e, partial) => {
   merged.api.thinking = merged.api.reasoningSpeed === 'smart';
   merged.agent = normalizeAgentConfig(merged.agent);
   merged.quickLaunch = normalizeQuickLaunchConfig(merged.quickLaunch);
+  merged.userName = normalizeUserName(merged.userName);
   delete merged.codeMap;
 
   // 确保 apiKeys 结构完整
@@ -3295,6 +3853,9 @@ ipcMain.handle('config:set', (_e, partial) => {
     startWorkspaceWatcher(merged.workspace);
   }
   saveConfig(merged);
+  if (partial && Object.prototype.hasOwnProperty.call(partial, 'disabledModels')) {
+    publishModelState(merged);
+  }
   if (partial?.remoteControl) {
     restartRemoteServer().catch((e) => console.error('[remote] restart failed:', e.message));
   }
@@ -3341,6 +3902,41 @@ ipcMain.handle('providers:list', () => {
       videoGeneration: mediaAdapter.videoGeneration && hasVideoModel
     };
     const connection = getProviderConnection(cfg, id);
+    const activeSupplierId = String(cfg.api.providerActiveSupplierIds?.[id] || 'official');
+    const suppliers = getProviderSuppliers(cfg, id).map(supplier => {
+      const catalogModels = getProviderSupplierCatalog(id, supplier);
+      // A bundled catalog describes what the provider supports, not what the
+      // current supplier can use. Expose it as available only after the
+      // supplier has credentials; dynamic providers still use their fetched
+      // catalog after configuration.
+      const supplierModels = configuredSupplierModels(catalogModels, !!supplier.apiKey);
+      const supplierHasImage = supplierModels.some(model => getModelType(id, model) === 'image');
+      const supplierHasVideo = supplierModels.some(model => getModelType(id, model) === 'video');
+      return {
+        id: supplier.id,
+        name: supplier.name,
+        kind: supplier.kind,
+        baseUrl: supplier.baseUrl,
+        imageGenerationUrl: supplier.imageGenerationUrl,
+        imageEditUrl: supplier.imageEditUrl,
+        videoGenerationUrl: supplier.videoGenerationUrl,
+        workspaceId: supplier.workspaceId,
+        apiKeyPlaceholder: p.apiKeyPlaceholder,
+        apiKeyConfigured: !!supplier.apiKey,
+        modelCount: supplierModels.length,
+        models: supplierModels.map(model => ({
+          id: model.id,
+          name: model.name || model.id,
+          modelType: getModelType(id, model),
+          capabilities: model.capabilities || {}
+        })),
+        mediaCapabilities: {
+          imageGeneration: mediaAdapter.imageGeneration && supplierHasImage,
+          imageEditing: mediaAdapter.imageEditing && supplierHasImage,
+          videoGeneration: mediaAdapter.videoGeneration && supplierHasVideo
+        }
+      };
+    });
     list.push({
       id: p.id,
       name: p.name,
@@ -3348,11 +3944,20 @@ ipcMain.handle('providers:list', () => {
       defaultBaseUrl: p.baseUrl,
       imageGenerationUrl: connection.imageGenerationUrl,
       imageEditUrl: connection.imageEditUrl,
+      videoGenerationUrl: connection.videoGenerationUrl,
       workspaceId: connection.workspaceId,
       apiKeyPlaceholder: p.apiKeyPlaceholder,
       modelCount: models.length,
       dynamicModels: !!p.dynamicModels,
-      configured: !!connection.apiKey,
+      custom: !!p.custom,
+      apiFormat: p.apiFormat || '',
+      ...(p.custom ? {
+        modelId: String(cfg.customModel?.modelId || '').trim(),
+        modelName: String(cfg.customModel?.modelName || '').trim()
+      } : {}),
+      configured: suppliers.some(supplier => supplier.apiKeyConfigured),
+      activeSupplierId,
+      suppliers,
       officialMediaCapabilities: { ...officialMediaCapabilities },
       mediaCapabilities: { ...mediaCapabilities },
       mediaAdapterReady: Object.values(mediaAdapter).some(Boolean)
@@ -3369,7 +3974,8 @@ async function refreshConfiguredProviderModelCache(providerId) {
   if (!connection.apiKey || !connection.baseUrl) return { ok: false, skipped: true };
   const models = await fetchRemoteModelCatalog({
     baseUrl: connection.baseUrl,
-    apiKey: connection.apiKey
+    apiKey: connection.apiKey,
+    apiFormat: provider.apiFormat || 'openai'
   });
   const cfg = loadConfig();
   const current = getProviderConnection(cfg, providerId);
@@ -3377,6 +3983,11 @@ async function refreshConfiguredProviderModelCache(providerId) {
     return { ok: false, skipped: true };
   }
   if (!cfg.providerModels) cfg.providerModels = {};
+  const activeSupplier = getActiveProviderSupplier(cfg, providerId);
+  if (activeSupplier) {
+    activeSupplier.models = models;
+    syncActiveProviderSupplier(cfg, providerId, activeSupplier);
+  }
   cfg.providerModels[providerId] = models;
   if (cfg.api.provider === providerId) {
     cfg.models = getProviderModels(cfg, providerId);
@@ -3435,116 +4046,271 @@ ipcMain.on('session:agent-command-result', (event, payload = {}) => {
   });
 });
 
-ipcMain.handle('provider:set', (_e, providerId) => {
-  const cfg = loadConfig();
-  if (!MODEL_PROVIDERS[providerId]) return { error: '未知厂商: ' + providerId };
-  cfg.api.provider = providerId;
+ipcMain.handle('provider:get-secret', (_e, { providerId, supplierId } = {}) => {
   const provider = MODEL_PROVIDERS[providerId];
-  const connection = getProviderConnection(cfg, providerId);
-  cfg.api.baseUrl = connection.baseUrl;
-  cfg.api.apiKey = connection.apiKey;
-  cfg.models = getProviderModels(cfg, providerId);
-  cfg.api.model = getFirstTextModel(providerId, cfg.models)?.id || '';
+  if (!provider) return { error: '未知厂商: ' + providerId };
+  const cfg = loadConfig();
+  ensureProviderConfigs(cfg);
+  const id = String(supplierId || cfg.api.providerActiveSupplierIds?.[providerId] || 'official');
+  const supplier = getProviderSuppliers(cfg, providerId).find(item => item.id === id);
+  if (!supplier) return { error: '供应商不存在' };
+  return { ok: true, apiKey: String(supplier.apiKey || '') };
+});
+
+ipcMain.handle('provider:add-supplier', (_e, { providerId, name } = {}) => {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider || provider.custom) return { error: '未知厂商或暂不支持自定义厂商多供应商' };
+  const cfg = loadConfig();
+  ensureProviderConfigs(cfg);
+  const suppliers = cfg.api.providerSuppliers[providerId] || [];
+  const baseName = String(name || '新供应商').trim() || '新供应商';
+  let id = `supplier-${Date.now().toString(36)}`;
+  let seq = 2;
+  while (suppliers.some(item => item.id === id)) id = `supplier-${Date.now().toString(36)}-${seq++}`;
+  const supplier = normalizeProviderSupplier({
+    id,
+    name: baseName,
+    kind: 'custom',
+    baseUrl: provider.baseUrl,
+    models: provider.dynamicModels ? [] : provider.models
+  }, provider);
+  suppliers.push(supplier);
+  cfg.api.providerSuppliers[providerId] = suppliers;
+  saveConfig(cfg);
+  return { ok: true, providerId, supplierId: id, config: cfg };
+});
+
+ipcMain.handle('provider:set-supplier', (_e, { providerId, supplierId } = {}) => {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider) return { error: '未知厂商: ' + providerId };
+  const cfg = loadConfig();
+  ensureProviderConfigs(cfg);
+  const supplier = getProviderSuppliers(cfg, providerId).find(item => item.id === String(supplierId || ''));
+  if (!supplier) return { error: '供应商不存在' };
+  syncActiveProviderSupplier(cfg, providerId, supplier);
+  cfg.api.provider = providerId;
+  cfg.api.baseUrl = supplier.baseUrl;
+  cfg.api.apiKey = supplier.apiKey;
+  // Changing the supplier in the quick picker changes the browsing cursor,
+  // not the already selected text/image/video roles.  The role is committed
+  // only when the user chooses a model and passes its supplierId.
+  cfg.models = getProviderModels(cfg, providerId, supplier.id);
+  if (!cfg.models.some(model => model.id === cfg.api.model && getModelType(providerId, model) === 'text')) {
+    cfg.api.model = getFirstTextModel(providerId, cfg.models)?.id || cfg.api.model || '';
+  }
   updateImageGenerationConfig(cfg);
   saveConfig(cfg);
   publishModelState(cfg);
-  return cfg;
+  return { ok: true, config: cfg };
+});
+
+ipcMain.handle('provider:delete-supplier', (_e, { providerId, supplierId } = {}) => {
+  const provider = MODEL_PROVIDERS[providerId];
+  const id = String(supplierId || '').trim();
+  if (!provider) return { error: '未知厂商: ' + providerId };
+  if (!id || id === 'official') return { error: '官方供应商不可删除' };
+  const cfg = loadConfig();
+  ensureProviderConfigs(cfg);
+  const suppliers = cfg.api.providerSuppliers[providerId] || [];
+  if (!suppliers.some(item => item.id === id)) return { error: '供应商不存在' };
+  cfg.api.providerSuppliers[providerId] = suppliers.filter(item => item.id !== id);
+  rebindRolesAfterSupplierRemoval(cfg, providerId, id);
+  if (cfg.api.providerActiveSupplierIds[providerId] === id) {
+    const fallback = cfg.api.providerSuppliers[providerId].find(item => item.id === 'official')
+      || cfg.api.providerSuppliers[providerId][0];
+    syncActiveProviderSupplier(cfg, providerId, fallback);
+    if (cfg.agentModel?.providerId === providerId) {
+      cfg.api.provider = providerId;
+      cfg.api.baseUrl = fallback.baseUrl;
+      cfg.api.apiKey = fallback.apiKey;
+      cfg.models = getProviderModels(cfg, providerId, fallback.id);
+      cfg.api.model = getFirstTextModel(providerId, cfg.models)?.id || '';
+    }
+  }
+  saveConfig(cfg);
+  publishModelState(cfg);
+  return { ok: true, config: cfg };
 });
 
 ipcMain.handle('provider:configure', async (_e, {
   providerId,
+  supplierId,
+  supplierName,
   apiKey,
   baseUrl,
   imageGenerationUrl,
   imageEditUrl,
-  workspaceId
+  videoGenerationUrl,
+  workspaceId,
+  providerName,
+  modelId,
+  modelName,
+  apiFormat
 } = {}) => {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return { error: '未知厂商: ' + providerId };
-  const key = String(apiKey || '').trim();
+  let key = String(apiKey || '').trim();
   const nextBaseUrl = String(baseUrl || provider.baseUrl).trim().replace(/\/$/, '');
   if (!/^https?:\/\//i.test(nextBaseUrl)) return { error: 'Base URL 必须以 http:// 或 https:// 开头' };
   const nextImageGenerationUrl = String(imageGenerationUrl || '').trim();
   const nextImageEditUrl = String(imageEditUrl || '').trim();
+  const nextVideoGenerationUrl = String(videoGenerationUrl || '').trim();
   if ((nextImageGenerationUrl && !/^https?:\/\//i.test(nextImageGenerationUrl))
-    || (nextImageEditUrl && !/^https?:\/\//i.test(nextImageEditUrl))) {
-    return { error: '图片 POST URL 必须以 http:// 或 https:// 开头' };
+    || (nextImageEditUrl && !/^https?:\/\//i.test(nextImageEditUrl))
+    || (nextVideoGenerationUrl && !/^https?:\/\//i.test(nextVideoGenerationUrl))) {
+    return { error: '图片/视频 POST URL 必须以 http:// 或 https:// 开头' };
   }
   const cfg = loadConfig();
   ensureProviderConfigs(cfg);
+  const previousAgent = normalizeAgentModelSelection(cfg);
+  const previousAgentConnection = getProviderConnectionForSupplier(
+    cfg,
+    previousAgent.providerId,
+    previousAgent.supplierId
+  );
+  const selectedSupplierId = String(supplierId || cfg.api.providerActiveSupplierIds?.[providerId] || 'official').trim();
+  const suppliers = cfg.api.providerSuppliers[providerId] || [];
+  let supplier = suppliers.find(item => item.id === selectedSupplierId);
+  if (!supplier) return { error: '供应商不存在' };
+  // The UI intentionally does not echo stored secrets back into the form.
+  // An empty key therefore means "keep the existing key" while the explicit
+  // clear action remains available through provider:remove-config.
+  if (!key && supplier.apiKey) key = supplier.apiKey;
+  const effectiveApiFormat = String(apiFormat || provider.apiFormat || 'openai').trim().toLowerCase() === 'anthropic'
+    ? 'anthropic'
+    : 'openai';
   let models = provider.models;
-  if (provider.dynamicModels) {
+  if (provider.custom) {
+    const customModelId = String(modelId || '').trim();
+    if (!customModelId) return { error: '请填写模型 ID' };
+    const customModelName = String(modelName || customModelId).trim() || customModelId;
+    models = [{ id: customModelId, name: customModelName, modelType: 'text', source: 'custom' }];
+  } else if (provider.dynamicModels) {
     if (!key) {
       models = [];
     } else {
       try {
-        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key });
+        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key, apiFormat: effectiveApiFormat });
       } catch (error) {
         return { error: `模型列表同步失败：${error.message}` };
       }
     }
   }
-  const mediaCapabilities = PROVIDER_MEDIA_ADAPTERS[providerId] || EMPTY_MEDIA_CAPABILITIES;
-
-  cfg.api.providerConfigs[providerId] = normalizeProviderConfig({
-    ...cfg.api.providerConfigs[providerId],
+  supplier = normalizeProviderSupplier({
+    ...supplier,
+    id: selectedSupplierId,
+    name: String(provider.custom ? '自定义模型' : (supplierName || supplier.name || (selectedSupplierId === 'official' ? '官方' : '新供应商'))).trim(),
     baseUrl: nextBaseUrl,
     apiKey: key,
-    imageGenerationUrl: mediaCapabilities.imageGeneration ? nextImageGenerationUrl : '',
-    imageEditUrl: mediaCapabilities.imageEditing ? nextImageEditUrl : '',
+    imageGenerationUrl: nextImageGenerationUrl,
+    imageEditUrl: nextImageEditUrl,
+    videoGenerationUrl: nextVideoGenerationUrl,
     workspaceId: providerId === 'qwen' ? String(workspaceId || '').trim() : ''
-  }, provider);
+  }, provider, selectedSupplierId);
+  supplier.models = normalizeRemoteModels(models);
+  cfg.api.providerSuppliers[providerId] = suppliers.map(item => item.id === selectedSupplierId ? supplier : item);
+  cfg.api.providerActiveSupplierIds[providerId] = selectedSupplierId;
+  syncActiveProviderSupplier(cfg, providerId, supplier);
+  if (provider.custom) {
+    const entry = cfg.customModel || (Array.isArray(cfg.customProviders) ? cfg.customProviders : []).find(item => item.id === providerId);
+    if (entry) {
+      const nextName = String(modelName || providerName || entry.modelName || modelId || '').trim();
+      entry.name = '自定义模型';
+      entry.modelName = nextName || String(modelId || '').trim();
+      entry.modelId = String(modelId || '').trim();
+      entry.apiFormat = effectiveApiFormat;
+      entry.baseUrl = nextBaseUrl;
+      entry.apiKey = key;
+      entry.models = models;
+    }
+    syncCustomProviders(cfg);
+  }
   if (!cfg.providerModels) cfg.providerModels = {};
   if (provider.dynamicModels) cfg.providerModels[providerId] = models;
-  applyProviderSelection(cfg, providerId, key, models);
+  const keepExistingAgent = !!(
+    previousAgent.providerId
+    && previousAgent.modelId
+    && previousAgentConnection.apiKey
+  );
+  if (keepExistingAgent) {
+    const previousModels = getProviderModels(cfg, previousAgent.providerId, previousAgent.supplierId);
+    const previousModel = previousModels.find(model => model.id === previousAgent.modelId && getModelType(previousAgent.providerId, model) === 'text');
+    if (previousModel) {
+      const connection = getProviderConnectionForSupplier(cfg, previousAgent.providerId, previousAgent.supplierId);
+      if (previousAgent.providerId === providerId && previousAgent.supplierId) {
+        cfg.api.providerActiveSupplierIds[providerId] = previousAgent.supplierId;
+      }
+      cfg.api.provider = previousAgent.providerId;
+      cfg.api.baseUrl = connection.baseUrl;
+      cfg.api.apiKey = connection.apiKey;
+      cfg.api.model = previousModel.id;
+      cfg.models = previousModels;
+    } else {
+      applyProviderSelection(cfg, providerId, key, selectedSupplierId);
+    }
+  } else {
+    applyProviderSelection(cfg, providerId, key, selectedSupplierId);
+  }
   saveConfig(cfg);
   publishModelState(cfg);
-  return { ok: true, config: cfg, modelCount: getProviderModels(cfg, providerId).length };
+  return {
+    ok: true,
+    config: cfg,
+    providerId,
+    supplierId: selectedSupplierId,
+    modelCount: getProviderModels(cfg, providerId, selectedSupplierId).length
+  };
 });
 
-ipcMain.handle('provider:remove-config', (_e, providerId) => {
+ipcMain.handle('provider:remove-config', (_e, payload) => {
+  const providerId = typeof payload === 'string' ? payload : String(payload?.providerId || '');
+  const requestedSupplierId = typeof payload === 'object' ? String(payload?.supplierId || '').trim() : '';
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return { error: '未知厂商: ' + providerId };
 
   const cfg = loadConfig();
   ensureProviderConfigs(cfg);
-  cfg.api.providerConfigs[providerId] = normalizeProviderConfig({}, provider);
-  cfg.api.apiKeys[providerId] = '';
+  const activeSupplier = requestedSupplierId
+    ? getProviderSuppliers(cfg, providerId).find(item => item.id === requestedSupplierId)
+    : getActiveProviderSupplier(cfg, providerId);
+  if (requestedSupplierId && !activeSupplier) return { error: '供应商不存在' };
+  if (activeSupplier) {
+    const clearedSupplierId = activeSupplier.id;
+    activeSupplier.apiKey = '';
+    activeSupplier.models = [];
+    activeSupplier.imageGenerationUrl = '';
+    activeSupplier.imageEditUrl = '';
+    activeSupplier.videoGenerationUrl = '';
+    syncActiveProviderSupplier(cfg, providerId, activeSupplier);
+    rebindRolesAfterSupplierRemoval(cfg, providerId, clearedSupplierId);
+    if (provider.custom && cfg.customModel) {
+      cfg.customModel.apiKey = '';
+      cfg.customModel.baseUrl = '';
+      cfg.customModel.modelId = '';
+      cfg.customModel.modelName = '';
+      cfg.customModel.models = [];
+      cfg.customProviders = [cfg.customModel];
+    }
+  } else {
+    cfg.api.providerConfigs[providerId] = normalizeProviderConfig({}, provider);
+    cfg.api.apiKeys[providerId] = '';
+  }
   if (!cfg.providerModels) cfg.providerModels = {};
   if (provider.dynamicModels) cfg.providerModels[providerId] = [];
-
-  const activeTextProviderId = cfg.agentModel?.providerId || cfg.api.provider;
-  if (activeTextProviderId === providerId || cfg.api.provider === providerId) {
-    let fallback = null;
-    for (const candidateId of Object.keys(MODEL_PROVIDERS)) {
-      if (candidateId === providerId) continue;
-      const connection = getProviderConnection(cfg, candidateId);
-      if (!connection.apiKey) continue;
-      const candidateModels = getProviderModels(cfg, candidateId);
-      const candidateModel = getFirstTextModel(candidateId, candidateModels);
-      if (!candidateModel) continue;
-      fallback = { providerId: candidateId, connection, models: candidateModels, model: candidateModel };
-      break;
-    }
-
-    const fallbackProviderId = fallback?.providerId || DEFAULT_MODEL_ROLES.text.providerId;
-    const fallbackModels = fallback?.models || getProviderModels(cfg, fallbackProviderId);
-    const fallbackModel = fallback?.model || getFirstTextModel(fallbackProviderId, fallbackModels);
-    const fallbackConnection = fallback?.connection || getProviderConnection(cfg, fallbackProviderId);
-    cfg.api.provider = fallbackProviderId;
-    cfg.api.baseUrl = fallbackConnection.baseUrl;
-    cfg.api.apiKey = fallbackConnection.apiKey;
-    cfg.api.model = fallbackModel?.id || '';
-    cfg.models = fallbackModels;
-    cfg.agentModel = {
-      providerId: fallbackProviderId,
-      modelId: fallbackModel?.id || '',
-      modelType: 'text',
-      name: fallbackModel?.name || fallbackModel?.id || '',
-      capabilities: fallbackModel?.capabilities || {}
-    };
+  if (cfg.agentModel?.providerId && cfg.agentModel?.modelId) {
+    const agentConnection = getProviderConnectionForSupplier(
+      cfg,
+      cfg.agentModel.providerId,
+      cfg.agentModel.supplierId
+    );
+    cfg.api.provider = cfg.agentModel.providerId;
+    cfg.api.baseUrl = agentConnection.baseUrl;
+    cfg.api.apiKey = agentConnection.apiKey;
+    cfg.api.model = cfg.agentModel.modelId;
+    cfg.models = getProviderModels(cfg, cfg.agentModel.providerId, cfg.agentModel.supplierId);
   } else {
-    cfg.models = getProviderModels(cfg, cfg.api.provider);
+    cfg.api.model = '';
+    cfg.models = [];
   }
 
   updateImageGenerationConfig(cfg);
@@ -3553,39 +4319,127 @@ ipcMain.handle('provider:remove-config', (_e, providerId) => {
   return { ok: true, config: cfg };
 });
 
-ipcMain.handle('models:list', () => loadConfig().models);
+ipcMain.handle('provider:delete-custom', (_e, providerId) => {
+  const id = String(providerId || '');
+  if (id !== 'custom-model') return { error: '只能清空自定义模型' };
+  const cfg = loadConfig();
+  syncCustomProviders(cfg);
+  const entry = cfg.customModel;
+  entry.baseUrl = '';
+  entry.apiKey = '';
+  entry.modelId = '';
+  entry.modelName = '';
+  entry.models = [];
+  cfg.customModel = entry;
+  cfg.customProviders = [entry];
+  cfg.api.providerConfigs[id] = normalizeProviderConfig(entry, MODEL_PROVIDERS[id]);
+  cfg.api.apiKeys[id] = '';
+  cfg.api.providerSuppliers[id] = [normalizeProviderSupplier({
+    id: 'official',
+    name: '自定义模型',
+    kind: 'official',
+    baseUrl: '',
+    apiKey: '',
+    models: []
+  }, MODEL_PROVIDERS[id])];
+  cfg.api.providerActiveSupplierIds[id] = 'official';
+  if (cfg.providerModels) cfg.providerModels[id] = [];
+  rebindRolesAfterSupplierRemoval(cfg, id, 'official');
+  if (cfg.agentModel?.providerId && cfg.agentModel?.modelId) {
+    const connection = getProviderConnectionForSupplier(cfg, cfg.agentModel.providerId, cfg.agentModel.supplierId);
+    cfg.api.provider = cfg.agentModel.providerId;
+    cfg.api.baseUrl = connection.baseUrl;
+    cfg.api.apiKey = connection.apiKey;
+    cfg.api.model = cfg.agentModel.modelId;
+    cfg.models = getProviderModels(cfg, cfg.agentModel.providerId, cfg.agentModel.supplierId);
+  } else {
+    cfg.api.model = '';
+    cfg.models = [];
+  }
+
+  updateImageGenerationConfig(cfg);
+  saveConfig(cfg);
+  publishModelState(cfg);
+  return { ok: true, config: cfg };
+});
+
 ipcMain.handle('models:quick-list', () => {
   const cfg = loadConfig();
-  const providers = Object.values(MODEL_PROVIDERS).map(provider => ({
-    providerId: provider.id,
-    providerName: provider.name,
-    models: getProviderModels(cfg, provider.id),
-    configured: !!getProviderConnection(cfg, provider.id).apiKey
-  }));
-  const models = buildQuickModelList({
-    providers,
-    activeSelection: normalizeAgentModelSelection(cfg)
+  const activeSelection = normalizeAgentModelSelection(cfg);
+  const pickerProviderId = String(cfg.api.provider || activeSelection.providerId || '');
+  const activeSupplierId = String(cfg.api.providerActiveSupplierIds?.[pickerProviderId] || '');
+  const pickerSelection = pickerProviderId === activeSelection.providerId
+    ? activeSelection
+    : { providerId: pickerProviderId, modelId: '', modelType: 'text' };
+  const providerInputs = Object.values(MODEL_PROVIDERS).map(provider => {
+    const providerActiveSupplierId = String(cfg.api.providerActiveSupplierIds?.[provider.id] || '');
+    return {
+      providerId: provider.id,
+      providerName: provider.name,
+      suppliers: getProviderSuppliers(cfg, provider.id).map(supplier => ({
+        supplierId: supplier.id,
+        supplierName: supplier.name,
+        configured: !!supplier.apiKey,
+        active: supplier.id === providerActiveSupplierId,
+        models: configuredSupplierModels(
+          getProviderSupplierCatalog(provider.id, supplier),
+          !!supplier.apiKey
+        )
+      }))
+    };
   });
+  const providers = buildQuickSupplierGroups({
+    providers: providerInputs,
+    activeSelection: pickerSelection,
+    activeProviderId: pickerProviderId,
+    activeSupplierId
+  });
+  const models = providers.flatMap(provider => (
+    provider.suppliers.filter(supplier => supplier.active).flatMap(supplier => supplier.models)
+  ));
+  // Keep role-specific media selections visible even when their supplier is
+  // different from the text-model browsing cursor. This prevents the image
+  // and video sections in settings from appearing to lose a configured model.
+  for (const role of ['image', 'video']) {
+    const providerId = String(cfg.media?.[`${role}Provider`] || '');
+    const supplierId = String(cfg.media?.[`${role}SupplierId`] || '');
+    if (!providerId || !supplierId) continue;
+    const provider = providers.find(item => item.providerId === providerId);
+    const supplier = provider?.suppliers?.find(item => item.supplierId === supplierId);
+    for (const model of supplier?.models || []) {
+      if (model.modelType !== role) continue;
+      if (!models.some(item => item.providerId === model.providerId && item.supplierId === model.supplierId && item.id === model.id)) {
+        models.push(model);
+      }
+    }
+  }
   const providerCount = new Set(models.map(model => model.providerId)).size;
   return {
     models,
+    providers,
+    activeProviderId: pickerProviderId,
+    activeSupplierId,
     providerCount,
-    providerName: providerCount ? `已配置 ${providerCount} 家厂商` : '尚未配置 API',
-    notice: providerCount ? '' : '请先在模型设置中配置至少一家包含文本模型的 API。'
+    providerName: providers.length ? `已配置 ${providers.length} 家厂商` : '尚未配置 API',
+    notice: providers.length ? '' : '请先在模型设置中配置至少一家包含文本模型的 API。'
   };
 });
 ipcMain.handle('models:media-list', () => {
   const cfg = loadConfig();
   const providers = Object.values(MODEL_PROVIDERS).flatMap(provider => {
     const adapter = PROVIDER_MEDIA_ADAPTERS[provider.id] || EMPTY_MEDIA_CAPABILITIES;
-    const connection = getProviderConnection(cfg, provider.id);
-    if (!connection.apiKey || !Object.values(adapter).some(Boolean)) return [];
-    return [{
-      providerId: provider.id,
-      providerName: provider.name,
-      models: getProviderModels(cfg, provider.id),
-      configured: true
-    }];
+    if (!Object.values(adapter).some(Boolean)) return [];
+    return getProviderSuppliers(cfg, provider.id).flatMap(supplier => {
+      if (!supplier.apiKey) return [];
+      return [{
+        providerId: provider.id,
+        providerName: provider.name,
+        supplierId: supplier.id,
+        supplierName: supplier.name,
+        models: getProviderSupplierCatalog(provider.id, supplier),
+        configured: true
+      }];
+    });
   });
   return {
     models: buildMediaModelList({
@@ -3595,9 +4449,8 @@ ipcMain.handle('models:media-list', () => {
     notice: providers.length ? '' : '请先配置至少一家已适配媒体能力的厂商 API。'
   };
 });
-ipcMain.handle('model:set', (_e, modelId) => setActiveModel(modelId));
 ipcMain.handle('model:role-set', (_e, payload = {}) => (
-  setActiveModelRole(payload.providerId, payload.modelId, payload.modelType)
+  setActiveModelRole(payload.providerId, payload.modelId, payload.modelType, payload.supplierId)
 ));
 
 ipcMain.handle('skills:list', () => getMergedSkills(loadConfig()));
@@ -3651,8 +4504,6 @@ ipcMain.handle('skills:remove-custom', (_e, id) => {
   return true;
 });
 
-ipcMain.handle('learning:candidates', () => skillEvolution.list());
-
 function recordLearningReview(payload = {}) {
   if (!payload.skillCandidate) return { ok: true, candidate: null, promotedSkill: null };
   const recorded = skillEvolution.record(payload.skillCandidate, {
@@ -3662,12 +4513,65 @@ function recordLearningReview(payload = {}) {
     sessionId: payload.sessionId,
     workspace: payload.workspace
   });
-  if (!recorded.ok || !recorded.ready) return { ...recorded, promotedSkill: null };
+  if (!recorded.ok) return { ...recorded, promotedSkill: null };
 
   const candidate = recorded.candidate;
   const learnedId = `yan-learned-${candidate.id.replace(/^yan-(?:learned-)?/, '')}`;
+  const scope = payload.workspace ? 'workspace' : 'global';
+  const state = continualHarness.load({ scope, workspace: payload.workspace });
+  const existingHarnessSkill = state.entries.skill[learnedId];
+  const harnessEdit = {
+    action: existingHarnessSkill ? 'update' : 'create',
+    kind: 'skill',
+    id: learnedId,
+    title: candidate.name,
+    content: candidate.prompt,
+    path: 'learned',
+    scope,
+    metadata: {
+      status: recorded.ready ? 'active' : 'observing',
+      description: candidate.description,
+      triggers: candidate.triggers || [],
+      successfulRuns: candidate.successfulRuns,
+      evidenceCount: candidate.successfulRuns.length
+    },
+    reason: candidate.evidence
+  };
+  const harnessResult = continualHarness.apply({
+    trigger: `Learn reusable Skill ${candidate.name}`,
+    evidence: candidate.evidence,
+    expectedOutcome: recorded.ready
+      ? 'Make the repeatedly verified procedure available as a Yan Skill.'
+      : 'Observe the same procedure in another independent verified run before activation.',
+    edits: [harnessEdit]
+  }, {
+    scope,
+    workspace: payload.workspace,
+    expectedRevision: payload.harnessBaseline?.revision,
+    baselineState: payload.harnessBaseline,
+    runId: payload.runId,
+    sessionId: payload.sessionId,
+    source: 'background_review'
+  });
+  if (!harnessResult.ok || !harnessResult.refinement?.appliedEdits?.some(edit => edit.applied)) {
+    return { ...recorded, harnessResult, promotedSkill: null };
+  }
+  if (!recorded.ready) {
+    continualHarness.recordOutcome(harnessResult.refinement.id, {
+      status: 'partial',
+      evidence: 'Candidate retained in observing state pending independent reinforcement.'
+    }, { scope, workspace: payload.workspace });
+    return { ...recorded, harnessResult, promotedSkill: null };
+  }
+
   const existingSkill = (loadConfig().customSkills || []).find(skill => skill.id === learnedId);
   if (existingSkill && existingSkill.createdBy !== 'yan-skill-creator') {
+    continualHarness.rollback(harnessResult.refinement.id, {
+      scope,
+      workspace: payload.workspace,
+      source: 'projection_failed',
+      evidence: `A user or external Skill already owns ${learnedId}.`
+    });
     return {
       ...recorded,
       error: `同名 Skill「${learnedId}」已由用户或外部来源安装，Yan Skill Creator 不会覆盖它。`,
@@ -3689,48 +4593,33 @@ function recordLearningReview(payload = {}) {
     evidenceCount: candidate.successfulRuns.length,
     updatedAt: Date.now()
   });
-  if (promotedSkill?.error) return { ...recorded, error: promotedSkill.error, promotedSkill: null };
-  skillEvolution.markPromoted(candidate.id, promotedSkill.id);
-  return { ...recorded, promotedSkill };
+  if (promotedSkill?.error) {
+    continualHarness.rollback(harnessResult.refinement.id, {
+      scope,
+      workspace: payload.workspace,
+      source: 'projection_failed',
+      evidence: promotedSkill.error
+    });
+    return { ...recorded, error: promotedSkill.error, harnessResult, promotedSkill: null };
+  }
+  skillEvolution.markPromoted(candidate.id, promotedSkill.id, { refinementId: harnessResult.refinement.id });
+  continualHarness.recordOutcome(harnessResult.refinement.id, {
+    status: 'verified',
+    evidence: `${candidate.successfulRuns.length} distinct verified runs reinforced this procedure and the Skill projection succeeded.`
+  }, { scope, workspace: payload.workspace });
+  return { ...recorded, harnessResult, promotedSkill };
 }
 
-ipcMain.handle('learning:record-review', (_e, payload = {}) => recordLearningReview(payload));
-
-ipcMain.handle('skills:get-custom', () => {
-  const cfg = loadConfig();
-  return skillRegistry.getInstalledSkills(cfg, appRoot, dataDir)
-    .filter(skill => skill.source !== 'builtin')
-    .map(skill => ({
-      ...skill,
-      logo: skillRegistry.resolveSkillLogo(skill)
-    }));
-});
-
 ipcMain.handle('skills:market', () => skillRegistry.getMarketSkills(appRoot, dataDir));
-
-ipcMain.handle('skills:catalog', () =>
-  skillRegistry.getSkillCatalog(loadConfig(), appRoot, dataDir));
-
-ipcMain.handle('skills:store-info', () => skillRegistry.getSkillStoreInfo(dataDir));
-
-ipcMain.handle('skills:prompt-section', () =>
-  skillRegistry.formatCatalogForPrompt(loadConfig(), appRoot, dataDir));
 
 ipcMain.handle('skills:read', (_e, payload) => {
   const { id, taskContext } = payload || {};
   const cfg = loadConfig();
-  return skillRegistry.readSkill(id, taskContext, cfg, appRoot, dataDir, saveConfig, { allowUserOnly: true });
+  return skillRegistry.readSkillWithRetry(id, taskContext, cfg, appRoot, dataDir, saveConfig, {
+    allowUserOnly: true,
+    maxAttempts: 3
+  });
 });
-
-ipcMain.handle('ui-kits:list', () => uiKitRegistry.listKits(appRoot));
-
-ipcMain.handle('ui-kits:catalog', (_e, { kit, query } = {}) =>
-  uiKitRegistry.listUiKit(appRoot, kit, query));
-
-ipcMain.handle('ui-kits:prompt-section', () => uiKitRegistry.formatPromptSection(appRoot));
-
-ipcMain.handle('ui-kits:read', (_e, { kit, component, variant } = {}) =>
-  uiKitRegistry.readUiKit(appRoot, kit, component, variant));
 
 // ---------------------------------------------------------------------------
 // IPC: Workspace
@@ -3819,33 +4708,6 @@ const yanxiReceiver = createYanxiCodeReceiver({
 });
 
 ipcMain.handle('workspace:get', () => loadConfig().workspace);
-ipcMain.handle('workspace:known-path', (_e, name) => {
-  const known = { desktop: 'desktop', documents: 'documents', downloads: 'downloads', home: 'home' };
-  const key = known[String(name || '').toLowerCase()];
-  if (!key) return { error: '不支持的系统目录', code: 'WORKSPACE_TARGET_INVALID' };
-  try {
-    const workspace = app.getPath(key);
-    if (!workspace || !fs.existsSync(workspace) || !fs.statSync(workspace).isDirectory()) {
-      return { error: '系统目录不可用', code: 'WORKSPACE_TARGET_UNAVAILABLE' };
-    }
-    return { workspace, target: key };
-  } catch {
-    return { error: '系统目录不可用', code: 'WORKSPACE_TARGET_UNAVAILABLE' };
-  }
-});
-ipcMain.handle('workspace:inspect', (_e, { dirPath, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath || '', workspace);
-  if (!resolved.ok) return resolved;
-  try {
-    const stat = fs.statSync(resolved.path);
-    return { ok: true, exists: true, isDirectory: stat.isDirectory(), path: resolved.path, workspace: resolved.workspace };
-  } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
-      return { ok: true, exists: false, isDirectory: false, path: resolved.path, workspace: resolved.workspace };
-    }
-    return { ok: false, error: error?.message || String(error), code: error?.code || 'WORKSPACE_INSPECT_FAILED' };
-  }
-});
 function activateWorkspace(workspace) {
   const ws = workspace || '';
   const cfg = loadConfig();
@@ -3859,13 +4721,6 @@ function activateWorkspace(workspace) {
   return cfg;
 }
 ipcMain.handle('workspace:activate', (_e, workspace) => activateWorkspace(workspace));
-ipcMain.handle('workspace:clear', () => {
-  const cfg = loadConfig();
-  cfg.workspace = '';
-  saveConfig(cfg);
-  stopWorkspaceWatcher();
-  return true;
-});
 async function pickWorkspaceDirectory() {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
@@ -3920,6 +4775,93 @@ ipcMain.handle('workspace:list', async (_e, dirPathOrOpts) => {
     return { error: e.message, code: 'LIST_FAILED' };
   }
 });
+
+// ---------------------------------------------------------------------------
+// IPC: Git
+// ---------------------------------------------------------------------------
+async function gitIpc(action) {
+  try {
+    const result = await action();
+    if (result && typeof result === 'object' && !Array.isArray(result)) return { ok: true, ...result };
+    return { ok: true, result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || String(error),
+      code: error?.code || 'GIT_ERROR'
+    };
+  }
+}
+
+ipcMain.handle('git:status', (_e, { workspace = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.repositoryStatus(workspace)
+})));
+ipcMain.handle('git:init', (_e, { workspace = '', initialBranch = 'main' } = {}) => gitIpc(async () => ({
+  status: await gitService.initRepository(workspace, initialBranch)
+})));
+ipcMain.handle('git:stage', (_e, { workspace = '', paths = [], all = false } = {}) => gitIpc(async () => ({
+  status: await gitService.stageFiles(workspace, paths, all)
+})));
+ipcMain.handle('git:unstage', (_e, { workspace = '', paths = [], all = false } = {}) => gitIpc(async () => ({
+  status: await gitService.unstageFiles(workspace, paths, all)
+})));
+ipcMain.handle('git:commit', (_e, { workspace = '', message = '', amend = false } = {}) => gitIpc(() => (
+  gitService.commit(workspace, message, { amend })
+)));
+ipcMain.handle('git:branch-create', (_e, { workspace = '', name = '', checkout = true } = {}) => gitIpc(async () => ({
+  status: await gitService.createBranch(workspace, name, { checkout })
+})));
+ipcMain.handle('git:branch-switch', (_e, { workspace = '', name = '', remoteBranch = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.switchBranch(workspace, name, remoteBranch)
+})));
+ipcMain.handle('git:fetch', (_e, { workspace = '', remoteName = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.fetchRemote(workspace, remoteName)
+})));
+ipcMain.handle('git:pull', (_e, { workspace = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.pull(workspace)
+})));
+ipcMain.handle('git:push', (_e, { workspace = '', remoteName = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.push(workspace, remoteName)
+})));
+ipcMain.handle('git:remote-add', (_e, { workspace = '', name = '', url = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.addRemote(workspace, name, url)
+})));
+ipcMain.handle('git:remote-set-url', (_e, { workspace = '', name = '', url = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.setRemoteUrl(workspace, name, url)
+})));
+ipcMain.handle('git:remote-remove', (_e, { workspace = '', name = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.removeRemote(workspace, name)
+})));
+ipcMain.handle('git:identity-set', (_e, { workspace = '', name = '', email = '' } = {}) => gitIpc(async () => ({
+  status: await gitService.setIdentity(workspace, name, email)
+})));
+ipcMain.handle('git:history', (_e, { workspace = '', limit = 40 } = {}) => gitIpc(async () => ({
+  commits: await gitService.history(workspace, limit)
+})));
+ipcMain.handle('git:diff', (_e, { workspace = '', path: filePath = '', staged = false } = {}) => gitIpc(async () => ({
+  diff: await gitService.diff(workspace, filePath, staged)
+})));
+ipcMain.handle('git:pick-clone-destination', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择空文件夹作为克隆目标',
+    buttonLabel: '选择文件夹',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  return !result.canceled && result.filePaths.length ? result.filePaths[0] : '';
+});
+ipcMain.handle('git:clone', (_e, { remoteUrl = '', destination = '' } = {}) => gitIpc(() => (
+  gitService.cloneRepository(remoteUrl, destination)
+)));
+ipcMain.handle('git:open-remote', (_e, { remoteUrl = '' } = {}) => gitIpc(async () => {
+  const url = gitService.remoteWebUrl(remoteUrl);
+  if (!url) {
+    const error = new Error('该远程地址没有可打开的网页。');
+    error.code = 'REMOTE_WEB_URL_UNAVAILABLE';
+    throw error;
+  }
+  await shell.openExternal(url);
+  return { url };
+}));
 
 // ---------------------------------------------------------------------------
 // IPC: Sessions (CRUD)
@@ -4253,7 +5195,8 @@ function addMemoryRecord(record = {}, options = {}) {
     defaultScope,
     sourceKind: options.sourceKind || record.sourceKind,
     sessionId: options.sessionId || record.sessionId,
-    runId: options.runId || record.runId
+    runId: options.runId || record.runId,
+    refinementId: options.refinementId || record.refinementId
   });
 }
 
@@ -4265,9 +5208,24 @@ async function reviewCompletedRunMemory({
   prompt,
   workspace,
   yanSessionId,
-  runId
+  runId,
+  harnessBaselines
 }) {
   try {
+    const refineRequest = consumeHarnessRefinementRequest(runId);
+    if (refineRequest?.action === 'rollback') {
+      const targetState = continualHarness.load({ scope: refineRequest.scope, workspace });
+      const target = targetState.refinements.find(item => item.id === refineRequest.rollbackId);
+      const rollback = continualHarness.rollback(refineRequest.rollbackId, {
+        scope: refineRequest.scope,
+        workspace,
+        source: 'explicit_user_rollback',
+        evidence: refineRequest.instructions
+      });
+      if (rollback.ok) rollbackHarnessProjection(target, workspace);
+      if (!rollback.ok) console.warn(`[harness] rollback ${refineRequest.rollbackId} failed: ${rollback.error}`);
+      return;
+    }
     const review = await sidecar.reviewMemory({
       providerId: selection.providerId,
       modelId: selection.modelId,
@@ -4277,15 +5235,48 @@ async function reviewCompletedRunMemory({
       prompt,
       history: request.history,
       result,
+      refineInstructions: refineRequest?.instructions || '',
+      harnessOverview: continualHarness.overview({ workspace, query: prompt }),
       userRequestedFinish: result?.userRequestedFinish === true
     });
-    const records = Array.isArray(review?.memories) ? review.memories.slice(0, 8) : [];
-    const memoryResults = records.map(record => addMemoryRecord(record, {
+    const harnessResults = applyReviewedHarnessState(review, {
       workspace,
-      sourceKind: 'background_review',
       sessionId: yanSessionId,
-      runId
-    }));
+      runId,
+      harnessBaselines,
+      refineInstructions: refineRequest?.instructions || '',
+      verifiedSuccess: result?.status === 'done'
+        && (Array.isArray(result?.todos) ? result.todos : []).every(todo => todo?.done === true)
+    });
+    if (refineRequest?.action === 'refine' && !harnessResults.length && !review?.skillCandidate) {
+      const scope = refineRequest.scope === 'workspace' && workspace ? 'workspace' : 'global';
+      const noOp = continualHarness.apply({
+        trigger: `Agent-requested refinement: ${refineRequest.instructions}`,
+        evidence: review?.error || 'The isolated reviewer found no durable evidence that justified a reusable edit.',
+        expectedOutcome: 'Keep the current harness unchanged.',
+        edits: []
+      }, {
+        scope,
+        workspace,
+        expectedRevision: harnessBaselines?.[scope]?.revision,
+        baselineState: harnessBaselines?.[scope],
+        runId,
+        sessionId: yanSessionId,
+        source: 'agent_refine'
+      });
+      if (noOp.ok) continualHarness.recordOutcome(noOp.refinement.id, {
+        status: 'rejected',
+        evidence: 'No reusable edit passed the evidence and safety gates.'
+      }, { scope, workspace });
+    }
+    recordReviewedRefinementOutcomes(review, workspace);
+    const memoryResults = harnessResults.flatMap(item => item.memories.map(record => addMemoryRecord(record, {
+      workspace,
+      sourceKind: refineRequest ? 'agent_refine' : 'background_review',
+      sessionId: yanSessionId,
+      runId,
+      refinementId: item.result?.refinement?.id
+    })));
     if (review?.skillCandidate) {
       recordLearningReview({
         skillCandidate: review.skillCandidate,
@@ -4294,7 +5285,8 @@ async function reviewCompletedRunMemory({
         toolCallCount: Array.isArray(result?.toolCalls) ? result.toolCalls.length : 0,
         workspace,
         sessionId: yanSessionId,
-        runId
+        runId,
+        harnessBaseline: harnessBaselines?.[workspace ? 'workspace' : 'global']
       });
     }
     const stored = memoryResults.filter(item => item?.ok).length;
@@ -4305,46 +5297,6 @@ async function reviewCompletedRunMemory({
   }
 }
 
-ipcMain.handle('memory:get', (_e, payload = {}) => loadMemory(payload.workspace));
-ipcMain.handle('memory:get-context', (_e, payload = {}) => longTermMemory.query({
-  query: payload.query,
-  workspace: payload.workspace,
-  maxChars: payload.maxChars,
-  limit: payload.limit
-}));
-ipcMain.handle('memory:save', (_e, mem = {}) => {
-  const workspace = String(mem.workspace || loadConfig().workspace || '').trim();
-  const records = Array.isArray(mem.memories) ? mem.memories : (Array.isArray(mem.facts) ? mem.facts : []);
-  const results = records.map(record => addMemoryRecord(
-    typeof record === 'string' ? { content: record } : record,
-    { workspace, sourceKind: 'legacy_save' }
-  ));
-  return { ...loadMemory(workspace), results };
-});
-ipcMain.handle('memory:add-fact', (_e, fact) => {
-  const workspace = String(fact?.workspace || loadConfig().workspace || '').trim();
-  const result = addMemoryRecord(fact, { workspace, sourceKind: fact?.sourceKind || 'legacy_fact' });
-  return { ...loadMemory(workspace), result };
-});
-ipcMain.handle('memory:add-batch', (_e, payload = {}) => {
-  const workspace = String(payload.workspace || '').trim();
-  const records = Array.isArray(payload.records) ? payload.records.slice(0, 20) : [];
-  const results = records.map(record => addMemoryRecord(record, {
-    workspace,
-    sourceKind: payload.sourceKind || 'background_review',
-    sessionId: payload.sessionId,
-    runId: payload.runId
-  }));
-  return { ok: results.some(result => result.ok), results };
-});
-ipcMain.handle('memory:clear', (_e, payload = {}) => {
-  longTermMemory.clear({
-    workspace: payload.workspace || loadConfig().workspace || '',
-    scope: payload.scope || 'all'
-  });
-  return true;
-});
-
 // ---------------------------------------------------------------------------
 // IPC: .yanagent (snapshots, rollback, logs)
 // ---------------------------------------------------------------------------
@@ -4353,39 +5305,6 @@ ipcMain.handle('yanagent:ensure', async (_e, workspace) => {
   if (!ws) return { ok: false, error: '未设置工作区' };
   const root = ensureYanagent(ws);
   return { ok: true, path: root };
-});
-
-ipcMain.handle('yanagent:log', async (_e, { message, workspace }) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws) return { ok: false };
-  appendYanagentLog(ws, String(message || ''));
-  return { ok: true };
-});
-
-ipcMain.handle('yanagent:record-change', async (_e, { sessionId, runId, filePath, before, op, workspace }) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws || !sessionId || !runId || !filePath) return { ok: false, error: 'missing params' };
-  if (isYanagentPath(filePath)) return { ok: true, skipped: true };
-  const snapPath = runSnapshotPath(ws, sessionId, runId);
-  let data = { sessionId, runId, changes: [] };
-  try {
-    if (fs.existsSync(snapPath)) {
-      data = JSON.parse(await fsp.readFile(snapPath, 'utf8'));
-    }
-  } catch {}
-  const key = filePath.toLowerCase();
-  if (data.changes.some(c => c.path.toLowerCase() === key)) {
-    return { ok: true, count: data.changes.length, deduped: true };
-  }
-  data.changes.push({
-    path: filePath,
-    before: before !== undefined ? before : null,
-    op: op || 'write',
-    ts: Date.now()
-  });
-  await fsp.writeFile(snapPath, JSON.stringify(data, null, 2));
-  appendYanagentLog(ws, `[snapshot] ${op || 'write'} ${filePath} (run ${runId})`);
-  return { ok: true, count: data.changes.length };
 });
 
 ipcMain.handle('yanagent:run-changes', async (_e, { sessionId, runId, workspace, includeDiff = false, allRuns = false }) => {
@@ -4464,77 +5383,11 @@ ipcMain.handle('file:read', async (_e, payload) => {
   }
 });
 
-ipcMain.handle('file:read-range', async (_e, payload = {}) => {
-  const cfg = loadConfig();
-  if (!cfg.permissions.allowFileRead) {
-    return { error: 'File read is disabled in permissions.', code: 'PERMISSION_DENIED' };
-  }
-  const filePathRaw = payload.filePath || payload.path || '';
-  const resolved = resolveAgentPath(filePathRaw, payload.workspace);
-  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
-  const filePath = resolved.path;
-  const { start_line, end_line } = payload;
-  try {
-    const stat = await fsp.stat(filePath);
-    if (stat.size > 2 * 1024 * 1024) {
-      return { error: 'File too large for read_file_range (max 2MB). Use get_file_outline first.', code: 'FILE_TOO_LARGE' };
-    }
-    const content = await fsp.readFile(filePath, 'utf8');
-    const range = codeIndex.readFileRange(content, start_line, end_line);
-    if (range.error) return { error: range.error, path: filePath, code: 'RANGE_INVALID' };
-    return {
-      path: filePath,
-      start: range.start,
-      end: range.end,
-      lineCount: range.lineCount,
-      content: range.content
-    };
-  } catch (e) {
-    return { error: e.message, code: e.code === 'ENOENT' ? 'NOT_FOUND' : 'READ_FAILED' };
-  }
-});
-
-ipcMain.handle('file:write', async (_e, payload = {}) => {
-  const cfg = loadConfig();
-  if (!cfg.permissions.allowFileWrite) {
-    return { error: 'File write is disabled in permissions.', code: 'PERMISSION_DENIED' };
-  }
-  const filePathRaw = payload.filePath || payload.path || '';
-  const content = payload.content;
-  const resolved = resolveAgentPath(filePathRaw, payload.workspace);
-  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
-  const filePath = resolved.path;
-  try {
-    await fsp.mkdir(path.dirname(filePath), { recursive: true });
-    await fsp.writeFile(filePath, content, 'utf8');
-    const stat = await fsp.stat(filePath);
-    return { path: filePath, size: stat.size, mtime: stat.mtimeMs };
-  } catch (e) {
-    return { error: e.message, code: 'WRITE_FAILED' };
-  }
-});
-
-ipcMain.handle('file:choose-open', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile']
-  });
-  if (!result.canceled && result.filePaths.length) {
-    return result.filePaths[0];
-  }
-  return null;
-});
-
 ipcMain.handle('file:choose-directory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   });
   return !result.canceled && result.filePaths.length ? result.filePaths[0] : null;
-});
-
-ipcMain.handle('file:choose-save', async () => {
-  const result = await dialog.showSaveDialog(mainWindow, {});
-  if (!result.canceled) return result.filePath;
-  return null;
 });
 
 function resolveStoredUploadPath(filePath) {
@@ -4615,27 +5468,6 @@ ipcMain.handle('file:upload', async (_e, { name, data: b64, mimeType = '' }) => 
   return { path: target, name: safeName, size: stat.size, mimeType: String(mimeType || '') };
 });
 
-ipcMain.handle('file:image-data', async (_e, filePath) => {
-  const cfg = loadConfig();
-  if (!cfg.permissions.allowFileRead) return { error: '文件读取权限已关闭' };
-  const storedPath = resolveStoredUploadPath(filePath);
-  if (!storedPath) return { error: '只能读取 Yan Agent 保存的图片附件' };
-  try {
-    const stat = await fsp.stat(storedPath);
-    if (stat.size > 20 * 1024 * 1024) return { error: '图片不能超过 20MB' };
-    const buffer = await fsp.readFile(storedPath);
-    const type = detectImageType(buffer);
-    return {
-      path: storedPath,
-      size: stat.size,
-      mimeType: type.mimeType,
-      dataUrl: `data:${type.mimeType};base64,${buffer.toString('base64')}`
-    };
-  } catch (error) {
-    return { error: error.message };
-  }
-});
-
 ipcMain.handle('image:generate', async (_e, payload = {}) => {
   const cfg = loadConfig();
   if (!cfg.permissions.allowNetwork) return { error: '网络访问权限已关闭，无法生成图片' };
@@ -4643,7 +5475,7 @@ ipcMain.handle('image:generate', async (_e, payload = {}) => {
   const imageConfig = resolveRequestedGenerationConfig(cfg, 'image', payload.providerId, payload.modelId);
   if (imageConfig?.error) return { error: imageConfig.error };
   if (!imageConfig.available) return { error: '当前模型配置没有可用的图片生成能力' };
-  const imageConnection = getProviderConnection(cfg, imageConfig.providerId);
+  const imageConnection = getProviderConnectionForSupplier(cfg, imageConfig.providerId, imageConfig.supplierId);
   if (!imageConnection.apiKey) {
     return { error: `请先配置 ${MODEL_PROVIDERS[imageConfig.providerId]?.name || imageConfig.providerId} API Key` };
   }
@@ -4733,7 +5565,7 @@ ipcMain.handle('video:generate', async (_e, payload = {}) => {
   const videoConfig = resolveRequestedGenerationConfig(cfg, 'video', payload.providerId, payload.modelId);
   if (videoConfig?.error) return { error: videoConfig.error };
   if (!videoConfig?.available) return { error: '当前模型配置没有可用的视频生成能力' };
-  const connection = getProviderConnection(cfg, videoConfig.providerId);
+  const connection = getProviderConnectionForSupplier(cfg, videoConfig.providerId, videoConfig.supplierId);
   if (!connection.apiKey) {
     return { error: `请先配置 ${MODEL_PROVIDERS[videoConfig.providerId]?.name || videoConfig.providerId} API Key` };
   }
@@ -4753,7 +5585,8 @@ ipcMain.handle('video:generate', async (_e, payload = {}) => {
       apiKey: connection.apiKey,
       providerId: videoConfig.providerId,
       providerOptions: {
-        workspaceId: connection.workspaceId
+        workspaceId: connection.workspaceId,
+        videoGenerationUrl: connection.videoGenerationUrl
       },
       model: videoConfig.model,
       prompt,
@@ -4832,6 +5665,22 @@ ipcMain.handle('yanxi:launch', async (_e, { workspace, mode = 'workspace' } = {}
   return launchYanxiCode(appRoot, cfg, ws, mode);
 });
 
+ipcMain.handle('vscode:status', async () => {
+  const status = await detectVsCode();
+  if (!status.available || !status.executable) return status;
+  try {
+    const icon = await app.getFileIcon(status.executable, { size: 'normal' });
+    return { ...status, iconDataUrl: icon.isEmpty() ? '' : icon.toDataURL() };
+  } catch {
+    return { ...status, iconDataUrl: '' };
+  }
+});
+
+ipcMain.handle('vscode:launch', async (_e, { workspace = '' } = {}) => {
+  const cfg = loadConfig();
+  return launchVsCode(workspace || cfg.workspace);
+});
+
 ipcMain.handle('powershell:open-external', async (_e, { workspace = '' } = {}) => {
   const requested = String(workspace || '').trim();
   let cwd = process.env.USERPROFILE || process.cwd();
@@ -4874,172 +5723,11 @@ ipcMain.handle('powershell:open-external', async (_e, { workspace = '' } = {}) =
   }
 });
 
-ipcMain.handle('file:delete', async (_e, payload) => {
-  const cfg = loadConfig();
-  if (!cfg.permissions.allowFileWrite) return { error: 'Permission denied.', code: 'PERMISSION_DENIED' };
-  const parsed = workspaceSandbox.parsePathPayload(payload, 'filePath');
-  const resolved = resolveAgentPath(parsed.filePath, parsed.workspace);
-  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
-  try {
-    await fsp.unlink(resolved.path);
-    return { ok: true, path: resolved.path };
-  } catch (e) { return { error: e.message, code: 'DELETE_FAILED' }; }
-});
-
-// ---------------------------------------------------------------------------
-// IPC: Shell execution
-// ---------------------------------------------------------------------------
-function shellRunKey(ownerId, runId) {
-  const id = String(runId || '').trim();
-  return id ? `${ownerId}:${id}` : '';
-}
-
-function markShellRunCancelled(key) {
-  if (!key) return;
-  cancelledShellRuns.set(key, Date.now());
-  setTimeout(() => {
-    if (cancelledShellRuns.get(key) && Date.now() - cancelledShellRuns.get(key) >= 60000) {
-      cancelledShellRuns.delete(key);
-    }
-  }, 61000).unref?.();
-}
-
-function trackShellExecution(ownerId, runId, child) {
-  const key = shellRunKey(ownerId, runId);
-  if (!key || !child) return '';
-  if (!activeShellExecutions.has(key)) activeShellExecutions.set(key, new Set());
-  activeShellExecutions.get(key).add(child);
-  return key;
-}
-
-function untrackShellExecution(key, child) {
-  if (!key) return;
-  const children = activeShellExecutions.get(key);
-  if (!children) return;
-  children.delete(child);
-  if (!children.size) activeShellExecutions.delete(key);
-}
-
-function terminateShellProcessTree(child) {
-  if (!child || child.killed || !child.pid) return false;
-  try {
-    if (process.platform === 'win32') {
-      const killer = execFile('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }, () => {});
-      killer.unref?.();
-    } else {
-      child.kill('SIGTERM');
-    }
-    return true;
-  } catch {
-    try { child.kill(); return true; } catch { return false; }
-  }
-}
-
-function cancelShellExecutions(ownerId, runId) {
-  const key = shellRunKey(ownerId, runId);
-  markShellRunCancelled(key);
-  const children = key ? activeShellExecutions.get(key) : null;
-  if (!children) return 0;
-  activeShellExecutions.delete(key);
-  let cancelled = 0;
-  for (const child of children) {
-    if (terminateShellProcessTree(child)) cancelled++;
-  }
-  return cancelled;
-}
-
-ipcMain.handle('shell:execute', async (_e, { command, cwd, oneShot, workspace, runId } = {}) => {
-  const cfg = loadConfig();
-  const accessMode = cfg.agent?.accessMode || 'request';
-  const autoApproved = accessMode === 'delegate' || accessMode === 'full';
-  if (!cfg.permissions.allowShell && !oneShot && !autoApproved) {
-    return { error: 'Shell execution is disabled in permissions.', needsPermission: true, code: 'PERMISSION_DENIED' };
-  }
-  const risk = workspaceSandbox.classifyShellCommand(command);
-  if (risk.blocked) {
-    return {
-      stdout: '',
-      stderr: risk.reason,
-      exitCode: 1,
-      error: risk.reason,
-      code: risk.code
-    };
-  }
-  const wsHint = workspace || cwd || cfg.workspace;
-  const cwdResolved = accessMode === 'full'
-    ? resolveFullAccessPath(cwd || wsHint, wsHint, { allowEmpty: true })
-    : workspaceSandbox.resolveShellCwd(wsHint, cwd && cwd !== wsHint ? cwd : '');
-  if (!cwdResolved.ok) {
-    return {
-      stdout: '',
-      stderr: cwdResolved.error,
-      exitCode: 1,
-      error: cwdResolved.error,
-      code: cwdResolved.code
-    };
-  }
-  const safeCwd = cwdResolved.path;
-  const trackingKey = shellRunKey(_e.sender.id, runId);
-  if (trackingKey && cancelledShellRuns.has(trackingKey)) {
-    return {
-      stdout: '',
-      stderr: 'Shell execution cancelled by user.',
-      exitCode: 1,
-      error: 'Shell execution cancelled by user.',
-      code: 'RUN_INTERRUPTED'
-    };
-  }
-  if (safeCwd) appendYanagentLog(safeCwd, `[shell] ${String(command || '').slice(0, 200)}`);
-  return new Promise((resolve) => {
-    // With windowsHide=true, simple cmd.exe builtins write in the OEM code
-    // page even when Node and Yan use UTF-8. /u gives a deterministic UTF-16LE
-    // pipe for these no-composition commands. Compound commands and external
-    // programs stay on the ordinary exec path so numeric pipes and program
-    // output are not reinterpreted as UTF-16.
-    const useUnicodeCmdBuiltin = process.platform === 'win32' &&
-      /^(?:echo(?:\s+[^&|<>]*)?|dir(?:\s+[^&|<>]*)?)$/i.test(String(command || '').trim());
-    const options = {
-      timeout: 30000,
-      maxBuffer: 1024 * 1024 * 5,
-      cwd: safeCwd,
-      env: { ...process.env },
-      windowsHide: true,
-      ...(useUnicodeCmdBuiltin ? { encoding: 'buffer' } : {})
-    };
-    let child;
-    let childTrackingKey = '';
-    const onComplete = (err, stdout, stderr) => {
-      untrackShellExecution(childTrackingKey, child);
-      const decode = value => Buffer.isBuffer(value) ? value.toString('utf16le') : String(value || '');
-      resolve({
-        stdout: useUnicodeCmdBuiltin ? decode(stdout) : (stdout || ''),
-        stderr: useUnicodeCmdBuiltin ? decode(stderr) : (stderr || ''),
-        exitCode: err ? (err.code || 1) : 0,
-        error: err ? err.message : null
-      });
-    };
-    child = useUnicodeCmdBuiltin
-      ? execFile(process.env.ComSpec || 'cmd.exe', ['/d', '/u', '/s', '/c', String(command || '')], options, onComplete)
-      : exec(command, options, onComplete);
-    childTrackingKey = trackShellExecution(_e.sender.id, runId, child);
-    if (trackingKey && cancelledShellRuns.has(trackingKey)) terminateShellProcessTree(child);
-  });
-});
-
-ipcMain.handle('shell:cancel-run', (event, runId) => ({
-  ok: true,
-  cancelled: cancelShellExecutions(event.sender.id, runId)
-}));
-
 // ---------------------------------------------------------------------------
 // IPC: Built-in terminal (real PTY / ConPTY, independent from Agent workspaces)
 // ---------------------------------------------------------------------------
 ipcMain.handle('terminal:create', (event, options = {}) => (
   terminalManager.create(event.sender.id, options || {})
-));
-
-ipcMain.handle('terminal:execute', (event, { sessionId, command } = {}) => (
-  terminalManager.execute(event.sender.id, sessionId, command)
 ));
 
 ipcMain.handle('terminal:write', (event, { sessionId, data } = {}) => (
@@ -5050,14 +5738,6 @@ ipcMain.handle('terminal:resize', (event, { sessionId, cols, rows } = {}) => (
   terminalManager.resize(event.sender.id, sessionId, cols, rows)
 ));
 
-ipcMain.handle('terminal:interrupt', (event, sessionId) => (
-  terminalManager.interrupt(event.sender.id, sessionId)
-));
-
-ipcMain.handle('terminal:restart', (event, sessionId) => (
-  terminalManager.restart(event.sender.id, sessionId)
-));
-
 ipcMain.handle('terminal:destroy', (event, sessionId) => (
   terminalManager.destroy(event.sender.id, sessionId)
 ));
@@ -5066,37 +5746,13 @@ ipcMain.handle('terminal:destroy', (event, sessionId) => (
 // MCP (Model Context Protocol) — manage external tool servers via stdio
 // ---------------------------------------------------------------------------
 const mcpServers = new Map(); // id -> { process, tools, pending, buffer, nextId }
-const cancelledMcpRuns = new Map();
-
-function mcpRunKey(ownerId, runId) {
-  const id = String(runId || '').trim();
-  return id ? `${ownerId}:${id}` : '';
-}
-
-function markMcpRunCancelled(key) {
-  if (!key) return;
-  cancelledMcpRuns.set(key, Date.now());
-  setTimeout(() => {
-    if (cancelledMcpRuns.get(key) && Date.now() - cancelledMcpRuns.get(key) >= 60000) {
-      cancelledMcpRuns.delete(key);
-    }
-  }, 61000).unref?.();
-}
 
 function mcpSend(proc, msg) {
   proc.stdin.write(JSON.stringify(msg) + '\n');
 }
 
-function mcpRequest(server, method, params = {}, requestMeta = {}) {
+function mcpRequest(server, method, params = {}) {
   return new Promise((resolve, reject) => {
-    const requestKey = mcpRunKey(requestMeta.ownerId, requestMeta.runId);
-    if (requestKey && cancelledMcpRuns.has(requestKey)) {
-      const error = new Error('MCP 请求已被用户中止');
-      error.name = 'AbortError';
-      error.code = 'RUN_INTERRUPTED';
-      reject(error);
-      return;
-    }
     const id = server.nextId++;
     const timer = setTimeout(() => {
       if (server.pending.has(id)) {
@@ -5104,43 +5760,201 @@ function mcpRequest(server, method, params = {}, requestMeta = {}) {
         reject(new Error('MCP 请求超时: ' + method));
       }
     }, server.requestTimeoutMs || 30000);
-    server.pending.set(id, {
-      resolve,
-      reject,
-      timer,
-      ownerId: requestMeta.ownerId,
-      runId: String(requestMeta.runId || ''),
-      method
-    });
+    server.pending.set(id, { resolve, reject, timer });
     mcpSend(server.process, { jsonrpc: '2.0', id, method, params });
   });
 }
 
-function cancelMcpRequestsForRun(ownerId, runId) {
-  const targetRunId = String(runId || '').trim();
-  if (!targetRunId) return 0;
-  markMcpRunCancelled(mcpRunKey(ownerId, targetRunId));
-  let cancelled = 0;
-  for (const server of mcpServers.values()) {
-    for (const [requestId, pending] of server.pending) {
-      if (pending.ownerId !== ownerId || pending.runId !== targetRunId) continue;
-      server.pending.delete(requestId);
-      if (pending.timer) clearTimeout(pending.timer);
-      const error = new Error('MCP 请求已被用户中止');
-      error.name = 'AbortError';
-      error.code = 'RUN_INTERRUPTED';
-      pending.reject(error);
-      try {
-        mcpSend(server.process, {
-          jsonrpc: '2.0',
-          method: 'notifications/cancelled',
-          params: { requestId, reason: 'User interrupted the Yan Agent run.' }
-        });
-      } catch {}
-      cancelled++;
+function rollbackHarnessProjection(target, workspace) {
+  if (!target) return { removedMemories: 0, removedSkills: [] };
+  const memoryRemoval = longTermMemory.removeBySource({
+    refinementId: target.id,
+    workspace
+  });
+  const removedSkills = [];
+  for (const edit of Array.isArray(target.appliedEdits) ? target.appliedEdits : []) {
+    if (!edit.applied || edit.kind !== 'skill' || edit.after?.metadata?.status !== 'active') continue;
+    const cfg = loadConfig();
+    const skill = (cfg.customSkills || []).find(item => item.id === edit.id);
+    if (!skill || skill.createdBy !== 'yan-skill-creator') continue;
+    const removal = skillRegistry.removeYanUserSkill(dataDir, skill.id);
+    if (!removal.ok) continue;
+    cfg.customSkills = (cfg.customSkills || []).filter(item => item.id !== skill.id);
+    saveConfig(cfg);
+    refreshYanSkillRegistry({ reason: 'harness-rollback', id: skill.id });
+    skillEvolution.markRolledBack(skill.id, target.id);
+    removedSkills.push(skill.id);
+  }
+  return { removedMemories: memoryRemoval.removed, removedSkills };
+}
+
+function pendingHarnessRequestPath(runId) {
+  return path.join(dataDir, 'harness', 'pending', `${String(runId || '')}.json`);
+}
+
+function consumeHarnessRefinementRequest(runId) {
+  const filePath = pendingHarnessRequestPath(runId);
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const request = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    fs.rmSync(filePath, { force: true });
+    if (!request || typeof request !== 'object' || String(request.runId || '') !== String(runId || '')) return null;
+    return request;
+  } catch {
+    try { fs.rmSync(filePath, { force: true }); } catch {}
+    return null;
+  }
+}
+
+function harnessEntryId(prefix, value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(0, 90);
+  if (normalized) return `${prefix}-${normalized}`.slice(0, 100);
+  return `${prefix}-${crypto.createHash('sha256').update(String(value || '')).digest('hex').slice(0, 16)}`;
+}
+
+function harnessCandidateSimilarity(left, right) {
+  const leftTokens = new Set(tokenizeMemoryText(left));
+  const rightTokens = new Set(tokenizeMemoryText(right));
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  let shared = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) shared += 1;
+  }
+  return shared / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function applyReviewedHarnessState(review, payload = {}) {
+  const byScope = new Map();
+  const add = (scope, item) => {
+    const normalizedScope = scope === 'workspace' && payload.workspace ? 'workspace' : 'global';
+    if (!byScope.has(normalizedScope)) byScope.set(normalizedScope, { edits: [], memories: [], observing: false });
+    const group = byScope.get(normalizedScope);
+    group.edits.push(item.edit);
+    if (item.memory) group.memories.push({ id: item.edit.id, record: item.memory });
+    if (item.observing) group.observing = true;
+  };
+
+  for (const memory of Array.isArray(review?.memories) ? review.memories : []) {
+    const scope = memory.scope === 'workspace' && payload.workspace ? 'workspace' : 'global';
+    const state = continualHarness.load({ scope, workspace: payload.workspace });
+    const id = harnessEntryId('memory', memory.key || memory.content);
+    add(scope, {
+      memory,
+      edit: {
+        action: state.entries.memory[id] ? 'update' : 'create',
+        kind: 'memory',
+        id,
+        title: String(memory.key || memory.type || 'Durable memory'),
+        content: memory.content,
+        path: memory.type || 'general',
+        scope,
+        metadata: {
+          status: 'active',
+          key: memory.key,
+          type: memory.type,
+          confidence: memory.confidence,
+          basis: memory.basis,
+          verified: memory.verified === true
+        },
+        reason: memory.evidence
+      }
+    });
+  }
+
+  for (const candidate of Array.isArray(review?.harnessCandidates) ? review.harnessCandidates : []) {
+    const scope = candidate.scope === 'workspace' && payload.workspace ? 'workspace' : 'global';
+    const state = continualHarness.load({ scope, workspace: payload.workspace });
+    const id = harnessEntryId(candidate.kind, candidate.id || candidate.title);
+    const existing = state.entries[candidate.kind]?.[id];
+    const compatible = !existing || harnessCandidateSimilarity(existing.content, candidate.content) >= 0.55;
+    if (existing?.metadata?.status === 'active' && !compatible) continue;
+    const evidenceRuns = [...new Set([
+      ...(compatible && Array.isArray(existing?.metadata?.evidenceRuns) ? existing.metadata.evidenceRuns : []),
+      String(payload.runId || '')
+    ].filter(Boolean))].slice(-20);
+    const successfulRuns = [...new Set([
+      ...(compatible && Array.isArray(existing?.metadata?.successfulRuns) ? existing.metadata.successfulRuns : []),
+      ...(payload.verifiedSuccess ? [String(payload.runId || '')] : [])
+    ].filter(Boolean))].slice(-20);
+    const active = successfulRuns.length >= 2;
+    add(scope, {
+      observing: !active,
+      edit: {
+        action: existing ? 'update' : 'create',
+        kind: candidate.kind,
+        id,
+        title: candidate.title,
+        content: candidate.content,
+        path: candidate.path || 'general',
+        scope,
+        metadata: {
+          status: active ? 'active' : 'observing',
+          evidenceRuns,
+          successfulRuns,
+          evidenceCount: evidenceRuns.length,
+          successCount: successfulRuns.length
+        },
+        reason: candidate.evidence
+      }
+    });
+  }
+
+  const results = [];
+  for (const [scope, group] of byScope) {
+    if (!group.edits.length) continue;
+    const baselineState = payload.harnessBaselines?.[scope];
+    const result = continualHarness.apply({
+      trigger: payload.refineInstructions
+        ? `Agent-requested refinement: ${payload.refineInstructions}`
+        : 'Background review found durable reusable evidence.',
+      evidence: group.edits.map(edit => edit.reason).filter(Boolean).join('\n').slice(0, 2_000),
+      expectedOutcome: group.observing
+        ? 'Retain first observations without activating them until an independent successful run reinforces the same entry.'
+        : 'Make verified durable evidence available to relevant future tasks.',
+      edits: group.edits
+    }, {
+      scope,
+      workspace: payload.workspace,
+      expectedRevision: baselineState?.revision,
+      baselineState,
+      runId: payload.runId,
+      sessionId: payload.sessionId,
+      source: payload.refineInstructions ? 'agent_refine' : 'background_review'
+    });
+    if (result.ok) {
+      continualHarness.recordOutcome(result.refinement.id, {
+        status: 'partial',
+        evidence: group.observing
+          ? 'Candidate is isolated in observing state pending a second distinct evidence run.'
+          : 'Evidence passed the storage gate; behavioral improvement remains pending a later task outcome.'
+      }, { scope, workspace: payload.workspace });
+    }
+    const appliedIds = new Set((result.refinement?.appliedEdits || [])
+      .filter(edit => edit.applied)
+      .map(edit => edit.id));
+    results.push({
+      scope,
+      result,
+      memories: result.ok
+        ? group.memories.filter(item => appliedIds.has(item.id)).map(item => item.record)
+        : []
+    });
+  }
+  return results;
+}
+
+function recordReviewedRefinementOutcomes(review, workspace) {
+  const outcomes = [];
+  for (const outcome of Array.isArray(review?.refinementOutcomes) ? review.refinementOutcomes : []) {
+    const scopes = workspace ? ['workspace', 'global'] : ['global'];
+    for (const scope of scopes) {
+      const state = continualHarness.load({ scope, workspace });
+      if (!state.refinements.some(item => item.id === outcome.refinementId)) continue;
+      outcomes.push(continualHarness.recordOutcome(outcome.refinementId, outcome, { scope, workspace }));
+      break;
     }
   }
-  return cancelled;
+  return outcomes;
 }
 
 async function mcpStart(serverCfg) {
@@ -5287,11 +6101,6 @@ function mcpStop(id) {
 
 // MCP 配置管理
 ipcMain.handle('mcp:list', () => getMcpManagementServers(loadConfig()));
-ipcMain.handle('codegraph:ensure', async (_e, workspace) => {
-  const normalized = workspaceSandbox.normalizeWorkspace(workspace);
-  if (!normalized) return { ok: false, error: 'CodeGraph 需要当前任务工作区。' };
-  return codeGraphRuntime.ensureIndex(appRoot, normalized);
-});
 ipcMain.handle('understand-anything:open', async (_e, workspace) => {
   const normalized = workspaceSandbox.normalizeWorkspace(workspace);
   if (!normalized) return { ok: false, error: 'Understand Anything 需要当前任务工作区。' };
@@ -5309,11 +6118,6 @@ ipcMain.handle('understand-anything:refresh', async (_e, workspace) => {
     useElectron: true
   });
 });
-ipcMain.handle('understand-anything:stop', (_e, workspace) => {
-  const normalized = workspaceSandbox.normalizeWorkspace(workspace);
-  return understandAnythingRuntime.stopUnderstandAnything(normalized || workspace);
-});
-ipcMain.handle('understand-anything:list', () => understandAnythingRuntime.listUnderstandAnything());
 ipcMain.handle('mcp:add', (_e, { name, command, args }) => {
   const cfg = loadConfig();
   if (!cfg.mcpServers) cfg.mcpServers = [];
@@ -5369,82 +6173,6 @@ ipcMain.handle('mcp:stop', (_e, id) => {
   mcpStop(id);
   return { ok: true };
 });
-ipcMain.handle('mcp:list-tools', async () => {
-  const cfg = loadConfig();
-  const servers = (cfg.mcpServers || []).filter(s => s.enabled);
-  const allTools = [];
-  // 并行启动所有服务器，避免串行阻塞 Agent 响应
-  const startPromises = servers.map(async (s) => {
-    if (!mcpServers.has(s.id)) {
-      const res = await mcpStart(s);
-      if (res.error) {
-        return { serverId: s.id, serverName: s.name, error: res.error };
-      }
-    }
-    const server = mcpServers.get(s.id);
-    if (server) {
-      return server.tools.map(tool => ({ serverId: s.id, serverName: s.name, tool }));
-    }
-    return { serverId: s.id, serverName: s.name, error: '服务器未运行' };
-  });
-  const results = await Promise.allSettled(startPromises);
-  for (const r of results) {
-    if (r.status === 'fulfilled') {
-      if (Array.isArray(r.value)) {
-        allTools.push(...r.value);
-      } else if (r.value?.error) {
-        // 将错误信息作为特殊"工具"返回，供 UI 显示
-        allTools.push({ serverId: r.value.serverId, serverName: r.value.serverName, error: r.value.error });
-      }
-    }
-  }
-  return allTools;
-});
-ipcMain.handle('mcp:call-tool', async (_e, serverId, toolName, args, runId) => {
-  const server = mcpServers.get(serverId);
-  if (!server) return { error: '服务器未运行' };
-  try {
-    if (/codegraph/i.test(String(serverId || ''))) {
-      const syncResult = await codeGraphRuntime.syncIndex(appRoot, args?.projectPath);
-      if (!syncResult.ok) {
-        return { error: syncResult.error, code: 'CODEGRAPH_SYNC_FAILED', stderr: syncResult.stderr || '' };
-      }
-    }
-    const toolArguments = String(serverId || '') === 'yan_browser'
-      ? { ...(args && typeof args === 'object' ? args : {}), yan_run_id: String(runId || '') }
-      : (args || {});
-    const result = await mcpRequest(server, 'tools/call', {
-      name: toolName,
-      arguments: toolArguments
-    }, { ownerId: _e.sender.id, runId });
-    if (result && result.content) {
-      const text = result.content
-        .filter(c => c.type === 'text')
-        .map(c => c.text)
-        .join('\n');
-      const images = result.content
-        .filter(c => c.type === 'image' && c.data && /^image\//i.test(String(c.mimeType || 'image/png')))
-        .slice(0, 2)
-        .map(c => ({ data: String(c.data), mimeType: String(c.mimeType || 'image/png') }));
-      const textFailure = /^Error (?:capturing|processing|getting)\b|^Task failed completely\b/im.test(text);
-      let structuredFailure = false;
-      try {
-        const parsed = JSON.parse(text);
-        structuredFailure = parsed?.ok === false || !!parsed?.error;
-      } catch {}
-      return { result: text, images, isError: !!result.isError || textFailure || structuredFailure };
-    }
-    return { result: JSON.stringify(result) };
-  } catch (e) {
-    return { error: e.message };
-  }
-});
-
-ipcMain.handle('mcp:cancel-run', (event, runId) => ({
-  ok: true,
-  cancelled: cancelMcpRequestsForRun(event.sender.id, runId)
-}));
-
 // ---------------------------------------------------------------------------
 // IPC: Automations (定时自动任务)
 // ---------------------------------------------------------------------------
@@ -5484,331 +6212,6 @@ ipcMain.handle('auto:remove', (_e, id) => {
   saveConfig(cfg);
   return true;
 });
-
-// ---------------------------------------------------------------------------
-// IPC: File search (ripgrep-style, workspace-scoped)
-// ---------------------------------------------------------------------------
-function lineMatchesQuery(line, query, opts) {
-  return codeIndex.lineMatchesQuery(line, query, opts);
-}
-
-ipcMain.handle('search:files', async (_e, opts) => {
-  const {
-    query,
-    directory,
-    workspace,
-    extensions,
-    regex = false,
-    caseSensitive = false,
-    maxResults = 80,
-    maxDepth = 8,
-    contextLines = 0
-  } = opts || {};
-
-  const resolved = resolveAgentDir(directory || '', workspace);
-  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
-  const root = resolved.path;
-  if (!root || !fs.existsSync(root) || !query) return [];
-
-  const results = [];
-  const exts = (extensions || []).map(e => String(e).replace(/^\./, '').toLowerCase()).filter(Boolean);
-  const ctx = Math.min(5, Math.max(0, parseInt(contextLines, 10) || 0));
-
-  async function walk(dir, depth) {
-    if (depth > maxDepth || results.length >= maxResults) return;
-    let entries;
-    try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
-    catch { return; }
-
-    for (const entry of entries) {
-      if (results.length >= maxResults) break;
-      const name = entry.name;
-      if (entry.isDirectory()) {
-        if (codeIndex.SEARCH_SKIP_DIRS.has(name)) continue;
-        if (name.startsWith('.') && name !== '.github') continue;
-        await walk(path.join(dir, name), depth + 1);
-        continue;
-      }
-
-      if (codeIndex.SEARCH_SKIP_FILES.has(name)) continue;
-      if (exts.length > 0) {
-        const ext = path.extname(name).slice(1).toLowerCase();
-        if (!exts.includes(ext)) continue;
-      }
-
-      const fullPath = path.join(dir, name);
-      try {
-        const stat = await fsp.stat(fullPath);
-        if (stat.size > 1024 * 1024) continue;
-        const content = await fsp.readFile(fullPath, 'utf8');
-        const lines = content.split('\n');
-        for (let i = 0; i < lines.length && results.length < maxResults; i++) {
-          if (!lineMatchesQuery(lines[i], query, { regex, caseSensitive })) continue;
-          const item = {
-            path: fullPath,
-            file: name,
-            line: i + 1,
-            content: lines[i].trim().slice(0, 240)
-          };
-          if (ctx > 0) {
-            const before = [];
-            const after = [];
-            for (let b = 1; b <= ctx && i - b >= 0; b++) before.unshift(lines[i - b].trim().slice(0, 160));
-            for (let a = 1; a <= ctx && i + a < lines.length; a++) after.push(lines[i + a].trim().slice(0, 160));
-            item.contextBefore = before;
-            item.contextAfter = after;
-          }
-          results.push(item);
-        }
-      } catch { /* skip binary / unreadable */ }
-    }
-  }
-
-  await walk(root, 0);
-  return results;
-});
-
-// ---------------------------------------------------------------------------
-// IPC: Code understanding (index, symbols, references, project scan)
-// ---------------------------------------------------------------------------
-ipcMain.handle('code:build-index', async (_e, { workspace, force } = {}) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws || !fs.existsSync(ws)) return { error: 'No workspace selected.' };
-  if (!force) {
-    const existing = await loadPersistedCodeIndex(ws);
-    if (existing && Date.now() - existing.builtAt < 5 * 60 * 1000) {
-      return { ok: true, cached: true, ...summarizeIndex(existing) };
-    }
-  }
-  const index = await codeIndex.buildWorkspaceIndex(ws);
-  await persistCodeIndex(index);
-  return { ok: true, cached: false, ...summarizeIndex(index) };
-});
-
-function summarizeIndex(index) {
-  return {
-    builtAt: index.builtAt,
-    fileCount: index.fileCount,
-    symbolCount: index.symbolCount,
-    workspace: index.workspace
-  };
-}
-
-ipcMain.handle('code:index-status', async (_e, workspace) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws) return { exists: false };
-  const index = await loadPersistedCodeIndex(ws);
-  if (!index) return { exists: false, workspace: ws };
-  return { exists: true, ...summarizeIndex(index) };
-});
-
-ipcMain.handle('code:search-symbols', async (_e, { query, kind, limit, regex, case_sensitive, workspace }) => {
-  const ws = workspace || loadConfig().workspace;
-  let index = await loadPersistedCodeIndex(ws);
-  if (!index) {
-    index = await codeIndex.buildWorkspaceIndex(ws);
-    await persistCodeIndex(index);
-  }
-  const hits = codeIndex.searchSymbols(index, query, { kind, limit, regex, caseSensitive: case_sensitive });
-  return { hits, indexAge: index.builtAt, fileCount: index.fileCount, symbolCount: index.symbolCount };
-});
-
-ipcMain.handle('code:find-symbol', async (_e, { name, kind, workspace, fallback_search }) => {
-  const ws = workspace || loadConfig().workspace;
-  const key = String(name || '').trim();
-  if (!key) return { hits: [], error: 'name is required' };
-
-  let index = await loadPersistedCodeIndex(ws);
-  if (!index) {
-    index = await codeIndex.buildWorkspaceIndex(ws);
-    await persistCodeIndex(index);
-  }
-
-  let hits = codeIndex.findSymbolInIndex(index, key, { kind });
-  if (!hits.length && fallback_search !== false) {
-    hits = await codeIndex.searchDefinitions(ws, key, { maxResults: 20 });
-    if (kind) hits = hits.filter(h => h.kind === kind);
-  }
-  return { hits, fromIndex: true, symbolCount: index.symbolCount };
-});
-
-ipcMain.handle('code:find-references', async (_e, { name, workspace, max_results }) => {
-  const ws = workspace || loadConfig().workspace;
-  const key = String(name || '').trim();
-  if (!key) return { hits: [], error: 'name is required' };
-  const hits = await codeIndex.searchReferences(ws, key, { maxResults: max_results || 60 });
-  return { hits, count: hits.length };
-});
-
-ipcMain.handle('code:find-related', async (_e, { path: filePath, workspace }) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!filePath) return { error: 'path is required' };
-  let index = await loadPersistedCodeIndex(ws);
-  if (!index) {
-    index = await codeIndex.buildWorkspaceIndex(ws);
-    await persistCodeIndex(index);
-  }
-  const related = codeIndex.findRelatedFiles(index, ws, filePath);
-  return related;
-});
-
-ipcMain.handle('code:file-imports', async (_e, { path: filePath }) => {
-  if (!filePath) return { error: 'path is required' };
-  try {
-    const content = await fsp.readFile(filePath, 'utf8');
-    const ie = codeIndex.extractImportsExports(content, filePath);
-    const outline = codeIndex.outlineFile(content, filePath);
-    return { path: filePath, ...ie, language: outline.language, lineCount: outline.lineCount, symbolCount: outline.symbols.length };
-  } catch (e) {
-    return { error: e.message };
-  }
-});
-
-ipcMain.handle('code:scan-project', async (_e, { workspace } = {}) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws || !fs.existsSync(ws)) return { error: 'No workspace selected.' };
-  const meta = await codeIndex.enrichProjectScan(ws);
-  return { meta, summary: codeIndex.formatProjectScan(meta) };
-});
-
-ipcMain.handle('code:trace-symbol', async (_e, { name, workspace }) => {
-  const ws = workspace || loadConfig().workspace;
-  const key = String(name || '').trim();
-  if (!key) return { error: 'name is required' };
-  let index = await loadPersistedCodeIndex(ws);
-  if (!index) {
-    index = await codeIndex.buildWorkspaceIndex(ws);
-    await persistCodeIndex(index);
-  }
-  const definitions = codeIndex.findSymbolInIndex(index, key);
-  const references = await codeIndex.searchReferences(ws, key, { maxResults: 40 });
-  return {
-    name: key,
-    definitions,
-    references,
-    definitionCount: definitions.length,
-    referenceCount: references.length
-  };
-});
-
-// ---------------------------------------------------------------------------
-// IPC: Workspace tree (flat file list)
-// ---------------------------------------------------------------------------
-ipcMain.handle('workspace:tree', async (_e, { directory, maxDepth }) => {
-  const root = directory || loadConfig().workspace;
-  if (!root || !fs.existsSync(root)) return [];
-  const files = [];
-  const max = maxDepth || 4;
-
-  async function walk(dir, depth, rel) {
-    if (depth > max || files.length >= 200) return;
-    let entries;
-    try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
-    catch { return; }
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === YANAGENT_DIR) continue;
-      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        files.push({ name: entry.name, path: path.join(dir, entry.name), relPath, isDirectory: true });
-        await walk(path.join(dir, entry.name), depth + 1, relPath);
-      } else {
-        files.push({ name: entry.name, path: path.join(dir, entry.name), relPath, isDirectory: false });
-      }
-    }
-  }
-
-  await walk(root, 0, '');
-  return files;
-});
-
-// ---------------------------------------------------------------------------
-// IPC: Git operations
-// ---------------------------------------------------------------------------
-ipcMain.handle('git:status', async (_e, dirPath) => {
-  const resolved = resolveAgentDir(typeof dirPath === 'object' ? dirPath?.dirPath : dirPath, typeof dirPath === 'object' ? dirPath?.workspace : dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  return execGitArgs(['status', '--porcelain=v2', '--branch'], resolved.path);
-});
-
-ipcMain.handle('git:diff', async (_e, { dirPath, staged, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  const args = staged ? ['diff', '--cached'] : ['diff'];
-  return execGitArgs(args, resolved.path);
-});
-
-ipcMain.handle('git:log', async (_e, { dirPath, limit, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  const n = Number.parseInt(limit, 10);
-  const count = Number.isFinite(n) && n > 0 ? n : 20;
-  return execGitArgs(['log', '--oneline', '--decorate', `-${count}`], resolved.path);
-});
-
-ipcMain.handle('git:commit', async (_e, { message, dirPath, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  // 安全方案：add -A 和 commit 分两步执行，commit 用数组参数避免 shell 解析
-  await execGitArgs(['add', '-A'], resolved.path);
-  return execGitArgs(['commit', '-m', String(message || '')], resolved.path);
-});
-
-ipcMain.handle('git:push', async (_e, { dirPath, remote, branch, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  const r = remote || 'origin';
-  const args = ['push', r];
-  if (branch) args.push(branch);
-  return execGitArgs(args, resolved.path);
-});
-
-ipcMain.handle('git:pull', async (_e, { dirPath, remote, branch, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  const r = remote || 'origin';
-  const args = ['pull', r];
-  if (branch) args.push(branch);
-  return execGitArgs(args, resolved.path);
-});
-
-ipcMain.handle('git:clone', async (_e, { url, dirPath, workspace } = {}) => {
-  const resolved = resolveAgentDir(dirPath, workspace || dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  return execGitArgs(['clone', String(url || '')], resolved.path);
-});
-
-ipcMain.handle('git:branch', async (_e, dirPath) => {
-  const resolved = resolveAgentDir(typeof dirPath === 'object' ? dirPath?.dirPath : dirPath, typeof dirPath === 'object' ? dirPath?.workspace : dirPath);
-  if (!resolved.ok) return { stdout: '', stderr: resolved.error, exitCode: 1, error: resolved.error, code: resolved.code };
-  return execGitArgs(['branch', '-a'], resolved.path);
-});
-
-// 通过参数数组调用 git，彻底避免 shell 命令注入
-async function execGitArgs(args, cwd) {
-  if (!cwd || !String(cwd).trim()) {
-    return { stdout: '', stderr: '', exitCode: 1, error: '未设置工作区，请先在设置或任务栏中选择文件夹', code: 'WORKSPACE_REQUIRED' };
-  }
-  const sandbox = resolveAgentDir(cwd, cwd);
-  if (!sandbox.ok) {
-    return { stdout: '', stderr: sandbox.error, exitCode: 1, error: sandbox.error, code: sandbox.code };
-  }
-  return new Promise((resolve) => {
-    execFile('git', args, {
-      timeout: 30000,
-      maxBuffer: 1024 * 1024 * 5,
-      cwd: sandbox.path,
-      env: { ...process.env },
-      windowsHide: true
-    }, (err, stdout, stderr) => {
-      resolve({
-        stdout: stdout || '',
-        stderr: stderr || '',
-        exitCode: err ? (err.code || 1) : 0,
-        error: err ? err.message : null
-      });
-    });
-  });
-}
 
 // ---------------------------------------------------------------------------
 // IPC: Permissions
@@ -5896,6 +6299,10 @@ ipcMain.on('quick-input:submit', (event, text) => {
 ipcMain.on('quick-input:close', (event) => {
   if (!quickInputWindow || quickInputWindow.isDestroyed() || event.sender.id !== quickInputWindow.webContents.id) return;
   destroyQuickInputWindows();
+});
+ipcMain.on('computer-use:visual-state', (event, payload = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return;
+  setComputerUseOverlayRun(payload.runId, payload.active === true);
 });
 // ---------------------------------------------------------------------------
 // Utility
@@ -6113,9 +6520,10 @@ function buildRemoteDeps() {
     setModel: (modelId) => setActiveModel(modelId),
     getPublicConfig: () => {
       const cfg = loadConfig();
+      const selection = normalizeAgentModelSelection(cfg);
       return {
-        model: cfg.api?.model || '',
-        provider: cfg.api?.provider || '',
+        model: selection.modelId || '',
+        provider: selection.providerId || '',
         hasWorkspace: !!cfg.workspace,
       };
     },
@@ -6219,20 +6627,54 @@ function getNoWorkspaceAgentDirectory(sessionId) {
   return path.join(dataDir, 'opencode-runtime', 'no-workspace', key);
 }
 
-function selectedRunSkills(requestedSkills, cfg, { workspace, workMode } = {}) {
-  const skills = Array.isArray(requestedSkills) ? [...requestedSkills] : [];
-  const ids = selectedSkillIds(skills);
-  const userSelectedSerena = ids.has('yan-serena');
-  if (userSelectedSerena && !workspace) {
+async function selectedRunSkills(requestedSkills, cfg, { workspace, workMode } = {}) {
+  const requested = Array.isArray(requestedSkills) ? [...requestedSkills] : [];
+  const requestedIds = selectedSkillIds(requested);
+  if (requestedIds.has('yan-serena') && !workspace) {
     return {
       error: 'Serena 需要当前任务工作区。请先选择工作区后，再使用 Serena 进行代码定位或符号级修改。'
     };
   }
-  if (workMode !== 'goal' || !workspace || userSelectedSerena) return { skills };
+  const skills = [];
+  const skippedSkills = [];
+  for (const requestedSkill of requested) {
+    const id = String(requestedSkill?.id || requestedSkill || '').trim();
+    if (!id) continue;
+    const loaded = await skillRegistry.readSkillWithRetry(
+      id, '', cfg, appRoot, dataDir, saveConfig, { allowUserOnly: true, maxAttempts: 3 }
+    );
+    if (!loaded?.ok) {
+      skippedSkills.push({
+        id: String(loaded?.id || id),
+        name: String(loaded?.name || requestedSkill?.name || id),
+        attempts: Number(loaded?.attempts) || 1,
+        error: String(loaded?.error || 'Skill 无法加载。'),
+        skipNotice: String(loaded?.skipNotice || `Skill「${id}」本轮已跳过。`)
+      });
+      continue;
+    }
+    skills.push({
+      ...(typeof requestedSkill === 'object' ? requestedSkill : {}),
+      id: String(loaded.id || id),
+      name: String(loaded.name || requestedSkill?.name || id),
+      desc: String(loaded.desc || requestedSkill?.desc || ''),
+      aliases: Array.isArray(loaded.aliases) ? loaded.aliases : (requestedSkill?.aliases || []),
+      prompt: String(loaded.prompt || ''),
+      requires: Array.isArray(loaded.requires) ? loaded.requires : (requestedSkill?.requires || []),
+      runtimeDirectory: String(loaded.runtimeDirectory || requestedSkill?.runtimeDirectory || '')
+    });
+  }
+  const userSelectedSerena = selectedSkillIds(skills).has('yan-serena');
+  if (workMode !== 'goal' || !workspace || userSelectedSerena) return { skills, skippedSkills };
 
-  const serena = skillRegistry.readSkill('yan-serena', '', cfg, appRoot, dataDir, saveConfig);
+  const serena = await skillRegistry.readSkillWithRetry('yan-serena', '', cfg, appRoot, dataDir, saveConfig, { maxAttempts: 3 });
   if (!serena?.ok) {
-    return { error: `Goal 模式无法加载 Serena：${serena?.error || '内置 Skill 不可用'}` };
+    skippedSkills.push({
+      id: 'yan-serena', name: 'Serena', attempts: Number(serena?.attempts) || 1,
+      error: String(serena?.error || '内置 Skill 不可用'),
+      skipNotice: String(serena?.skipNotice || 'Serena 本轮已跳过。')
+    });
+    return { skills, skippedSkills };
   }
   skills.push({
     id: String(serena.id || 'yan-serena'),
@@ -6242,7 +6684,7 @@ function selectedRunSkills(requestedSkills, cfg, { workspace, workMode } = {}) {
     prompt: String(serena.prompt || ''),
     requires: Array.isArray(serena.requires) ? serena.requires : []
   });
-  return { skills };
+  return { skills, skippedSkills };
 }
 
 ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
@@ -6274,6 +6716,13 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       : longTermMemory.query({ query: memoryQuery, workspace, maxChars: 3_600, limit: 12 });
     const runId = String(request.runId || crypto.randomUUID());
     const yanSessionId = String(request.yanSessionId || '');
+    const harnessBaselines = request.utility ? {} : {
+      global: continualHarness.load({ scope: 'global' }),
+      ...(workspace ? { workspace: continualHarness.load({ scope: 'workspace', workspace }) } : {})
+    };
+    const harnessContext = request.utility
+      ? ''
+      : continualHarness.promptContext({ workspace, query: memoryQuery, maxChars: 3_000 });
     const authoritativeSession = yanSessionId ? await readSessionRecord(yanSessionId) : null;
     const visionAbortController = new AbortController();
     openCodeActiveRuns.set(runId, {
@@ -6289,12 +6738,13 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       ? String(request.workMode)
       : (cfg.agent?.workMode || 'normal');
     const workMode = request.utility ? 'normal' : requestedWorkMode;
-    const resolvedSkills = selectedRunSkills(request.selectedSkills, cfg, { workspace, workMode });
+    const resolvedSkills = await selectedRunSkills(request.selectedSkills, cfg, { workspace, workMode });
     if (resolvedSkills.error) {
       openCodeActiveRuns.delete(runId);
       return { ok: false, error: resolvedSkills.error };
     }
     const runSelectedSkills = resolvedSkills.skills;
+    const skippedSkills = resolvedSkills.skippedSkills || [];
     const emitVisionEvent = (type, data = {}) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('opencode:event', { runId, event: { type, data } });
@@ -6314,9 +6764,10 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       workspace,
       workMode,
       selectedSkills: runSelectedSkills,
-      runId
+      runId,
+      yanSessionId
     });
-    const capabilityContext = getOpenCodeCapabilityContext(cfg, openCodeMcpServers);
+    const capabilityContext = getOpenCodeCapabilityContext(cfg, openCodeMcpServers, { skippedSkills });
     const openCodeConfig = getOpenCodeRuntimeConfig(cfg, { mcpServers: openCodeMcpServers });
     const emitOpenCodeEvent = event => {
       trackBrowserAgentToolClaim(runId, event);
@@ -6356,6 +6807,7 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       yanSkillDirectory: skillsDir,
       mcpServers: openCodeMcpServers,
       selectedSkills: runSelectedSkills,
+      skippedSkills,
       availableSkills: capabilityContext.skills,
       availableMcpServers: capabilityContext.mcpServers,
       yanBrowserAvailable: capabilityContext.yanBrowserAvailable,
@@ -6363,7 +6815,8 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       visionRelay: relayed.relay,
       toneProfile: getActiveToneProfile(cfg.agent?.tone),
       handoff: authoritativeSession?.handoff || null,
-      memoryContext: retrievedMemory.context || ''
+      memoryContext: retrievedMemory.context || '',
+      harnessContext
     }, emitOpenCodeEvent);
     openCodeActiveRuns.set(runId, {
       task,
@@ -6379,7 +6832,7 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
         const reviewSummary = summarizeOpenCodeDiffs(workspace, result?.changes, { includeDiff: true });
         mainWindow.webContents.send('opencode:completed', { runId, result: { ...result, reviewSummary } });
       }
-      if (!request.utility && result?.status === 'done' && result?.userRequestedFinish !== true) {
+      if (!request.utility && ['done', 'error'].includes(result?.status) && result?.userRequestedFinish !== true) {
         void reviewCompletedRunMemory({
           sidecar,
           selection,
@@ -6388,7 +6841,8 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
           prompt,
           workspace,
           yanSessionId,
-          runId
+          runId,
+          harnessBaselines
         });
       }
     }).catch(error => {
@@ -6411,6 +6865,7 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
         });
       }
     }).finally(() => {
+      try { fs.rmSync(pendingHarnessRequestPath(runId), { force: true }); } catch {}
       notifyBrowserAgentRelease(runId);
       clearBrowserAgentToolClaims(runId);
       clearSessionAgentToolClaims(runId);
@@ -6493,20 +6948,31 @@ async function cancelOpenCodeRun(runId) {
   };
 }
 
-ipcMain.handle('opencode:interject', async (_e, payload = {}) => {
+ipcMain.handle('opencode:interject', async (event, payload = {}) => {
   const runId = String(payload.runId || '');
+  const requestId = String(payload.requestId || '');
   const text = String(payload.text || '').trim();
   const active = openCodeActiveRuns.get(runId);
-  if (!runId || !text) return { ok: false, error: '插话内容不能为空。' };
+  if (!runId || !text) return { ok: false, error: '辅助对话内容不能为空。' };
   if (!active || !openCodeSidecar) return { ok: false, error: '当前任务已经结束。' };
+  const emitAuxiliaryEvent = auxiliaryEvent => {
+    if (!event.sender || event.sender.isDestroyed()) return;
+    event.sender.send('opencode:interjection-event', {
+      runId,
+      requestId,
+      event: auxiliaryEvent
+    });
+  };
   try {
     const analysis = await openCodeSidecar.analyzeInterjection({
       runId,
+      requestId,
       text,
+      history: Array.isArray(payload.history) ? payload.history : [],
       snapshot: payload.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot : {}
-    });
+    }, emitAuxiliaryEvent);
     if (openCodeActiveRuns.get(runId) !== active || !openCodeSidecar.activeRuns.has(runId)) {
-      return { ok: false, stale: true, error: '判断完成前任务已经结束，插话未送达。' };
+      return { ok: false, stale: true, error: '判断完成前任务已经结束，辅助对话消息未送达。' };
     }
     if (analysis.kind === 'check') {
       return { ok: true, ...analysis, delivered: false };
@@ -6528,6 +6994,17 @@ ipcMain.handle('opencode:interject', async (_e, payload = {}) => {
       ...delivery,
       reply: analysis.reply
     };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('opencode:cancel-interjection', async (_e, payload = {}) => {
+  const runId = String(payload.runId || '');
+  const requestId = String(payload.requestId || '');
+  if (!runId || !openCodeSidecar) return { ok: false, error: '辅助对话不存在。' };
+  try {
+    return await openCodeSidecar.cancelInterjection(runId, requestId);
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };
   }
@@ -6556,15 +7033,6 @@ ipcMain.handle('opencode:question-reply', async (_e, payload = {}) => {
     return await openCodeSidecar.replyQuestion(payload);
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };
-  }
-});
-
-ipcMain.handle('opencode:status', async () => {
-  try {
-    const sidecar = await ensureOpenCodeSidecar(getOpenCodeRuntimeConfig(loadConfig()));
-    return sidecar.status();
-  } catch (error) {
-    return { ok: false, version: OPENCODE_VERSION, error: error?.message || String(error) };
   }
 });
 
@@ -6660,15 +7128,12 @@ app.on('before-quit', () => {
   destroyQuickInputWindows();
   for (const request of activeImageGenerations.values()) request.controller.abort();
   activeImageGenerations.clear();
-  for (const children of activeShellExecutions.values()) {
-    for (const child of children) terminateShellProcessTree(child);
-  }
-  activeShellExecutions.clear();
   closeGeneratedImageViewers();
   stopWorkspaceWatcher();
   stopYanSkillWatcher();
   stopBrowserAgentBridge();
   stopSessionAgentBridge();
+  destroyComputerUseOverlay();
   terminalManager.dispose();
   stopRemoteServer().catch(() => {});
   understandAnythingRuntime.stopAllUnderstandAnything();

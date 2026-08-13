@@ -41,10 +41,12 @@ Yan Agent is a Windows desktop Agent for real workspace tasks. The primary text 
 | **Yan Kernel** | OpenCode-based runtime adapted for Yan sessions, tools, permissions, final summaries, DSML, and goal acceptance |
 | **Agent output** | Live reasoning summaries and tool activity share the final-answer surface; completed work collapses behind a process toggle |
 | **Built-in browser** | Multi-tab browser that the Agent can open, read, click, type into, scroll, capture, and verify without taking over the user's tab |
+| **Computer Use** | Initial Windows desktop integration through the official Nuphus MCP, with native `desktop_*` tools, a dedicated Skill, a visible safety overlay, and Esc cancellation |
 | **Multimodal roles** | A primary text model can coexist with optional image and video models; generated assets stay in conversation context |
+| **Provider connections** | Multiple suppliers can coexist under one provider, while text, image, and video roles retain their own supplier identity |
 | **Workspace continuity** | Blank tasks, task-local workspaces, authorized workspace transitions, and bounded cross-session handoffs follow one model |
-| **Extensions** | Yan Skills, MCP, CodeGraph, Serena, AnySearch, OfficeCLI, and Understand Anything are exposed through Yan Kernel |
-| **Desktop experience** | New composer, settings, review panel, startup animation, global quick launch, and second-generation Yan Agent Pet |
+| **Extensions** | Yan Skills, MCP, CodeGraph, Serena, AnySearch, OfficeCLI, Understand Anything, and the controlled continual Harness are exposed through Yan Kernel |
+| **Desktop experience** | New composer, settings, review and Git panels, VS Code workspace handoff, startup animation, global quick launch, and second-generation Yan Agent Pet |
 
 ### Yan Kernel Runtime
 
@@ -92,23 +94,24 @@ The composer provides three access policies:
 
 Permission requests use a workbench panel instead of disruptive system popups. Users can always allow, allow once, or deny. Authorization is owned by the main process and stays aligned with the active run across later turns.
 
-### Yan Agent Interrupt
+### Auxiliary Conversation
 
-While a task is running, **Yan Agent Interrupt** accepts a message without cancelling the main job. An isolated observer classifies and grounds the interruption:
+While a task is running, open **Auxiliary Conversation** in the right sidebar to ask about progress or guide the active run without cancelling it. An isolated observer classifies and grounds the message:
 
 - **Status check:** reports whether an install, download, wait, or command is still progressing or is actually stuck.
 - **Guidance:** asks the active run to change direction, use another tool, inspect a page, or shorten optional validation at the next safe checkpoint.
 - **Finish request:** gracefully stops optional work and enters delivery only when the user clearly asks to finish.
 
-An interruption does not become a second task, inherit new permissions, or bypass workspace rules.
+An auxiliary conversation does not become a second task, inherit new permissions, or bypass workspace rules.
 
 ### Skills, MCP, and Code Understanding
 
 - The composer `+` menu combines attachments, plan/goal modes, and installed Skills. Selected Skills travel with the user's message and can be removed like ordinary composer content.
 - Installation, lookup, invocation, and removal use Yan Agent's own SkillStore only. Yan does not silently scan another agent's `.codex/skills` or `.agents/skills` directory.
 - Skills are exposed when the user selects them or when the task genuinely needs them. Installed Skills that are not selected or relevant do not interfere with the run.
-- The catalog covers coding, code simplification, UI, web design, Agent rules, search, office work, animation, and video workflows. It includes AnySearch, OfficeCLI, Hallmark, TasteSkill, HyperFrames, Remotion guidance, and Skill Creator families.
-- Built-in Yan capabilities include the Yan browser, Yan Skills, Yan Media, Yan Session, CodeGraph, Serena, and Understand Anything. Playwright is available as a fallback when isolated scripted browser automation is genuinely required.
+- A transient Skill parsing error receives bounded retries. Only repeated failure within the conversation causes Yan to continue without that Skill and report the failure in the delivery.
+- The catalog covers coding, code simplification, UI, web design, Agent rules, search, office work, animation, and video workflows. It includes UI/UX Pro Max, GSAP-related Skills, AnySearch, OfficeCLI, Hallmark, TasteSkill, HyperFrames, Remotion guidance, and Skill Creator families.
+- Built-in Yan capabilities include the Yan browser, Yan Skills, Yan Media, Yan Session, Yan Computer Use, Yan Harness, CodeGraph, Serena, and Understand Anything. Playwright is available as a fallback when isolated scripted browser automation is genuinely required.
 - Custom MCP servers can be added, tested, enabled, disabled, and removed. MCP uses JSON-RPC 2.0 over stdio, and each task retains its own tool snapshot.
 - **Understand Anything** replaces the old project-map workflow. CodeGraph produces repository structure and relationships, which Yan converts into the ready-to-use knowledge graph under `.ua/`.
 - Goal mode can expose Serena for precise code location and targeted edits instead of broad rewrites.
@@ -119,11 +122,14 @@ An interruption does not become a second task, inherit new permissions, or bypas
 - Yan browser tools cover navigation, page snapshots, structured reading, inspection, clicking, typing, selection, checking, focusing, hovering, dragging, pointer movement, key presses, scrolling, waiting, screenshots, history, and status.
 - The built-in browser is the first choice for research, URL reading, local HTML preview, interaction, and visual acceptance. Playwright is a fallback; external Chrome is reserved for work that truly depends on the user's Chrome profile, extensions, or signed-in state.
 - Agent-owned browser calls are associated with the active run so parallel tasks cannot control the wrong tab.
+- Browser actions carry operation identities and explicit cancellation/release handling so a stopped or superseded run does not keep driving the page.
 - While the Agent controls a page, the tab receives a visible control state and input protection. The user can press `Esc` to take control, and refresh or close remains available.
 - Readiness checks and explicit waits avoid treating one short timeout as proof that a network page failed to open.
 - Canvas, WebGL, animation, and 3D acceptance combines real interaction, screenshots, and visible state. DOM presence or a synthetic metric is not enough to claim playability.
 
-Yan Agent 1.4.0 does **not** ship complete Windows Computer Use. The former native cursor host, desktop overlay, and related Skill were removed. A new Yan Computer Use backend/MCP is planned for a later release; browser automation in 1.4.0 must not be presented as full desktop control.
+Yan Agent 1.4.0 includes an initial **Yan Computer Use** integration. A thin Yan adapter connects to the official Nuphus MCP and exposes only native `desktop_*` tools; Nuphus browser tools are hidden to avoid conflicting with the Yan built-in browser. The bundled Skill guides the model through window activation, visual understanding, precise coordinate perception, actions, and final visual verification.
+
+When a real desktop tool begins, Yan displays an independent blue edge animation and an opaque top-center notice. Pressing `Esc` cancels the active Computer Use run. The generic Vision Relay remains available. Desktop accessibility, application UI structure, and Nuphus perception quality vary, so this initial integration does not guarantee automation of every application.
 
 ### Text, Image, Video, and Vision Relay
 
@@ -137,6 +143,8 @@ Yan separates model responsibilities so media work does not discard text context
 - Supported image ratios include `auto`, `1:1`, `4:3`, `3:4`, `3:2`, `2:3`, `16:9`, `9:16`, and `21:9`.
 - Successful media generation does not automatically call image reading again. Vision is used only when the task requires inspection, the text model cannot see, or the user asks for it.
 - Provider catalogs are dynamically loaded where supported and separated into text, image, and video groups. Catalog discovery does not replace endpoint, quota, or network validation.
+- Each provider can keep multiple isolated supplier connections. Official and third-party Base URLs, API keys, and model inventories remain separate, and text, image, and video roles retain their own supplier identity. Choosing a text supplier does not erase an image or video selection from another supplier.
+- The Custom Model card accepts a Base URL, API format, API key, and explicit model ID. Manual configuration or dynamic discovery does not guarantee endpoint compatibility, permission, or quota.
 - The application does not label models with prices or long-term free-tier promises.
 
 When a text model cannot read an attachment or screenshot, Yan Vision Relay can inspect it and return a grounded report to the primary model. The current order is:
@@ -157,6 +165,7 @@ Yan currently describes GLM as not requiring a VPN in the application's target n
 - Completed runs can display real cache-read tokens, total input tokens, and cache hit rate from provider usage rather than a fabricated percentage.
 - Short-term context lives in the OpenCode session. Yan compacts around a model-aware soft threshold and records before/after token counts, limits, and compression count.
 - Global long-term memory is stored in `YanData/memory.json`; workspace memory is stored under `<workspace>/.yanagent/memory.json`. Memory candidates retain scope, evidence, confidence, and type.
+- `ContinualHarnessStore` and the Yan Harness MCP provide an experimental, controlled continual harness for evidence-backed workflow and Skill preferences. It is not unrestricted self-modification and cannot change current-run permissions or bypass workspace boundaries.
 - Cross-session handoff is bounded to prevent uncontrolled context growth and does not treat old conversation text as filesystem truth.
 
 ### Composer and Desktop Experience
@@ -167,6 +176,9 @@ Yan currently describes GLM as not requiring a VPN in the application's target n
 - Tone settings support up to four named profiles. A profile controls expression, including direct or playful styles, but cannot change facts, permissions, or safety boundaries.
 - `Ctrl+Shift+Y` opens the global quick-input surface while Yan remains available in the system tray. The shortcut is configurable.
 - The startup animation, theme switcher, settings navigation, full-screen layouts, and model configuration surfaces were redesigned for 1.4.0.
+- Provider configuration uses a multi-supplier panel. The primary-model menu selects a supplier first and then lists only that connection's text models, while image and video selections keep their own connections.
+- The right sidebar includes Auxiliary Conversation, browser, file, and Git workspaces. Bottom utilities provide separate vertical controls for the user, current theme, Pet, and settings.
+- The integrated Git panel covers status, branches, stage/unstage, commit, fetch, pull, push, remotes, and file diffs. Yan also detects VS Code dynamically and can open the selected workspace when VS Code is available.
 
 The second-generation **Yan Agent Pet** follows real Yan Kernel workflow state instead of displaying one generic loading message:
 
@@ -261,10 +273,10 @@ Deleting a task does not delete its workspace. The uninstaller option **Clear al
 
 ## Current Boundaries and Roadmap
 
-- **Yan Computer Use is under development and planned for v1.5.0.** It will target isolated desktop operation, independent input, cross-application screenshots, and software UI control. Browser automation is the supported interaction path in 1.4.0.
+- **Yan Computer Use is an initial 1.4.0 integration, not a promise of universal desktop automation.** It depends on Nuphus MCP, the target application's UI, and perception quality; custom-drawn interfaces, permission windows, and rapidly changing desktops may still fail.
 - **Yan Agent GUI is under development and planned for v1.5.0.** The current Yan Work GUI entry is a development placeholder.
 - **The mobile Web UI has not received the full 1.4.0 redesign and is not recommended** as the primary interface for this release.
-- Resident subagents, dynamic concurrency scheduling, a fuller Git workflow, and a bundled PowerShell 7 runtime are not part of the stable 1.4.0 promise.
+- Resident subagents, dynamic concurrency scheduling, hosted PR/Issue workflows, built-in Git credential management, and a bundled PowerShell 7 runtime are not part of the stable 1.4.0 promise. Local Git workspace operations are integrated.
 - Dynamic model discovery does not guarantee that every media endpoint, request format, balance, rate limit, or region is usable.
 - Vision relay, web search, and third-party MCP services depend on user API configuration, network access, VPN conditions, and service health.
 
@@ -275,12 +287,18 @@ Yan-Agent/
 |-- main.js                    Electron main process, IPC, permissions, MCP, and local services
 |-- preload.js                 Sandboxed renderer bridge
 |-- lib/opencode-sidecar.js    Yan Kernel execution, goals, summaries, and event stream
+|-- lib/nuphus-desktop-mcp.js  Thin adapter for official Nuphus desktop tools
+|-- lib/git-service.js         Git status, branch, staging, commit, and remote operations
+|-- lib/vscode-launcher.js     VS Code detection and workspace launch
+|-- lib/continual-harness.js   Controlled continual Harness store
+|-- lib/yan-harness-mcp.js     Harness MCP interface
 |-- lib/*-mcp.js               Yan built-in MCP services
 |-- lib/skills/                Built-in Skills and market catalog
 |-- opencode-runtime/          Application-owned OpenCode runtime data and configuration
 |-- renderer/index.html        Main workbench and settings structure
 |-- renderer/renderer.js       Sessions, composer, output, browser, and review coordination
 |-- renderer/browser-agent.js  Built-in browser control UI and state
+|-- renderer/computer-use-overlay/  Visible Computer Use safety overlay
 |-- renderer/pet/              Yan Agent Pet
 |-- renderer/remote/           Mobile Web UI
 |-- build/                     NSIS installer configuration

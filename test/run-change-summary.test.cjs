@@ -192,6 +192,59 @@ test('recovers newly written files without a pre-existing workspace snapshot', a
   assert.equal(summary.files[0].additions, 2);
 });
 
+test('keeps every touched text file when OpenCode returns mixed diff metadata', async t => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-review-complete-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const indexPath = path.join(workspace, 'index.html');
+  const cssPath = path.join(workspace, 'styles.css');
+  const jsPath = path.join(workspace, 'app.js');
+  const cssBefore = 'body { color: black; }\n';
+  const cssAfter = 'body { color: white; }\n';
+  await Promise.all([
+    fs.writeFile(indexPath, '<main>Yan</main>\n'),
+    fs.writeFile(cssPath, cssAfter),
+    fs.writeFile(jsPath, 'console.log("Yan");\n')
+  ]);
+  const messages = [{
+    info: { id: 'assistant-mixed', role: 'assistant', time: { created: 250 } },
+    parts: [{
+      type: 'tool',
+      tool: 'write_file',
+      state: {
+        status: 'completed',
+        input: { file_path: indexPath },
+        metadata: { filePath: indexPath, exists: false }
+      }
+    }, {
+      type: 'tool',
+      tool: 'edit_file',
+      state: {
+        status: 'completed',
+        input: { target_file: cssPath },
+        metadata: {
+          fileDiff: {
+            path: cssPath,
+            patch: createTwoFilesPatch(cssPath, cssPath, cssBefore, cssAfter),
+            additions: 1,
+            deletions: 1,
+            status: 'modified'
+          }
+        }
+      }
+    }]
+  }];
+
+  const diffs = await summarizeOpenCodeToolChanges(workspace, messages, {
+    touchedFiles: new Set([indexPath, cssPath, jsPath])
+  });
+  const summary = summarizeOpenCodeDiffs(workspace, diffs, { includeDiff: true });
+  assert.equal(summary.count, 3);
+  assert.deepEqual(summary.files.map(file => file.path).sort(), ['app.js', 'index.html', 'styles.css']);
+  assert.equal(summary.files.find(file => file.path === 'app.js').status, 'unknown');
+  assert.equal(summary.files.find(file => file.path === 'index.html').status, 'created');
+  assert.equal(summary.files.find(file => file.path === 'styles.css').status, 'modified');
+});
+
 test('collapses multiple edits into the final per-run file diff', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-review-multi-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));

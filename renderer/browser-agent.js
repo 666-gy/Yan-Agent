@@ -4,7 +4,7 @@
 
   const MAX_SNAPSHOT_ITEMS = 180;
   const MAX_TEXT_LENGTH = 16000;
-  const SNAPSHOT_SCRIPT = String.raw`(() => {
+  const SNAPSHOT_SCRIPT = ({ startRef = 1, snapshotId = '' } = {}) => String.raw`(() => {
     const interactiveSelector = [
       'a[href]', 'button', 'input:not([type="hidden"])', 'textarea', 'select', 'summary',
       '[contenteditable="true"]', '[role="button"]', '[role="link"]', '[role="textbox"]',
@@ -43,9 +43,10 @@
       }
       const parentLabel = element.closest('label');
       if (parentLabel && text(parentLabel.innerText)) return text(parentLabel.innerText);
+      const safeValue = element.matches?.('input[type="password"]') ? '' : text(element.value);
       return text(element.getAttribute('placeholder')) || text(element.getAttribute('title'))
         || text(element.getAttribute('alt')) || text(element.innerText)
-        || text(element.value) || text(element.getAttribute('name'));
+        || safeValue || text(element.getAttribute('name'));
     };
     const roleFor = element => {
       const explicit = text(element.getAttribute('role'));
@@ -77,7 +78,10 @@
       if (expanded === 'true' || expanded === 'false') state.expanded = expanded === 'true';
       const pressed = element.getAttribute('aria-pressed');
       if (pressed === 'true' || pressed === 'false') state.pressed = pressed === 'true';
-      if ('value' in element && element.value !== '') state.value = String(element.value).slice(0, 240);
+      if ('value' in element && element.value !== '') {
+        if (element.matches?.('input[type="password"]')) state.hasValue = true;
+        else state.value = String(element.value).slice(0, 240);
+      }
       return state;
     };
     const topRect = element => {
@@ -114,7 +118,7 @@
     visitRoot(document);
     const elements = candidates.slice(0, ${MAX_SNAPSHOT_ITEMS});
     const items = elements.map((element, index) => {
-      const ref = 'e' + (index + 1);
+      const ref = 'e' + (${Math.max(1, Number(startRef) || 1)} + index);
       const rect = topRect(element);
       refs.set(ref, element);
       return {
@@ -135,11 +139,13 @@
       };
     });
     window.__yanBrowserRefs = refs;
+    window.__yanBrowserSnapshotId = ${JSON.stringify(String(snapshotId || ''))};
     const bodyText = text(document.body?.innerText).slice(0, 3200);
     return {
       url: location.href,
       title: document.title || '',
       readyState: document.readyState,
+      snapshotId: window.__yanBrowserSnapshotId,
       viewport: { width: window.innerWidth, height: window.innerHeight, scrollX: window.scrollX, scrollY: window.scrollY },
       items,
       bodyText,
@@ -203,6 +209,14 @@
       this.busyTimer = null;
       this.lastSnapshot = null;
       this.heldKeys = new Map();
+      this.refCounter = 0;
+      this.snapshotCounter = 0;
+      this.activeRefs = new Set();
+      this.actionTail = Promise.resolve();
+      this.actionSequence = 0;
+      this.actionGeneration = 0;
+      this.actionEntries = new Map();
+      this.activeAction = null;
       this.bindEvents();
     }
 
@@ -214,10 +228,15 @@
 
     invalidateRefs() {
       this.lastSnapshot = null;
+      this.activeRefs.clear();
       this.setBusy(false);
     }
 
     setBusy(busy) {
+      if (busy && this.busyTimer) {
+        clearTimeout(this.busyTimer);
+        this.busyTimer = null;
+      }
       this.panel?.classList.toggle('browser-agent-active', !!busy);
       if (!this.status) return;
       this.status.classList.toggle('hidden', !busy);
@@ -238,6 +257,106 @@
       }
     }
 
+    enqueueAction(operationId, callback) {
+      const id = String(operationId || `browser-op-${++this.actionSequence}`);
+      const entry = {
+        id,
+        generation: this.actionGeneration,
+        cancelled: false,
+        controller: new AbortController()
+      };
+      this.actionEntries.set(id, entry);
+      const execute = async () => {
+        try {
+          if (entry.cancelled || entry.generation !== this.actionGeneration) return this.cancelledResult();
+          this.activeAction = entry;
+          const result = await callback(entry.controller.signal);
+          if (entry.cancelled || entry.controller.signal.aborted) return this.cancelledResult();
+          return result;
+        } catch (error) {
+          if (entry.cancelled || entry.controller.signal.aborted || error?.name === 'AbortError') return this.cancelledResult();
+          throw error;
+        } finally {
+          if (this.activeAction === entry) this.activeAction = null;
+          this.actionEntries.delete(id);
+        }
+      };
+      const result = this.actionTail.then(execute, execute);
+      this.actionTail = result.then(() => undefined, () => undefined);
+      return result;
+    }
+
+    cancelledResult() {
+      return { ok: false, error: '内置浏览器操作已取消。', code: 'BROWSER_ACTION_CANCELLED' };
+    }
+
+    cancelOperation(operationId) {
+      const entry = this.actionEntries.get(String(operationId || ''));
+      if (!entry) return false;
+      entry.cancelled = true;
+      entry.controller.abort();
+      return true;
+    }
+
+    async releaseActions() {
+      this.actionGeneration++;
+      for (const entry of this.actionEntries.values()) {
+        entry.cancelled = true;
+        entry.controller.abort();
+      }
+      this.invalidateRefs();
+      const releasedKeys = await this.releaseHeldKeys();
+      await this.clearGuestAgentState();
+      this.setBusy(false);
+      return { ok: true, cancelled: true, releasedKeys };
+    }
+
+    async clearGuestAgentState() {
+      try {
+        return await this.executePage(`(() => {
+          for (const record of window.__yanBrowserInteractionReceipts?.values?.() || []) {
+            record.element?.removeEventListener?.(record.eventType, record.listener, true);
+          }
+          for (const record of window.__yanBrowserKeyboardReceipts?.values?.() || []) {
+            document.removeEventListener('keydown', record.onDown, true);
+            document.removeEventListener('keyup', record.onUp, true);
+          }
+          window.__yanBrowserInteractionReceipts = new Map();
+          window.__yanBrowserKeyboardReceipts = new Map();
+          window.__yanBrowserRefs = new Map();
+          window.__yanBrowserSnapshotId = '';
+          return { ok: true };
+        })()`);
+      } catch {
+        return { ok: false };
+      }
+    }
+
+    async sleep(ms) {
+      const duration = Math.max(0, Number(ms) || 0);
+      const signal = this.activeAction?.controller?.signal;
+      if (signal?.aborted) throw new DOMException('Browser action cancelled', 'AbortError');
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(finish, duration);
+        function finish() {
+          signal?.removeEventListener('abort', abort);
+          resolve();
+        }
+        function abort() {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', abort);
+          reject(new DOMException('Browser action cancelled', 'AbortError'));
+        }
+        signal?.addEventListener('abort', abort, { once: true });
+      });
+    }
+
+    validateRef(ref) {
+      const value = String(ref || '');
+      if (value && this.activeRefs.has(value)) return null;
+      return { ok: false, error: '页面或快照已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+    }
+
     async executePage(expression) {
       if (!this.webview?.getURL || !this.webview.getURL() || this.webview.getURL() === 'about:blank') {
         return { ok: false, error: '内置浏览器尚未打开页面。请先调用 open_builtin_browser。', code: 'BROWSER_NOT_OPEN' };
@@ -246,7 +365,58 @@
     }
 
     async target(ref) {
+      const invalid = this.validateRef(ref);
+      if (invalid) return invalid;
       return this.executePage(targetScript(ref));
+    }
+
+    async pageState(ref = '', { changed = false, beforeUrl = '' } = {}) {
+      const result = await this.executePage(`(() => {
+        const ref = ${JSON.stringify(String(ref || ''))};
+        const element = ref ? window.__yanBrowserRefs?.get(ref) : null;
+        const summarize = target => {
+          if (!target) return null;
+          const type = String(target.getAttribute?.('type') || '').toLowerCase();
+          const rect = target.getBoundingClientRect?.();
+          const value = 'value' in target
+            ? (type === 'password' ? (target.value ? '[redacted]' : '') : String(target.value || '').slice(0, 240))
+            : '';
+          return {
+            ref: target === element ? ref : '',
+            tag: target.tagName?.toLowerCase?.() || '',
+            role: String(target.getAttribute?.('role') || ''),
+            name: String(target.getAttribute?.('aria-label') || target.getAttribute?.('placeholder') || target.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 160),
+            value,
+            connected: !!target.isConnected,
+            visible: !!rect && rect.width > 0 && rect.height > 0,
+            disabled: !!target.disabled || target.getAttribute?.('aria-disabled') === 'true',
+            checked: typeof target.checked === 'boolean' ? target.checked : target.getAttribute?.('aria-checked') === 'true'
+          };
+        };
+        return {
+          url: location.href,
+          title: document.title || '',
+          readyState: document.readyState,
+          snapshotId: String(window.__yanBrowserSnapshotId || ''),
+          viewport: { scrollX: Math.round(window.scrollX), scrollY: Math.round(window.scrollY) },
+          active: summarize(document.activeElement),
+          target: summarize(element)
+        };
+      })()`);
+      if (!result?.url) return null;
+      const urlChanged = !!beforeUrl && result.url !== beforeUrl;
+      return {
+        ...result,
+        changed: !!changed || urlChanged,
+        urlChanged,
+        snapshotRequired: urlChanged || (!!changed && !result.target)
+      };
+    }
+
+    async withPageState(result, ref = '', options = {}) {
+      if (!result?.ok) return result;
+      const pageState = await this.pageState(ref, options);
+      return pageState ? { ...result, pageState } : result;
     }
 
     async prepareInteractionReceipt(ref, receiptId, eventType) {
@@ -525,13 +695,18 @@
 
     async snapshot() {
       return this.withAction(async () => {
-        const result = await this.executePage(SNAPSHOT_SCRIPT);
+        const startRef = this.refCounter + 1;
+        const snapshotId = `s${++this.snapshotCounter}`;
+        const result = await this.executePage(SNAPSHOT_SCRIPT({ startRef, snapshotId }));
         if (!result?.items) return result;
+        this.refCounter += result.items.length;
+        this.activeRefs = new Set(result.items.map(item => item.ref));
         this.lastSnapshot = result;
         const lines = [
           `URL: ${result.url}`,
           `标题: ${result.title || '(无标题)'}`,
           `状态: ${result.readyState || 'unknown'}`,
+          `快照: ${result.snapshotId}（引用仅对本快照有效）`,
           `视口: ${result.viewport.width}x${result.viewport.height}，滚动位置 ${Math.round(result.viewport.scrollX)}, ${Math.round(result.viewport.scrollY)}`,
           '可交互元素:'
         ];
@@ -547,9 +722,11 @@
           url: result.url,
           title: result.title,
           readyState: result.readyState,
+          snapshotId: result.snapshotId,
           viewport: result.viewport,
           items: result.items,
           count: result.items.length,
+          itemCount: result.items.length,
           truncated: !!result.truncated
         };
       });
@@ -591,7 +768,7 @@
         this.sendMouse('mouseDown', target, { button, clickCount });
         this.sendMouse('mouseUp', target, { button, clickCount });
         this.pointer(target, 'up');
-        await new Promise(resolve => setTimeout(resolve, 80));
+        await this.sleep(80);
         let receipt = await this.readInteractionReceipt(receiptId);
         let delivery = 'native-pointer';
         const navigated = !!prepared.url && this.webview.getURL?.() !== prepared.url;
@@ -602,7 +779,7 @@
             return fallback;
           }
           delivery = 'verified-dom-fallback';
-          await new Promise(resolve => setTimeout(resolve, 40));
+          await this.sleep(40);
           receipt = await this.readInteractionReceipt(receiptId);
         }
         await this.waitForSettle(900);
@@ -613,7 +790,7 @@
           return { ok: false, error: `未能确认 ${ref} 收到点击事件。`, code: 'CLICK_NOT_DELIVERED', url: currentUrl };
         }
         const targetAfter = finalReceipt?.receiptMissing ? receipt : finalReceipt;
-        return {
+        return this.withPageState({
           ok: true,
           output: `已${clickCount === 2 ? '双击' : '点击'} ${ref}${target.name ? `：${target.name}` : ''}，并确认目标收到事件。`,
           url: currentUrl,
@@ -625,7 +802,7 @@
             connected: typeof targetAfter?.connected === 'boolean' ? targetAfter.connected : null,
             visible: typeof targetAfter?.visible === 'boolean' ? targetAfter.visible : null
           }
-        };
+        }, ref, { changed: !!(navigated || targetAfter?.pageChanged), beforeUrl: prepared.url });
       });
     }
 
@@ -633,6 +810,7 @@
       const value = String(text ?? '');
       if (value.length > MAX_TEXT_LENGTH) return { ok: false, error: `输入内容不能超过 ${MAX_TEXT_LENGTH} 个字符。`, code: 'INVALID_INPUT' };
       return this.withAction(async () => {
+        const beforeUrl = this.webview.getURL?.() || '';
         const target = await this.target(ref);
         if (!target?.ok) return target;
         this.pointer(target, 'move');
@@ -656,17 +834,21 @@
           return { ok: true };
         })()`);
         if (!result?.ok) return result;
-        if (submit) await this.press('Enter');
-        return { ok: true, output: `已在 ${ref} 输入 ${value.length} 个字符${submit ? '并提交' : ''}。`, url: this.webview.getURL?.() || '' };
+        if (submit) {
+          const submitted = await this.press('Enter');
+          if (!submitted?.ok) return submitted;
+        }
+        return this.withPageState({ ok: true, output: `已在 ${ref} 输入 ${value.length} 个字符${submit ? '并提交' : ''}。`, url: this.webview.getURL?.() || '' }, ref, { changed: true, beforeUrl });
       });
     }
 
     async select(ref, value) {
       return this.withAction(async () => {
+        const beforeUrl = this.webview.getURL?.() || '';
         const target = await this.target(ref);
         if (!target?.ok) return target;
         this.pointer(target, 'move');
-        return this.executePage(`(() => {
+        const result = await this.executePage(`(() => {
           const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
           if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
           if (element.tagName !== 'SELECT') return { ok: false, error: '目标不是下拉选择框。', code: 'NOT_SELECT' };
@@ -680,15 +862,17 @@
           element.dispatchEvent(new Event('change', { bubbles: true }));
           return { ok: true, value: option.value, label: String(option.textContent || '').trim() };
         })()`);
+        return this.withPageState(result, ref, { changed: !!result?.ok, beforeUrl });
       });
     }
 
     async check(ref, checked = true) {
       return this.withAction(async () => {
+        const beforeUrl = this.webview.getURL?.() || '';
         const target = await this.target(ref);
         if (!target?.ok) return target;
         this.pointer(target, 'move');
-        return this.executePage(`(() => {
+        const result = await this.executePage(`(() => {
           const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
           if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
           const wanted = ${checked !== false};
@@ -705,6 +889,7 @@
           }
           return { ok: false, error: '目标不是复选框、单选按钮或开关。', code: 'NOT_CHECKABLE' };
         })()`);
+        return this.withPageState(result, ref, { changed: !!result?.ok, beforeUrl });
       });
     }
 
@@ -749,7 +934,7 @@
           const point = { ok: true, x: from.x + (to.x - from.x) * step / steps, y: from.y + (to.y - from.y) * step / steps };
           this.pointer(point, 'drag');
           this.sendMouse('mouseMove', point);
-          await new Promise(resolve => setTimeout(resolve, 24));
+          await this.sleep(24);
         }
         this.sendMouse('mouseUp', to);
         this.pointer(to, 'up');
@@ -778,7 +963,7 @@
           this.sendKey('keyDown', descriptor);
           if (descriptor.printable) this.sendKey('char', descriptor);
           this.heldKeys.set(descriptor.identity, { descriptor, delivery });
-          await new Promise(resolve => setTimeout(resolve, 45));
+          await this.sleep(45);
           let receipt = await this.readKeyboardReceipt(receiptId);
           if (!receipt?.downReceived) {
             this.sendKey('keyUp', descriptor);
@@ -787,7 +972,7 @@
             delivery = 'verified-dom-fallback';
             downStartedAt = Date.now();
             this.heldKeys.set(descriptor.identity, { descriptor, delivery });
-            await new Promise(resolve => setTimeout(resolve, 30));
+            await this.sleep(30);
             receipt = await this.readKeyboardReceipt(receiptId);
           }
           if (!receipt?.downReceived) {
@@ -796,19 +981,19 @@
 
           const elapsed = Date.now() - downStartedAt;
           if (elapsed < holdDuration) {
-            await new Promise(resolve => setTimeout(resolve, holdDuration - elapsed));
+            await this.sleep(holdDuration - elapsed);
           }
           if (delivery === 'verified-dom-fallback') await this.fallbackKeyboardEvent(descriptor, 'keyup');
           else this.sendKey('keyUp', descriptor);
           const releasedAt = Date.now();
           released = true;
           this.heldKeys.delete(descriptor.identity);
-          await new Promise(resolve => setTimeout(resolve, 45));
+          await this.sleep(45);
           let finalReceipt = await this.readKeyboardReceipt(receiptId);
           if (!finalReceipt?.upReceived) {
             await this.fallbackKeyboardEvent(descriptor, 'keyup');
             if (delivery === 'native-key') delivery = 'native-key-with-dom-release';
-            await new Promise(resolve => setTimeout(resolve, 30));
+            await this.sleep(30);
             finalReceipt = await this.readKeyboardReceipt(receiptId);
           }
           const completed = await this.readKeyboardReceipt(receiptId, { finalize: true });
@@ -855,7 +1040,12 @@
       const distance = Math.max(80, Math.min(2400, Number(amount) || 640));
       const delta = { up: [0, -distance], down: [0, distance], left: [-distance, 0], right: [distance, 0] }[direction];
       if (!delta) return { ok: false, error: 'direction 必须是 up、down、left 或 right。', code: 'INVALID_DIRECTION' };
+      if (ref) {
+        const invalid = this.validateRef(ref);
+        if (invalid) return invalid;
+      }
       return this.withAction(async () => {
+        const beforeUrl = this.webview.getURL?.() || '';
         const result = await this.executePage(`(() => {
           const ref = ${JSON.stringify(String(ref || ''))};
           const element = ref ? window.__yanBrowserRefs?.get(ref) : null;
@@ -866,19 +1056,23 @@
         })()`);
         if (!result?.ok) return result;
         await this.waitForSettle(350);
-        return { ok: true, output: `已${ref ? `在 ${ref} 内` : ''}向 ${direction} 滚动 ${distance}px（当前位置 ${Math.round(result.x)}, ${Math.round(result.y)}）。`, url: this.webview.getURL?.() || '' };
+        return this.withPageState({ ok: true, output: `已${ref ? `在 ${ref} 内` : ''}向 ${direction} 滚动 ${distance}px（当前位置 ${Math.round(result.x)}, ${Math.round(result.y)}）。`, url: this.webview.getURL?.() || '' }, ref, { changed: true, beforeUrl });
       });
     }
 
     async wait(ms = 1500, text = '', ref = '', state = 'visible') {
       const timeout = Math.max(500, Math.min(15000, Number(ms) || 1500));
+      if (ref) {
+        const invalid = this.validateRef(ref);
+        if (invalid) return invalid;
+      }
       return this.withAction(async () => {
         const started = Date.now();
         const wanted = String(text || '').trim();
         const targetRef = String(ref || '').trim();
         while (Date.now() - started < timeout) {
           if (!wanted && !targetRef) {
-            await new Promise(resolve => setTimeout(resolve, timeout));
+            await this.sleep(timeout);
             return { ok: true, output: `已等待 ${timeout}ms。`, url: this.webview.getURL?.() || '' };
           }
           const result = await this.executePage(`(() => {
@@ -893,7 +1087,7 @@
             return { matched, reason: 'element' };
           })()`);
           if (result?.matched) return { ok: true, output: result.reason === 'text' ? `页面已出现文本：${wanted}` : `${targetRef} 已达到 ${state} 状态。` };
-          await new Promise(resolve => setTimeout(resolve, 120));
+          await this.sleep(120);
         }
         const subject = wanted ? `文本：${wanted}` : `${targetRef} 的 ${state} 状态`;
         return { ok: false, error: `等待 ${timeout}ms 后仍未找到${subject}`, code: 'WAIT_TIMEOUT' };
@@ -1017,7 +1211,7 @@
             const point = { ok: true, x: start.x + (end.x - start.x) * step / 10, y: start.y + (end.y - start.y) * step / 10 };
             this.pointer(point, 'drag');
             this.sendMouse('mouseMove', point, { button });
-            await new Promise(resolve => setTimeout(resolve, 20));
+            await this.sleep(20);
           }
           this.sendMouse('mouseUp', end, { button });
           this.pointer(end, 'up');
@@ -1091,6 +1285,40 @@
           ]);
         }
       })()`);
+    }
+
+    async waitForNavigation(timeout = 5_000) {
+      const capped = Math.max(500, Math.min(15_000, Number(timeout) || 5_000));
+      const signal = this.activeAction?.controller?.signal;
+      if (signal?.aborted) throw new DOMException('Browser navigation cancelled', 'AbortError');
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          this.webview?.removeEventListener('did-finish-load', onFinished);
+          this.webview?.removeEventListener('did-fail-load', onFinished);
+          this.webview?.removeEventListener('did-navigate-in-page', onFinished);
+        };
+        const finish = completed => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(completed);
+        };
+        const onFinished = () => finish(true);
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new DOMException('Browser navigation cancelled', 'AbortError'));
+        };
+        const timer = setTimeout(() => finish(false), capped);
+        this.webview?.addEventListener('did-finish-load', onFinished);
+        this.webview?.addEventListener('did-fail-load', onFinished);
+        this.webview?.addEventListener('did-navigate-in-page', onFinished);
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
     }
   }
 

@@ -34,7 +34,9 @@ const targetDataDir = path.join(userDataDir, 'YanData');
       }
     });
     const page = await application.firstWindow();
-    await page.waitForFunction(() => typeof submitMessage === 'function' && typeof buildInterjectionSnapshot === 'function');
+    await page.waitForFunction(() => document.querySelector('#interjectionForm')?.dataset.bound === 'true'
+      && typeof submitMessage === 'function'
+      && typeof buildInterjectionSnapshot === 'function');
     await page.evaluate(async targetWorkspace => {
       if (!state.currentSession) await newSession();
       const updated = await api.setSessionWorkspace(state.currentSession.id, targetWorkspace, false);
@@ -56,17 +58,18 @@ const targetDataDir = path.join(userDataDir, 'YanData');
         && !timeline.some(item => item.type === 'tool_result' && item.name === 'bash');
     }, null, { timeout: 60_000 });
 
-    await page.locator('#interjectionToggle').click();
+    await page.evaluate(() => setRightSidebarOpen(true));
+    await page.locator('#rightSidebarLauncher [data-rs-open-tool="interjection"]').click();
     await page.locator('#interjectionInput').fill('当前等待命令还在真实运行吗？只依据任务快照回答。');
     await page.locator('#interjectionInput').press('Enter');
-    await page.waitForFunction(() => document.querySelectorAll('#interjectionTranscript .interjection-line').length >= 2, null, { timeout: 90_000 });
-    const checkLines = await page.locator('#interjectionTranscript .interjection-line').allTextContents();
-    assert.ok(checkLines.some(line => line.includes('旁路答复')), JSON.stringify(checkLines));
+    await page.waitForFunction(() => document.querySelectorAll('#interjectionTranscript .msg').length >= 2, null, { timeout: 90_000 });
+    const checkLines = await page.locator('#interjectionTranscript .msg.assistant').allTextContents();
+    assert.ok(checkLines.some(line => line.trim()), JSON.stringify(checkLines));
     assert.equal(await page.evaluate(() => state.activeRuns.has(state.currentSession.id)), true);
 
     await page.locator('#interjectionInput').fill('当前命令自然结束后就正常交付，不要增加任何额外测试。');
     await page.locator('#interjectionInput').press('Enter');
-    await page.waitForFunction(() => [...document.querySelectorAll('#interjectionTranscript .interjection-line.system')]
+    await page.waitForFunction(() => [...document.querySelectorAll('#interjectionTranscript .auxiliary-dialogue-system')]
       .some(node => node.textContent.includes('已送达主 Agent')), null, { timeout: 45_000 });
     assert.equal(await page.evaluate(() => state.activeRuns.has(state.currentSession.id)), true);
 

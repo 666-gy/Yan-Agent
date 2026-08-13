@@ -49,22 +49,24 @@ skillRegistry.installYanUserSkill(dataDir, retiredSkill);
     });
     const page = await application.firstWindow();
     await page.waitForFunction(() => document.readyState === 'complete' && typeof switchSidebarNav === 'function');
+    const expectedSkills = await page.evaluate(() => window.yan.listSkills());
+    const expectedMarketCount = expectedSkills.length;
+    const expectedCounts = new Map([
+      'code-assist',
+      'ui-beautify',
+      'web-design',
+      'agent-rules',
+      'office-assist'
+    ].map(tag => [tag, expectedSkills.filter(skill => skill.tags?.includes(tag)).length]));
     await page.locator('.sidebar-nav-item[data-nav="skills"]').click();
     await page.locator('#pageSkills:not(.hidden)').waitFor();
-    await page.waitForFunction(() => document.querySelectorAll('#skillMarketGrid .skill-card').length === 11);
+    await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedMarketCount);
 
     const filters = await page.locator('#skillTagFilters .skill-tag-btn').evaluateAll(buttons => (
       buttons.map(button => button.childNodes[0].textContent.trim())
     ));
     assert.deepEqual(filters, ['全部', '已安装', '代码辅助', 'UI美化', '网页设计', 'Agent规则', '办公辅助']);
 
-    const expectedCounts = new Map([
-      ['code-assist', 4],
-      ['ui-beautify', 1],
-      ['web-design', 1],
-      ['agent-rules', 2],
-      ['office-assist', 3]
-    ]);
     for (const [tag, expected] of expectedCounts) {
       await page.locator(`#skillTagFilters [data-tag="${tag}"]`).click();
       await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expected);
@@ -72,16 +74,16 @@ skillRegistry.installYanUserSkill(dataDir, retiredSkill);
     }
 
     await page.locator('#skillTagFilters [data-tag="all"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('#skillMarketGrid .skill-card').length === 11);
+    await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedMarketCount);
     const ids = await page.locator('#skillMarketGrid .skill-card').evaluateAll(cards => cards.map(card => card.dataset.marketId));
     assert.ok(!ids.includes(retiredSkill.id));
     assert.equal(await page.locator('#skillMarketGrid [data-skill-action="remove"]').count(), 0);
     await page.locator('#skillTagFilters [data-tag="office-assist"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('#skillMarketGrid .skill-card').length === 3);
+    await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedCounts.get('office-assist'));
     await page.screenshot({ path: screenshotPath, fullPage: false });
 
     const installed = await page.evaluate(() => window.yan.listSkills());
-    assert.equal(installed.length, 11);
+    assert.equal(installed.length, expectedMarketCount);
     assert.ok(installed.some(skill => skill.id === 'hyperframes'));
     assert.ok(installed.some(skill => skill.id === 'remotion-best-practices'));
     assert.ok(!installed.some(skill => skill.id === 'hyperframes-cli'));

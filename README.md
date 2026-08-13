@@ -33,7 +33,7 @@ Yan Agent 的产品定位可以概括为：
 ### 1. Yan Kernel 运行时
 
 - **全新 Yan Kernel。** Yan Kernel 是 Yan Agent 的唯一执行权威，基于 OpenCode 内核二次开发；`lib/opencode-sidecar.js` 负责会话、工具、权限、验收和总结，旧的 `renderer/kernel/*` Agent 循环不再参与任务执行。
-- **运行时事件结构化。** 模型消息、工具调用、工具结果、权限请求、提问、压缩、目标验收、中间插话、媒体生成和错误都以事件流传给桌面端，避免 UI 只显示静态“正在工作”。
+- **运行时事件结构化。** 模型消息、工具调用、工具结果、权限请求、提问、压缩、目标验收、辅助对话、媒体生成和错误都以事件流传给桌面端，避免 UI 只显示静态“正在工作”。
 - **DeepSeek DSML 兼容。** Yan Kernel 可以接收 DeepSeek 的 DSML 工具调用，经过 provider 适配、恢复和校验后转换为真实工具调用；协议标记不会泄露到用户正文中。
 - **权限与提问可回传。** 用户可以在任务中批准、拒绝或回答 Agent 的请求；权限策略和任务状态由主进程持有，不由渲染层自行猜测。
 - **最终总结独立生成。** 工作阶段完成后，内核使用无工具的总结阶段，只依据当前会话、工具结果和工作区的已验证事实生成交付文本，不把内部工作日志冒充最终答案。
@@ -79,15 +79,15 @@ Yan Agent 的产品定位可以概括为：
 
 权限请求使用折叠面板而不是强制弹窗，显示即将执行的命令，并提供“总是允许 / 本次允许 / 拒绝”。权限状态由主进程与当前运行绑定，下一轮对话不会因为工具列表重新生成而失去已授权能力。
 
-### 5. Yan Agent Interrupt
+### 5. 辅助对话
 
-任务工作期间可以点击输入框任务栏中的 **Yan Agent Interrupt**，在不停止主任务的情况下发送一条插话。内核会让隔离的观察者判断这条插话属于：
+任务工作期间可以在右侧面板打开 **辅助对话**，在不停止主任务的情况下询问状态或发送引导。内核会让隔离的观察者判断消息属于：
 
 - **检查类：** 询问当前是否仍在下载、等待、运行或发生错误；主任务继续工作，观察结果只报告真实状态。
 - **引导类：** 提醒 Agent 换方向、换工具、查看页面或缩短验收；指导会在下一个检查点交给当前运行。
 - **结束类：** 用户明确要求交付或停止可选工作时，主任务会优雅地结束可选步骤并进入总结，不会被普通询问误杀。
 
-插话不会把主会话改造成第二个独立任务，也不会绕过当前权限和工作区规则。
+辅助对话不会把主会话改造成第二个独立任务，也不会绕过当前权限和工作区规则。
 
 ### 6. 工具、MCP 与 Skill
 
@@ -102,6 +102,8 @@ Yan Agent 的产品定位可以概括为：
 | Serena | 工作区代码定位和定点编辑辅助；按工作区、目标模式或用户明确选择启用 |
 | Yan Media | 读图、生成图片、生成视频 |
 | Yan Session | 跨工作区和跨会话交接 |
+| Yan Computer Use | 通过官方 Nuphus MCP 的 `desktop_*` 工具激活窗口、理解界面、定位控件并执行桌面操作 |
+| Yan Harness | 记录有证据支持的工作流与 Skill 偏好，供后续任务受控复用 |
 | Understand Anything | 开箱即用地打开 CodeGraph 生成的项目知识图谱 |
 | OfficeCLI / AnySearch | 办公文档流程和联网搜索 Skill；是否可用取决于安装与网络配置 |
 
@@ -119,7 +121,7 @@ Skill 市场的分类和当前目录以应用内市场为准，当前包括：
 - Agent 规则
 - 办公辅助
 
-内置 Skill、已安装 Skill、可导入的自定义 Skill 分开显示。Skill 选择会作为输入正文中的可移除 token 进入任务；按 Backspace 可以移除，Skill 不会被无条件置顶到系统提示中。当前实际可用目录以 `lib/skills/bundled` 和应用 Skill 市场为准，不在 README 固定数量。
+内置 Skill、已安装 Skill、可导入的自定义 Skill 分开显示。Skill 选择会作为输入正文中的可移除 token 进入任务；按 Backspace 可以移除，Skill 不会被无条件置顶到系统提示中。Skill 解析遇到偶发错误时会进行有界重试；同一段对话内持续失败才会放弃该 Skill、继续处理其他能力，并在交付中说明。当前实际可用目录以 `lib/skills/bundled` 和应用 Skill 市场为准，不在 README 固定数量。
 
 ### 7. 内置浏览器与网页验收
 
@@ -127,12 +129,15 @@ Skill 市场的分类和当前目录以应用内市场为准，当前包括：
 - 内置浏览器位于 Yan 右侧栏，Agent 会新开自己的标签页，不抢占用户正在看的页面。
 - 浏览器 MCP 是普通研究、URL 阅读、本地 HTML 预览、交互和视觉验收的首选。只有确实需要隔离脚本或内置浏览器无法完成的操作时，才降级到 Playwright；外部 Chrome 不是默认验收路径。
 - Agent 浏览器调用会携带当前运行归属，避免多个任务并行时工具串线。
+- 浏览器动作带有独立操作 ID、取消和释放控制链路，任务中止时不会让已经失去归属的动作继续控制页面。
 - 浏览器支持显式等待、页面检查、截图和交互证据。等待网络页面时应使用页面状态和合理等待，而不是用一次过短延迟判断“没有打开”。
 - **完整页面操控。** Agent 可以打开 URL、读取页面、查看快照、点击、输入、选择、勾选、聚焦、悬停、拖拽、移动专属指针、按键、滚动、等待、截图、检查页面、读取历史和查询状态；这些操作都通过 Yan 内置浏览器 MCP 暴露给内核。
 - Agent 接管页面时显示控制态和底部提示，用户可按 Esc 退出控制；当前标签页在控制期间限制普通用户操作，但允许刷新或关闭。
 - Canvas、WebGL、动画和 3D 页面必须结合真实点击/键盘交互、截图和可见状态验收；DOM 存在、控制台干净、哈希变化、颜色数量变化或单帧像素变化都不足以证明页面真的可玩或正在渲染。
 
-1.4.0 **不包含完整的 Windows Computer Use**。旧的本机鼠标宿主、电脑操控覆盖层和相关 Skill 已移除；完整的 Yan Computer Use 计划在后续版本以独立后端/MCP 重新实现，不能把本版本的浏览器自动化误认为整机操控。
+1.4.0 初步接入 **Yan Computer Use**。Yan 使用轻量适配层连接官方 Nuphus MCP，只向内核暴露原生 `desktop_*` 工具，隐藏 Nuphus 自带的网页工具以避免与 Yan 内置浏览器冲突。配套 Skill 约束 Agent 先激活目标窗口，再进行视觉理解与精确坐标感知，执行操作后按界面变化复查，最后完成针对性视觉验收。
+
+真实桌面工具开始执行时，屏幕边缘会显示独立蓝色动态光效，顶部显示“Yan Agent正在操控你的电脑，按Esc退出”；按 Esc 可中止当前电脑操控。通用视觉中继仍然保留。该能力属于初始集成，桌面软件的可访问性、界面结构和 Nuphus 感知质量会影响结果，不能保证自动化所有应用。
 
 ### 8. 文本、视觉、图片和视频模型
 
@@ -153,7 +158,8 @@ Yan 将模型角色拆为三类，互不抢占上下文：
 - 模型会按文本、视觉输入、图片输出、视频输出等能力分类。模型 ID 的推断不能替代真实接口验证，厂商端点、请求格式、余额、配额和网络仍可能导致调用失败。
 - 应用不展示模型价格、免费额度或长期可用性承诺；实际账单、限流和访问地区以服务商为准。
 - GLM 的媒体模型会单独合并到媒体目录，因为某些 GLM `/models` 接口只返回文本模型；这只是目录适配，不代表未验证的媒体端点必然可用。
-- 1.4.0 已移除自定义模型入口及其静态映射代码；需要特殊网关时，应在对应厂商的 Base URL、API Key 和动态目录能力中配置，不能把任意模型名当成已验证的厂商能力。
+- 每个厂商可以保存多个独立供应商连接。官方与第三方供应商分别保存名称、Base URL、API Key 和模型目录，主文本、图片、视频角色也分别保留自己的供应商身份；切换文本供应商不会清空另一供应商下已经选择的图片或视频模型。
+- 自定义模型使用单独卡片配置 Base URL、API 格式、API Key 和明确的模型 ID。动态发现或手工填写只表示目录已配置，不保证远端端点、请求格式、权限和额度可用。
 
 当前代码内置的厂商接入 ID 包括：OpenAI、Grok、Agnes、DeepSeek、Qwen、GLM、Doubao、Kimi/Moonshot、StepFun、MiniMax、Baichuan、Yi、Hunyuan、SiliconFlow。具体模型名以用户 API 返回和应用当前目录为准。
 
@@ -183,6 +189,7 @@ GLM 的网络提示按当前应用配置为无需 VPN，Agnes 通常需要 VPN�
 - **上下文压缩：** 内核根据模型的上下文窗口计算保留区，默认在约 70% 处进入软压缩，并在约 85% 处显示硬安全线；最小上下文窗口为 16k，保留区最多 24k 且不超过窗口的 25%。
 - **长期记忆：** 全局记忆在 `YanData/memory.json`，工作区记忆在 `<workspace>/.yanagent/memory.json`。记忆按 global、machine、workspace 区分，支持 preference、project、environment、failure_solution、workflow 等类型，并带证据与置信度。
 - **记忆审阅：** 后台隔离审阅器只提出候选事实和可重复 Skill，不直接改变当前任务权限；敏感内容和疑似提示注入会过滤。
+- **受控持续 Harness：** `ContinualHarnessStore` 与 Yan Harness MCP 只保存有证据支持的工作流和 Skill 偏好，帮助后续任务优先复用有效做法。它不是无限制自我修改，不会改写当前运行的权限，也不会绕过工作区边界。
 - **会话交接：** 交接历史最多保留 24 条消息、64k 字符，单条最多 6k 字符，以控制跨会话传递的负担。
 - **缓存观测：** 每次完成运行可以查看缓存读取 token、输入总 token 和命中率；不同会话、不同厂商和不同上下文的命中率会不同。
 
@@ -193,11 +200,13 @@ GLM 的网络提示按当前应用配置为无需 VPN，Agnes 通常需要 VPN�
 - 推理速度保留 `标准 / 高效 / 更智能` 三档，并使用原有拖拉式交互；当前配置会实时回写输入框状态线。
 - **Yan Prompt Optimizer。** 输入框的“优化 prompt”按钮调用内置 `yan-prompt-optimizer` Skill，只在用户主动使用或明确选择时介入。它会保留原始意图、语气、路径、URL、代码、数字、模型名和约束，只修正歧义、顺序和可执行性，不凭空添加功能、依赖、工具或验收标准。
 - 设置页包括 API 配置、模型库存、视觉中继、权限、口吻、快速启动、移动端远程和关于。
+- API 配置使用按厂商分组的多供应商面板；主模型菜单先选择供应商，再只展示该连接可用的文本模型，图片与视频模型保持各自连接。
 - 口吻支持最多 4 个用户配置，每个配置有昵称和具体语气。用户可以设置直接、戏谑或其他表达方式；口吻只控制表达，不改变权限、安全边界或事实要求。删除口吻后自动回到前一个可用口吻。
 - 快速启动通过系统托盘和全局快捷键唤醒 Yan，默认快捷键为 `Ctrl+Shift+Y`，支持自定义。
 - 移动端提供 LAN 控制页、密码、任务切换、图片上传和结果预览；页面显示 `http://你的电脑ip:3847`，并说明如何使用 `Win+R -> cmd -> ipconfig` 查询 IPv4 地址。
 - 桌面宠物显示待命、工作中、需要注意、已暂停、已完成和运行异常等状态，可展开当前任务或停止任务。
 - 内置终端使用真实 PTY；当前界面标签为 PowerShell。PowerShell 7 专属运行时不属于 1.4.0 的承诺范围。
+- 右侧面板提供辅助对话、内置浏览器、文件与 Git 工作区视图；底部用户、当前主题、宠物和设置入口采用独立的纵向控制。
 
 #### 二代 Yan Agent Pet
 
@@ -228,6 +237,8 @@ GLM 的网络提示按当前应用配置为无需 VPN，Agnes 通常需要 VPN�
 - **Understand Anything：** 旧代码地图能力已经进化为开箱即用的 Understand Anything。工作区初始化 CodeGraph 后，Yan 会把项目结构转换为 `.ua/knowledge-graph.json`、`config.json` 和 `meta.json`，并在应用内打开可视化知识图谱。
 - **CodeGraph：** 作为 Understand Anything 的底层项目索引和关系数据源，数据库位于 `.codegraph/codegraph.db`，用户无需再手动维护旧版代码地图 UI。
 - **Yanxi Code：** 可以把当前工作区交接给 Yanxi Code；交接在冷启动和已运行状态下都保留工作区回执。
+- **Git 工作区：** 内置 Git 面板支持查看状态与分支、暂存/取消暂存、提交、抓取、拉取、推送、远端信息和文件差异；所有操作仍以当前工作区和本机 Git 状态为准。
+- **VS Code：** Yan 会动态检测本机 VS Code。检测成功后，任务工具区显示 VS Code 入口，并使用当前选定工作区启动或切换编辑器。
 
 ## 内置 MCP 参考
 
@@ -239,6 +250,8 @@ GLM 的网络提示按当前应用配置为无需 VPN，Agnes 通常需要 VPN�
 | Yan Skills | `find_skills`、`install_skill`、`list_installed_skills`、`read_skill`、`list_design_references`、`read_design_reference`、`remove_skill` |
 | Yan Media | `read_image`、`generate_image`、`generate_video` |
 | Yan Session | `create_handoff`、`read_source_context` |
+| Yan Computer Use / Nuphus | `desktop_screen_size`、`desktop_screenshot`、`desktop_windows_list`、`desktop_window_activate`、`desktop_window_screenshot`、`desktop_vision`、`desktop_perceive`、`desktop_mouse`、`desktop_mouse_drag`、`desktop_input` 等原生桌面工具 |
+| Yan Harness | 读取和记录受控的工作流、Skill 偏好及其证据 |
 | CodeGraph | 工作区代码图和索引 |
 | Serena | 代码定位和定点编辑，按条件启用 |
 | Playwright | 内置浏览器不足时的隔离脚本后备 |
@@ -250,11 +263,12 @@ MCP Server 的状态、连接测试、启用/停用和自定义配置都在设�
 Skill 的完整名称、版本、来源、标签和安装状态以应用 Skill 市场为准。当前仓库包含的主要能力包包括：
 
 - **代码辅助：** `code-simplifier`、`yan-serena`、`yan-prompt-optimizer`、`diagnosing-bugs`、`codebase-design`、`yan-codegraph`、`yan-understand-anything`、Andrej Karpathy skills 等。
-- **UI 美化：** Hallmark、TasteSkill 系列、`liquid-glass-react`、Apple Design、Ponytail 审阅/审计等。
+- **UI 美化：** UI/UX Pro Max、Hallmark、TasteSkill 系列、`liquid-glass-react`、Apple Design、Ponytail 审阅/审计等。
 - **网页设计与动效：** Awesome Design MD、`animate`、GSAP 系列、`review-animations`、`find-animation-opportunities`、Emil Motion 等。
 - **视频与媒体：** HyperFrames、HyperFrames CLI、Registry、Website to HyperFrames、Remotion best practices。
 - **办公辅助与搜索：** OfficeCLI、AnySearch。
 - **Agent 规则与扩展：** `writing-for-agents`、`skill-creator` 及相关规则包。
+- **桌面操控：** `yan-computer-use`，使用 Codex Computer Use 图标并约束 Nuphus 原生桌面工具的观察、定位、操作和验收流程。
 
 第三方 Skill 会保留来源和许可说明，详见 `lib/skills/THIRD_PARTY_NOTICES.md`。不要把 Skill 的存在当成当前任务自动加载；只有模型使用、用户选择或能力判断需要时，才会把它暴露给运行。
 
@@ -325,10 +339,10 @@ npm run build:portable     # Windows 便携包
 
 1.4.0 仍有明确边界：
 
-- **Yan Computer Use 正在开发中，计划随 v1.5.0 上线。** 它将覆盖独立桌面、隔离鼠标键盘、跨应用截图和软件内控件操作；1.4.0 的完整操控能力目前只针对 Yan 内置浏览器。
+- **Yan Computer Use 是 1.4.0 的初始集成，不是全应用自动化承诺。** 它依赖 Nuphus MCP、目标软件界面和视觉感知质量；复杂 Canvas、自绘界面、权限窗口或频繁变化的桌面仍可能失败。
 - **Web UI 暂未完成 1.4.0 同步，不建议使用。** 这里指移动端/HTTP 远程控制页；桌面端主界面和内置浏览器不受此提示影响。
 - **Yan Agent GUI 正在开发中，计划随 v1.5.0 上线。** 当前 `Yan Work GUI` 入口是开发占位，不建议把它当成可交付的生产界面。
-- 常驻子 Agent、动态并发调度和更完整的 Git 生态尚未纳入 1.4.0 的稳定承诺。
+- 常驻子 Agent、动态并发调度、托管平台 PR/Issue 全流程和内置 Git 凭据管理尚未纳入 1.4.0 的稳定承诺；本地 Git 工作区操作已经集成。
 - PowerShell 7 专属运行时安装与切换计划在后续版本；当前终端保留 Windows 可用的 PowerShell 入口。
 - 动态模型目录只说明服务商返回了模型信息，不保证所有媒体模型的端点、请求格式、余额、限流或地区访问均可用。
 - 视觉中继、联网搜索和第三方 MCP 依赖用户的 API、VPN、网络和服务状态。
@@ -342,11 +356,17 @@ npm run build:portable     # Windows 便携包
 main.js                  Electron 主进程、IPC、权限、MCP 和本地服务
 preload.js               渲染进程安全桥接
 lib/opencode-sidecar.js  Yan Kernel 的 OpenCode 执行、目标、总结和事件流
+lib/nuphus-desktop-mcp.js  官方 Nuphus MCP 的桌面工具适配层
+lib/git-service.js        Git 状态、分支、暂存、提交与远端操作
+lib/vscode-launcher.js    VS Code 动态检测与工作区启动
+lib/continual-harness.js  受控持续 Harness 存储
+lib/yan-harness-mcp.js    Harness MCP 接口
 lib/*-mcp.js             Yan 内置 MCP
 lib/skills/              内置 Skill 与 Skill 市场目录
 renderer/index.html      主界面结构和设置页
 renderer/renderer.js     会话、任务、输入框、输出、浏览器和审阅协调
 renderer/browser-agent.js   内置浏览器控制 UI 与状态
+renderer/computer-use-overlay/  电脑操控安全覆盖层
 renderer/pet/             桌面宠物
 renderer/remote/          移动端控制页
 ```

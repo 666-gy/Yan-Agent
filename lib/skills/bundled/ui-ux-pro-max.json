@@ -1,0 +1,15 @@
+{
+  "id": "ui-ux-pro-max",
+  "name": "UI/UX Pro Max",
+  "desc": "NextLevelBuilder 的 UI/UX 设计智能数据库，覆盖样式、色彩、字体、UX 规范、动效、图表和 22 类技术栈",
+  "aliases": ["UI UX Pro Max", "UI/UX Pro Max Skill", "uipro", "界面设计智能"],
+  "tags": ["ui-beautify", "web-design"],
+  "triggers": ["UI/UX Pro Max", "UI UX Pro Max", "uipro", "UI设计", "UX设计", "网页美化", "界面审阅", "设计系统"],
+  "source": "bundled",
+  "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+  "version": 213,
+  "upstreamVersion": "2.13.0",
+  "upstreamRevision": "abb7f2fd5a083fa1ff55c326a963ff0d95c33f99",
+  "license": "MIT",
+  "promptFile": "../ui-ux-pro-max/SKILL.md"
+}

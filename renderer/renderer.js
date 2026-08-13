@@ -95,6 +95,13 @@ function isCurrentSessionExecutionActive() {
 }
 
 const interjectionThreads = new Map();
+const interjectionRequests = new Map();
+const interjectionItemTickers = new WeakMap();
+
+function createInterjectionRequestId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `auxiliary-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function currentInterjectionRun() {
   const sessionId = state.currentSession?.id;
@@ -109,90 +116,196 @@ function interjectionThreadFor(runCtx, reset = false) {
   let thread = interjectionThreads.get(sessionId);
   if (!runCtx) return thread || null;
   if (reset || !thread || thread.runId !== runCtx.runId) {
-    if (thread?.feedbackTimer) clearTimeout(thread.feedbackTimer);
     thread = { runId: runCtx.runId, items: [] };
     interjectionThreads.set(sessionId, thread);
   }
   return thread;
 }
 
+function interjectionItemDuration(item) {
+  const startedAt = Number(item?.startedAt) || Date.now();
+  const completedAt = Number(item?.completedAt) || Date.now();
+  return Math.max(0, completedAt - startedAt);
+}
+
+function clearInterjectionItemTicker(item) {
+  const ticker = item && interjectionItemTickers.get(item);
+  if (ticker?.timer) clearInterval(ticker.timer);
+  if (item) interjectionItemTickers.delete(item);
+}
+
+function syncInterjectionItemElapsed(item) {
+  const elapsed = formatHandledDuration(interjectionItemDuration(item));
+  const elapsedEl = item?.ui?.elapsedEl;
+  if (elapsedEl) elapsedEl.textContent = elapsed;
+  return elapsed;
+}
+
+function startInterjectionItemTicker(item) {
+  clearInterjectionItemTicker(item);
+  syncInterjectionItemElapsed(item);
+  if (!item?.streaming) return;
+  const ticker = {
+    timer: setInterval(() => {
+      if (!item.ui?.body?.isConnected || !item.streaming) {
+        clearInterjectionItemTicker(item);
+        return;
+      }
+      syncInterjectionItemElapsed(item);
+    }, 1_000)
+  };
+  interjectionItemTickers.set(item, ticker);
+}
+
+function renderInterjectionAgentItem(body, item) {
+  const header = document.createElement('div');
+  header.className = 'auxiliary-dialogue-agent-header';
+  header.innerHTML = '<span>已处理 <span class="auxiliary-dialogue-elapsed">0秒</span></span>';
+  const content = document.createElement('div');
+  content.className = 'auxiliary-dialogue-agent-content';
+  body.append(header, content);
+  item.ui = {
+    body,
+    content,
+    elapsedEl: header.querySelector('.auxiliary-dialogue-elapsed')
+  };
+  updateInterjectionStreamItem(item, { renderFinalMarkdown: !item.streaming });
+  startInterjectionItemTicker(item);
+}
+
+function updateInterjectionStreamItem(item, { renderFinalMarkdown = false } = {}) {
+  const content = item?.ui?.content;
+  if (!content?.isConnected) return false;
+  const text = String(item.text || '');
+  if (!text) {
+    const status = String(item.status || '辅助 Agent 正在处理…');
+    if (item.lastRenderedStatus !== status) {
+      item.lastRenderedStatus = status;
+      content.replaceChildren(buildProgressNoteElement(status));
+    }
+    return true;
+  }
+  item.lastRenderedStatus = '';
+  if (renderFinalMarkdown) {
+    content.replaceChildren(buildTextRoundElement(text));
+  } else {
+    let round = content.querySelector('.msg-round.agent-streaming');
+    if (!round) {
+      round = document.createElement('div');
+      round.className = 'msg-round agent-streaming';
+      content.replaceChildren(round);
+    }
+    round.textContent = text;
+  }
+  return true;
+}
+
+function finalizeInterjectionItem(item) {
+  if (!item) return;
+  item.streaming = false;
+  item.status = '';
+  item.completedAt = Number(item.completedAt) || Date.now();
+  clearInterjectionItemTicker(item);
+  syncInterjectionItemElapsed(item);
+  updateInterjectionStreamItem(item, { renderFinalMarkdown: true });
+}
+
+function createInterjectionMessageElement(item) {
+  const role = item.role === 'user' ? 'user' : (item.role === 'system' ? 'assistant auxiliary-dialogue-system' : 'assistant');
+  const message = document.createElement('div');
+  message.className = `msg ${role}`;
+  const body = document.createElement('div');
+  body.className = 'msg-body agent-output';
+  if (item.role === 'user') {
+    body.className = 'msg-body';
+    body.textContent = String(item.text || '');
+    item.ui = { message, body };
+  } else if (item.role === 'system') {
+    body.appendChild(buildProgressNoteElement(item.text));
+    item.ui = { message, body };
+  } else {
+    renderInterjectionAgentItem(body, item);
+    item.ui.message = message;
+  }
+  message.appendChild(body);
+  return message;
+}
+
+function appendInterjectionItem(runCtx, item) {
+  const transcript = $('#interjectionTranscript');
+  const thread = interjectionThreadFor(runCtx);
+  if (!transcript || !thread || !item) return false;
+  const itemIndex = thread.items.indexOf(item);
+  const renderedRunId = String(transcript.dataset.interjectionRunId || '');
+  const renderedCount = Number(transcript.dataset.interjectionItemCount || 0);
+  if (renderedRunId !== String(thread.runId || runCtx?.runId || '') || renderedCount !== itemIndex) {
+    renderInterjectionTranscript(runCtx);
+    return true;
+  }
+  transcript.querySelector('.auxiliary-dialogue-empty')?.remove();
+  transcript.appendChild(createInterjectionMessageElement(item));
+  transcript.dataset.interjectionRunId = String(thread.runId || runCtx?.runId || '');
+  transcript.dataset.interjectionItemCount = String(thread.items.length);
+  const scroll = $('#interjectionScroll');
+  if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  return true;
+}
+
 function renderInterjectionTranscript(runCtx = currentInterjectionRun()) {
   const transcript = $('#interjectionTranscript');
   if (!transcript) return;
   const thread = interjectionThreadFor(runCtx);
-  if (!thread?.items?.length) {
-    transcript.innerHTML = '<div class="interjection-empty">这里不会打断主任务。你可以询问真实进度，或给出下一步引导。</div>';
+  const items = thread?.items || [];
+  if (!items.length) {
+    transcript.innerHTML = `<div class="auxiliary-dialogue-empty" aria-hidden="true">
+      <img class="auxiliary-dialogue-logo auxiliary-dialogue-logo-light" src="assets/logo.png" alt="">
+      <img class="auxiliary-dialogue-logo auxiliary-dialogue-logo-dark" src="assets/logo-light.png" alt="">
+      <span>Yan Agent工作期间，提问以辅助工作</span>
+    </div>`;
+    transcript.dataset.interjectionRunId = String(runCtx?.runId || '');
+    transcript.dataset.interjectionItemCount = '0';
     return;
   }
-  transcript.innerHTML = thread.items.map(item => {
-    const role = item.role === 'user' ? 'user' : (item.role === 'system' ? 'system' : 'agent');
-    const label = role === 'user' ? '你' : (role === 'system' ? 'Yan Agent Interrupt' : '旁路答复');
-    return `<div class="interjection-line ${role}"><span class="interjection-line-meta">${escapeHtml(label)}</span>${escapeHtml(item.text)}</div>`;
-  }).join('');
-  transcript.scrollTop = transcript.scrollHeight;
-}
-
-function setInterjectionFeedbackState(runCtx, stateName = '', durationMs = 0) {
-  const thread = interjectionThreadFor(runCtx);
-  if (!thread) return;
-  if (thread.feedbackTimer) clearTimeout(thread.feedbackTimer);
-  thread.feedbackTimer = 0;
-  thread.feedbackState = String(stateName || '');
-  syncInterjectionUi();
-  if (durationMs > 0) {
-    thread.feedbackTimer = setTimeout(() => {
-      thread.feedbackTimer = 0;
-      thread.feedbackState = '';
-      syncInterjectionUi();
-    }, durationMs);
+  for (const item of items) clearInterjectionItemTicker(item);
+  transcript.replaceChildren();
+  for (const item of items) {
+    transcript.appendChild(createInterjectionMessageElement(item));
   }
-}
-
-function positionInterjectionPopover() {
-  const button = $('#interjectionToggle');
-  const popover = $('#interjectionPopover');
-  if (!button || !popover) return;
-  const rect = button.getBoundingClientRect();
-  const width = Math.min(500, Math.max(260, window.innerWidth - 24));
-  const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left));
-  const height = popover.getBoundingClientRect().height || (width * 9 / 16);
-  const top = rect.bottom + 6 + height <= window.innerHeight
-    ? rect.bottom + 6
-    : Math.max(8, rect.top - height - 6);
-  popover.style.left = `${Math.round(left)}px`;
-  popover.style.top = `${Math.round(top)}px`;
+  transcript.dataset.interjectionRunId = String(thread?.runId || runCtx?.runId || '');
+  transcript.dataset.interjectionItemCount = String(items.length);
+  const scroll = $('#interjectionScroll');
+  if (scroll) scroll.scrollTop = scroll.scrollHeight;
 }
 
 function syncInterjectionUi() {
-  const button = $('#interjectionToggle');
-  const popover = $('#interjectionPopover');
   const runCtx = currentInterjectionRun();
   const active = !!runCtx?.openCodeSessionId;
-  const phase = String(runCtx?.openCodePhase || 'work');
-  const feedbackState = active ? String(interjectionThreadFor(runCtx)?.feedbackState || '') : '';
-  const uiState = !active
-    ? 'idle'
-    : (feedbackState || (runCtx.openCodeError ? 'error' : (phase === 'interjection' ? 'interjection' : (phase === 'summary' ? 'summary' : 'working'))));
-  const statusText = {
-    idle: '未在工作',
-    working: '正在工作',
-    interjection: '正在处理插话',
-    summary: '正在总结',
-    loading: '正在理解插话',
-    success: '插话已处理',
-    error: '插话处理失败'
-  }[uiState] || '正在工作';
-  if (button) {
-    button.disabled = !active;
-    button.dataset.state = uiState;
-    button.title = active ? `Yan Agent Interrupt · ${statusText}` : 'Yan Agent Interrupt · 当前任务未在工作';
-    button.setAttribute('aria-label', active ? `Yan Agent Interrupt，${statusText}` : 'Yan Agent Interrupt，当前任务未在工作');
-    button.setAttribute('aria-disabled', String(!active));
+  const thread = interjectionThreadFor(runCtx);
+  const panel = $('#rs-interjection');
+  if (panel) panel.dataset.state = active ? 'active' : 'idle';
+  $$('[data-rs-open-tool="interjection"]').forEach(button => {
+    button.title = '辅助对话';
+    button.setAttribute('aria-label', '辅助对话');
+  });
+  const tab = $('[data-rs-tab="interjection"]');
+  if (tab) {
+    tab.removeAttribute('data-state');
+    tab.title = '辅助对话';
   }
-  const status = $('#interjectionRunStatus');
-  if (popover) popover.dataset.state = uiState;
-  if (status) status.textContent = statusText;
-  if ($('#interjectionPopover')?.matches(':popover-open')) renderInterjectionTranscript(runCtx);
+  const input = $('#interjectionInput');
+  if (input) {
+    input.disabled = !active || !!thread?.pending;
+    input.placeholder = active ? '询问状态，或引导 Agent 接下来的工作…' : '当前任务未在工作';
+  }
+  syncInterjectionSendButton(runCtx, thread);
+  const transcript = $('#interjectionTranscript');
+  const expectedRunId = String(thread?.runId || runCtx?.runId || '');
+  const expectedItemCount = String((thread?.items || []).length);
+  if (panel?.classList.contains('active') && transcript
+    && (transcript.dataset.interjectionRunId !== expectedRunId
+      || transcript.dataset.interjectionItemCount !== expectedItemCount)) {
+    renderInterjectionTranscript(runCtx);
+  }
 }
 
 function boundedInterjectionText(value, limit = 900) {
@@ -225,7 +338,7 @@ function buildInterjectionSnapshot(runCtx) {
   const webview = controller?.webview;
   return {
     runId: String(runCtx?.runId || ''),
-    task: String(state.currentSession?.title || ''),
+    currentRequest: String(runCtx?.currentRequest || ''),
     phase: String(runCtx?.openCodePhase || 'work'),
     capturedAt,
     elapsedMs: Math.max(0, capturedAt - (Number(runCtx?.startedAt) || capturedAt)),
@@ -249,38 +362,142 @@ function buildInterjectionSnapshot(runCtx) {
 async function sendInterjection() {
   const runCtx = currentInterjectionRun();
   const inputEl = $('#interjectionInput');
-  const send = $('#interjectionSend');
-  const text = String(inputEl?.value || '').trim();
+  const text = String(inputEl?.value || inputEl?.textContent || '').trim();
   if (!runCtx || !inputEl || !text || !api.openCodeInterject) return;
   const thread = interjectionThreadFor(runCtx);
-  thread.items.push({ role: 'user', text });
+  if (!thread || thread.pending) return;
+  const history = thread.items
+    .filter(item => (item.role === 'user' || item.role === 'agent') && String(item.text || '').trim())
+    .slice(-12)
+    .map(item => ({
+      role: item.role === 'agent' ? 'assistant' : 'user',
+      content: String(item.text || '').trim()
+    }));
+  const requestToken = Symbol('auxiliary-dialogue');
+  const requestId = createInterjectionRequestId();
+  const userItem = { role: 'user', text };
+  const agentItem = {
+    role: 'agent',
+    text: '',
+    status: '辅助 Agent 正在读取主任务状态',
+    streaming: true,
+    requestId,
+    startedAt: Date.now()
+  };
+  thread.pending = true;
+  thread.requestToken = requestToken;
+  thread.requestId = requestId;
+  thread.items.push(userItem);
+  appendInterjectionItem(runCtx, userItem);
+  thread.items.push(agentItem);
+  appendInterjectionItem(runCtx, agentItem);
+  interjectionRequests.set(requestId, { runCtx, thread, item: agentItem, requestToken });
   inputEl.value = '';
+  inputEl.textContent = '';
   inputEl.style.height = '';
-  renderInterjectionTranscript(runCtx);
-  if (send) send.disabled = true;
-  setInterjectionFeedbackState(runCtx, 'loading');
+  syncInterjectionUi();
   try {
-    const result = await api.openCodeInterject({ runId: runCtx.runId, text, snapshot: buildInterjectionSnapshot(runCtx) });
-    if (result?.reply) thread.items.push({ role: 'agent', text: String(result.reply) });
-    if (result?.hardCancelled) thread.items.push({ role: 'system', text: '已按明确的硬取消请求中止主任务。' });
-    else if (result?.delivered) thread.items.push({ role: 'system', text: result.requestFinish ? '引导已送达主 Agent，将正常收尾。' : '引导已送达主 Agent，当前动作不会被打断。' });
-    else if (!result?.ok && result?.error) thread.items.push({ role: 'system', text: String(result.error) });
-    setInterjectionFeedbackState(runCtx, result?.ok ? 'success' : 'error', result?.ok ? 1200 : 2200);
+    const result = await api.openCodeInterject({
+      runId: runCtx.runId,
+      requestId,
+      text,
+      history,
+      snapshot: buildInterjectionSnapshot(runCtx)
+    });
+    if (thread.requestToken !== requestToken) return;
+    if (result?.reply && !agentItem.text) agentItem.text = String(result.reply);
+    finalizeInterjectionItem(agentItem);
+    let systemItem = null;
+    if (result?.hardCancelled) systemItem = { role: 'system', text: '已按明确的硬取消请求中止主任务。' };
+    else if (result?.delivered) systemItem = { role: 'system', text: result.requestFinish ? '引导已送达主 Agent，将正常收尾。' : '引导已送达主 Agent，当前动作不会被打断。' };
+    else if (!result?.ok && result?.error) systemItem = { role: 'system', text: String(result.error) };
+    if (systemItem) {
+      thread.items.push(systemItem);
+      appendInterjectionItem(runCtx, systemItem);
+    }
   } catch (error) {
-    thread.items.push({ role: 'system', text: error?.message || '插话发送失败。' });
-    setInterjectionFeedbackState(runCtx, 'error', 2200);
+    if (thread.requestToken !== requestToken) return;
+    if (!agentItem.text) agentItem.text = error?.message || '辅助对话发送失败。';
+    finalizeInterjectionItem(agentItem);
   } finally {
-    renderInterjectionTranscript(runCtx);
-    syncInterjectionUi();
-    updateInterjectionSendState();
+    if (thread.requestToken === requestToken) {
+      thread.pending = false;
+      thread.stopping = false;
+      thread.requestToken = null;
+      thread.requestId = null;
+      interjectionRequests.delete(requestId);
+      syncInterjectionUi();
+      updateInterjectionSendState();
+    }
   }
 }
 
-function updateInterjectionSendState() {
+function stopInterjection() {
+  const runCtx = currentInterjectionRun();
+  const thread = interjectionThreadFor(runCtx);
+  if (!thread?.pending || thread.stopping) return;
+  const requestId = String(thread.requestId || '');
+  thread.stopping = true;
+  syncInterjectionUi();
+  void api.openCodeCancelInterjection?.({ runId: runCtx?.runId, requestId }).then(result => {
+    if (result?.ok || !thread.pending || thread.requestId !== requestId) return;
+    thread.stopping = false;
+    const systemItem = { role: 'system', text: String(result?.error || '未能中止本次辅助对话。') };
+    thread.items.push(systemItem);
+    appendInterjectionItem(runCtx, systemItem);
+    syncInterjectionUi();
+  }).catch(error => {
+    if (!thread.pending || thread.requestId !== requestId) return;
+    thread.stopping = false;
+    const systemItem = { role: 'system', text: error?.message || '未能中止本次辅助对话。' };
+    thread.items.push(systemItem);
+    appendInterjectionItem(runCtx, systemItem);
+    syncInterjectionUi();
+  });
+}
+
+function handleInterjectionStreamEvent(detail = {}) {
+  const requestId = String(detail.requestId || '');
+  const request = interjectionRequests.get(requestId);
+  if (!request || String(detail.runId || '') !== String(request.runCtx?.runId || '')) return;
+  const event = detail.event || {};
+  const data = event.data || {};
+  const item = request.item;
+  if (event.type === 'status') {
+    item.status = String(data.message || '辅助 Agent 正在处理…');
+  } else if (event.type === 'text.delta') {
+    item.status = '';
+    item.text += String(data.delta || '');
+  } else if (event.type === 'completed') {
+    finalizeInterjectionItem(item);
+  } else if (event.type === 'cancelled') {
+    finalizeInterjectionItem(item);
+  } else if (event.type === 'error') {
+    finalizeInterjectionItem(item);
+    if (!item.text) item.text = String(data.message || '辅助对话发送失败。');
+  }
+  if (request.thread.requestToken === request.requestToken) {
+    updateInterjectionStreamItem(item, { renderFinalMarkdown: !item.streaming });
+    syncInterjectionUi();
+  }
+}
+
+function syncInterjectionSendButton(runCtx = currentInterjectionRun(), thread = interjectionThreadFor(runCtx)) {
   const button = $('#interjectionSend');
-  const inputEl = $('#interjectionInput');
   if (!button) return;
-  button.disabled = !currentInterjectionRun() || !String(inputEl?.value || '').trim();
+  syncConversationSubmitButton(button, {
+    active: !!thread?.pending,
+    stopping: !!thread?.stopping,
+    sendDisabled: !runCtx || !String($('#interjectionInput')?.value || '').trim(),
+    sendTitle: '发送辅助对话',
+    stopTitle: '中止辅助对话'
+  });
+}
+
+function updateInterjectionSendState() {
+  const inputEl = $('#interjectionInput');
+  if (!inputEl) return;
+  syncInterjectionSendButton();
 }
 
 function getRunCtx(sessionId) {
@@ -483,6 +700,22 @@ function clipPetText(value, limit = 42) {
 
 const PET_TOOL_PREFIXES = ['yan_browser_', 'yan_media_', 'yan_skills_', 'yan_session_'];
 const PET_MCP_SERVERS = new Set(['yan_browser', 'yan_media', 'yan_skills', 'yan_session']);
+
+// Nuphus is represented here only by a visual state. The MCP remains the
+// source of truth for computer actions; these helpers drive the safety overlay
+// when a native desktop_* tool is actually emitted by OpenCode.
+function isNuphusDesktopTool(toolName) {
+  return /\bdesktop_[a-z0-9_]+\b/i
+    .test(String(toolName || ''));
+}
+
+function setRunComputerUseActive(runCtx, active) {
+  if (!runCtx) return;
+  const next = !!active;
+  if (runCtx.computerUseVisualActive === next) return;
+  runCtx.computerUseVisualActive = next;
+  api.setComputerUseActive?.(runCtx.runId || runCtx.sessionId, next);
+}
 const PET_TOOL_LABELS = new Map([
   ['read', '读取文件'],
   ['read_file', '读取文件'],
@@ -751,6 +984,7 @@ async function init() {
   await refreshSkillPrompts();
 
   applyTheme(state.config.theme);
+  syncUserNameUi();
   renderModelBadge();
   await syncPetWindowButton();
   await refreshSessions();
@@ -897,13 +1131,26 @@ async function openTaskFromPet(sessionId) {
 // ============================================================
 // Greeting (time-based)
 // ============================================================
+function normalizeUserName(value) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 32) || 'Yanxi';
+}
+
+function syncUserNameUi() {
+  const userName = normalizeUserName(state.config?.userName);
+  const input = $('#userNameInput');
+  if (input && document.activeElement !== input) input.value = userName;
+  updateGreeting();
+}
+
 function updateGreeting() {
   const h = new Date().getHours();
   let part = 'evening';
   if (h < 12) part = 'morning';
   else if (h < 18) part = 'afternoon';
   const el = $('#greeting');
-  if (el) el.textContent = `Good ${part}, Yanxi`;
+  const editingName = document.activeElement === $('#userNameInput') ? $('#userNameInput')?.value : '';
+  const userName = normalizeUserName(editingName || state.config?.userName);
+  if (el) el.textContent = `Good ${part}, ${userName}`;
 }
 
 // ============================================================
@@ -934,7 +1181,8 @@ function updateThemeToggleIcon(theme) {
   if (!btn) return;
   // 浅色模式显示月亮（切换到深色）；深色模式显示太阳（切换到浅色）
   const nextThemeLabel = theme === 'light' ? '切换深色模式' : '切换浅色模式';
-  btn.innerHTML = `<span class="settings-menu-icon" aria-hidden="true">${theme === 'light' ? ICONS.moon : ICONS.sun}</span><span class="settings-menu-theme-label">${nextThemeLabel}</span>`;
+  const visibleThemeLabel = theme === 'light' ? '浅色模式' : '深色模式';
+  btn.innerHTML = `<span class="settings-menu-icon" aria-hidden="true">${theme === 'light' ? ICONS.moon : ICONS.sun}</span><span class="settings-menu-theme-label">${visibleThemeLabel}</span>`;
   btn.title = nextThemeLabel;
   btn.setAttribute('aria-label', nextThemeLabel);
 }
@@ -1189,6 +1437,42 @@ function bindSkillRemovalDialog() {
   });
 }
 
+let genericConfirmResolver = null;
+let genericConfirmFocus = null;
+
+function resolveGenericConfirmation(confirmed) {
+  const resolver = genericConfirmResolver;
+  genericConfirmResolver = null;
+  $('#genericConfirmModal')?.classList.add('hidden');
+  resolver?.(!!confirmed);
+  genericConfirmFocus?.focus?.();
+  genericConfirmFocus = null;
+}
+
+function requestGenericConfirmation({ title = '确认操作', description = '', confirmLabel = '确认', danger = false } = {}) {
+  if (genericConfirmResolver) resolveGenericConfirmation(false);
+  genericConfirmFocus = document.activeElement;
+  $('#genericConfirmTitle').textContent = String(title);
+  $('#genericConfirmDesc').textContent = String(description);
+  const accept = $('#genericConfirmAccept');
+  accept.textContent = String(confirmLabel);
+  accept.className = danger ? 'delete-task-confirm' : 'primary-btn';
+  $('#genericConfirmModal').classList.remove('hidden');
+  queueMicrotask(() => $('#genericConfirmCancel')?.focus());
+  return new Promise(resolve => { genericConfirmResolver = resolve; });
+}
+
+function bindGenericConfirmDialog() {
+  $('#genericConfirmCancel')?.addEventListener('click', () => resolveGenericConfirmation(false));
+  $('#genericConfirmAccept')?.addEventListener('click', () => resolveGenericConfirmation(true));
+  $('#genericConfirmModal')?.addEventListener('click', event => {
+    if (event.target?.id === 'genericConfirmModal') resolveGenericConfirmation(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && genericConfirmResolver) resolveGenericConfirmation(false);
+  });
+}
+
 let sidebarContextMenu = null;
 
 function closeSidebarContextMenu() {
@@ -1353,23 +1637,15 @@ async function performSessionDeletionFromSidebar(id) {
 
 function renderSessionList() {
   const list = $('#sessionList');
-  const q = ($('#searchInput').value || '').trim().toLowerCase();
   const groups = new Map();
   const pinnedSessions = state.sessions
-    .filter(session => {
-      const workspace = String(session.workspace || '').trim();
-      const label = workspaceGroupLabel(workspace);
-      const searchText = `${displaySessionTitle(session.title)} ${label} ${workspace}`.toLowerCase();
-      return !!session.pinned && (!q || searchText.includes(q));
-    })
+    .filter(session => !!session.pinned)
     .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
 
   state.sessions.forEach(session => {
     const workspace = String(session.workspace || '').trim();
     const key = workspaceGroupKey(session);
     const label = workspaceGroupLabel(workspace);
-    const searchText = `${displaySessionTitle(session.title)} ${label} ${workspace}`.toLowerCase();
-    if (q && !searchText.includes(q)) return;
     if (!groups.has(key)) groups.set(key, {
       key,
       workspace,
@@ -1384,14 +1660,14 @@ function renderSessionList() {
   });
 
   const visibleGroups = [...groups.values()]
-    .filter(group => !workspaceSidebarMeta[group.key]?.hidden || !!q)
+    .filter(group => !workspaceSidebarMeta[group.key]?.hidden)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return b.latest - a.latest;
     });
 
   if (visibleGroups.length === 0 && pinnedSessions.length === 0) {
-    list.innerHTML = `<div class="session-empty">${q ? '没有匹配的对话' : '暂无对话 · 点击上方开始'}</div>`;
+    list.innerHTML = '<div class="session-empty">暂无对话 · 点击上方开始</div>';
     trackSessionTitleOverflow(list);
     return;
   }
@@ -1433,7 +1709,7 @@ function renderSessionList() {
           </div>
         </div>
         <div class="workspace-groups">${visibleGroups.map(group => {
-    const collapsed = collapsedWorkspaceGroups.has(group.key) && !q;
+    const collapsed = collapsedWorkspaceGroups.has(group.key);
     const meta = workspaceSidebarMeta[group.key] || {};
     const tasks = [...group.sessions]
       .sort((a, b) => {
@@ -1445,6 +1721,7 @@ function renderSessionList() {
     return `
       <section class="workspace-group ${collapsed ? 'is-collapsed' : ''}" data-workspace-group="${escapeAttr(group.key)}">
         <div class="workspace-header" data-workspace-toggle="${escapeAttr(group.key)}" title="${escapeAttr(group.workspace || '未选择工作区')}" tabindex="0">
+          <span class="workspace-toggle-chevron" aria-hidden="true">${ICONS.chevron}</span>
           <span class="workspace-icon">${ICONS.folder}</span>
           <span class="workspace-name">${escapeHtml(group.label)}</span>
           ${meta.pinned ? `<button type="button" class="workspace-pin" data-workspace-pin-toggle="${escapeAttr(group.key)}" title="取消置顶工作区" aria-label="取消置顶工作区">${ICONS.pin}</button>` : ''}
@@ -1573,8 +1850,6 @@ function renderSessionList() {
     });
   });
 }
-
-$('#searchInput').addEventListener('input', renderSessionList);
 
 let newSessionPromise = null;
 
@@ -1714,10 +1989,6 @@ function setEmptyState(empty) {
 }
 
 let turnScaleFrame = 0;
-
-function getConversationTurnElements() {
-  return $$('#messages .msg.user');
-}
 
 function getConversationTurns() {
   const messages = $$('#messages .msg');
@@ -1891,6 +2162,7 @@ const mediaStudioState = {
 };
 // Tool selection belongs to the task, not to the shared task-bar component.
 const taskToolSelections = new Map();
+let vsCodeStatus = { available: false, executable: '', iconDataUrl: '' };
 let skillMarketFilter = 'all';
 
 function syncSidebarAccessibility() {
@@ -2062,7 +2334,7 @@ function renderMediaModelSelect() {
   for (const [index, model] of models.entries()) {
     const option = document.createElement('option');
     option.value = String(index);
-    option.textContent = `${model.name}${model.configured ? '' : ' · 未配置 API'}`;
+    option.textContent = `${model.name}${model.providerName ? ` · ${model.providerName}` : ''}${model.supplierName ? ` / ${model.supplierName}` : ''}${model.configured ? '' : ' · 未配置 API'}`;
     option.selected = !!model.selected;
     select.appendChild(option);
   }
@@ -2089,26 +2361,6 @@ function setMediaStudioMode(mode) {
   $('#mediaVideoOptions')?.classList.toggle('hidden', mode !== 'video');
   renderMediaModelSelect();
   updateMediaGenerateButton();
-}
-
-async function refreshMediaStudioModels() {
-  const status = $('#mediaStudioStatus');
-  if (status) status.textContent = '正在读取模型';
-  try {
-    const payload = await api.listMediaModels();
-    mediaStudioState.models = Array.isArray(payload?.models) ? payload.models : [];
-    const notice = $('#mediaApiNotice');
-    if (notice) {
-      notice.textContent = payload?.notice || '';
-      notice.classList.toggle('hidden', !payload?.notice);
-    }
-    renderMediaModelSelect();
-    if (status) status.textContent = '就绪';
-  } catch (error) {
-    mediaStudioState.models = [];
-    renderMediaModelSelect();
-    if (status) status.textContent = '模型读取失败';
-  }
 }
 
 function clearMediaSourceImage() {
@@ -2143,12 +2395,14 @@ async function selectMediaSourceImage(file) {
 async function applySelectedMediaModel() {
   const model = getSelectedMediaModel();
   if (!model) return null;
-  const result = await api.setModelRole(model.providerId, model.id, model.modelType);
+  const result = await api.setModelRole(model.providerId, model.id, model.modelType, model.supplierId || '');
   if (result?.error) throw new Error(result.error);
   state.config = result;
   for (const item of mediaStudioState.models) {
     if (item.modelType === model.modelType) {
-      item.selected = item.providerId === model.providerId && item.id === model.id;
+      item.selected = item.providerId === model.providerId
+        && item.id === model.id
+        && (!model.supplierId || item.supplierId === model.supplierId);
     }
   }
   return model;
@@ -2975,12 +3229,12 @@ async function renderAutomationPage() {
   });
 }
 
-function appendUserAbortFooter(msgEl) {
-  if (!msgEl || msgEl.querySelector('.msg-abort-note')) return;
-  const note = document.createElement('div');
-  note.className = 'msg-abort-note';
-  note.textContent = '用户手动中止输出';
-  msgEl.appendChild(note);
+function appendUserAbortResult(msgEl) {
+  if (!msgEl) return;
+  const container = msgEl.querySelector('.agent-activity-body') || msgEl.querySelector('.msg-body');
+  if (!container) return;
+  const result = syncAgentError(container, '用户手动中止输出', 'interrupted');
+  if (result && result.parentElement !== container) container.appendChild(result);
 }
 
 function formatTokenCount(n) {
@@ -3089,10 +3343,6 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
   el.querySelectorAll('.msg-action-btn').forEach(btn => {
     btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, el));
   });
-
-  if (role === 'assistant' && agentRun?.status === 'interrupted') {
-    appendUserAbortFooter(el);
-  }
 
   if (!suppressChatAutoScroll && (role === 'assistant' || (role === 'user' && animate))) {
     renderTurnScaleNavigation();
@@ -3279,16 +3529,6 @@ function setComposerCaretByTextOffset(offset) {
   composerLastCaretTextOffset = Math.max(0, Number(offset) || 0);
 }
 
-function moveComposerCaretToEnd() {
-  const range = document.createRange();
-  range.selectNodeContents(input);
-  range.collapse(false);
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
-  composerLastCaretTextOffset = getComposerText().length;
-}
-
 Object.defineProperty(input, 'value', {
   configurable: true,
   get: getComposerText,
@@ -3298,8 +3538,14 @@ input.setSelectionRange = (_start, end) => setComposerCaretByTextOffset(end);
 
 function insertComposerPlainText(text) {
   const selection = window.getSelection();
-  const range = composerSelectionInside();
-  if (!selection || !range) return;
+  if (!selection) return false;
+  let range = composerSelectionInside();
+  if (!range) {
+    input.focus({ preventScroll: true });
+    setComposerCaretByTextOffset(Math.min(composerLastCaretTextOffset, getComposerText().length));
+    range = composerSelectionInside();
+  }
+  if (!range) return false;
   range.deleteContents();
   const node = document.createTextNode(String(text || ''));
   range.insertNode(node);
@@ -3307,6 +3553,8 @@ function insertComposerPlainText(text) {
   range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);
+  composerLastCaretTextOffset = getComposerCaretTextOffset();
+  return true;
 }
 
 function skillTokenBeforeCaret() {
@@ -3368,10 +3616,19 @@ input.addEventListener('keydown', (e) => {
   }
 });
 input.addEventListener('paste', event => {
-  const text = event.clipboardData?.getData('text/plain');
-  if (text == null) return;
+  const clipboard = event.clipboardData;
+  const files = Array.from(clipboard?.files || []);
+  if (files.length) {
+    event.preventDefault();
+    void (async () => {
+      for (const file of files) await addAttachment(file);
+    })();
+    return;
+  }
+
+  const text = clipboard?.getData('text/plain') || '';
+  if (!text || !insertComposerPlainText(text)) return;
   event.preventDefault();
-  insertComposerPlainText(text);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 input.addEventListener('pointerup', () => {
@@ -3548,26 +3805,31 @@ const STOP_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="current
 const STOPPING_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 1-8.5 6"/></svg>';
 const SEND_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>';
 
+function syncConversationSubmitButton(button, options = {}) {
+  if (!button) return;
+  const active = !!options.active;
+  const stopping = active && !!options.stopping;
+  button.classList.toggle('stop-mode', active);
+  button.classList.toggle('send-mode', !active);
+  button.classList.toggle('stopping-mode', stopping);
+  button.innerHTML = active ? (stopping ? STOPPING_ICON : STOP_ICON) : SEND_ICON;
+  button.disabled = active ? stopping : !!options.sendDisabled;
+  const title = active
+    ? (stopping ? `正在${String(options.stopTitle || '停止')}` : String(options.stopTitle || '中止任务'))
+    : String(options.sendTitle || '发送');
+  button.title = title;
+  button.setAttribute('aria-label', title);
+}
 
 function updateSendState() {
   const runCtx = isCurrentSessionResponding() ? getRunCtx(state.currentSession?.id) : null;
-  if (runCtx) {
-    // Agent 正在输出/工作：按钮变为中止按钮
-    sendBtn.classList.add('stop-mode');
-    sendBtn.classList.remove('send-mode');
-    sendBtn.classList.toggle('stopping-mode', !!runCtx.shouldAbort);
-    sendBtn.innerHTML = runCtx.shouldAbort ? STOPPING_ICON : STOP_ICON;
-    sendBtn.disabled = !!runCtx.shouldAbort;
-    sendBtn.title = runCtx.shouldAbort ? '正在停止任务' : '中止任务';
-    sendBtn.setAttribute('aria-label', runCtx.shouldAbort ? '正在停止任务' : '中止任务');
-  } else {
-    sendBtn.classList.add('send-mode');
-    sendBtn.classList.remove('stop-mode', 'stopping-mode');
-    sendBtn.innerHTML = SEND_ICON;
-    sendBtn.disabled = !!promptOptimizationRun || (!input.value.trim() && state.attachments.length === 0 && state.selectedSkills.length === 0);
-    sendBtn.title = '发送';
-    sendBtn.setAttribute('aria-label', '发送');
-  }
+  syncConversationSubmitButton(sendBtn, {
+    active: !!runCtx,
+    stopping: !!runCtx?.shouldAbort,
+    sendDisabled: !!promptOptimizationRun || (!input.value.trim() && state.attachments.length === 0 && state.selectedSkills.length === 0),
+    sendTitle: '发送',
+    stopTitle: '中止任务'
+  });
   updatePromptOptimizerButton();
 }
 
@@ -3597,9 +3859,6 @@ function abortSessionById(sessionId) {
     try { context.runAbortController?.abort(); } catch {}
     try { context.abortController?.abort(); } catch {}
   }
-  if (contexts.includes(workspacePermRequest?.runCtx)) {
-    settleWorkspacePermission({ approved: false, workspace: '' });
-  }
   if (contexts.includes(agentPermissionRequest?.runCtx)) {
     settleAgentPermission('deny');
   }
@@ -3608,12 +3867,6 @@ function abortSessionById(sessionId) {
   }
   if (runCtx.runId && window.yan.cancelVideoGeneration) {
     window.yan.cancelVideoGeneration(runCtx.runId).catch(() => {});
-  }
-  if (runCtx.runId && window.yan.cancelShellRun) {
-    window.yan.cancelShellRun(runCtx.runId).catch(() => {});
-  }
-  if (runCtx.runId && window.yan.cancelMcpRun) {
-    window.yan.cancelMcpRun(runCtx.runId).catch(() => {});
   }
   if (runCtx.runId && window.yan.openCodeCancelRun) {
     window.yan.openCodeCancelRun(runCtx.runId).catch(() => {});
@@ -3654,7 +3907,7 @@ function applyAbortRunUi(sessionId) {
       toolCallCount: runCtx.agentState?.toolCallCount || 0
     });
   }
-  appendUserAbortFooter(assistantEl);
+  appendUserAbortResult(assistantEl);
 }
 
 function markRunningToolsInterrupted(bodyEl) {
@@ -3692,6 +3945,7 @@ const COMPOSER_SKILL_SLOTS = Object.freeze([
   { ids: ['yan-codegraph'], group: '代码辅助', search: ['CodeGraph', '代码图', '调用链', '影响分析'] },
   { ids: ['yan-understand-anything'], group: '代码辅助', search: ['Understand Anything', '项目理解', '代码地图'] },
   { ids: ['greensock-gsap'], group: 'UI美化', search: ['GreenSock', 'GSAP', '网页动效', 'ScrollTrigger'] },
+  { ids: ['ui-ux-pro-max'], group: 'UI美化', search: ['UI UX Pro Max', 'uipro', '设计系统', 'UI设计', 'UX设计'] },
   { ids: ['emil-motion'], group: 'UI美化', search: ['Emil Kowalski', '界面动效', 'Apple 交互', '动画审阅'] },
   { ids: ['yan-react-bits'], group: 'UI美化', search: ['React Bits', '界面动效', '动画组件'] },
   { ids: ['awesome-design-md'], group: '网页设计', search: ['DESIGN.md', '品牌设计参考', '设计语言'] },
@@ -3710,6 +3964,8 @@ function normalizeComposerSkill(skill) {
     name: String(skill?.name || skill?.id || 'Skill'),
     desc: String(skill?.desc || ''),
     aliases: Array.isArray(skill?.aliases) ? skill.aliases : [],
+    tags: Array.isArray(skill?.tags) ? skill.tags : [],
+    triggers: Array.isArray(skill?.triggers) ? skill.triggers : [],
     requires: Array.isArray(skill?.requires) ? skill.requires : [],
     logo: skillLogoPath(skill || {})
   };
@@ -3768,29 +4024,6 @@ function syncComposerSkillsFromDom() {
   renderSkillCallList();
 }
 
-async function resolveSkillCall(skill) {
-  if (!skill?.id) return null;
-  const fallback = { id: skill.id, name: skill.name, desc: skill.desc, logo: skill.logo, prompt: '', requires: skill.requires || [] };
-  try {
-    const result = await api.readSkill?.(skill.id, '');
-    if (result?.ok) {
-      return {
-        id: String(result.id || skill.id),
-        name: String(result.name || skill.name || skill.id),
-        desc: String(result.desc || skill.desc || ''),
-        aliases: Array.isArray(result.aliases) ? result.aliases : (skill.aliases || []),
-        logo: skill.logo,
-        prompt: String(result.prompt || ''),
-        requires: Array.isArray(result.requires) ? result.requires : (skill.requires || [])
-      };
-    }
-    console.warn('[skill-call]', result?.error || `Unable to load ${skill.id}`);
-  } catch (error) {
-    console.warn('[skill-call]', error);
-  }
-  return fallback;
-}
-
 function toggleComposerSkill(skill) {
   if (!skill?.id) return;
   const id = String(skill.id);
@@ -3837,17 +4070,36 @@ function toggleComposerSkill(skill) {
 
 function installedSkillPickerItems() {
   return (installedSkillCatalog.length ? installedSkillCatalog : state.skills)
-    .filter(skill => skill?.installed !== false);
+    .filter(skill => skill?.installed !== false && skill?.hidden !== true);
 }
 
 function curatedComposerSkillItems() {
   const installed = installedSkillPickerItems();
-  return COMPOSER_SKILL_SLOTS.map(slot => {
+  const used = new Set();
+  const curated = COMPOSER_SKILL_SLOTS.map(slot => {
     const skill = slot.ids
       .map(id => installed.find(item => String(item.id || '').toLocaleLowerCase() === id.toLocaleLowerCase()))
       .find(Boolean);
-    return skill ? { ...skill, composerGroup: slot.group, composerSearch: slot.search } : null;
+    if (!skill) return null;
+    used.add(String(skill.id || '').toLocaleLowerCase());
+    return { ...skill, composerGroup: slot.group, composerSearch: slot.search };
   }).filter(Boolean);
+  const groupLabels = {
+    'code-assist': '代码辅助',
+    'ui-beautify': 'UI美化',
+    'web-design': '网页设计',
+    'agent-rules': 'Agent规则',
+    'office-assist': '办公辅助'
+  };
+  const remaining = installed
+    .filter(skill => !used.has(String(skill.id || '').toLocaleLowerCase()))
+    .map(skill => ({
+      ...skill,
+      composerGroup: (skill.tags || []).map(tag => groupLabels[tag]).find(Boolean) || '其他',
+      composerSearch: [...(skill.triggers || []), ...(skill.aliases || [])]
+    }))
+    .sort((left, right) => String(left.name || left.id).localeCompare(String(right.name || right.id), 'zh-CN'));
+  return [...curated, ...remaining];
 }
 
 function normalizedSkillSearchText(value) {
@@ -3867,6 +4119,7 @@ function fuzzySkillMatch(skill, query) {
     skill.name,
     skill.desc,
     ...(skill.aliases || []),
+    ...(skill.triggers || []),
     ...(skill.composerSearch || []),
     skill.composerGroup
   ].join(' '));
@@ -3986,15 +4239,6 @@ function getAgentModelSelection() {
 function getSelectedModelCapabilities() {
   return getAgentModelSelection().capabilities || {};
 }
-
-const NON_IMAGE_FILE_ACCEPT = [
-  '.txt', '.md', '.markdown', '.json', '.jsonl', '.csv', '.tsv', '.yaml', '.yml',
-  '.xml', '.html', '.htm', '.css', '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx',
-  '.vue', '.svelte', '.py', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.go', '.rs',
-  '.php', '.rb', '.sh', '.ps1', '.bat', '.cmd', '.sql', '.toml', '.ini', '.cfg',
-  '.conf', '.log', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf',
-  '.odt', '.ods', '.odp', '.zip', '.tar', '.gz', '.tgz', '.7z'
-].join(',');
 
 function mountComposerToolbar() {
   const toolbar = document.querySelector('.composer-toolbar-controls');
@@ -4307,7 +4551,7 @@ async function sendMessage() {
     await submitMediaMessage(text, attachments, agentModel);
     return;
   }
-  const skillCalls = await Promise.all(state.selectedSkills.map(skill => resolveSkillCall(skill)));
+  const skillCalls = state.selectedSkills.map(normalizeComposerSkill);
   // 清空输入区（不调 updateSendState，submitMessage 会立即设置停止按钮）
   input.value = '';
   state.attachments = [];
@@ -4315,7 +4559,7 @@ async function sendMessage() {
   renderAttachments();
   autoGrow();
 
-  await submitMessage(text, attachments, skillCalls.filter(Boolean));
+  await submitMessage(text, attachments, skillCalls);
 }
 
 async function submitMediaMessage(text, attachments = [], modelSelection = {}) {
@@ -4421,7 +4665,7 @@ async function submitMediaMessage(text, attachments = [], modelSelection = {}) {
     body.replaceChildren(buildTextRoundElement(content));
     assistantEl.dataset.msgIndex = session.messages.length - 1;
     appendAssistantActions(assistantEl, assistantMsg.duration);
-    if (cancelled) appendUserAbortFooter(assistantEl);
+    if (cancelled) appendUserAbortResult(assistantEl);
     await saveCurrentSession(session);
     finishPetSupervision(runCtx, cancelled ? 'paused' : 'error', errorMessage);
     return { ok: false, error: errorMessage };
@@ -4613,6 +4857,7 @@ async function submitMessageBackground(session, text, attachments = [], lifecycl
     finishPetSupervision(runCtx, runCtx.shouldAbort ? 'paused' : 'error', runCtx.shouldAbort ? '后台任务已停止' : errorMessage);
     return { ok: false, error: errorMessage };
   } finally {
+    setRunComputerUseActive(runCtx, false);
     const terminalStatus = runCtx.shouldAbort || runCtx.finalStatus === 'interrupted' || runCtx.agentState.status === 'interrupted'
       ? 'paused'
       : (runCtx.finalStatus === 'done' || runCtx.agentState.status === 'done' ? 'completed' : 'error');
@@ -4715,7 +4960,18 @@ function updateOpenCodeContextUsage(runCtx, info) {
   if (String(info?.role || '') !== 'assistant') return;
   const tokens = openCodeContextTokens(info);
   if (!tokens) return;
-  runCtx.contextUiTokens = tokens;
+  // OpenCode may emit several measurements for one assistant turn. Some
+  // providers report a smaller value on a later update (for example when
+  // cached input is accounted for differently). Keep the UI monotonic until
+  // an explicit compaction event establishes a new baseline.
+  const compressionEpoch = Number(runCtx.contextCompressionCount) || 0;
+  const previousEpoch = Number(runCtx.contextUiCompressionEpoch);
+  if (!runCtx.contextUiMeasured || !Number.isFinite(previousEpoch) || previousEpoch !== compressionEpoch) {
+    runCtx.contextUiCompressionEpoch = compressionEpoch;
+    runCtx.contextUiTokens = tokens;
+  } else {
+    runCtx.contextUiTokens = Math.max(Number(runCtx.contextUiTokens) || 0, tokens);
+  }
   runCtx.contextUiMeasured = true;
   if (state.currentSession?.id === runCtx.sessionId) {
     updateContextInfo(runCtx.agentState, runCtx.sessionRef || state.currentSession);
@@ -4972,6 +5228,63 @@ function mapOpenCodeEventToPet(event, runCtx) {
   return null;
 }
 
+function reviewFileKey(file = {}) {
+  return String(file.path || file.file || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .toLocaleLowerCase();
+}
+
+function mergeReviewSummaries(...summaries) {
+  const filesByPath = new Map();
+  let source = 'opencode';
+  for (const summary of summaries) {
+    if (!summary || typeof summary !== 'object') continue;
+    if (summary.source) source = String(summary.source);
+    for (const rawFile of Array.isArray(summary.files) ? summary.files : []) {
+      const key = reviewFileKey(rawFile);
+      if (!key) continue;
+      const previous = filesByPath.get(key) || {};
+      const next = {
+        ...previous,
+        ...rawFile,
+        path: String(rawFile.path || rawFile.file || previous.path || '').replace(/\\/g, '/'),
+        additions: Number.isFinite(Number(rawFile.additions))
+          ? Math.max(0, Number(rawFile.additions))
+          : (Number(previous.additions) || 0),
+        deletions: Number.isFinite(Number(rawFile.deletions))
+          ? Math.max(0, Number(rawFile.deletions))
+          : (Number(previous.deletions) || 0)
+      };
+      if (!rawFile.diff && previous.diff) next.diff = previous.diff;
+      filesByPath.set(key, next);
+    }
+  }
+  const files = [...filesByPath.values()];
+  return {
+    source,
+    count: files.length,
+    additions: files.reduce((sum, file) => sum + (Number(file.additions) || 0), 0),
+    deletions: files.reduce((sum, file) => sum + (Number(file.deletions) || 0), 0),
+    files
+  };
+}
+
+function normalizeAgentTodos(value) {
+  const todos = Array.isArray(value)
+    ? value
+    : (Array.isArray(value?.todos) ? value.todos : []);
+  return todos.map(todo => {
+    const status = String(todo?.status || '').toLowerCase();
+    return {
+      text: String(todo?.content ?? todo?.text ?? todo?.title ?? '').trim(),
+      done: todo?.done === true || status === 'completed',
+      inProgress: todo?.inProgress === true || status === 'in_progress'
+    };
+  }).filter(todo => todo.text);
+}
+
 function applyOpenCodeEvent(runCtx, event) {
   if (!event?.type) return;
   runCtx.openCodeLastEventAt = Date.now();
@@ -4996,6 +5309,7 @@ function applyOpenCodeEvent(runCtx, event) {
       automatic: data.automatic === true,
       completedAt: Date.now()
     };
+    runCtx.contextUiCompressionEpoch = runCtx.contextCompressionCount;
     runCtx.contextUiTokens = runCtx.lastContextCompression.afterTokens;
     runCtx.contextUiMeasured = runCtx.contextUiTokens > 0;
     upsertOpenCodeTimeline(runCtx, 'context-compression', {
@@ -5020,7 +5334,7 @@ function applyOpenCodeEvent(runCtx, event) {
     runCtx.openCodePhase = 'interjection';
     upsertOpenCodeTimeline(runCtx, `interjection:${Number(data.count) || 1}`, {
       type: 'progress',
-      content: data.requestFinish ? '正在按你的插话收尾' : '正在处理你的插话'
+      content: data.requestFinish ? '正在按辅助对话中的要求收尾' : '正在处理辅助对话消息'
     });
   } else if (event.type === 'yan.interjection.processed') {
     runCtx.openCodePhase = runCtx.activeAgentRun.summaryStarted ? 'summary' : (runCtx.openCodePhaseBeforeInterjection || 'work');
@@ -5033,12 +5347,12 @@ function applyOpenCodeEvent(runCtx, event) {
       deletions: Number(data.deletions) || 0,
       files
     };
-    runCtx.liveReviewSummary = summary;
+    runCtx.liveReviewSummary = mergeReviewSummaries(runCtx.liveReviewSummary, summary);
     runCtx.reviewNeedsFetch = false;
     runCtx.reviewVersion = (Number(runCtx.reviewVersion) || 0) + 1;
-    runCtx.fileChangeCount = summary.count;
-    runCtx.activeAgentRun.changeCount = summary.count;
-    runCtx.activeAgentRun.changeSummary = summary;
+    runCtx.fileChangeCount = runCtx.liveReviewSummary.count;
+    runCtx.activeAgentRun.changeCount = runCtx.liveReviewSummary.count;
+    runCtx.activeAgentRun.changeSummary = runCtx.liveReviewSummary;
     scheduleRightSidebarReviewRefresh(40);
   } else if (event.type === 'yan.review.invalidated') {
     runCtx.reviewNeedsFetch = true;
@@ -5088,7 +5402,7 @@ function applyOpenCodeEvent(runCtx, event) {
     upsertOpenCodeTimeline(runCtx, 'goal-acceptance', {
       type: 'progress',
       content: data.guidanceHandled && !Number(data.changedFiles)
-        ? `Goal 第 ${round} 轮已应用用户插话，正在重新验收。`
+        ? `Goal 第 ${round} 轮已应用辅助对话引导，正在重新验收。`
         : `Goal 第 ${round} 轮发现并修复了实际问题，正在进入下一轮验收。`
     });
   } else if (event.type === 'yan.goal.acceptance.passed') {
@@ -5139,6 +5453,7 @@ function applyOpenCodeEvent(runCtx, event) {
     } else if (part.type === 'tool') {
       const callId = String(part.callID || part.id || '');
       const toolName = String(part.tool || 'tool');
+      if (isNuphusDesktopTool(toolName)) setRunComputerUseActive(runCtx, true);
       upsertOpenCodeTimeline(runCtx, `tool-call:${callId}`, {
         type: 'tool_call', callId, name: toolName, args: part.state?.input || {}
       });
@@ -5226,6 +5541,7 @@ function applyOpenCodeEvent(runCtx, event) {
     }
   } else if (event.type === 'session.next.tool.called') {
     const callId = String(data.callID || '');
+    if (isNuphusDesktopTool(data.tool)) setRunComputerUseActive(runCtx, true);
     upsertOpenCodeTimeline(runCtx, `tool-call:${callId}`, {
       type: 'tool_call', callId, name: data.tool || 'tool', args: data.input || {}
     });
@@ -5238,12 +5554,11 @@ function applyOpenCodeEvent(runCtx, event) {
       ok: event.type.endsWith('.success')
     });
   } else if (event.type === 'todo.updated') {
-    runCtx.agentState.todos = (data.todos || []).map(todo => ({
-      text: todo.content || '',
-      done: todo.status === 'completed',
-      inProgress: todo.status === 'in_progress'
-    }));
+    runCtx.agentState.todos = normalizeAgentTodos(data);
     runCtx.agentState.todosFromTool = true;
+    if (runCtx.ui && state.currentSession?.id === runCtx.sessionId) {
+      renderTodos(runCtx.agentState);
+    }
   } else if (event.type === 'session.status' && data.status?.type === 'retry') {
     upsertOpenCodeTimeline(runCtx, `retry:${data.status.attempt}`, {
       type: 'progress', content: `模型请求重试 ${data.status.attempt}：${data.status.message || ''}`
@@ -5316,13 +5631,8 @@ function openCodeResultToAgentRun(result, runCtx) {
     ? result.reviewSummary
     : null;
   const rawReviewSummary = completedReviewSummary
-    && (
-      Number(completedReviewSummary.count) > 0
-      || result.status === 'done'
-      || !runCtx.liveReviewSummary
-    )
-      ? completedReviewSummary
-      : runCtx.liveReviewSummary;
+    ? mergeReviewSummaries(runCtx.liveReviewSummary, completedReviewSummary)
+    : runCtx.liveReviewSummary;
   const changes = (rawReviewSummary?.files || result.changes || []).map(file => ({
     path: file.path || file.file || '',
     additions: Number(file.additions) || 0,
@@ -5343,7 +5653,10 @@ function openCodeResultToAgentRun(result, runCtx) {
   runCtx.agentState.status = status;
   runCtx.finalStatus = status;
   runCtx.agentState.toolCallCount = result.toolCalls?.length || runCtx.agentState.toolCallCount || 0;
-  runCtx.agentState.todos = result.todos || [];
+  const resultTodos = Array.isArray(result.todos)
+    ? normalizeAgentTodos(result.todos)
+    : normalizeAgentTodos(runCtx.agentState.todos);
+  runCtx.agentState.todos = resultTodos;
   const resultContextTokens = Math.max(0, Number(result.contextTokens) || 0);
   const measuredLiveContextTokens = runCtx.contextUiMeasured
     ? Math.max(0, Number(runCtx.contextUiTokens) || 0)
@@ -5371,8 +5684,8 @@ function openCodeResultToAgentRun(result, runCtx) {
       : (resultText || (containsDsmlProtocolMarkup(runCtx.partialContent) ? '' : runCtx.partialContent) || ''),
     thinkingContent: result.reasoning || '',
     timeline,
-    todos: result.todos || [],
-    todosFromTool: true,
+    todos: resultTodos,
+    todosFromTool: runCtx.agentState.todosFromTool || resultTodos.length > 0,
     outcome: runCtx.workspaceRequired
       ? '任务等待用户选择工作区。'
       : (status === 'done'
@@ -5383,8 +5696,8 @@ function openCodeResultToAgentRun(result, runCtx) {
     acceptanceCriteria: runCtx.workspaceRequired
       ? []
       : (runCtx.workMode === 'goal'
-      ? ((result.todos || []).length
-        ? result.todos.map(todo => ({ text: todo.text, status: todo.done ? 'satisfied' : 'pending' }))
+      ? (resultTodos.length
+        ? resultTodos.map(todo => ({ text: todo.text, status: todo.done ? 'satisfied' : 'pending' }))
         : [{ text: '真实工件验收轮', status: result.goal?.verified ? 'satisfied' : 'pending' }])
       : []),
     changeCount: reviewSummary.count,
@@ -5436,6 +5749,7 @@ function extractMediaAssetsFromAgentRun(agentRun) {
 
 async function runOpenCodeLoop(session, assistantEl, runCtx) {
   const latestUserMessage = [...(session.messages || [])].reverse().find(message => message.role === 'user') || {};
+  runCtx.currentRequest = String(latestUserMessage.content || '').trim();
   runCtx.startedAt = runCtx.startedAt || Date.now();
   runCtx.runId = runCtx.runId || createRendererRunId(session.id);
   const openCodeRunId = runCtx.runId;
@@ -5473,6 +5787,7 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
       if (detail?.runId !== openCodeRunId) return;
       removeEvent?.();
       removeCompleted?.();
+      setRunComputerUseActive(runCtx, false);
       const agentRun = openCodeResultToAgentRun(detail.result || {}, runCtx);
       resolve({ content: agentRun.textContent || '', agentRun });
     });
@@ -5511,6 +5826,7 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
     } catch (error) {
       removeEvent?.();
       removeCompleted?.();
+      setRunComputerUseActive(runCtx, false);
       reject(error);
     }
   });
@@ -5606,7 +5922,6 @@ async function submitMessage(text, attachments = [], skillCalls = []) {
         btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, assistantEl));
       });
       assistantEl.appendChild(actionsContainer);
-      if (agentRun?.status === 'interrupted') appendUserAbortFooter(assistantEl);
     }
 
     await saveCurrentSession(runSession);
@@ -5649,7 +5964,6 @@ async function submitMessage(text, attachments = [], skillCalls = []) {
           btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, assistantEl));
         });
         assistantEl.appendChild(actionsContainer);
-        appendUserAbortFooter(assistantEl);
 
         runSession.messages.push({
           role: 'assistant',
@@ -5708,6 +6022,7 @@ async function submitMessage(text, attachments = [], skillCalls = []) {
       finishPetSupervision(runCtx, 'error', taskErr || '任务执行出错');
     }
   } finally {
+    setRunComputerUseActive(runCtx, false);
     const terminalStatus = runCtx.shouldAbort || runCtx.finalStatus === 'interrupted' || runCtx.agentState.status === 'interrupted'
       ? 'paused'
       : (runCtx.finalStatus === 'done' || runCtx.agentState.status === 'done' ? 'completed' : 'error');
@@ -5779,7 +6094,13 @@ async function rollbackMessageRun(msg, el) {
   if (msg.agentRun?.rolledBack) { toast('该轮改动已撤销'); return; }
   if (isCurrentSessionExecutionActive()) { toast('任务执行中，请稍后再撤销'); return; }
 
-  if (!confirm(`撤销本轮对话对 ${count} 个文件的改动？\n仅回滚这一轮，不影响之前对话的修改。`)) return;
+  const confirmed = await requestGenericConfirmation({
+    title: '撤销改动',
+    description: `撤销本轮对话对 ${count} 个文件的改动？\n仅回滚这一轮，不影响之前对话的修改。`,
+    confirmLabel: '撤销',
+    danger: true
+  });
+  if (!confirmed) return;
 
   const res = await api.yanagentRollbackRun(sid, runId, ws);
   if (!res.ok) {
@@ -5811,6 +6132,7 @@ function createRunCtx(sessionId, ui = true, workspace = '') {
     ui: !!ui,
     workspace: String(workspace || ''),
     workspaceRequired: false,
+    currentRequest: '',
     shouldAbort: false,
     abortController: controller,
     runAbortController: controller,
@@ -5820,6 +6142,7 @@ function createRunCtx(sessionId, ui = true, workspace = '') {
     lastContextCompression: null,
     partialContent: '',
     finalStatus: '',
+    computerUseVisualActive: false,
     agentState: {
       status: 'working',
       iteration: 0,
@@ -5861,22 +6184,6 @@ function parseToolOutputOk(value) {
   }
 }
 
-function parseStructuredToolResult(value) {
-  let parsed = value;
-  if (typeof parsed === 'string') {
-    try { parsed = JSON.parse(parsed); } catch { return null; }
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-  if (parsed.structuredContent && typeof parsed.structuredContent === 'object') return parsed.structuredContent;
-  if (Array.isArray(parsed.content)) {
-    const text = parsed.content.find(item => item?.type === 'text' && item.text)?.text;
-    if (text) {
-      try { return JSON.parse(text); } catch {}
-    }
-  }
-  return parsed;
-}
-
 function describeRunError(error) {
   if (!error) return '未知错误';
   if (error.name === 'AbortError') return '任务已中止';
@@ -5902,104 +6209,6 @@ function finalizeAgentRun(content, status, activeRun, bodyEl, error, runCtx) {
     todos: runCtx?.agentState?.todos || [],
     ...(error ? { error: String(error) } : {})
   };
-}
-
-async function refreshMcpTools() { return []; }
-function snapshotTools() { return []; }
-const TOOL_ICONS = {};
-const BUILT_IN_TOOLS = [];
-
-// ============================================================
-// Shell permission prompt (always / once / deny)
-// ============================================================
-let workspacePermRequest = null;
-
-function settleWorkspacePermission(result) {
-  if (!workspacePermRequest) return;
-  const request = workspacePermRequest;
-  workspacePermRequest = null;
-  $('#workspacePermModal')?.classList.add('hidden');
-  request.resolve(result);
-}
-
-async function requestWorkspacePermission(detail, runCtx) {
-  const accessMode = runCtx?.accessMode || getCurrentAccessMode();
-  if (accessMode === 'delegate' && detail?.suggestedPath) {
-    toast('已按“替我审批”自动批准工作区申请');
-    return { approved: true, workspace: detail.suggestedPath, automatic: true };
-  }
-  if (accessMode === 'full') {
-    if (detail?.suggestedPath) {
-      toast('已按“完全访问”自动批准工作区申请');
-      return { approved: true, workspace: detail.suggestedPath, automatic: true };
-    }
-    const result = api.getKnownWorkspacePath
-      ? await api.getKnownWorkspacePath('home')
-      : null;
-    if (result?.workspace) {
-      toast('已按“完全访问”使用用户目录');
-      return { approved: true, workspace: result.workspace, automatic: true };
-    }
-  }
-  return new Promise(resolve => {
-    if (workspacePermRequest) settleWorkspacePermission({ approved: false, workspace: '' });
-    const modal = $('#workspacePermModal');
-    if (!modal) {
-      resolve({ approved: false, workspace: '' });
-      return;
-    }
-    workspacePermRequest = { resolve, detail, runCtx };
-    $('#workspacePermReason').textContent = detail.reason || 'Agent 需要创建或修改文件。';
-    $('#workspacePermLabel').textContent = `建议位置：${detail.suggestedLabel || '工作区'}`;
-    $('#workspacePermPath').textContent = detail.suggestedPath || '由你选择具体文件夹';
-    const choose = $('#workspacePermChoose');
-    const allow = $('#workspacePermAllow');
-    choose?.classList.toggle('hidden', !detail.suggestedPath);
-    if (allow) allow.textContent = detail.suggestedPath ? '允许' : '选择文件夹';
-    modal.classList.remove('hidden');
-    requestAnimationFrame(() => allow?.focus());
-  });
-}
-
-async function chooseWorkspaceForPermission() {
-  const request = workspacePermRequest;
-  if (!request) return;
-  const workspace = api.pickWorkspace ? await api.pickWorkspace() : await api.chooseWorkspace();
-  if (workspace) settleWorkspacePermission({ approved: true, workspace });
-}
-
-function bindWorkspacePermDialog() {
-  $('#workspacePermAllow')?.addEventListener('click', async () => {
-    const request = workspacePermRequest;
-    if (!request) return;
-    if (request.detail.suggestedPath) {
-      settleWorkspacePermission({ approved: true, workspace: request.detail.suggestedPath });
-    } else {
-      await chooseWorkspaceForPermission();
-    }
-  });
-  $('#workspacePermChoose')?.addEventListener('click', chooseWorkspaceForPermission);
-  $('#workspacePermDeny')?.addEventListener('click', () => settleWorkspacePermission({ approved: false, workspace: '' }));
-  $('#workspacePermModal')?.addEventListener('click', event => {
-    if (event.target?.id === 'workspacePermModal') settleWorkspacePermission({ approved: false, workspace: '' });
-  });
-}
-
-async function handleAgentWorkspaceAssigned(workspace, runCtx) {
-  const session = runCtx?.sessionRef || state.sessions.find(item => item.id === runCtx?.sessionId);
-  if (session) session.workspace = workspace;
-  const summary = state.sessions.find(item => item.id === runCtx?.sessionId);
-  if (summary) summary.workspace = workspace;
-  if (state.currentSession?.id !== runCtx?.sessionId) {
-    renderSessionList();
-    return;
-  }
-  syncCurrentSessionWorkspace(workspace);
-  state.config = await api.getConfig();
-  await renderRightSidebarFiles();
-  updateTaskBar();
-  updateContextInfo();
-  renderSessionList();
 }
 
 let agentPermissionRequest = null;
@@ -6161,19 +6370,6 @@ function bindAgentPermissionPanel() {
   window.addEventListener('resize', positionAgentPermissionPanel);
 }
 
-async function deferPendingTodos(runCtx, pending) {
-  const session = runCtx?.sessionRef || state.activeRuns.get(runCtx?.sessionId)?.sessionRef;
-  if (!session || session.id !== runCtx?.sessionId) return;
-  session.deferredTodos = pending.map(t => ({ text: t.text }));
-  try { await api.saveSession(session); } catch (error) {
-    console.error('[deferred-todos-save]', error);
-    return;
-  }
-  if (state.currentSession?.id === session.id) {
-    toast(`已推迟 ${pending.length} 项非必要 todo，将在后续对话中提醒`);
-  }
-}
-
 function persistSessionContextCompression(session, runCtx, agentRun) {
   const count = Math.max(
     Number(agentRun?.contextCompressionCount) || 0,
@@ -6194,22 +6390,6 @@ function persistSessionContextCompression(session, runCtx, agentRun) {
     automatic: detail.automatic === true,
     completedAt: Number(detail.completedAt) || Date.now()
   };
-}
-
-async function clearDeferredTodosIfDone(runCtx, as) {
-  const session = runCtx?.sessionRef
-    || state.activeRuns.get(runCtx?.sessionId)?.sessionRef
-    || (!runCtx ? state.currentSession : null);
-  if (!session?.deferredTodos?.length || !as?.todosFromTool) return;
-  const texts = new Set(as.todos.filter(t => t.done).map(t => t.text));
-  const remaining = session.deferredTodos.filter(d => !texts.has(d.text));
-  if (remaining.length !== session.deferredTodos.length) {
-    session.deferredTodos = remaining.length ? remaining : undefined;
-    if (!session.deferredTodos) delete session.deferredTodos;
-    try { await api.saveSession(session); } catch (error) {
-      console.error('[deferred-todos-clear]', error);
-    }
-  }
 }
 
 // ============================================================
@@ -6344,10 +6524,6 @@ function ensureAgentActivity(bodyEl) {
   return activity;
 }
 
-function getAgentActivityBody(bodyEl) {
-  return ensureAgentActivity(bodyEl)?.querySelector('.agent-activity-body') || null;
-}
-
 function syncAgentWorkVisibility(header) {
   if (!header) return;
   const toggle = header.querySelector('.agent-work-toggle');
@@ -6472,10 +6648,11 @@ function renderRunChangeSummary(bodyEl, agentRun) {
   return summary;
 }
 
-function buildAgentErrorElement(errorMessage) {
+function buildAgentErrorElement(errorMessage, status = 'error') {
   const errorEl = document.createElement('div');
-  errorEl.className = 'msg-error agent-run-error';
-  errorEl.innerHTML = renderMarkdown(`⚠️ **出错了**\n\n${errorMessage}`);
+  const interrupted = status === 'interrupted';
+  errorEl.className = `msg-error agent-run-error${interrupted ? ' agent-run-interrupted' : ''}`;
+  errorEl.innerHTML = renderMarkdown(`⚠️ **${interrupted ? '已中止' : '出错了'}**\n\n${errorMessage}`);
   return errorEl;
 }
 
@@ -6641,17 +6818,20 @@ function syncAgentTimelineParts(activityBody, timeline, status, fallbackContent,
   }
 }
 
-function syncAgentError(bodyEl, errorMessage) {
+function syncAgentError(bodyEl, errorMessage, status = 'error') {
   let errorEl = bodyEl.querySelector(':scope > .agent-run-error');
   const content = String(errorMessage || '').trim();
   if (!content) {
     errorEl?.remove();
     return null;
   }
-  if (!errorEl) errorEl = buildAgentErrorElement(content);
-  if (agentElementRenderState.get(errorEl)?.content !== content) {
-    errorEl.innerHTML = renderMarkdown(`⚠️ **出错了**\n\n${content}`);
-    agentElementRenderState.set(errorEl, { content });
+  if (!errorEl) errorEl = buildAgentErrorElement(content, status);
+  const interrupted = status === 'interrupted';
+  const signature = `${status}:${content}`;
+  if (agentElementRenderState.get(errorEl)?.signature !== signature) {
+    errorEl.classList.toggle('agent-run-interrupted', interrupted);
+    errorEl.innerHTML = renderMarkdown(`⚠️ **${interrupted ? '已中止' : '出错了'}**\n\n${content}`);
+    agentElementRenderState.set(errorEl, { signature });
   }
   return errorEl;
 }
@@ -6692,7 +6872,10 @@ function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
   }
   bodyEl.querySelector(':scope > .agent-run-error')?.remove();
   bodyEl.querySelector(':scope > .run-change-summary')?.remove();
-  const errorEl = syncAgentError(activityBody, agentRun.error);
+  const terminalMessage = agentRun.status === 'interrupted'
+    ? '用户手动中止输出'
+    : agentRun.error;
+  const errorEl = syncAgentError(activityBody, terminalMessage, agentRun.status);
   if (errorEl) {
     errorEl.dataset.agentStage = 'summary';
     activityBody.appendChild(errorEl);
@@ -6841,6 +7024,40 @@ function parseGeneratedMediaToolResult(resultRaw) {
   return result && typeof result === 'object' ? result : null;
 }
 
+function isImageGenerationTool(toolName) {
+  return /(?:^|[_.:])generate_image$/i.test(String(toolName || ''));
+}
+
+function generatedImagePrompt(args = {}) {
+  const value = args.prompt ?? args.description ?? args.text ?? args.input ?? '';
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+function generatedImageResolution(args = {}) {
+  const explicit = args.size ?? args.resolution ?? args.aspect_ratio ?? args.aspectRatio;
+  if (explicit) return String(explicit).trim().slice(0, 32);
+  const width = Number(args.width);
+  const height = Number(args.height);
+  if (width > 0 && height > 0) return `${Math.round(width)}×${Math.round(height)}`;
+  return '1:1';
+}
+
+function generatedImageLoadingMarkup(args = {}, label = '正在生成图片') {
+  const prompt = generatedImagePrompt(args);
+  const resolution = generatedImageResolution(args);
+  return `<div class="generated-image-loading-card" role="status" aria-live="polite">
+    <div class="generated-image-loading-canvas" aria-hidden="true">
+      <div class="generated-image-loading-dots"></div>
+      <div class="generated-image-loading-glow"></div>
+    </div>
+    <div class="generated-image-loading-meta">
+      <strong class="generated-image-loading-label">${escapeHtml(label)}</strong>
+      <span class="generated-image-loading-resolution">${escapeHtml(resolution)}</span>
+      <span class="generated-image-loading-prompt">${escapeHtml(prompt || '正在准备画布')}</span>
+    </div>
+  </div>`;
+}
+
 function renderGeneratedImagePreview(body, resultRaw) {
   const result = parseGeneratedMediaToolResult(resultRaw);
   const assetId = result?.meta?.generatedImageId;
@@ -6856,7 +7073,7 @@ function renderGeneratedImagePreview(body, resultRaw) {
   preview.setAttribute('role', 'button');
   preview.setAttribute('aria-label', '打开图片预览');
   preview.title = '打开图片预览';
-  preview.innerHTML = '<div class="generated-image-loading">正在加载图片…</div>';
+  preview.innerHTML = generatedImageLoadingMarkup({}, '正在加载图片');
   body.appendChild(preview);
   const openViewer = () => api.openGeneratedImage(assetId).then(response => {
     if (response?.error) toast(response.error);
@@ -6869,7 +7086,7 @@ function renderGeneratedImagePreview(body, resultRaw) {
   });
   api.readGeneratedImage(assetId).then(image => {
     if (image?.error || !image?.dataUrl || !preview.isConnected) {
-      const loading = preview.querySelector('.generated-image-loading');
+      const loading = preview.querySelector('.generated-image-loading-label');
       if (loading) loading.textContent = image?.error || '会话图片已失效';
       return;
     }
@@ -6878,7 +7095,7 @@ function renderGeneratedImagePreview(body, resultRaw) {
     img.alt = result?.meta?.name || 'Agent 生成的图片';
     img.draggable = false;
     img.className = 'generated-image-preview';
-    preview.querySelector('.generated-image-loading')?.replaceWith(img);
+    preview.querySelector('.generated-image-loading-card')?.replaceWith(img);
   }).catch(() => {});
 }
 
@@ -6931,6 +7148,7 @@ function renderDirectMediaAssets(body, media) {
 function finishToolStepElement(step, resultRaw, ok) {
   if (!step) return;
   step.classList.remove('is-running');
+  step.querySelector('.generated-image-loading-card')?.remove();
   if (ok != null) step.dataset.ok = String(!!ok);
   const parsedOk = ok != null ? ok : (resultRaw ? parseToolOutputOk(resultRaw) : null);
   const header = step.querySelector('.tc-header');
@@ -6994,7 +7212,7 @@ function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase =
   step.className = 'tool-step';
   if (phase === 'running') step.classList.add('is-running');
   if (phase === 'interrupted') step.classList.add('is-interrupted');
-  step.open = ok === false;
+  step.open = ok === false || (phase === 'running' && isImageGenerationTool(toolName));
   step.dataset.tool = toolName;
   step.dataset.args = JSON.stringify(args || {});
   if (ok != null) step.dataset.ok = String(!!ok);
@@ -7047,6 +7265,10 @@ function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase =
     argsEl.className = 'tc-args-block';
     argsEl.innerHTML = argLines;
     body.appendChild(argsEl);
+  }
+
+  if (phase === 'running' && isImageGenerationTool(toolName)) {
+    body.insertAdjacentHTML('beforeend', generatedImageLoadingMarkup(args, '正在生成图片'));
   }
 
   if (resultRaw) finishToolStepElement(step, resultRaw, ok);
@@ -7231,6 +7453,7 @@ function updateContextInfo(as, session = state.currentSession) {
 }
 
 let rsRefreshTimer = null;
+let gitRefreshTimer = null;
 const rsPendingStructuralDirectories = new Map();
 let rsPendingRefreshWorkspace = '';
 
@@ -7253,36 +7476,12 @@ function scheduleRightSidebarRefresh(detail = {}) {
       changedDirectories.length
         ? refreshRightSidebarFileTree(changedWorkspace, changedDirectories)
         : Promise.resolve(),
-      renderRightSidebarReview({ force: true })
+      renderRightSidebarReview({ force: true }),
+      openRightSidebarTabs.some(tab => tab.type === 'git')
+        ? scheduleGitPanelRefresh(150)
+        : Promise.resolve()
     ]);
   }, 300);
-}
-
-function parseTodos(content) {
-  const lines = content.split('\n');
-  const todos = [];
-  let inTodoSection = false;
-  for (const line of lines) {
-    const m = line.match(/^(\d+)[.、)]\s+(.+)/);
-    if (m && inTodoSection) {
-      todos.push({ text: m[2].trim(), done: false });
-    } else if (line.includes('任务计划') || line.includes('## 计划') || line.match(/^##.*任务/)) {
-      inTodoSection = true;
-    } else if (line.startsWith('## ') && !line.includes('计划') && !line.includes('任务')) {
-      inTodoSection = false;
-    }
-  }
-  return todos;
-}
-
-function updateTodos(content, as, ui = true) {
-  if (!as) as = getCurrentAgentState();
-  if (as.todosFromTool) return;
-  const newTodos = parseTodos(content);
-  if (newTodos.length > 0) {
-    as.todos = newTodos;
-    if (ui) renderTodos(as);
-  }
 }
 
 function setTodoProgressOpen(open) {
@@ -7302,8 +7501,7 @@ function renderTodos(as) {
   const list = $('#todoList');
   if (!host || !list) return;
   const todos = Array.isArray(as.todos) ? as.todos : [];
-  const running = isCurrentSessionExecutionActive() && as.status === 'working';
-  const visible = running && todos.length > 0;
+  const visible = todos.length > 0;
   host.classList.toggle('hidden', !visible);
   if (!visible) {
     setTodoProgressOpen(false);
@@ -7314,16 +7512,29 @@ function renderTodos(as) {
   const completed = todos.filter(todo => todo.done).length;
   const progress = completed / todos.length;
   host.style.setProperty('--todo-progress', `${Math.round(progress * 360)}deg`);
-  host.dataset.state = completed === todos.length ? 'success' : 'working';
+  host.dataset.state = completed === todos.length
+    ? 'success'
+    : (as.status === 'error' ? 'error' : 'working');
   $('#todoProgressCount').textContent = `${completed}/${todos.length}`;
   $('#todoProgressSummary').textContent = `已完成 ${completed}/${todos.length}`;
   $('#todoProgressPill').setAttribute('aria-label', `查看任务待办，已完成 ${completed}/${todos.length}`);
   list.innerHTML = todos.map((t, i) => `
     <div class="todo-item ${t.done ? 'done' : ''} ${t.inProgress ? 'in-progress' : ''}" data-i="${i}">
-      <span class="todo-index" aria-hidden="true">${t.done ? '✓' : i + 1}</span>
+      <span class="todo-index${t.inProgress && !t.done ? ' todo-index-progress' : ''}" aria-hidden="true">${t.done ? '✓' : (t.inProgress ? '<span></span>' : i + 1)}</span>
       <span class="todo-text">${escapeHtml(t.text)}</span>
     </div>
   `).join('');
+}
+
+function scheduleGitPanelRefresh(delay = 450) {
+  if (gitRefreshTimer) clearTimeout(gitRefreshTimer);
+  return new Promise(resolve => {
+    gitRefreshTimer = setTimeout(async () => {
+      gitRefreshTimer = null;
+      if (openRightSidebarTabs.some(tab => tab.type === 'git')) await renderGitPanel({ quiet: true });
+      resolve();
+    }, delay);
+  });
 }
 
 $('#todoProgressPill')?.addEventListener('click', event => {
@@ -7750,7 +7961,9 @@ function getRightSidebarReviewTarget(session = state.currentSession) {
     run,
     runId,
     running: activeMatches,
-    summary: activeMatches ? (active.liveReviewSummary || run?.changeSummary || null) : (run?.changeSummary || null),
+    summary: activeMatches
+      ? mergeReviewSummaries(run?.changeSummary, active.liveReviewSummary)
+      : (run?.changeSummary || null),
     needsRefresh: activeMatches && !!active.reviewNeedsFetch,
     changeVersion: getSessionReviewVersion(session, active)
   };
@@ -7922,11 +8135,11 @@ async function renderRightSidebarReview({ force = false } = {}) {
       } else {
         const active = getRunCtx(target.session.id);
         if (active && (Number(active.reviewVersion) || 0) !== requestedReviewVersion) {
-          summary = active.liveReviewSummary || summary;
+          summary = mergeReviewSummaries(summary, active.liveReviewSummary);
         } else {
-          summary = live;
+          summary = mergeReviewSummaries(summary, live);
         }
-        if (active && summary === live) {
+        if (active) {
           active.liveReviewSummary = summary;
           active.reviewNeedsFetch = false;
           active.fileChangeCount = Number(summary.count) || 0;
@@ -7937,10 +8150,10 @@ async function renderRightSidebarReview({ force = false } = {}) {
       if (recovered?.error) {
         if (!summary) throw new Error(recovered.error);
       } else if (recovered?.files?.length || !summary) {
-        summary = recovered;
+        summary = mergeReviewSummaries(summary, recovered);
       }
       if (recovered?.files?.length && target.run) {
-        const persistedSummary = { ...recovered, source: 'opencode' };
+        const persistedSummary = { ...mergeReviewSummaries(target.run.changeSummary, recovered), source: 'opencode' };
         target.run.changeCount = Number(persistedSummary.count) || persistedSummary.files.length;
         target.run.changeSummary = persistedSummary;
         summary = persistedSummary;
@@ -7968,6 +8181,535 @@ async function renderRightSidebarReview({ force = false } = {}) {
   }
 }
 
+const gitPanelState = {
+  status: null,
+  history: [],
+  busy: false,
+  view: 'changes',
+  selectedPath: '',
+  selectedStaged: false,
+  renderVersion: 0,
+  historyVersion: 0
+};
+
+function currentGitWorkspace() {
+  return String(state.currentSession?.workspace || '').trim();
+}
+
+function gitStatusBadge(change) {
+  if (change.conflicted) return '冲突';
+  return {
+    added: 'A',
+    copied: 'C',
+    deleted: 'D',
+    modified: 'M',
+    renamed: 'R',
+    typechanged: 'T',
+    untracked: 'U'
+  }[change.status] || 'M';
+}
+
+function gitResultError(result, fallback) {
+  if (result?.ok !== false) return '';
+  return String(result.error || fallback || 'Git 操作失败');
+}
+
+function setGitBusy(busy, trigger = null) {
+  gitPanelState.busy = !!busy;
+  const panel = $('#rs-git');
+  panel?.setAttribute('aria-busy', String(!!busy));
+  panel?.classList.toggle('is-busy', !!busy);
+  if (trigger) trigger.setAttribute('aria-busy', String(!!busy));
+  panel?.querySelectorAll('button, select, textarea').forEach(control => {
+    if (busy) {
+      control.dataset.gitWasDisabled = String(control.disabled);
+      control.disabled = true;
+    } else if (control.dataset.gitWasDisabled != null) {
+      control.disabled = control.dataset.gitWasDisabled === 'true';
+      delete control.dataset.gitWasDisabled;
+    }
+  });
+}
+
+async function runGitPanelAction(trigger, action, successMessage = '') {
+  if (gitPanelState.busy) return null;
+  setGitBusy(true, trigger);
+  try {
+    const result = await action();
+    const error = gitResultError(result);
+    if (error) throw new Error(error);
+    if (result?.status) gitPanelState.status = result.status;
+    if (successMessage) toast(successMessage);
+    await renderGitPanel({ force: true, status: result?.status || null });
+    return result;
+  } catch (error) {
+    toast(error?.message || 'Git 操作失败');
+    return null;
+  } finally {
+    setGitBusy(false, trigger);
+    syncGitControls();
+  }
+}
+
+function syncGitControls() {
+  const status = gitPanelState.status;
+  const ready = !!status?.isRepository && !gitPanelState.busy;
+  const hasRemote = !!status?.remotes?.length;
+  const hasUpstream = !!status?.upstream;
+  $('#gitFetchBtn').disabled = !ready || !hasRemote;
+  $('#gitPullBtn').disabled = !ready || !hasUpstream || !!status?.operation;
+  $('#gitPushBtn').disabled = !ready || !hasRemote || !status?.currentBranch || !!status?.operation;
+  const stageAllButton = $('#gitStageAllBtn');
+  const unstageAllButton = $('#gitUnstageAllBtn');
+  if (stageAllButton) stageAllButton.disabled = !ready || !status?.changes?.some(change => change.unstaged);
+  if (unstageAllButton) unstageAllButton.disabled = !ready || !status?.changes?.some(change => change.staged);
+  const message = String($('#gitCommitMessage')?.value || '').trim();
+  $('#gitCommitBtn').disabled = !ready || !status?.stagedCount || !message;
+  const commitHint = $('#gitCommitHint');
+  if (commitHint) {
+    commitHint.textContent = !ready
+      ? 'Git 仓库不可用'
+      : (status.stagedCount ? `将提交 ${status.stagedCount} 个已暂存文件` : '暂存更改后可提交');
+  }
+}
+
+function setGitView(view) {
+  gitPanelState.view = ['changes', 'history', 'remotes'].includes(view) ? view : 'changes';
+  $$('[data-git-view]').forEach(button => {
+    button.setAttribute('aria-selected', String(button.dataset.gitView === gitPanelState.view));
+  });
+  $$('[data-git-view-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.gitViewPanel === gitPanelState.view);
+  });
+  if (gitPanelState.view === 'history') void renderGitHistory();
+}
+
+function renderGitBranches(status) {
+  const select = $('#gitBranchSelect');
+  const dropdown = $('#gitBranchDropdown');
+  const selected = $('#gitBranchSelected');
+  if (!select || !dropdown || !selected) return;
+  const local = Array.isArray(status.branches?.local) ? [...status.branches.local] : [];
+  const remote = Array.isArray(status.branches?.remote) ? status.branches.remote : [];
+  if (status.currentBranch && !local.some(branch => branch.name === status.currentBranch)) {
+    local.unshift({ name: status.currentBranch, current: true, unborn: true });
+  }
+
+  const currentValue = status.detached ? '' : `local:${status.currentBranch}`;
+  selected.textContent = status.detached ? `游离 HEAD · ${escapeHtml(status.head.slice(0, 7))}` : escapeHtml(status.currentBranch || '无分支');
+  select.dataset.value = currentValue;
+
+  if (local.length === 0 && remote.length === 0) {
+    dropdown.innerHTML = '<div class="git-branch-dropdown-empty">无分支</div>';
+    return;
+  }
+
+  dropdown.innerHTML = `
+    <div class="git-branch-group">
+      <div class="git-branch-group-label">本地分支</div>
+      ${local.map(branch => {
+        const value = `local:${escapeAttr(branch.name)}`;
+        const isSelected = branch.name === status.currentBranch && !status.detached;
+        return `<div class="git-branch-option${isSelected ? ' is-selected' : ''}" role="option" aria-selected="${isSelected ? 'true' : 'false'}" data-value="${value}">${escapeHtml(branch.name)}</div>`;
+      }).join('')}
+      ${status.detached ? `<div class="git-branch-option is-selected" role="option" aria-selected="true" data-value="">游离 HEAD · ${escapeHtml(status.head.slice(0, 7))}</div>` : ''}
+    </div>
+    ${remote.length ? `
+    <div class="git-branch-group">
+      <div class="git-branch-group-label">远程分支</div>
+      ${remote.map(branch => {
+        const value = `remote:${escapeAttr(branch.name)}`;
+        return `<div class="git-branch-option" role="option" aria-selected="false" data-value="${value}">${escapeHtml(branch.name)}</div>`;
+      }).join('')}
+    </div>` : ''}
+  `;
+}
+
+function openGitBranchDropdown() {
+  const select = $('#gitBranchSelect');
+  const dropdown = $('#gitBranchDropdown');
+  if (!select || !dropdown || !dropdown.classList.contains('hidden')) return;
+  dropdown.classList.remove('hidden');
+  select.setAttribute('aria-expanded', 'true');
+  const selected = dropdown.querySelector('.git-branch-option.is-selected');
+  selected?.scrollIntoView({ block: 'nearest' });
+}
+
+function closeGitBranchDropdown() {
+  const select = $('#gitBranchSelect');
+  const dropdown = $('#gitBranchDropdown');
+  if (!select || !dropdown) return;
+  dropdown.classList.add('hidden');
+  select.setAttribute('aria-expanded', 'false');
+}
+
+function toggleGitBranchDropdown() {
+  const dropdown = $('#gitBranchDropdown');
+  if (!dropdown) return;
+  if (dropdown.classList.contains('hidden')) openGitBranchDropdown();
+  else closeGitBranchDropdown();
+}
+
+function gitChangeRow(change, stagedView) {
+  const pathLabel = change.path.split('/').at(-1) || change.path;
+  const parent = change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/')) : '';
+  const title = change.originalPath ? `${change.originalPath} → ${change.path}` : change.path;
+  return `<div class="git-change-row${change.conflicted ? ' is-conflicted' : ''}" data-git-change-path="${escapeAttr(change.path)}" data-git-change-staged="${stagedView}">
+    <button class="git-change-file" type="button" data-git-diff title="查看 ${escapeAttr(title)} 的差异">
+      <span class="git-change-copy"><strong>${escapeHtml(pathLabel)}</strong>${parent ? `<small>${escapeHtml(parent)}</small>` : ''}</span>
+      <span class="git-change-status status-${escapeAttr(change.status)}">${escapeHtml(gitStatusBadge(change))}</span>
+    </button>
+    <button class="git-change-stage" type="button" data-git-stage-action="${stagedView ? 'unstage' : 'stage'}" title="${stagedView ? '取消暂存' : '暂存'} ${escapeAttr(change.path)}" aria-label="${stagedView ? '取消暂存' : '暂存'} ${escapeAttr(change.path)}">
+      ${stagedView
+        ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>'
+        : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>'}
+    </button>
+  </div>`;
+}
+
+function renderGitChanges(status) {
+  const changes = Array.isArray(status.changes) ? status.changes : [];
+  const staged = changes.filter(change => change.staged);
+  const unstaged = changes.filter(change => change.unstaged);
+  const list = $('#gitChangeList');
+  $('#gitChangeCount').textContent = String(changes.length);
+  $('#gitChangeSummary').textContent = changes.length
+    ? `${unstaged.length} 个未暂存，${staged.length} 个已暂存`
+    : '工作区干净';
+  list.innerHTML = changes.length ? `
+    ${unstaged.length ? `<section class="git-change-group"><header><span>未暂存 <strong>${unstaged.length}</strong></span><button id="gitStageAllBtn" class="git-text-btn" type="button">全部暂存</button></header>${unstaged.map(change => gitChangeRow(change, false)).join('')}</section>` : ''}
+    ${staged.length ? `<section class="git-change-group"><header><span>已暂存 <strong>${staged.length}</strong></span><button id="gitUnstageAllBtn" class="git-text-btn" type="button">全部取消</button></header>${staged.map(change => gitChangeRow(change, true)).join('')}</section>` : ''}
+  ` : `<div class="git-list-empty">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+    <strong>没有未提交的更改</strong>
+    <span>工作区与最近一次提交一致</span>
+  </div>`;
+  syncGitControls();
+}
+
+function renderGitRemotes(status) {
+  const remotes = Array.isArray(status.remotes) ? status.remotes : [];
+  $('#gitRemoteList').innerHTML = remotes.length ? remotes.map(remote => `
+    <div class="git-remote-row" data-git-remote="${escapeAttr(remote.name)}">
+      <div><strong>${escapeHtml(remote.name)}</strong><span title="${escapeAttr(remote.fetchUrl)}">${escapeHtml(remote.fetchUrl)}</span></div>
+      <div class="git-remote-actions">
+        <button type="button" data-git-remote-action="open" title="打开远程仓库网页" aria-label="打开 ${escapeAttr(remote.name)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></button>
+        <button type="button" data-git-remote-action="edit" title="编辑远程地址" aria-label="编辑 ${escapeAttr(remote.name)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg></button>
+        <button type="button" data-git-remote-action="remove" title="删除远程仓库" aria-label="删除 ${escapeAttr(remote.name)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
+      </div>
+    </div>`).join('') : '<div class="git-list-empty">尚未配置远程仓库</div>';
+  const identity = status.identity || {};
+  $('#gitIdentityLabel').textContent = identity.name && identity.email
+    ? `${identity.name} <${identity.email}>`
+    : '未配置';
+}
+
+async function renderGitHistory() {
+  const status = gitPanelState.status;
+  const list = $('#gitHistoryList');
+  if (!list || !status?.isRepository) return;
+  const historyVersion = ++gitPanelState.historyVersion;
+  const workspace = currentGitWorkspace();
+  list.innerHTML = '<div class="git-list-empty">正在读取提交历史…</div>';
+  const result = await api.gitHistory(workspace, 60);
+  if (historyVersion !== gitPanelState.historyVersion || workspace !== currentGitWorkspace()) return;
+  if (result?.ok === false) {
+    list.innerHTML = `<div class="git-list-empty is-error">${escapeHtml(result.error || '无法读取提交历史')}</div>`;
+    return;
+  }
+  gitPanelState.history = Array.isArray(result?.commits) ? result.commits : [];
+  list.innerHTML = gitPanelState.history.length ? gitPanelState.history.map(commit => {
+    const date = commit.date ? new Date(commit.date) : null;
+    const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleString('zh-CN') : '';
+    return `<article class="git-history-item">
+      <div><strong>${escapeHtml(commit.subject)}</strong><span>${escapeHtml(commit.shortHash)} · ${escapeHtml(commit.author)}</span></div>
+      <time datetime="${escapeAttr(commit.date || '')}">${escapeHtml(dateLabel)}</time>
+    </article>`;
+  }).join('') : '<div class="git-list-empty">尚无提交记录</div>';
+}
+
+function renderGitStatus(status) {
+  gitPanelState.status = status;
+  gitPanelState.historyVersion++;
+  const unavailable = $('#gitUnavailable');
+  const workspaceEl = $('#gitWorkspace');
+  const repositoryName = $('#gitRepositoryName');
+  const repositoryMeta = $('#gitRepositoryMeta');
+  if (!status?.workspace) {
+    unavailable.classList.remove('hidden');
+    workspaceEl.classList.add('hidden');
+    $('#gitUnavailableTitle').textContent = '未设置工作区';
+    $('#gitUnavailableMessage').textContent = '先为当前任务选择一个文件夹。';
+    $('#gitInitBtn').classList.add('hidden');
+    repositoryName.textContent = 'Git';
+    repositoryMeta.textContent = '当前工作区';
+    syncGitControls();
+    return;
+  }
+  if (!status.available || !status.isRepository) {
+    unavailable.classList.remove('hidden');
+    workspaceEl.classList.add('hidden');
+    $('#gitUnavailableTitle').textContent = status.available ? '当前目录不是 Git 仓库' : '未检测到 Git';
+    $('#gitUnavailableMessage').textContent = status.available
+      ? '可以在当前工作区初始化仓库，或克隆一个远程仓库。'
+      : (status.error || '请安装 Git for Windows 后重试。');
+    $('#gitInitBtn').classList.toggle('hidden', !status.available);
+    repositoryName.textContent = 'Git';
+    repositoryMeta.textContent = status.workspace.split(/[\\/]/).filter(Boolean).at(-1) || status.workspace;
+    syncGitControls();
+    return;
+  }
+
+  unavailable.classList.add('hidden');
+  workspaceEl.classList.remove('hidden');
+  repositoryName.textContent = status.name || 'Git 仓库';
+  repositoryMeta.textContent = status.operation
+    ? `正在进行 ${status.operation}`
+    : (status.clean ? '工作区干净' : `${status.changes.length} 个变更`);
+  renderGitBranches(status);
+  const sync = [];
+  if (status.ahead) sync.push(`↑${status.ahead}`);
+  if (status.behind) sync.push(`↓${status.behind}`);
+  $('#gitSyncBadge').textContent = sync.join(' ') || (status.upstream ? '已同步' : '未跟踪远程');
+  renderGitChanges(status);
+  renderGitRemotes(status);
+  setGitView(gitPanelState.view);
+  syncGitControls();
+}
+
+async function renderGitPanel({ quiet = false, status = null } = {}) {
+  const renderVersion = ++gitPanelState.renderVersion;
+  const workspace = currentGitWorkspace();
+  if (!quiet && !status) {
+    $('#gitRepositoryMeta').textContent = workspace ? '正在读取仓库状态…' : '当前工作区';
+    $('#rs-git')?.setAttribute('aria-busy', 'true');
+  }
+  try {
+    let nextStatus = status;
+    if (!nextStatus) {
+      if (!workspace) {
+        nextStatus = { available: true, workspace: '', isRepository: false };
+      } else {
+        const result = await api.gitStatus(workspace);
+        if (result?.ok === false) throw new Error(result.error || '无法读取 Git 状态');
+        nextStatus = result.status;
+      }
+    }
+    if (renderVersion !== gitPanelState.renderVersion) return;
+    renderGitStatus(nextStatus);
+  } catch (error) {
+    if (renderVersion !== gitPanelState.renderVersion) return;
+    renderGitStatus({ available: false, workspace, isRepository: false, error: error?.message || String(error) });
+  } finally {
+    if (renderVersion === gitPanelState.renderVersion) $('#rs-git')?.setAttribute('aria-busy', 'false');
+  }
+}
+
+let gitActionResolver = null;
+
+function closeGitActionDialog(value = null) {
+  const dialog = $('#gitActionDialog');
+  const resolver = gitActionResolver;
+  gitActionResolver = null;
+  if (dialog?.open) dialog.close();
+  resolver?.(value);
+}
+
+function requestGitAction({ title, description = '', submitLabel = '确认', danger = false, fields = [] }) {
+  if (gitActionResolver) closeGitActionDialog(null);
+  const dialog = $('#gitActionDialog');
+  if (!dialog) return Promise.resolve(null);
+  $('#gitActionTitle').textContent = title;
+  $('#gitActionDescription').textContent = description;
+  $('#gitActionSubmit').textContent = submitLabel;
+  $('#gitActionSubmit').className = danger ? 'delete-task-confirm' : 'primary-btn';
+  $('#gitActionError').classList.add('hidden');
+  $('#gitActionError').textContent = '';
+  $('#gitActionFields').innerHTML = fields.map(field => `
+    <label class="git-action-field">
+      <span>${escapeHtml(field.label)}</span>
+      <input class="input${field.mono ? ' mono' : ''}" name="${escapeAttr(field.name)}" type="${escapeAttr(field.type || 'text')}" value="${escapeAttr(field.value || '')}" placeholder="${escapeAttr(field.placeholder || '')}" ${field.required === false ? '' : 'required'} autocomplete="off" spellcheck="false" />
+    </label>`).join('');
+  dialog.showModal();
+  requestAnimationFrame(() => $('#gitActionFields input')?.focus());
+  return new Promise(resolve => { gitActionResolver = resolve; });
+}
+
+function bindGitPanel() {
+  if ($('#rs-git')?.dataset.bound === 'true') return;
+  $('#rs-git').dataset.bound = 'true';
+  $('#gitRefreshBtn')?.addEventListener('click', event => runGitPanelAction(event.currentTarget, async () => {
+    const result = await api.gitStatus(currentGitWorkspace());
+    return result?.ok === false ? result : { ...result, status: result.status };
+  }));
+  $('#gitFetchBtn')?.addEventListener('click', event => runGitPanelAction(event.currentTarget, () => api.gitFetch(currentGitWorkspace()), '已获取远程更新'));
+  $('#gitPullBtn')?.addEventListener('click', event => runGitPanelAction(event.currentTarget, () => api.gitPull(currentGitWorkspace()), '已拉取远程提交'));
+  $('#gitPushBtn')?.addEventListener('click', event => runGitPanelAction(event.currentTarget, () => api.gitPush(currentGitWorkspace()), '已推送当前分支'));
+  $('#gitInitBtn')?.addEventListener('click', event => runGitPanelAction(event.currentTarget, () => api.gitInit(currentGitWorkspace(), 'main'), 'Git 仓库已初始化'));
+  $('#gitCommitMessage')?.addEventListener('input', syncGitControls);
+  $('#gitCommitForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const message = String($('#gitCommitMessage').value || '').trim();
+    if (!message) return;
+    const result = await runGitPanelAction($('#gitCommitBtn'), () => api.gitCommit(currentGitWorkspace(), message), '提交已创建');
+    if (result) $('#gitCommitMessage').value = '';
+    syncGitControls();
+  });
+  $('#gitBranchSelect')?.addEventListener('click', event => {
+    if (event.target.closest('#gitBranchDropdown, .git-branch-option')) return;
+    toggleGitBranchDropdown();
+  });
+  $('#gitBranchDropdown')?.addEventListener('click', async event => {
+    const option = event.target.closest('.git-branch-option');
+    if (!option) return;
+    const value = option.dataset.value || '';
+    const [kind, ...nameParts] = value.split(':');
+    const name = nameParts.join(':');
+    closeGitBranchDropdown();
+    if (!name) return;
+    if (kind === 'local') {
+      await runGitPanelAction($('#gitBranchSelect'), () => api.gitSwitchBranch(currentGitWorkspace(), name), `已切换到 ${name}`);
+    } else {
+      const localName = name.includes('/') ? name.slice(name.indexOf('/') + 1) : name;
+      await runGitPanelAction($('#gitBranchSelect'), () => api.gitSwitchBranch(currentGitWorkspace(), localName, name), `已检出 ${name}`);
+    }
+  });
+  document.addEventListener('pointerdown', event => {
+    if (!event.target.closest('#gitBranchSelect')) closeGitBranchDropdown();
+  }, { passive: true });
+  $('#gitBranchSelect')?.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeGitBranchDropdown();
+  });
+  $('#gitCreateBranchBtn')?.addEventListener('click', async event => {
+    const values = await requestGitAction({
+      title: '新建分支',
+      description: `从 ${gitPanelState.status?.currentBranch || '当前 HEAD'} 创建并切换到新分支。`,
+      submitLabel: '创建分支',
+      fields: [{ name: 'name', label: '分支名称', placeholder: 'feature/new-work' }]
+    });
+    if (values) await runGitPanelAction(event.currentTarget, () => api.gitCreateBranch(currentGitWorkspace(), values.name), `已创建分支 ${values.name}`);
+  });
+  $('#gitChangeList')?.addEventListener('click', async event => {
+    const allAction = event.target.closest('#gitStageAllBtn, #gitUnstageAllBtn');
+    if (allAction?.id === 'gitStageAllBtn') {
+      await runGitPanelAction(allAction, () => api.gitStage(currentGitWorkspace(), [], true));
+      return;
+    }
+    if (allAction?.id === 'gitUnstageAllBtn') {
+      await runGitPanelAction(allAction, () => api.gitUnstage(currentGitWorkspace(), [], true));
+      return;
+    }
+    const row = event.target.closest('[data-git-change-path]');
+    if (!row) return;
+    const filePath = row.dataset.gitChangePath;
+    const staged = row.dataset.gitChangeStaged === 'true';
+    const action = event.target.closest('[data-git-stage-action]')?.dataset.gitStageAction;
+    if (action === 'stage') await runGitPanelAction(event.target.closest('button'), () => api.gitStage(currentGitWorkspace(), [filePath]));
+    else if (action === 'unstage') await runGitPanelAction(event.target.closest('button'), () => api.gitUnstage(currentGitWorkspace(), [filePath]));
+    else if (event.target.closest('[data-git-diff]')) {
+      const result = await api.gitDiff(currentGitWorkspace(), filePath, staged);
+      if (result?.ok === false) { toast(result.error || '无法读取差异'); return; }
+      gitPanelState.selectedPath = filePath;
+      gitPanelState.selectedStaged = staged;
+      $('#gitDiffTitle').textContent = `${staged ? '已暂存 · ' : ''}${filePath}`;
+      $('#gitDiffContent').textContent = result.diff?.diff || '没有可显示的文本差异';
+      $('#gitDiffPanel').classList.remove('hidden');
+    }
+  });
+  $('#gitDiffCloseBtn')?.addEventListener('click', () => $('#gitDiffPanel')?.classList.add('hidden'));
+  $$('[data-git-view]').forEach(button => button.addEventListener('click', () => setGitView(button.dataset.gitView)));
+  $('#gitAddRemoteBtn')?.addEventListener('click', async event => {
+    const values = await requestGitAction({
+      title: '添加远程仓库',
+      description: '添加后即可获取、拉取和推送分支。',
+      submitLabel: '添加',
+      fields: [
+        { name: 'name', label: '名称', value: 'origin', placeholder: 'origin' },
+        { name: 'url', label: '仓库地址', placeholder: 'https://github.com/user/repo.git', mono: true }
+      ]
+    });
+    if (values) await runGitPanelAction(event.currentTarget, () => api.gitAddRemote(currentGitWorkspace(), values.name, values.url), '远程仓库已添加');
+  });
+  $('#gitRemoteList')?.addEventListener('click', async event => {
+    const actionButton = event.target.closest('[data-git-remote-action]');
+    const row = event.target.closest('[data-git-remote]');
+    if (!actionButton || !row) return;
+    const remote = gitPanelState.status?.remotes?.find(item => item.name === row.dataset.gitRemote);
+    if (!remote) return;
+    if (actionButton.dataset.gitRemoteAction === 'open') {
+      const result = await api.gitOpenRemote(remote.webUrl || remote.fetchUrl);
+      if (result?.ok === false) toast(result.error || '无法打开远程仓库');
+    } else if (actionButton.dataset.gitRemoteAction === 'edit') {
+      const values = await requestGitAction({
+        title: `编辑 ${remote.name}`,
+        description: remote.credentialsHidden ? '原地址包含凭据，已隐藏。请输入完整的新地址。' : '',
+        submitLabel: '保存',
+        fields: [{
+          name: 'url',
+          label: '仓库地址',
+          value: remote.credentialsHidden ? '' : remote.fetchUrl,
+          placeholder: remote.credentialsHidden ? '请输入完整的新地址' : 'https://github.com/user/repo.git',
+          mono: true
+        }]
+      });
+      if (values) await runGitPanelAction(actionButton, () => api.gitSetRemoteUrl(currentGitWorkspace(), remote.name, values.url), '远程地址已更新');
+    } else if (actionButton.dataset.gitRemoteAction === 'remove') {
+      const confirmed = await requestGitAction({
+        title: `删除远程仓库 ${remote.name}？`,
+        description: '只会移除本地远程配置，不会删除服务器上的仓库。',
+        submitLabel: '删除远程仓库',
+        danger: true,
+        fields: []
+      });
+      if (confirmed) await runGitPanelAction(actionButton, () => api.gitRemoveRemote(currentGitWorkspace(), remote.name), '远程仓库已删除');
+    }
+  });
+  $('#gitIdentityBtn')?.addEventListener('click', async event => {
+    const identity = gitPanelState.status?.identity || {};
+    const values = await requestGitAction({
+      title: '提交身份',
+      description: '仅写入当前仓库，不修改系统全局 Git 配置。',
+      submitLabel: '保存',
+      fields: [
+        { name: 'name', label: '用户名', value: identity.name || '' },
+        { name: 'email', label: '邮箱', value: identity.email || '', type: 'email' }
+      ]
+    });
+    if (values) await runGitPanelAction(event.currentTarget, () => api.gitSetIdentity(currentGitWorkspace(), values.name, values.email), '提交身份已保存');
+  });
+  $('#gitCloneBtn')?.addEventListener('click', async event => {
+    const values = await requestGitAction({
+      title: '克隆仓库',
+      description: '先填写远程仓库地址，再选择一个空文件夹作为目标。',
+      submitLabel: '下一步',
+      fields: [{ name: 'url', label: '仓库地址', placeholder: 'https://github.com/user/repo.git', mono: true }]
+    });
+    if (!values) return;
+    const destination = await api.gitPickCloneDestination();
+    if (!destination) return;
+    const result = await runGitPanelAction(event.currentTarget, () => api.gitClone(values.url, destination), '仓库已克隆');
+    if (!result?.path || !state.currentSession) return;
+    const updated = await api.setSessionWorkspace(state.currentSession.id, result.path, false);
+    state.currentSession.workspace = updated.workspace;
+    state.config = await api.activateWorkspace(updated.workspace);
+    syncCurrentSessionWorkspace(updated.workspace);
+    updateTaskBar();
+    await renderGitPanel({ force: true });
+  });
+
+  $('#gitActionForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    closeGitActionDialog(values);
+  });
+  $('#gitActionCancel')?.addEventListener('click', () => closeGitActionDialog(null));
+  $('#gitActionClose')?.addEventListener('click', () => closeGitActionDialog(null));
+  $('#gitActionDialog')?.addEventListener('cancel', event => {
+    event.preventDefault();
+    closeGitActionDialog(null);
+  });
+}
+
 const RIGHT_SIDEBAR_TOOLS = Object.freeze({
   files: {
     label: '文件',
@@ -7980,6 +8722,14 @@ const RIGHT_SIDEBAR_TOOLS = Object.freeze({
   review: {
     label: '审阅',
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>'
+  },
+  git: {
+    label: 'Git',
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="4" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="20" r="2"/><path d="M6 6v12M8 6h5a5 5 0 0 1 5 5v-3"/></svg>'
+  },
+  interjection: {
+    label: '辅助对话',
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></svg>'
   }
 });
 
@@ -8093,7 +8843,7 @@ function getActiveRightSidebarTab() {
 }
 
 function createRightSidebarTab(tool, options = {}) {
-  if (tool === 'files' || tool === 'review') {
+  if (tool === 'files' || tool === 'review' || tool === 'git' || tool === 'interjection') {
     const existing = openRightSidebarTabs.find(tab => tab.type === tool);
     if (existing) return existing;
     const tab = { id: tool, type: tool, label: RIGHT_SIDEBAR_TOOLS[tool].label };
@@ -8123,6 +8873,11 @@ function activateRightSidebarTab(tabId, { forceReview = true } = {}) {
   updateBrowserFocusControls();
   if (tab.type === 'files') void renderRightSidebarFiles();
   if (tab.type === 'review') void renderRightSidebarReview({ force: forceReview });
+  if (tab.type === 'git') void renderGitPanel();
+  if (tab.type === 'interjection') {
+    syncInterjectionUi();
+    requestAnimationFrame(() => $('#interjectionInput')?.focus({ preventScroll: true }));
+  }
   if (tab.type === 'browser') syncBrowserViewport(tab.id);
   setRightSidebarOpen(true);
   return true;
@@ -8148,6 +8903,8 @@ function openRightSidebarTool(tool, { reuseBrowser = false } = {}) {
   setRightSidebarAddMenuOpen(false);
 
   if (tool === 'files') void renderRightSidebarFiles();
+  if (tool === 'git') void renderGitPanel();
+  if (tool === 'interjection') syncInterjectionUi();
   if (tool === 'browser') {
     window.YanUnderstandAnything?.close();
     window.YanTerminal?.close();
@@ -8185,6 +8942,8 @@ function closeRightSidebarTool(tool) {
   updateBrowserFocusControls();
   if (active?.type === 'files') void renderRightSidebarFiles();
   if (active?.type === 'review') void renderRightSidebarReview();
+  if (active?.type === 'git') void renderGitPanel();
+  if (active?.type === 'interjection') syncInterjectionUi();
   if (active?.type === 'browser') syncBrowserViewport(active.id);
   return true;
 }
@@ -8242,6 +9001,7 @@ document.addEventListener('keydown', event => {
   }
 });
 renderRightSidebarTabs();
+bindGitPanel();
 
 // Right sidebar toggle (button in task bar)
 $('#rightSidebarToggleBtn').addEventListener('click', () => {
@@ -8263,36 +9023,59 @@ $('#rightSidebarFocusBtn')?.addEventListener('click', () => {
 const settingsOverlay = $('#settingsOverlay');
 const settingsMenu = $('#settingsMenu');
 
+// Settings, profile, pet and theme are always-visible utility controls. Keep
+// the old menu node for compatibility with persisted UI/tests, but no longer
+// open a floating menu from the settings button.
 function setSettingsMenuOpen(open) {
-  const isOpen = !!open;
-  settingsMenu?.classList.toggle('hidden', !isOpen);
-  $('#settingsBtn')?.setAttribute('aria-expanded', String(isOpen));
+  settingsMenu?.classList.toggle('hidden', false);
+  $('#settingsBtn')?.setAttribute('aria-expanded', 'false');
 }
 
-$('#settingsBtn').addEventListener('click', event => {
-  event.stopPropagation();
-  setSettingsMenuOpen(settingsMenu?.classList.contains('hidden'));
+$('#settingsBtn').addEventListener('click', () => openSettings());
+const userNameInput = $('#userNameInput');
+userNameInput?.addEventListener('focus', event => {
+  setSettingsMenuOpen(false);
+  event.currentTarget.select();
+});
+userNameInput?.addEventListener('input', updateGreeting);
+userNameInput?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.currentTarget.blur();
+  } else if (event.key === 'Escape') {
+    event.currentTarget.value = normalizeUserName(state.config?.userName);
+    event.currentTarget.blur();
+  }
+});
+userNameInput?.addEventListener('blur', async event => {
+  const input = event.currentTarget;
+  const previousName = normalizeUserName(state.config?.userName);
+  const nextName = normalizeUserName(input.value);
+  input.value = nextName;
+  if (nextName === previousName) {
+    updateGreeting();
+    return;
+  }
+  try {
+    state.config = await api.setConfig({ userName: nextName });
+    syncUserNameUi();
+  } catch (error) {
+    input.value = previousName;
+    updateGreeting();
+    toast(`用户名保存失败：${error?.message || error}`);
+  }
 });
 $('#petWindowToggle')?.addEventListener('click', async () => {
   const visible = await api.togglePetWindow?.();
   updatePetWindowButton(!!visible);
-  setSettingsMenuOpen(false);
 });
 $('#themeToggle')?.addEventListener('click', async () => {
   const next = state.config.theme === 'dark' ? 'light' : 'dark';
   state.config = await api.setConfig({ theme: next });
   applyTheme(next);
-  setSettingsMenuOpen(false);
 });
 $('#settingsMenuOpen')?.addEventListener('click', () => {
-  setSettingsMenuOpen(false);
   openSettings();
-});
-document.addEventListener('click', event => {
-  if (!event.target.closest('#settingsMenuWrap')) setSettingsMenuOpen(false);
-});
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') setSettingsMenuOpen(false);
 });
 $('#closeSettings').addEventListener('click', closeSettings);
 
@@ -8382,7 +9165,18 @@ function switchTab(tab) {
 }
 
 let currentProviderId = 'deepseek';
+let currentSupplierId = 'official';
 let providerCache = [];
+const PROVIDER_ENDPOINT_FIELDS = Object.freeze({
+  baseUrl: { label: 'Base URL', placeholder: 'https://api.example.com/v1', hint: '可填写官方 API、中转站或自建 OpenAI 兼容网关。' },
+  imageGenerationUrl: { label: 'Image POST', placeholder: 'https://.../images/generations', hint: '图像生成接口地址。' },
+  imageEditUrl: { label: 'Edit Image POST', placeholder: 'https://.../images/edits', hint: '图像编辑接口地址。' },
+  videoGenerationUrl: { label: 'Video POST', placeholder: 'https://.../videos/generations', hint: '视频生成接口地址。' }
+});
+let providerEndpointDraft = {};
+let currentProviderEndpointType = 'baseUrl';
+let providerSaveComplete = false;
+let providerConfirmResolver = null;
 const providerLogoIds = new Set([
   'openai', 'grok', 'deepseek', 'qwen', 'glm',
   'doubao', 'moonshot', 'stepfun', 'minimax'
@@ -8395,7 +9189,6 @@ async function populateSettings() {
   currentProviderId = cfg.api.provider || 'deepseek';
   state.config = cfg;
   await renderProviderList(currentProviderId);
-  updateApiKeyField(currentProviderId);
 
   $('#permRead').checked = perm.allowFileRead;
   $('#permWrite').checked = perm.allowFileWrite;
@@ -8605,12 +9398,11 @@ document.addEventListener('keydown', async event => {
 }, true);
 
 async function renderProviderList(selectedId) {
-  if (!providerCache.length) {
-    providerCache = await api.listProviders();
-  }
+  providerCache = await api.listProviders();
   const list = $('#providerList');
   if (!list) return;
-  list.innerHTML = providerCache.map(p => {
+  const renderItem = p => {
+    const configuredSupplierCount = (p.suppliers || []).filter(supplier => supplier.apiKeyConfigured).length;
     const logoStyle = providerLogoIds.has(p.id)
       ? ` style="--provider-logo: url('assets/provider-logos/${p.id}.png')"`
       : '';
@@ -8619,97 +9411,335 @@ async function renderProviderList(selectedId) {
       aria-pressed="${p.id === selectedId ? 'true' : 'false'}"${logoStyle}>
       <div class="provider-info">
         <div class="provider-name">${escapeHtml(p.name)}</div>
-        <div class="provider-status ${p.configured ? 'configured' : ''}">${p.configured ? '已配置' : '未配置'}</div>
+        <div class="provider-status ${p.configured ? 'configured' : ''}">${p.configured ? `${configuredSupplierCount} 个供应商已配置` : '未配置'}</div>
       </div>
-      <div class="provider-check">${p.id === selectedId ? ICONS.check : ''}</div>
-    </button>
-  `;
-  }).join('');
-  list.querySelectorAll('.provider-item').forEach(el => {
+      <div class="provider-open" aria-hidden="true">+</div>
+    </button>`;
+  };
+  const builtins = providerCache.filter(p => !p.custom);
+  const customs = providerCache.filter(p => p.custom).slice(0, 1);
+  list.innerHTML = [
+    ...builtins.map(renderItem),
+    '<div class="provider-group-label">自定义模型</div>',
+    ...customs.map(renderItem)
+  ].join('');
+  list.querySelectorAll('.provider-item[data-provider]').forEach(el => {
     el.addEventListener('click', async () => {
       const pid = el.dataset.provider;
       currentProviderId = pid;
-      renderProviderList(pid);
-      updateApiKeyField(pid);
+      await renderProviderList(pid);
+      await openProviderConfigDialog(pid);
     });
   });
 }
 
-async function updateApiKeyField(providerId) {
-  const p = providerCache.find(x => x.id === providerId);
-  if (!p) return;
-  const supportsImageEndpoints = !!p.mediaCapabilities?.imageGeneration;
-  const supportsImageEditing = !!p.mediaCapabilities?.imageEditing;
-  const imageEndpointSection = $('#providerImageEndpointSection');
-  imageEndpointSection?.classList.toggle('hidden', !supportsImageEndpoints);
-  imageEndpointSection?.toggleAttribute('inert', !supportsImageEndpoints);
-  imageEndpointSection?.setAttribute('aria-hidden', String(!supportsImageEndpoints));
-  imageEndpointSection?.querySelectorAll('input').forEach(input => {
-    input.disabled = !supportsImageEndpoints;
-  });
-  const inp = $('#cfgApiKey');
-  if (inp) {
-    inp.placeholder = p.apiKeyPlaceholder || 'sk-...';
-    inp.value = state.config?.api?.providerConfigs?.[providerId]?.apiKey
-      || state.config?.api?.apiKeys?.[providerId]
-      || '';
+const PROVIDER_DEVELOPERS = {
+  openai: 'OpenAI 由 OpenAI 开发',
+  grok: 'Grok 由 xAI 开发',
+  agnes: 'Agnes 由 Agnes AI 开发',
+  deepseek: 'DeepSeek 由深度求索有限公司开发',
+  qwen: '通义千问由阿里云开发',
+  glm: 'GLM 由智谱 AI 开发',
+  doubao: '豆包由字节跳动火山引擎开发',
+  moonshot: 'Kimi 由月之暗面开发',
+  stepfun: 'StepFun 由阶跃星辰开发',
+  minimax: 'MiniMax 由稀宇科技开发',
+  baichuan: '百川智能由百川智能开发',
+  yi: 'Yi 由零一万物开发',
+  hunyuan: '混元由腾讯开发',
+  siliconflow: 'SiliconFlow 由硅基流动开发'
+};
+
+function getCurrentProvider() {
+  return providerCache.find(item => item.id === currentProviderId) || null;
+}
+
+function getCurrentSupplier() {
+  const provider = getCurrentProvider();
+  return provider?.suppliers?.find(item => item.id === currentSupplierId)
+    || provider?.suppliers?.find(item => item.id === provider.activeSupplierId)
+    || provider?.suppliers?.[0]
+    || null;
+}
+
+function syncProviderEndpointDraft() {
+  const input = $('#cfgEndpointUrl');
+  if (!input || !PROVIDER_ENDPOINT_FIELDS[currentProviderEndpointType]) return;
+  providerEndpointDraft[currentProviderEndpointType] = input.value.trim();
+}
+
+function setProviderEndpointType(type = 'baseUrl', preserveCurrent = true) {
+  if (preserveCurrent) syncProviderEndpointDraft();
+  const nextType = PROVIDER_ENDPOINT_FIELDS[type] ? type : 'baseUrl';
+  const option = PROVIDER_ENDPOINT_FIELDS[nextType];
+  const select = $('#cfgEndpointType');
+  const input = $('#cfgEndpointUrl');
+  const hint = $('#cfgEndpointHint');
+  if (select) select.value = nextType;
+  currentProviderEndpointType = nextType;
+  if (input) {
+    input.value = providerEndpointDraft[nextType] || '';
+    input.placeholder = option.placeholder;
   }
-  const connection = state.config?.api?.providerConfigs?.[providerId] || {};
-  const baseUrl = $('#cfgBaseUrl');
-  if (baseUrl) baseUrl.value = connection.baseUrl || p.baseUrl || '';
-  const baseUrlLabel = $('#cfgBaseUrlLabel');
-  if (baseUrlLabel) baseUrlLabel.textContent = 'Base URL';
-  const imageGenerationUrl = $('#cfgImageGenerationUrl');
-  if (imageGenerationUrl) imageGenerationUrl.value = connection.imageGenerationUrl || '';
-  const imageEditUrl = $('#cfgImageEditUrl');
-  if (imageEditUrl) {
-    imageEditUrl.value = connection.imageEditUrl || '';
-    imageEditUrl.disabled = !supportsImageEditing;
-    imageEditUrl.closest('.field')?.classList.toggle('hidden', !supportsImageEditing);
+  const label = document.querySelector('label[for="cfgEndpointUrl"]');
+  if (label) label.textContent = option.label;
+  if (hint) {
+    const provider = getCurrentProvider();
+    hint.textContent = nextType === 'baseUrl'
+      ? `默认地址：${provider?.defaultBaseUrl || provider?.baseUrl || '用户自定义'}。支持 OpenAI 兼容网关。`
+      : option.hint;
   }
-  const officialMedia = p.officialMediaCapabilities || {};
+}
+
+const PROVIDER_EYE_ICONS = {
+  closed: '<svg class="provider-eye-icon" data-eye="closed" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>',
+  open: '<svg class="provider-eye-icon" data-eye="open" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6.2A10.7 10.7 0 0 1 12 6c6.5 0 10 6 10 6a17.7 17.7 0 0 1-3.1 3.7"/><path d="M6.2 6.2C3.6 8.1 2 12 2 12s3.5 6 10 6c1.2 0 2.3-.2 3.3-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>'
+};
+
+const PROVIDER_SAVE_ICONS = {
+  idle: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>',
+  complete: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>'
+};
+
+function setProviderSaveState(stateName = 'idle') {
+  const button = $('#saveApi');
+  if (!button) return;
+  const complete = stateName === 'complete';
+  const busy = stateName === 'saving';
+  providerSaveComplete = complete;
+  button.innerHTML = PROVIDER_SAVE_ICONS[complete ? 'complete' : 'idle'];
+  button.classList.toggle('is-complete', complete);
+  button.dataset.busy = String(busy);
+  button.disabled = busy;
+  button.title = complete ? '配置成功，关闭弹窗' : (busy ? '正在保存配置' : '保存并同步模型');
+  button.setAttribute('aria-label', button.title);
+}
+
+function showProviderConfigNotice(message, stateName = 'info') {
+  const notice = $('#providerConfigNotice');
+  if (!notice) return;
+  notice.textContent = String(message || '');
+  notice.dataset.state = stateName;
+  notice.classList.toggle('hidden', !message);
+}
+
+function resetProviderSaveFeedback() {
+  setProviderSaveState('idle');
+  showProviderConfigNotice('');
+}
+
+function resolveProviderConfirmation(confirmed) {
+  const resolver = providerConfirmResolver;
+  providerConfirmResolver = null;
+  const layer = $('#providerConfirmModal');
+  layer?.classList.add('hidden');
+  layer?.setAttribute('aria-hidden', 'true');
+  resolver?.(!!confirmed);
+}
+
+function requestProviderConfirmation({ title, description, confirmLabel = '确认' } = {}) {
+  if (providerConfirmResolver) resolveProviderConfirmation(false);
+  $('#providerConfirmTitle').textContent = String(title || '确认操作');
+  $('#providerConfirmDescription').textContent = String(description || '此操作不可撤销。');
+  $('#providerConfirmAccept').textContent = String(confirmLabel || '确认');
+  const layer = $('#providerConfirmModal');
+  layer?.classList.remove('hidden');
+  layer?.setAttribute('aria-hidden', 'false');
+  setTimeout(() => $('#providerConfirmCancel')?.focus(), 0);
+  return new Promise(resolve => { providerConfirmResolver = resolve; });
+}
+
+function updateProviderEyeButton(visible = false) {
+  const button = $('#toggleKey');
+  if (!button) return;
+  button.innerHTML = PROVIDER_EYE_ICONS[visible ? 'open' : 'closed'];
+  button.title = visible ? '隐藏 API Key' : '显示 API Key';
+  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-pressed', String(visible));
+}
+
+function resetProviderApiKeyEditor(supplier, provider) {
+  const input = $('#cfgApiKey');
+  if (!input) return;
+  input.type = 'password';
+  input.value = supplier.apiKeyConfigured ? '••••••••••••' : '';
+  input.placeholder = supplier.apiKeyConfigured
+    ? '已配置，点击眼睛查看或直接输入新 API Key'
+    : (supplier.apiKeyPlaceholder || provider.apiKeyPlaceholder || 'sk-...');
+  input.dataset.masked = supplier.apiKeyConfigured ? 'true' : 'false';
+  input.dataset.revealed = 'false';
+  updateProviderEyeButton(false);
+}
+
+function renderSupplierModels(supplier) {
+  const list = $('#providerSupplierModels');
+  const count = $('#providerModelCount');
+  const models = Array.isArray(supplier?.models) ? supplier.models : [];
+  if (count) count.textContent = `${models.length} 个`;
+  if (!list) return;
+  if (!models.length) {
+    list.innerHTML = '<div class="provider-model-empty">填写 API Key 并保存后，模型目录会显示在这里。</div>';
+    return;
+  }
+  list.innerHTML = models.map(model => `
+    <div class="provider-model-row">
+      <span class="provider-model-name">${escapeHtml(model.name || model.id)}</span>
+      <span class="provider-model-type">${model.modelType === 'image' ? '图像' : model.modelType === 'video' ? '视频' : '文本'}</span>
+    </div>`).join('');
+}
+
+async function renderProviderSupplierList() {
+  const provider = getCurrentProvider();
+  const list = $('#providerSupplierList');
+  if (!provider || !list) return;
+  const suppliers = Array.isArray(provider.suppliers) ? provider.suppliers : [];
+  const activeId = provider.activeSupplierId || suppliers[0]?.id;
+  if (!suppliers.some(item => item.id === currentSupplierId)) currentSupplierId = activeId;
+  list.innerHTML = suppliers.map(supplier => `
+    <button class="provider-supplier-item ${supplier.id === currentSupplierId ? 'active' : ''}" type="button" data-supplier="${escapeAttr(supplier.id)}" title="${escapeAttr(supplier.name)}">
+      <span class="provider-supplier-copy"><strong>${escapeHtml(supplier.name)}</strong></span>
+    </button>`).join('');
+  list.querySelectorAll('[data-supplier]').forEach(el => el.addEventListener('click', async () => {
+    const nextSupplierId = el.dataset.supplier;
+    currentSupplierId = nextSupplierId;
+    resetProviderSaveFeedback();
+    await renderProviderSupplierList();
+    renderProviderSupplierEditor();
+  }));
+}
+
+function renderProviderSupplierEditor() {
+  const provider = getCurrentProvider();
+  const supplier = getCurrentSupplier();
+  if (!provider || !supplier) return;
+  const isCustomModel = provider.id === 'custom-model' || provider.custom;
+  currentSupplierId = supplier.id;
+  const dialog = $('#providerConfigDialog');
+  dialog?.classList.toggle('custom-model-config', isCustomModel);
+  dialog?.toggleAttribute('data-custom-model', isCustomModel);
+  const title = $('#providerDialogTitle');
+  const subtitle = $('#providerDialogSubtitle');
+  if (title) title.textContent = provider.name;
+  if (subtitle) subtitle.textContent = isCustomModel
+    ? '填写 OpenAI 兼容接口与模型 ID。'
+    : (PROVIDER_DEVELOPERS[provider.id] || `${provider.name} 官方与兼容供应商配置`);
+  $('#addProviderSupplier')?.toggleAttribute('disabled', isCustomModel || !!provider.custom);
+  $('#providerSupplierTitle').textContent = isCustomModel ? '自定义模型' : supplier.name;
+  $('#providerSupplierHint').textContent = isCustomModel
+    ? '模型 ID 会原样发送给兼容网关，不依赖 /models 接口。'
+    : (supplier.id === 'official' ? '官方 Base URL 与接口可直接使用，也可以改成兼容网关。' : '供应商配置独立保存，切换后会使用该供应商的模型目录。');
+  const supplierLabel = $('#cfgSupplierNameLabel');
+  if (supplierLabel) supplierLabel.textContent = isCustomModel ? '模型名称（可选）' : '供应商';
+  const supplierNameInput = $('#cfgSupplierName');
+  if (supplierNameInput) {
+    supplierNameInput.value = isCustomModel
+      ? (provider.modelId ? (provider.modelName || provider.modelId) : '')
+      : (supplier.name || '');
+    supplierNameInput.placeholder = isCustomModel ? '例如 Grok 4.5' : '官方或我的中转站';
+  }
+  const modelIdInput = $('#cfgModelId');
+  const modelIdField = $('#providerModelIdField');
+  modelIdField?.classList.toggle('hidden', !isCustomModel);
+  if (modelIdInput) modelIdInput.value = isCustomModel
+    ? (provider.modelId || supplier.models?.[0]?.id || '')
+    : '';
+  resetProviderApiKeyEditor(supplier, provider);
+  providerEndpointDraft = {
+    baseUrl: supplier.baseUrl || provider.baseUrl || '',
+    imageGenerationUrl: supplier.imageGenerationUrl || '',
+    imageEditUrl: supplier.imageEditUrl || '',
+    videoGenerationUrl: supplier.videoGenerationUrl || ''
+  };
+  setProviderEndpointType('baseUrl', false);
+  const officialMedia = provider.officialMediaCapabilities || {};
   const officialHasMedia = Object.values(officialMedia).some(Boolean);
   const mediaSupportNote = $('#providerMediaSupportNote');
   if (mediaSupportNote) {
-    const unavailable = officialHasMedia && !p.mediaAdapterReady;
+    const unavailable = officialHasMedia && !provider.mediaAdapterReady;
     mediaSupportNote.classList.toggle('hidden', !unavailable);
     mediaSupportNote.textContent = unavailable
       ? '厂商官方提供媒体生成能力，但 Yan 尚未完成该厂商的专用鉴权与调用适配，因此当前不开放媒体配置。'
       : '';
   }
-  const imageEndpointHint = $('#imageEndpointHint');
-  if (imageEndpointHint) {
-    const providerHints = {
-      agnes: 'Agnes 文生图与 P 图均使用 /images/generations；P 图 POST URL 留空时自动复用文生图地址。',
-      qwen: '千问图片生成与编辑默认使用 DashScope 原生 multimodal-generation 接口；默认业务空间无需填写 Workspace ID。',
-      minimax: 'MiniMax 图片生成与参考图编辑均使用 /v1/image_generation。',
-      doubao: '火山方舟图片生成与编辑均使用 /api/v3/images/generations。',
-      siliconflow: 'SiliconFlow 图片生成与编辑均使用 /v1/images/generations。',
-      glm: '智谱图片生成使用 /paas/v4/images/generations；当前 Yan 适配器暂不开放参考图编辑。'
-    };
-    imageEndpointHint.textContent = providerHints[providerId]
-      || (supportsImageEditing
-        ? '图片端点留空时按 Base URL 自动使用厂商默认的生成与编辑接口。'
-        : '文生图端点留空时按 Base URL 自动使用厂商默认接口。');
-  }
   const workspaceField = $('#providerWorkspaceField');
-  workspaceField?.classList.toggle('hidden', providerId !== 'qwen');
+  workspaceField?.classList.toggle('hidden', provider.id !== 'qwen');
   const workspaceId = $('#cfgWorkspaceId');
   if (workspaceId) {
-    workspaceId.value = providerId === 'qwen' ? (connection.workspaceId || '') : '';
-    workspaceId.disabled = providerId !== 'qwen';
-  }
-  const hint = $('#cfgBaseUrlHint');
-  if (hint) {
-    hint.textContent = `默认地址：${p.defaultBaseUrl || p.baseUrl || '用户自定义'}。支持 OpenAI 兼容网关。`;
-  }
-  const label = $('#cfgApiKeyLabel');
-  if (label) {
-    label.textContent = p.name + ' API Key';
+    workspaceId.value = provider.id === 'qwen' ? (supplier.workspaceId || '') : '';
+    workspaceId.disabled = provider.id !== 'qwen';
   }
   const removeButton = $('#removeProviderConfig');
-  removeButton?.classList.toggle('hidden', !p.configured);
+  removeButton?.classList.remove('hidden');
+  const removeLabel = isCustomModel
+    ? '清空自定义模型'
+    : (supplier.id === 'official' ? '清空当前配置' : '删除供应商');
+  if (removeButton) {
+    removeButton.title = removeLabel;
+    removeButton.setAttribute('aria-label', removeLabel);
+  }
+  renderSupplierModels(supplier);
 }
+
+async function openProviderConfigDialog(providerId) {
+  currentProviderId = providerId;
+  resetProviderSaveFeedback();
+  providerCache = await api.listProviders();
+  const provider = getCurrentProvider();
+  if (!provider) return;
+  currentSupplierId = provider.activeSupplierId || provider.suppliers?.[0]?.id || 'official';
+  await renderProviderSupplierList();
+  renderProviderSupplierEditor();
+  const dialog = $('#providerConfigDialog');
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+$('#providerDialogClose')?.addEventListener('click', () => $('#providerConfigDialog')?.close());
+$('#providerConfigDialog')?.addEventListener('click', event => {
+  if (event.target !== event.currentTarget) return;
+  if (providerConfirmResolver) {
+    resolveProviderConfirmation(false);
+    return;
+  }
+  event.currentTarget.close();
+});
+
+$('#providerConfirmCancel')?.addEventListener('click', () => resolveProviderConfirmation(false));
+$('#providerConfirmAccept')?.addEventListener('click', () => resolveProviderConfirmation(true));
+$('#providerConfirmModal')?.addEventListener('click', event => {
+  if (event.target === event.currentTarget) resolveProviderConfirmation(false);
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && providerConfirmResolver) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    resolveProviderConfirmation(false);
+  }
+}, true);
+
+$('#cfgEndpointType')?.addEventListener('change', event => setProviderEndpointType(event.currentTarget.value));
+['#cfgSupplierName', '#cfgModelId', '#cfgEndpointUrl', '#cfgApiKey', '#cfgWorkspaceId'].forEach(selector => {
+  $(selector)?.addEventListener('input', () => {
+    if (providerSaveComplete) resetProviderSaveFeedback();
+  });
+});
+$('#cfgApiKey')?.addEventListener('beforeinput', event => {
+  if (event.currentTarget.dataset.masked !== 'true') return;
+  event.currentTarget.value = '';
+  event.currentTarget.dataset.masked = 'false';
+});
+
+$('#addProviderSupplier')?.addEventListener('click', async () => {
+  if (!currentProviderId) return;
+  const result = await api.addProviderSupplier(currentProviderId, '新供应商');
+  if (result?.error) { toast(result.error); return; }
+  providerCache = await api.listProviders();
+  const provider = getCurrentProvider();
+  currentSupplierId = result.supplierId;
+  resetProviderSaveFeedback();
+  await renderProviderSupplierList();
+  renderProviderSupplierEditor();
+  toast(`已添加 ${provider?.name || '厂商'} 供应商`);
+});
 
 const MAX_TONE_PROFILES = 4;
 let toneProfileSequence = 0;
@@ -9001,10 +10031,6 @@ $('#remoteRestart')?.addEventListener('click', async () => {
 // ============================================================
 // MCP page (moved from settings)
 // ============================================================
-async function renderMcpList() {
-  await renderMcpPage();
-}
-
 function parseMcpArguments(value) {
   const source = String(value || '');
   const args = [];
@@ -9202,10 +10228,6 @@ function describeAutoStatus(a) {
   return `上次 ${t}${badge ? ' · ' + badge : ''}`;
 }
 
-async function renderAutomationList() {
-  await renderAutomationPage();
-}
-
 // 调度类型切换时显示对应的参数输入框
 function updateAutoScheduleFields() {
   const t = $('#autoNewType')?.value || 'interval';
@@ -9241,80 +10263,153 @@ $('#autoAddBtn')?.addEventListener('click', async () => {
 
 // API save
 $('#saveApi').addEventListener('click', async () => {
-  const apiKeyValue = $('#cfgApiKey').value.trim();
-  const baseUrlValue = $('#cfgBaseUrl').value.trim();
-  const imageGenerationUrl = $('#cfgImageGenerationUrl').value.trim();
-  const imageEditUrl = $('#cfgImageEditUrl').value.trim();
+  if (providerSaveComplete) {
+    $('#providerConfigDialog')?.close();
+    return;
+  }
+  syncProviderEndpointDraft();
+  const apiKeyInput = $('#cfgApiKey');
+  const apiKeyValue = apiKeyInput?.dataset.masked === 'true' ? '' : (apiKeyInput?.value || '').trim();
+  const baseUrlValue = providerEndpointDraft.baseUrl || '';
+  const imageGenerationUrl = providerEndpointDraft.imageGenerationUrl || '';
+  const imageEditUrl = providerEndpointDraft.imageEditUrl || '';
+  const videoGenerationUrl = providerEndpointDraft.videoGenerationUrl || '';
   const workspaceId = $('#cfgWorkspaceId')?.value.trim() || '';
-  const providerName = providerCache.find(p => p.id === currentProviderId)?.name || currentProviderId;
-  const dynamicModels = !!providerCache.find(p => p.id === currentProviderId)?.dynamicModels;
-  const button = $('#saveApi');
-  const originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = dynamicModels ? '正在加载模型…' : '正在保存…';
+  const provider = getCurrentProvider();
+  const isCustomProvider = !!provider?.custom;
+  const modelIdValue = $('#cfgModelId')?.value.trim() || '';
+  const modelNameValue = $('#cfgSupplierName')?.value.trim() || modelIdValue;
+  if (isCustomProvider && !modelIdValue) {
+    showProviderConfigNotice('请填写模型 ID', 'error');
+    return;
+  }
+  const supplierName = $('#cfgSupplierName')?.value.trim() || '新供应商';
+  const providerName = provider?.name || currentProviderId;
+  const dynamicModels = !!provider?.dynamicModels && !isCustomProvider;
+  setProviderSaveState('saving');
+  showProviderConfigNotice(dynamicModels ? '正在保存配置并同步模型…' : '正在保存配置…', 'progress');
   try {
     const result = await api.configureProvider(currentProviderId, {
       apiKey: apiKeyValue,
       baseUrl: baseUrlValue,
+      supplierId: currentSupplierId,
+      supplierName,
       imageGenerationUrl,
       imageEditUrl,
-      workspaceId
+      videoGenerationUrl,
+      workspaceId,
+      ...(isCustomProvider ? {
+        providerName,
+        modelId: modelIdValue,
+        modelName: modelNameValue,
+        apiFormat: 'openai'
+      } : {})
     });
     if (result?.error) {
-      toast(result.error);
+      showProviderConfigNotice(result.error, 'error');
       return;
     }
     state.config = result.config;
-    currentProviderId = state.config.api.provider;
+    // Saving a second supplier must not move the dialog or the main model to
+    // another provider. Keep the provider/supplier the user was editing.
+    const savedProviderId = currentProviderId;
+    currentProviderId = savedProviderId;
     providerCache = await api.listProviders();
-    updateApiKeyField(currentProviderId);
+    currentSupplierId = result.supplierId
+      || providerCache.find(item => item.id === currentProviderId)?.activeSupplierId
+      || currentSupplierId;
+    await renderProviderSupplierList();
+    renderProviderSupplierEditor();
     await renderProviderList(currentProviderId);
     await renderModelGrid(state.config);
     renderVisionRelaySettings(state.config);
     renderModelBadge();
-    toast(dynamicModels
+    showProviderConfigNotice(dynamicModels
       ? `${providerName} 配置已保存，已加载 ${result.modelCount} 个模型`
-      : `${providerName} 配置已保存`);
+      : `${providerName} 配置已保存，已加载 ${getCurrentSupplier()?.modelCount || 0} 个模型`, 'success');
+    setProviderSaveState('complete');
   } catch (error) {
-    toast('保存失败：' + error.message);
+    showProviderConfigNotice('保存失败：' + error.message, 'error');
   } finally {
-    button.disabled = false;
-    button.textContent = originalText;
+    if (!providerSaveComplete) setProviderSaveState('idle');
   }
 });
 
 $('#removeProviderConfig')?.addEventListener('click', async () => {
   const providerId = currentProviderId;
+  const supplier = getCurrentSupplier();
+  const isCustom = providerId === 'custom-model' || providerId.startsWith('custom-');
+  const removeLabel = isCustom
+    ? '清空自定义模型'
+    : (currentSupplierId === 'official' ? '清空当前配置' : '删除供应商');
+  if (!supplier) return;
+  const confirmed = await requestProviderConfirmation({
+    title: `${removeLabel}？`,
+    description: `确定${removeLabel}“${supplier.name}”吗？此操作不可撤销。`,
+    confirmLabel: removeLabel
+  });
+  if (!confirmed) return;
   const button = $('#removeProviderConfig');
-  const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = '正在取消…';
+  button.dataset.busy = 'true';
   try {
-    const result = await api.removeProviderConfig(providerId);
+    const isOfficial = currentSupplierId === 'official';
+    const result = isCustom
+      ? await api.deleteCustomProvider(providerId)
+      : isOfficial
+        ? await api.removeProviderConfig(providerId, currentSupplierId)
+        : await api.deleteProviderSupplier(providerId, currentSupplierId);
     if (result?.error) {
-      toast(result.error);
+      showProviderConfigNotice(result.error, 'error');
       return;
     }
     state.config = result.config;
-    currentProviderId = providerId;
+    currentProviderId = isCustom ? (result.config?.api?.provider || 'openai') : providerId;
     providerCache = await api.listProviders();
-    await renderProviderList(providerId);
-    await updateApiKeyField(providerId);
+    currentSupplierId = providerCache.find(item => item.id === providerId)?.activeSupplierId || 'official';
+    await renderProviderList(currentProviderId);
+    if ($('#providerConfigDialog')?.open) {
+      await renderProviderSupplierList();
+      renderProviderSupplierEditor();
+    }
     await renderModelGrid(state.config);
     renderVisionRelaySettings(state.config);
     renderModelBadge();
+    showProviderConfigNotice(isCustom
+      ? '自定义模型配置已清空'
+      : (isOfficial ? `${supplier.name} 配置已清空` : `供应商“${supplier.name}”已删除`), 'success');
+    setProviderSaveState('idle');
   } catch (error) {
-    toast('取消配置失败：' + error.message);
+    showProviderConfigNotice('取消配置失败：' + error.message, 'error');
   } finally {
     button.disabled = false;
-    button.textContent = originalText;
+    button.dataset.busy = 'false';
   }
 });
 
-$('#toggleKey').addEventListener('click', () => {
+$('#toggleKey').addEventListener('click', async () => {
   const inp = $('#cfgApiKey');
-  if (inp.type === 'password') { inp.type = 'text'; $('#toggleKey').textContent = '隐藏'; }
-  else { inp.type = 'password'; $('#toggleKey').textContent = '显示'; }
+  const button = $('#toggleKey');
+  if (!inp || !button) return;
+  if (inp.type === 'password') {
+    if (inp.dataset.masked === 'true') {
+      button.disabled = true;
+      try {
+        const result = await api.getProviderSecret(currentProviderId, currentSupplierId);
+        if (result?.error) { toast(result.error); return; }
+        inp.value = result?.apiKey || '';
+        inp.dataset.masked = 'false';
+        inp.dataset.revealed = 'true';
+      } finally {
+        button.disabled = false;
+      }
+    }
+    inp.type = 'text';
+    updateProviderEyeButton(true);
+  } else {
+    inp.type = 'password';
+    updateProviderEyeButton(false);
+  }
 });
 
 async function renderModelGrid(cfg) {
@@ -9341,14 +10436,18 @@ async function renderModelGrid(cfg) {
     const groupModels = models.filter(model => model.modelType === group.id);
     const cards = groupModels.map(model => {
       const active = group.id === 'text'
-        ? model.providerId === textProviderId && model.id === textModelId
-        : cfg.media?.[`${group.id}Provider`] === model.providerId && cfg.media?.[`${group.id}Model`] === model.id;
+        ? model.providerId === textProviderId
+          && model.id === textModelId
+          && (!cfg.agentModel?.supplierId || cfg.agentModel.supplierId === model.supplierId)
+        : cfg.media?.[`${group.id}Provider`] === model.providerId
+          && cfg.media?.[`${group.id}Model`] === model.id
+          && (!cfg.media?.[`${group.id}SupplierId`] || cfg.media[`${group.id}SupplierId`] === model.supplierId);
       return `
         <button class="model-card ${active ? 'active' : ''}" type="button"
-          data-provider="${escapeHtml(model.providerId)}" data-model="${escapeHtml(model.id)}"
+          data-provider="${escapeHtml(model.providerId)}" data-supplier="${escapeHtml(model.supplierId || '')}" data-model="${escapeHtml(model.id)}"
           data-model-type="${group.id}" aria-pressed="${active ? 'true' : 'false'}">
           <span class="mc-check">${ICONS.check}</span>
-          <span class="mc-provider">${escapeHtml(model.providerName || model.providerId)}</span>
+          <span class="mc-provider">${escapeHtml(model.providerName || model.providerId)}${model.supplierName ? ` · ${escapeHtml(model.supplierName)}` : ''}</span>
           <span class="mc-name">${escapeHtml(model.name || model.id)}</span>
           <span class="mc-id">${escapeHtml(model.id)}</span>
         </button>`;
@@ -9367,7 +10466,7 @@ async function renderModelGrid(cfg) {
       const providerId = card.dataset.provider;
       const id = card.dataset.model;
       const modelType = card.dataset.modelType || 'text';
-      const nextConfig = await api.setModelRole(providerId, id, modelType);
+      const nextConfig = await api.setModelRole(providerId, id, modelType, card.dataset.supplier || '');
       if (nextConfig?.error) { toast(nextConfig.error); return; }
       state.config = nextConfig;
       await renderModelGrid(state.config);
@@ -9404,11 +10503,15 @@ const mediaModelNames = new Map();
 function getMediaModelSelection(role) {
   const media = state.config?.media || {};
   const providerId = String(media[`${role}Provider`] || '');
+  const supplierId = String(media[`${role}SupplierId`] || '');
   const modelId = String(media[`${role}Model`] || '');
   return {
     providerId,
+    supplierId,
     modelId,
-    name: mediaModelNames.get(`${providerId}:${modelId}`) || String(media[`${role}Name`] || '') || modelId || '未选择'
+    name: mediaModelNames.get(`${providerId}:${supplierId}:${modelId}`)
+      || mediaModelNames.get(`${providerId}:${modelId}`)
+      || String(media[`${role}Name`] || '') || modelId || '未选择'
   };
 }
 
@@ -9447,6 +10550,7 @@ function renderMediaQuickModels(payload = {}, role = mediaModelRole) {
   const models = (Array.isArray(payload.models) ? payload.models : [])
     .filter(model => model.modelType === role);
   for (const model of models) {
+    mediaModelNames.set(`${model.providerId}:${model.supplierId || ''}:${model.id}`, model.name || model.id);
     mediaModelNames.set(`${model.providerId}:${model.id}`, model.name || model.id);
   }
   const emptySelected = !selection.modelId;
@@ -9457,12 +10561,14 @@ function renderMediaQuickModels(payload = {}, role = mediaModelRole) {
     selected: emptySelected
   }, ...models.map(model => ({
     ...model,
-    selected: selection.providerId === model.providerId && selection.modelId === model.id
+    selected: selection.providerId === model.providerId
+      && selection.modelId === model.id
+      && (!selection.supplierId || selection.supplierId === String(model.supplierId || ''))
   }))];
   list.innerHTML = rows.map(model => `
     <button class="model-quick-item ${model.selected ? 'is-selected' : ''}" type="button"
-      data-provider="${escapeAttr(model.providerId)}" data-model="${escapeAttr(model.id)}" data-media-model-role="${role}">
-      <span class="model-quick-name">${escapeHtml(model.name)}</span>
+      data-provider="${escapeAttr(model.providerId)}" data-supplier="${escapeAttr(model.supplierId || '')}" data-model="${escapeAttr(model.id)}" data-media-model-role="${role}">
+      <span class="model-quick-name">${escapeHtml(model.name)}${model.providerName ? ` · ${escapeHtml(model.providerName)}` : ''}${model.supplierName ? ` / ${escapeHtml(model.supplierName)}` : ''}</span>
       <svg class="model-quick-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
     </button>`).join('');
   list.querySelectorAll('[data-media-model-role]').forEach(button => {
@@ -9473,7 +10579,8 @@ function renderMediaQuickModels(payload = {}, role = mediaModelRole) {
         const nextConfig = await api.setModelRole(
           button.dataset.provider,
           button.dataset.model,
-          button.dataset.mediaModelRole
+          button.dataset.mediaModelRole,
+          button.dataset.supplier || ''
         );
         if (nextConfig?.error) { toast(nextConfig.error); return; }
         state.config = nextConfig;
@@ -9502,7 +10609,7 @@ async function refreshMediaModels(role = mediaModelRole) {
   menu.setAttribute('aria-busy', 'true');
   list.innerHTML = '<div class="model-quick-empty">正在读取模型…</div>';
   try {
-    const payload = await api.listQuickModels();
+  const payload = await api.listMediaModels();
     if (sequence !== mediaModelRefreshSequence || role !== mediaModelRole) return;
     renderMediaQuickModels(payload, role);
   } catch (error) {
@@ -9542,30 +10649,137 @@ function setMediaModelMenuOpen(open) {
   }
 }
 
-function renderQuickModels(payload = {}) {
+let quickModelsCache = null;
+
+function getSelectedQuickSupplier(payload = quickModelsCache) {
+  const providers = Array.isArray(payload?.providers) ? payload.providers : [];
+  const providerId = String(state.config?.api?.provider || state.config?.agentModel?.providerId || payload?.activeProviderId || '');
+  const supplierId = String(state.config?.api?.providerActiveSupplierIds?.[providerId] || payload?.activeSupplierId || '');
+  const provider = providers.find(item => item.providerId === providerId);
+  const supplier = provider?.suppliers?.find(item => item.supplierId === supplierId)
+    || provider?.suppliers?.find(item => item.selected)
+    || null;
+  return supplier ? { provider, supplier } : null;
+}
+
+function renderQuickSupplierValue(payload = quickModelsCache) {
+  const selected = getSelectedQuickSupplier(payload);
+  const value = $('#modelQuickSupplierValue');
+  if (!value) return;
+  const label = selected
+    ? `${selected.provider.providerName} · ${selected.supplier.supplierName}`
+    : '未选择';
+  value.textContent = label;
+  value.title = label;
+}
+
+function renderQuickSuppliers(payload = null) {
+  const list = $('#modelQuickSupplierList');
+  if (!list) return;
+  if (payload && Array.isArray(payload.providers)) quickModelsCache = payload;
+  const providers = Array.isArray(quickModelsCache?.providers) ? quickModelsCache.providers : [];
+  renderQuickSupplierValue();
+  if (!providers.length) {
+    list.innerHTML = '<div class="model-quick-empty">当前没有已配置的供应商。</div>';
+    return;
+  }
+  list.innerHTML = providers.map(provider => `
+    <section class="model-quick-supplier-group" aria-label="${escapeAttr(provider.providerName || provider.providerId)}">
+      <div class="model-quick-supplier-heading">
+        <span>${escapeHtml(provider.providerName || provider.providerId)}</span>
+        <span>${provider.suppliers.length}</span>
+      </div>
+      ${provider.suppliers.map(supplier => `
+        <button class="model-quick-supplier ${supplier.selected ? 'is-selected' : ''}" type="button"
+          data-provider="${escapeAttr(provider.providerId)}" data-supplier="${escapeAttr(supplier.supplierId)}"
+          aria-pressed="${supplier.selected ? 'true' : 'false'}">
+          <span>${escapeHtml(supplier.supplierName || supplier.supplierId)}</span>
+          <svg class="model-quick-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>`).join('')}
+    </section>`).join('');
+
+  list.querySelectorAll('.model-quick-supplier').forEach(button => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      try {
+        const result = await api.setProviderSupplier(button.dataset.provider, button.dataset.supplier);
+        if (result?.error) { toast(result.error); return; }
+        state.config = result.config || state.config;
+        renderModelBadge();
+        setModelQuickChild('models');
+        toast(`已切换供应商：${button.querySelector('span')?.textContent || button.dataset.supplier}`);
+      } catch (error) {
+        toast('供应商切换失败：' + error.message);
+      } finally {
+        button.disabled = false;
+        button.setAttribute('aria-busy', 'false');
+      }
+    });
+  });
+}
+
+function renderQuickModels(payload = null) {
   const list = $('#modelQuickList');
   if (!list) return;
-  const models = (Array.isArray(payload.models) ? payload.models : [])
-    .filter(model => model.modelType === 'text');
+  if (payload && Array.isArray(payload.models)) quickModelsCache = payload;
+  renderQuickSupplierValue();
+  const disabledMap = state.config?.disabledModels || {};
+  const isModelEnabled = (providerId, modelId) =>
+    !Array.isArray(disabledMap[providerId]) || !disabledMap[providerId].includes(modelId);
+  const selectedSupplier = getSelectedQuickSupplier();
+  const models = (selectedSupplier?.supplier?.models || [])
+    .filter(model => model.modelType === 'text')
+    .filter(model => isModelEnabled(model.providerId, model.id));
   if (!models.length) {
-    list.innerHTML = '<div class="model-quick-empty">当前没有已配置的文本模型。</div>';
+    list.innerHTML = '<div class="model-quick-empty">当前供应商没有可用的文本模型。</div>';
     return;
   }
 
-  list.innerHTML = models.map(model => {
-    return `<button class="model-quick-item ${model.selected ? 'is-selected' : ''}" type="button"
-        data-provider="${escapeHtml(model.providerId)}" data-model="${escapeHtml(model.id)}">
-        <span class="model-quick-name">${escapeHtml(model.name)}</span>
+  const query = String($('#modelQuickSearch')?.value || '').trim().toLowerCase();
+  const activeProvider = state.config?.agentModel?.providerId || state.config?.api?.provider || '';
+  const activeModel = state.config?.agentModel?.modelId || state.config?.api?.model || '';
+
+  const highlight = (text) => {
+    const raw = String(text);
+    if (!query) return escapeHtml(raw);
+    const idx = raw.toLowerCase().indexOf(query);
+    if (idx < 0) return escapeHtml(raw);
+    return escapeHtml(raw.slice(0, idx)) + '<mark>' + escapeHtml(raw.slice(idx, idx + query.length)) + '</mark>' + escapeHtml(raw.slice(idx + query.length));
+  };
+  const itemHtml = (model) => {
+    const selected = model.providerId === activeProvider && model.id === activeModel;
+    return `<button class="model-quick-item mq-item ${selected ? 'is-selected' : ''}" type="button"
+        data-provider="${escapeAttr(model.providerId)}" data-supplier="${escapeAttr(model.supplierId || '')}" data-model="${escapeAttr(model.id)}">
+        <span class="model-quick-name">${highlight(model.name || model.id)}</span>
         <svg class="model-quick-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
       </button>`;
-  }).join('');
+  };
+
+  if (query) {
+    const matched = models.filter(model =>
+      String(model.name || model.id).toLowerCase().includes(query)
+      || String(model.id).toLowerCase().includes(query));
+    list.innerHTML = matched.length
+      ? matched.map(itemHtml).join('')
+      : '<div class="model-quick-empty">没有匹配的模型。</div>';
+  } else {
+    list.innerHTML = models.map(itemHtml).join('');
+    const selectedEl = list.querySelector('.mq-item.is-selected');
+    if (selectedEl) selectedEl.scrollIntoView({ block: 'center' });
+  }
 
   list.querySelectorAll('.model-quick-item').forEach(button => {
     button.addEventListener('click', async () => {
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
       try {
-        const nextConfig = await api.setModelRole(button.dataset.provider, button.dataset.model, 'text');
+        const nextConfig = await api.setModelRole(
+          button.dataset.provider,
+          button.dataset.model,
+          'text',
+          button.dataset.supplier
+        );
         if (nextConfig?.error) { toast(nextConfig.error); return; }
         state.config = nextConfig;
         renderModelBadge();
@@ -9582,17 +10796,175 @@ function renderQuickModels(payload = {}) {
   });
 }
 
+$('#modelQuickSearch')?.addEventListener('input', () => renderQuickModels());
+$('#modelQuickModelsBack')?.addEventListener('click', () => setModelQuickChild(''));
+$('#modelQuickSuppliersBack')?.addEventListener('click', () => setModelQuickChild(''));
+
+// ---------------------------------------------------------------------------
+// Model manager panel: per-model enable switches, stored in config.disabledModels
+const modelManagerFold = {};
+let modelManagerWired = false;
+
+function getDisabledMap() { return state.config?.disabledModels || {}; }
+function isModelEnabledGlobal(providerId, modelId) {
+  const list = getDisabledMap()[providerId];
+  return !Array.isArray(list) || !list.includes(modelId);
+}
+
+async function persistProviderDisabled(providerId, modelIds) {
+  const result = await api.setConfig({ disabledModels: { [providerId]: modelIds } });
+  if (result) state.config = result;
+}
+
+function renderModelManager() {
+  const list = $('#modelManagerList');
+  if (!list) return;
+  const query = String($('#modelManagerSearch')?.value || '').trim().toLowerCase();
+  const all = ((quickModelsCache && quickModelsCache.models) || [])
+    .filter(model => model.modelType === 'text');
+  const groups = [];
+  const byProvider = new Map();
+  for (const model of all) {
+    let group = byProvider.get(model.providerId);
+    if (!group) {
+      group = { providerId: model.providerId, providerName: model.providerName || model.providerId, models: [] };
+      byProvider.set(model.providerId, group);
+      groups.push(group);
+    }
+    group.models.push(model);
+  }
+  const activeProvider = state.config?.agentModel?.providerId || state.config?.api?.provider || '';
+  const hl = (text) => {
+    const raw = String(text);
+    if (!query) return escapeHtml(raw);
+    const idx = raw.toLowerCase().indexOf(query);
+    if (idx < 0) return escapeHtml(raw);
+    return escapeHtml(raw.slice(0, idx)) + '<mark>' + escapeHtml(raw.slice(idx, idx + query.length)) + '</mark>' + escapeHtml(raw.slice(idx + query.length));
+  };
+  let total = 0;
+  let enabledTotal = 0;
+  list.innerHTML = groups.map(group => {
+    const enabled = group.models.filter(m => isModelEnabledGlobal(group.providerId, m.id)).length;
+    total += group.models.length;
+    enabledTotal += enabled;
+    const shown = query
+      ? group.models.filter(m => String(m.name || m.id).toLowerCase().includes(query) || String(m.id).toLowerCase().includes(query))
+      : group.models;
+    if (query && !shown.length && !group.providerName.toLowerCase().includes(query)) return '';
+    const open = query ? true
+      : (Object.prototype.hasOwnProperty.call(modelManagerFold, group.providerId)
+          ? modelManagerFold[group.providerId]
+          : group.providerId === activeProvider);
+    const tri = enabled === group.models.length ? 'all' : enabled > 0 ? 'some' : '';
+    const triMark = tri === 'all' ? '\u2713' : tri === 'some' ? '\u2212' : '';
+    return `<div class="mmgr-group ${open ? 'open' : ''}" data-provider="${escapeAttr(group.providerId)}">
+      <div class="mmgr-group-head" data-provider="${escapeAttr(group.providerId)}">
+        <svg class="mq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+        <span class="mmgr-gname">${escapeHtml(group.providerName)}</span>
+        <button class="mmgr-tri ${tri}" type="button" data-provider="${escapeAttr(group.providerId)}" title="整组启用/停用">${triMark}</button>
+        <span class="mq-count">${enabled}/${group.models.length}</span>
+      </div>
+      <div class="mmgr-rows">${shown.map(model => {
+        const on = isModelEnabledGlobal(group.providerId, model.id);
+        return `<div class="mmgr-row ${on ? '' : 'off'}">
+          <span class="mname">${hl(model.name || model.id)}</span>
+          <button class="mmgr-sw ${on ? 'on' : ''}" type="button" data-provider="${escapeAttr(group.providerId)}" data-model="${escapeAttr(model.id)}" title="${on ? '停用' : '启用'}"></button>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+  }).join('') || '<div class="mmgr-empty">没有匹配的模型</div>';
+  const foot = $('#modelManagerFoot');
+  if (foot) foot.textContent = `已启用 ${enabledTotal} / ${total} 个模型，快捷切换器只显示启用的`;
+}
+
+async function setModelEnabled(providerId, modelId, enabled) {
+  const current = Array.isArray(getDisabledMap()[providerId]) ? [...getDisabledMap()[providerId]] : [];
+  const next = enabled ? current.filter(id => id !== modelId) : [...new Set([...current, modelId])];
+  await persistProviderDisabled(providerId, next);
+}
+
+async function setProviderEnabled(providerId, enabled) {
+  const all = ((quickModelsCache && quickModelsCache.models) || [])
+    .filter(m => m.modelType === 'text' && m.providerId === providerId);
+  await persistProviderDisabled(providerId, enabled ? [] : all.map(m => m.id));
+}
+
+async function openModelManager() {
+  if (!quickModelsCache) {
+    try { quickModelsCache = await api.listQuickModels(); } catch { quickModelsCache = null; }
+  }
+  renderModelManager();
+  $('#modelManager')?.classList.remove('hidden');
+  $('#modelManagerMask')?.classList.remove('hidden');
+  $('#modelManagerSearch')?.focus();
+}
+
+function closeModelManager() {
+  $('#modelManager')?.classList.add('hidden');
+  $('#modelManagerMask')?.classList.add('hidden');
+  const search = $('#modelManagerSearch');
+  if (search) search.value = '';
+  if (!$('#modelQuickMenu')?.classList.contains('hidden')) renderQuickModels();
+}
+
+function wireModelManager() {
+  if (modelManagerWired) return;
+  modelManagerWired = true;
+  $('#manageModelsBtn')?.addEventListener('click', () => { void openModelManager(); });
+  $('#modelManagerClose')?.addEventListener('click', closeModelManager);
+  $('#modelManagerMask')?.addEventListener('click', closeModelManager);
+  $('#modelManagerSearch')?.addEventListener('input', renderModelManager);
+  $('#modelManagerList')?.addEventListener('click', async (event) => {
+    const sw = event.target.closest('.mmgr-sw');
+    if (sw) {
+      sw.disabled = true;
+      try {
+        await setModelEnabled(sw.dataset.provider, sw.dataset.model, !sw.classList.contains('on'));
+      } finally { sw.disabled = false; }
+      renderModelManager();
+      return;
+    }
+    const tri = event.target.closest('.mmgr-tri');
+    if (tri) {
+      event.stopPropagation();
+      tri.disabled = true;
+      try {
+        await setProviderEnabled(tri.dataset.provider, !tri.classList.contains('all'));
+      } finally { tri.disabled = false; }
+      renderModelManager();
+      return;
+    }
+    const head = event.target.closest('.mmgr-group-head');
+    if (head) {
+      const group = head.closest('.mmgr-group');
+      const nowOpen = !group.classList.contains('open');
+      group.classList.toggle('open', nowOpen);
+      modelManagerFold[head.dataset.provider] = nowOpen;
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('#modelManager')?.classList.contains('hidden')) closeModelManager();
+  });
+}
+wireModelManager();
+
+
 async function refreshQuickModels() {
   const menu = $('#modelQuickMenu');
-  const list = $('#modelQuickList');
+  const list = modelQuickChild === 'suppliers'
+    ? $('#modelQuickSupplierList')
+    : $('#modelQuickList');
   if (!menu || !list) return;
+  const searchInput = $('#modelQuickSearch');
+  if (searchInput) searchInput.value = '';
   const sequence = ++modelQuickRefreshSequence;
   menu.setAttribute('aria-busy', 'true');
   list.innerHTML = '<div class="model-quick-empty">正在读取模型…</div>';
   try {
     const payload = await api.listQuickModels();
     if (sequence !== modelQuickRefreshSequence) return;
-    renderQuickModels(payload);
+    if (modelQuickChild === 'suppliers') renderQuickSuppliers(payload);
+    else renderQuickModels(payload);
   } catch (error) {
     if (sequence !== modelQuickRefreshSequence) return;
     list.innerHTML = `<div class="model-quick-empty">读取模型失败：${escapeHtml(error.message)}</div>`;
@@ -9603,22 +10975,22 @@ async function refreshQuickModels() {
 
 function setModelQuickChild(child) {
   const menu = $('#modelQuickMenu');
-  const nextChild = modelQuickView === 'advanced' && ['models', 'reasoning'].includes(child)
+  const nextChild = modelQuickView === 'advanced' && ['models', 'suppliers'].includes(child)
     ? child
     : '';
   const previousChild = modelQuickChild;
   modelQuickChild = nextChild;
   if (menu) menu.dataset.child = modelQuickChild;
   $('#modelQuickModelsView')?.classList.toggle('hidden', modelQuickChild !== 'models');
-  $('#modelQuickReasoningView')?.classList.toggle('hidden', modelQuickChild !== 'reasoning');
+  $('#modelQuickSuppliersView')?.classList.toggle('hidden', modelQuickChild !== 'suppliers');
   $('#modelQuickModelRoute')?.setAttribute('aria-expanded', String(modelQuickChild === 'models'));
-  $('#modelQuickReasoningRoute')?.setAttribute('aria-expanded', String(modelQuickChild === 'reasoning'));
+  $('#modelQuickSupplierRoute')?.setAttribute('aria-expanded', String(modelQuickChild === 'suppliers'));
   if (previousChild === 'models' && modelQuickChild !== 'models') {
     modelQuickRefreshSequence++;
     menu?.setAttribute('aria-busy', 'false');
   }
   if (modelQuickChild === 'models' && previousChild !== 'models') void refreshQuickModels();
-  if (modelQuickChild === 'reasoning') renderReasoningSpeedControl();
+  if (modelQuickChild === 'suppliers') renderQuickSuppliers();
 }
 
 function setModelQuickView(view) {
@@ -9658,6 +11030,7 @@ function renderModelBadge() {
     quickModelValue.textContent = name;
     quickModelValue.title = name;
   }
+  renderQuickSupplierValue();
   const pill = $('#modelPill');
   if (pill) {
     pill.dataset.modelType = selection.modelType;
@@ -9712,7 +11085,6 @@ function renderReasoningSpeedControl(modeOverride, progressOverride) {
     : speedIndex / (REASONING_SPEED_MODES.length - 1);
   if ($('#modelPillSpeed')) $('#modelPillSpeed').textContent = meta.label;
   if ($('#modelQuickFooterSpeed')) $('#modelQuickFooterSpeed').textContent = meta.label;
-  if ($('#modelQuickReasoningValue')) $('#modelQuickReasoningValue').textContent = meta.label;
   if (sliderShell) {
     sliderShell.dataset.mode = mode;
     sliderShell.style.setProperty('--speed-progress', String(speedProgress));
@@ -9796,8 +11168,6 @@ const ACCESS_MODE_UI = Object.freeze({
   delegate: { label: '替我审批', toast: '权限访问：替我审批' },
   full: { label: '完全访问', toast: '权限访问：完全访问' }
 });
-const ACCESS_MODE_KEYS = Object.freeze(Object.keys(ACCESS_MODE_UI));
-
 function getCurrentAccessMode() {
   const value = String(state.config?.agent?.accessMode || 'request');
   return ACCESS_MODE_UI[value] ? value : 'request';
@@ -9899,6 +11269,7 @@ function setTaskToolsPillTool(tool = 'powershell') {
   const assets = {
     powershell: { src: 'assets/powershell.png', label: '打开工作区工具 · PowerShell' },
     'yanxi-code': { src: 'assets/yanxi-code.png', label: '打开工作区工具 · Yanxi Code' },
+    vscode: { src: vsCodeStatus.iconDataUrl || 'assets/yanxi-code.png', label: '打开工作区工具 · VS Code' },
     'file-explorer': { src: 'assets/file-explorer.png', label: '打开工作区工具 · 资源管理器' },
   };
   const selected = assets[tool] || assets.powershell;
@@ -9914,10 +11285,38 @@ function getCurrentTaskTool() {
 }
 
 function selectCurrentTaskTool(tool = 'powershell') {
-  const normalized = ['powershell', 'yanxi-code', 'file-explorer'].includes(tool) ? tool : 'powershell';
+  const allowed = ['powershell', 'yanxi-code', 'file-explorer'];
+  if (vsCodeStatus.available) allowed.push('vscode');
+  const normalized = allowed.includes(tool) ? tool : 'powershell';
   const sessionId = state.currentSession?.id;
   if (sessionId) taskToolSelections.set(sessionId, normalized);
   setTaskToolsPillTool(normalized);
+}
+
+async function refreshVsCodeAvailability() {
+  const button = $('#taskBarVsCode');
+  const icon = $('#taskBarVsCodeIcon');
+  if (!button) return false;
+  try {
+    const status = await api.getVsCodeStatus?.();
+    vsCodeStatus = {
+      available: !!status?.available,
+      executable: String(status?.executable || ''),
+      iconDataUrl: String(status?.iconDataUrl || ''),
+    };
+  } catch {
+    vsCodeStatus = { available: false, executable: '', iconDataUrl: '' };
+  }
+  button.classList.toggle('hidden', !vsCodeStatus.available);
+  if (icon && vsCodeStatus.iconDataUrl) icon.src = vsCodeStatus.iconDataUrl;
+  const workspace = state.currentSession?.workspace || state.config?.workspace || '';
+  if (!button.classList.contains('is-launching')) button.disabled = !workspace || !vsCodeStatus.available;
+  if (!vsCodeStatus.available && getCurrentTaskTool() === 'vscode') {
+    selectCurrentTaskTool('powershell');
+  } else if (getCurrentTaskTool() === 'vscode') {
+    setTaskToolsPillTool('vscode');
+  }
+  return vsCodeStatus.available;
 }
 
 function bindTaskToolsMenu() {
@@ -9929,12 +11328,13 @@ function bindTaskToolsMenu() {
     event.stopPropagation();
     await runCurrentTaskTool(button.dataset.tool || 'powershell');
   });
-  menuToggle.addEventListener('click', event => {
+  menuToggle.addEventListener('click', async event => {
     event.stopPropagation();
     const opening = menu.classList.contains('hidden');
     closeTaskActionsMenu();
     closeTaskToolsMenu();
     if (opening) {
+      await refreshVsCodeAvailability();
       menu.classList.remove('hidden');
       menuToggle.classList.add('active');
       menuToggle.setAttribute('aria-expanded', 'true');
@@ -9954,12 +11354,14 @@ function bindTaskToolsMenu() {
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeTaskToolsMenu();
   });
+  void refreshVsCodeAvailability();
   setTaskToolsPillTool(getCurrentTaskTool());
 }
 
 async function runCurrentTaskTool(tool) {
   const workspace = state.currentSession?.workspace || state.config?.workspace || '';
   if (tool === 'yanxi-code') return openCurrentWorkspaceInYanxiCode();
+  if (tool === 'vscode') return openCurrentWorkspaceInVsCode();
   if (tool === 'file-explorer') {
     if (!workspace) return toast('请先选择工作区');
     return api.revealFile(workspace);
@@ -10097,16 +11499,19 @@ function updateTaskBar() {
   const folderName = $('#taskBarFolderName');
   const openBtn = $('#taskBarOpenFolder');
   const yanxiBtn = $('#taskBarYanxiCode');
+  const vsCodeBtn = $('#taskBarVsCode');
   setTaskToolsPillTool(getCurrentTaskTool());
   if (ws) {
     folderName.textContent = workspaceGroupLabel(ws);
     openBtn.disabled = false;
     if (yanxiBtn && !yanxiBtn.classList.contains('is-launching')) yanxiBtn.disabled = false;
+    if (vsCodeBtn && !vsCodeBtn.classList.contains('is-launching')) vsCodeBtn.disabled = !vsCodeStatus.available;
     api.yanagentEnsure?.(ws);
   } else {
     folderName.textContent = '选择文件夹';
     openBtn.disabled = true;
     if (yanxiBtn) yanxiBtn.disabled = true;
+    if (vsCodeBtn) vsCodeBtn.disabled = true;
   }
   syncTaskActionLabels();
   syncInterjectionUi();
@@ -10136,6 +11541,33 @@ async function openCurrentWorkspaceInYanxiCode() {
   } finally {
     button?.classList.remove('is-launching');
     if (button) button.disabled = !workspace;
+  }
+}
+
+async function openCurrentWorkspaceInVsCode() {
+  const workspace = state.currentSession?.workspace || state.config?.workspace || '';
+  if (!workspace) {
+    toast('请先选择工作区');
+    return;
+  }
+  if (!api.launchVsCode) {
+    toast('VS Code 启动接口不可用');
+    return;
+  }
+
+  const button = $('#taskBarVsCode');
+  if (button?.classList.contains('is-launching')) return;
+  button?.classList.add('is-launching');
+  if (button) button.disabled = true;
+  try {
+    const result = await api.launchVsCode(workspace);
+    if (result?.error) throw new Error(result.error);
+    toast('正在用 VS Code 打开当前工作区…');
+  } catch (error) {
+    toast(error.message || '启动 VS Code 失败');
+  } finally {
+    button?.classList.remove('is-launching');
+    if (button) button.disabled = !workspace || !vsCodeStatus.available;
   }
 }
 
@@ -10351,32 +11783,17 @@ function setupResizeHandles() {
 }
 
 // ============================================================
-// Bind UI (called once in init)
+// Auxiliary conversation is available as soon as the static right sidebar DOM exists.
 // ============================================================
-function bindUI() {
-  const interjectionButton = $('#interjectionToggle');
-  const interjectionPopover = $('#interjectionPopover');
+function bindInterjectionUi() {
   const interjectionForm = $('#interjectionForm');
   const interjectionInput = $('#interjectionInput');
-  interjectionButton?.addEventListener('click', () => {
-    window.setTimeout(() => {
-      const runCtx = currentInterjectionRun();
-      if (runCtx) renderInterjectionTranscript(runCtx);
-      positionInterjectionPopover();
-      interjectionInput?.focus();
-    }, 0);
-  });
-  interjectionPopover?.addEventListener('toggle', event => {
-    if (event.newState === 'open') {
-      const runCtx = currentInterjectionRun();
-      if (runCtx) renderInterjectionTranscript(runCtx);
-      positionInterjectionPopover();
-      updateInterjectionSendState();
-    }
-  });
+  if (!interjectionForm || interjectionForm.dataset.bound === 'true') return;
+  interjectionForm.dataset.bound = 'true';
   interjectionForm?.addEventListener('submit', event => {
     event.preventDefault();
-    void sendInterjection();
+    if (interjectionThreadFor(currentInterjectionRun())?.pending) stopInterjection();
+    else void sendInterjection();
   });
   interjectionInput?.addEventListener('input', () => {
     interjectionInput.style.height = '';
@@ -10386,19 +11803,29 @@ function bindUI() {
   interjectionInput?.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (!$('#interjectionSend')?.disabled) void sendInterjection();
+      if (!$('#interjectionSend')?.disabled) {
+        if (interjectionThreadFor(currentInterjectionRun())?.pending) stopInterjection();
+        else void sendInterjection();
+      }
     }
   });
-  window.addEventListener('resize', () => {
-    if (interjectionPopover?.matches(':popover-open')) positionInterjectionPopover();
-  });
+  api.onOpenCodeInterjectionEvent?.(handleInterjectionStreamEvent);
+}
+
+bindInterjectionUi();
+
+// ============================================================
+// Bind UI (called once in init)
+// ============================================================
+function bindUI() {
+  bindInterjectionUi();
   bindPermissions();
   bindMediaStudio();
-  bindWorkspacePermDialog();
   bindAgentPermissionPanel();
   bindDeleteSessionDialog();
   bindWorkspaceRemovalDialog();
   bindSkillRemovalDialog();
+  bindGenericConfirmDialog();
   bindTaskActions();
   bindTaskToolsMenu();
   $('#chatScroll')?.addEventListener('scroll', scheduleTurnScaleUpdate, { passive: true });
@@ -10439,6 +11866,7 @@ function bindUI() {
   });
 
   $('#taskBarYanxiCode')?.addEventListener('click', openCurrentWorkspaceInYanxiCode);
+  $('#taskBarVsCode')?.addEventListener('click', openCurrentWorkspaceInVsCode);
 
   $('#modelPill').addEventListener('click', event => {
     event.stopPropagation();
@@ -10509,8 +11937,17 @@ function bindUI() {
   $('#modelQuickModelRoute')?.addEventListener('click', () => {
     setModelQuickChild(modelQuickChild === 'models' ? '' : 'models');
   });
-  $('#modelQuickReasoningRoute')?.addEventListener('click', () => {
-    setModelQuickChild(modelQuickChild === 'reasoning' ? '' : 'reasoning');
+  $('#modelQuickSupplierRoute')?.addEventListener('click', async () => {
+    const nextChild = modelQuickChild === 'suppliers' ? '' : 'suppliers';
+    if (nextChild === 'suppliers') {
+      try {
+        const payload = await api.listQuickModels();
+        quickModelsCache = payload;
+      } catch (error) {
+        toast('供应商读取失败：' + error.message);
+      }
+    }
+    setModelQuickChild(nextChild);
   });
   $('#modelQuickBackBtn')?.addEventListener('click', () => setModelQuickView('speed'));
   $('#accessModePill')?.addEventListener('click', event => {
@@ -10904,7 +12341,7 @@ function updateBrowserAgentCursor(controller, detail = {}) {
   cursor.classList.toggle('is-pressing', pressing);
 }
 
-function setBrowserAgentControl(controller, active, { runId = '', userReleased = false } = {}) {
+function setBrowserAgentControl(controller, active, { runId = '', userReleased = false, skipAgentRelease = false } = {}) {
   if (!controller) return false;
   const ownerRunId = String(runId || controller.agentRunId || '');
   controller.agentRunId = ownerRunId;
@@ -10916,7 +12353,7 @@ function setBrowserAgentControl(controller, active, { runId = '', userReleased =
   if (controller.agentInputShield) controller.agentInputShield.tabIndex = active ? 0 : -1;
   if (active) controller.agentInputShield?.focus({ preventScroll: true });
   if (!active) {
-    void controller.agent?.releaseHeldKeys?.();
+    if (!skipAgentRelease) void controller.agent?.releaseActions?.();
     controller.agentCursor?.classList.remove('visible', 'is-pressing');
     controller.status?.classList.add('hidden');
   }
@@ -10962,7 +12399,7 @@ function expandRightSidebarForAgentBrowser() {
   notifySidebarLayoutChanged();
 }
 
-function releaseBrowserAgentControl(runId, { userReleased = false } = {}) {
+function releaseBrowserAgentControl(runId, { userReleased = false, skipAgentRelease = false } = {}) {
   const id = String(runId || '');
   if (id && !userReleased) blockedAgentBrowserRuns.delete(id);
   const controller = getAgentBrowserController(id);
@@ -10970,7 +12407,7 @@ function releaseBrowserAgentControl(runId, { userReleased = false } = {}) {
     if (userReleased && id) blockedAgentBrowserRuns.set(id, '用户已按 Esc 退出 Agent 网页操控。');
     return false;
   }
-  return setBrowserAgentControl(controller, false, { runId: id, userReleased });
+  return setBrowserAgentControl(controller, false, { runId: id, userReleased, skipAgentRelease });
 }
 
 document.addEventListener('keydown', event => {
@@ -11041,7 +12478,7 @@ async function resolveBrowserUrl(input, runCtx) {
   return 'file:///' + encodeURI(norm.replace(/^([a-zA-Z]:)/, '$1'));
 }
 
-async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '' } = {}) {
+async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', operationId = '' } = {}) {
   const ownerRunId = String(runId || runCtx?.runId || '');
   if (!ownerRunId) {
     return { ok: false, error: '内置浏览器缺少当前 Agent 任务身份。', code: 'BROWSER_RUN_ID_REQUIRED' };
@@ -11079,7 +12516,10 @@ async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '' } 
   setRightSidebarOpen(true);
   setBrowserAgentControl(browser, true, { runId: ownerRunId });
   try {
-    const navigation = await browser.navigate(url, { waitForLoad: true });
+    const navigation = browser.agent?.enqueueAction
+      ? await browser.agent.enqueueAction(operationId, signal => browser.navigate(url, { waitForLoad: true, signal }))
+      : await browser.navigate(url, { waitForLoad: true });
+    if (!navigation?.url) return navigation;
     return {
       ok: true,
       url: navigation?.url || url,
@@ -11096,8 +12536,15 @@ async function executeBrowserAgentCommand(detail = {}) {
   const action = String(detail.action || '');
   const params = detail.params && typeof detail.params === 'object' ? detail.params : {};
   const runId = String(params.yan_run_id || '');
+  const operationId = String(detail.operationId || detail.requestId || '');
+  if (action === 'cancel') {
+    const controller = getAgentBrowserController(runId);
+    return { ok: true, cancelled: !!controller?.agent?.cancelOperation?.(params.operation_id || operationId) };
+  }
   if (action === 'release') {
-    return { ok: releaseBrowserAgentControl(runId), released: true };
+    const controller = getAgentBrowserController(runId);
+    const cancelled = controller?.agent ? await controller.agent.releaseActions() : null;
+    return { ok: releaseBrowserAgentControl(runId, { skipAgentRelease: true }), released: true, cancelled };
   }
   if (action === 'open') {
     const target = params.target_type === 'search'
@@ -11105,6 +12552,7 @@ async function executeBrowserAgentCommand(detail = {}) {
       : params.url_or_path;
     return agentOpenBuiltinBrowser(target, {
       runId,
+      operationId,
       runCtx: findRunCtxByRunId(runId) || {
         runId,
         workspace: state.currentSession?.workspace || state.config?.workspace || ''
@@ -11130,7 +12578,7 @@ async function executeBrowserAgentCommand(detail = {}) {
 
   const runAgentAction = async operation => {
     try {
-      return await operation();
+      return await agent.enqueueAction(operationId, operation);
     } finally {
       if (controller.agentControlActive) controller.agentInputShield?.focus({ preventScroll: true });
     }
@@ -11172,19 +12620,27 @@ async function executeBrowserAgentCommand(detail = {}) {
       agentControlled: controller.agentControlActive
     };
   }
-  if (action === 'back') {
-    if (!controller.webview?.canGoBack?.()) return { ok: false, error: '当前页面没有可返回的历史记录。', code: 'BROWSER_CANNOT_GO_BACK' };
-    controller.webview.goBack();
-  } else if (action === 'forward') {
-    if (!controller.webview?.canGoForward?.()) return { ok: false, error: '当前页面没有可前进的历史记录。', code: 'BROWSER_CANNOT_GO_FORWARD' };
-    controller.webview.goForward();
-  } else if (action === 'reload') {
-    controller.webview?.reload?.();
-  } else {
-    return { ok: false, error: `不支持的内置浏览器操作：${action}`, code: 'UNKNOWN_BROWSER_ACTION' };
-  }
-  await agent.waitForSettle(1_500);
-  return { ok: true, url: controller.webview?.getURL?.() || '' };
+  return runAgentAction(async () => {
+    if (!['back', 'forward', 'reload'].includes(action)) {
+      return { ok: false, error: `不支持的内置浏览器操作：${action}`, code: 'UNKNOWN_BROWSER_ACTION' };
+    }
+    if (action === 'back') {
+      if (!controller.webview?.canGoBack?.()) return { ok: false, error: '当前页面没有可返回的历史记录。', code: 'BROWSER_CANNOT_GO_BACK' };
+    } else if (action === 'forward' && !controller.webview?.canGoForward?.()) {
+      return { ok: false, error: '当前页面没有可前进的历史记录。', code: 'BROWSER_CANNOT_GO_FORWARD' };
+    }
+    const navigation = agent.waitForNavigation(5_000);
+    if (action === 'back') {
+      controller.webview.goBack();
+    } else if (action === 'forward') {
+      controller.webview.goForward();
+    } else if (action === 'reload') {
+      controller.webview?.reload?.();
+    }
+    const navigationCompleted = await navigation;
+    await agent.waitForSettle(1_500);
+    return { ok: true, url: controller.webview?.getURL?.() || '', navigationCompleted, pageState: await agent.pageState() };
+  });
 }
 
 api.onBrowserAgentCommand?.((detail = {}) => {
@@ -11355,7 +12811,7 @@ function createBrowserTabController(tab) {
     void syncBrowserHorizontalScroll(controller);
   }, 320);
 
-  const loadOnce = (url) => new Promise((resolve, reject) => {
+  const loadOnce = (url, { signal } = {}) => new Promise((resolve, reject) => {
     let targetNavigationStarted = false;
     const timer = setTimeout(() => finish(new Error('加载超时（15 秒）')), 15000);
     const cleanup = () => {
@@ -11363,6 +12819,7 @@ function createBrowserTabController(tab) {
       webview.removeEventListener('did-start-navigation', onStartNavigation);
       webview.removeEventListener('did-finish-load', onFinish);
       webview.removeEventListener('did-fail-load', onFail);
+      signal?.removeEventListener('abort', onAbort);
       controller.waitingForLoad = false;
     };
     const finish = (error) => {
@@ -11390,15 +12847,21 @@ function createBrowserTabController(tab) {
       error.url = event.validatedURL || url;
       finish(error);
     };
+    const onAbort = () => finish(new DOMException('Browser navigation cancelled', 'AbortError'));
     controller.waitingForLoad = true;
     webview.addEventListener('did-start-navigation', onStartNavigation);
     webview.addEventListener('did-finish-load', onFinish);
     webview.addEventListener('did-fail-load', onFail);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     if (webview.getURL?.() === url) webview.reload();
     else webview.src = url;
   });
 
-  controller.navigate = async (input, { waitForLoad = false, retryNetwork = true } = {}) => {
+  controller.navigate = async (input, { waitForLoad = false, retryNetwork = true, signal } = {}) => {
     const url = normalizeBrowserAddress(input);
     if (!url) return { url: '' };
     await waitForBrowserDomReady(controller);
@@ -11410,12 +12873,12 @@ function createBrowserTabController(tab) {
       return { url };
     }
     try {
-      return await loadOnce(url);
+      return await loadOnce(url, { signal });
     } catch (error) {
       if (retryNetwork && error.code === -100 && typeof api.browserRecoverNetwork === 'function') {
         const recovered = await api.browserRecoverNetwork(error.url || url).catch(() => null);
         console.warn(`[browser] connection closed; refreshed system proxy (${recovered?.proxy || 'unknown'}) and retrying ${url}`);
-        return loadOnce(url);
+        return loadOnce(url, { signal });
       }
       throw error;
     }
@@ -11608,6 +13071,7 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
       blockedAgentBrowserRuns.set(ownerRunId, '用户已关闭 Agent 专属浏览器标签页。');
     }
   }
+  void controller.agent?.releaseActions?.();
   controller.observer?.disconnect();
   cancelAnimationFrame(controller.resizeFrame);
   cancelAnimationFrame(controller.scrollCommandFrame);
@@ -11616,68 +13080,6 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
   browserTabControllers.delete(tabId);
   updateBrowserFocusControls();
 }
-
-async function agentBrowserSnapshot() {
-  return getAgentBrowserController()?.agent?.snapshot?.() || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserReadPage() {
-  return getAgentBrowserController()?.agent?.readPage?.() || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserClick(ref) {
-  return getAgentBrowserController()?.agent?.click?.(ref) || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserType(ref, text) {
-  return getAgentBrowserController()?.agent?.type?.(ref, text) || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserPress(key) {
-  return getAgentBrowserController()?.agent?.press?.(key) || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserScroll(direction, amount) {
-  return getAgentBrowserController()?.agent?.scroll?.(direction, amount) || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserWait(ms, text) {
-  return getAgentBrowserController()?.agent?.wait?.(ms, text) || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-async function agentBrowserScreenshot() {
-  return getAgentBrowserController()?.agent?.screenshot?.() || { ok: false, error: '内置浏览器 Agent 桥接尚未初始化。' };
-}
-
-// ============================================================
-// Computer Control entry
-// ============================================================
-async function enterComputerControl({ targetHwnd, targetTitle }) {
-  const { decision, useVisionRelay } = await requestAgentPermission({
-    title: '进入电脑操控模式',
-    description: `Agent 即将开始操控窗口：${targetTitle || '未命名窗口'}。你可以随时移动鼠标、操作其他软件，Agent 会自行找回该窗口继续工作。`,
-    detail: `窗口句柄: ${targetHwnd || '自动选择'}`,
-    allowAlways: false,
-    visionRelay: {
-      show: true,
-      checked: true,
-      description: 'Yan Agent 视觉中继完全免费。若当前模型支持多模态，可关闭以直接由主模型看图。'
-    }
-  }, { runId: 'computer-control' });
-
-  if (decision !== 'once' && decision !== 'always') return { ok: false, reason: 'denied' };
-
-  const result = await window.yan.computerStart({ targetHwnd, targetTitle, useVisionRelay });
-  return { ok: result.ok, useVisionRelay };
-}
-
-window.enterComputerControl = enterComputerControl;
-window.yan.onComputerControlConfirmation = async (payload) => {
-  return enterComputerControl({
-    targetHwnd: payload?.targetHwnd,
-    targetTitle: payload?.targetTitle
-  });
-};
 
 // ============================================================
 // Boot

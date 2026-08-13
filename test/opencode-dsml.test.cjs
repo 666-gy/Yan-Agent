@@ -350,3 +350,17 @@ test('selects the local DSML provider only for DeepSeek models', () => {
   assert.match(deepseek.provider.deepseek.npm, /opencode-dsml-provider\.mjs$/);
   assert.equal(qwen.provider.qwen.npm, '@ai-sdk/openai-compatible');
 });
+
+test('configures Anthropic-compatible gateways with the native provider', () => {
+  const config = buildOpenCodeConfig({
+    providerId: 'custom-ark',
+    providerName: '火山方舟',
+    modelId: 'kimi-k2.7-code',
+    apiFormat: 'anthropic',
+    baseUrl: 'https://ark.example.com',
+    apiKey: 'secret-key'
+  });
+  assert.equal(config.provider['custom-ark'].npm, '@ai-sdk/anthropic');
+  assert.equal(config.provider['custom-ark'].options.baseURL, 'https://ark.example.com/v1');
+  assert.equal(config.provider['custom-ark'].options.headers.Authorization, 'Bearer secret-key');
+});

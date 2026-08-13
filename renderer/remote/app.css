@@ -153,28 +153,6 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .icon-btn:active { background: var(--bg-hover); color: var(--text); }
 .chat-topbar .icon-btn:first-child { flex-basis: 38px; width: 38px; height: 38px; }
 
-.list-tools { flex: 0 0 auto; padding: 10px 12px 6px; }
-.search-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 11px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--bg-elev);
-  color: var(--text-faint);
-}
-.search-field:focus-within { border-color: var(--border-strong); color: var(--text-dim); }
-.search-field input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-}
-.search-field input::placeholder { color: var(--text-faint); }
 .session-list {
   flex: 1;
   min-height: 0;

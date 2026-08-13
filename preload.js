@@ -275,11 +275,10 @@ contextBridge.exposeInMainWorld('yan', {
     ipcRenderer.on('opencode:completed', handler);
     return () => ipcRenderer.removeListener('opencode:completed', handler);
   },
-
-  // Computer control
-  computerStart: (opts) => ipcRenderer.invoke('computer:start', opts),
-  computerStop: () => ipcRenderer.invoke('computer:stop'),
-  computerStatus: () => ipcRenderer.invoke('computer:status')
+  setComputerUseActive: (runId, active) => ipcRenderer.send('computer-use:visual-state', {
+    runId: String(runId || ''),
+    active: !!active
+  })
 });
 
 contextBridge.exposeInMainWorld('electronAPI', {

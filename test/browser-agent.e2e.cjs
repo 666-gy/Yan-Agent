@@ -23,42 +23,22 @@ const addMenuScreenshotPath = path.join(os.tmpdir(), `yan-composer-add-menu-${Da
 const targetScreenshotPath = path.join(os.tmpdir(), `yan-browser-agent-target-${Date.now()}.png`);
 
 async function command(page, runId, action, params = {}) {
-  const tools = {
-    open: 'open_builtin_browser',
-    snapshot: 'browser_snapshot',
-    read_page: 'browser_read_page',
-    click: 'browser_click',
-    type: 'browser_type',
-    select: 'browser_select',
-    check: 'browser_check',
-    hover: 'browser_hover',
-    focus: 'browser_focus',
-    drag: 'browser_drag',
-    pointer: 'browser_pointer',
-    press: 'browser_press',
-    scroll: 'browser_scroll',
-    wait: 'browser_wait',
-    screenshot: 'browser_screenshot',
-    inspect_page: 'browser_inspect_page',
-    history: 'browser_history',
-    status: 'browser_status'
-  };
-  const toolName = tools[action];
-  assert.ok(toolName, `No MCP tool mapping for ${action}`);
-  return page.evaluate(async ({ runId: id, tool, params: input }) => {
-      const response = await window.yan.mcpCallTool(
-        'yan_browser',
-        tool,
-        input,
-        id
-    );
-    if (response?.error) return { ok: false, error: response.error, code: response.code || 'MCP_CALL_FAILED' };
-    let parsed;
-    try { parsed = JSON.parse(response?.result || '{}'); }
-    catch { parsed = { ok: !response?.isError, output: String(response?.result || '') }; }
-    if (response?.images?.[0]) parsed.image = response.images[0];
-    return parsed;
-  }, { runId, tool: toolName, params });
+  return page.evaluate(({ runId: id, action: browserAction, params: input }) => (
+    executeBrowserAgentCommand({
+      action: browserAction,
+      params: { ...input, yan_run_id: id }
+    })
+  ), { runId, action, params });
+}
+
+async function concurrentCommands(page, runId, commands) {
+  return page.evaluate(({ runId: id, commands: browserCommands }) => Promise.all(
+    browserCommands.map((entry, index) => executeBrowserAgentCommand({
+      requestId: `${id}-concurrent-${index}`,
+      action: entry.action,
+      params: { ...(entry.params || {}), yan_run_id: id }
+    }))
+  ), { runId, commands });
 }
 
 async function releaseCommand(page, runId) {
@@ -104,10 +84,25 @@ async function guestState(page, tabId) {
       }
     });
     const page = await application.firstWindow();
-    await page.waitForFunction(() => (
-      typeof openBrowserUrlInNewTab === 'function'
-      && typeof executeBrowserAgentCommand === 'function'
-    ));
+    const rendererErrors = [];
+    page.on('pageerror', error => rendererErrors.push(error?.stack || error?.message || String(error)));
+    page.on('console', message => {
+      if (message.type() === 'error') rendererErrors.push(message.text());
+    });
+    try {
+      await page.waitForFunction(() => {
+        try {
+          return typeof openBrowserUrlInNewTab === 'function'
+            && typeof executeBrowserAgentCommand === 'function'
+            && browserTabControllers instanceof Map
+            && document.readyState === 'complete';
+        } catch {
+          return false;
+        }
+      }, null, { timeout: 10_000 });
+    } catch (error) {
+      throw new Error(`Yan Renderer did not finish browser initialization: ${rendererErrors.join('\n') || error.message}`);
+    }
     const kernel = await page.evaluate(() => window.yan.getConfig().then(config => config.executionKernel));
     assert.equal(kernel.id, 'yan-kernel');
     assert.equal(kernel.name, 'Yan Kernel');
@@ -115,54 +110,61 @@ async function guestState(page, tabId) {
     assert.equal(kernel.engine, 'opencode');
     assert.equal(kernel.engineVersion, '1.18.11');
 
-    const retiredDesktopControl = await page.evaluate(async () => {
-      const [config, servers, catalog] = await Promise.all([
+    const computerControlIntegration = await page.evaluate(async () => {
+      const [config, servers, installedSkills, marketSkills] = await Promise.all([
         window.yan.getConfig(),
         window.yan.mcpList(),
-        window.yan.getSkillCatalog()
+        window.yan.listSkills(),
+        window.yan.getSkillMarket()
       ]);
       return {
         hasLegacyConfig: Object.hasOwn(config, 'computerUseV3'),
         hasLegacyMcp: servers.some(server => server.id === 'mcp_default_windows'),
-        hasLegacySkill: [...(catalog.installed || []), ...(catalog.market || [])]
+        hasComputerControlMcp: servers.some(server => server.id === 'nuphus-desktop'),
+        hasComputerUseSkill: [...(installedSkills || []), ...(marketSkills || [])]
           .some(skill => skill.id === 'yan-computer-use'),
         hasLegacySettings: !!document.querySelector('#computerUseV3Enabled, #computerUseV3Actor')
       };
     });
-    assert.deepEqual(retiredDesktopControl, {
-      hasLegacyConfig: false,
-      hasLegacyMcp: false,
-      hasLegacySkill: false,
-      hasLegacySettings: false
-    });
+    if (process.env.YAN_BROWSER_E2E_SKIP_COMPUTER_CONTROL_CHECK !== '1') {
+      assert.deepEqual(computerControlIntegration, {
+        hasLegacyConfig: false,
+        hasLegacyMcp: false,
+        hasComputerControlMcp: true,
+        hasComputerUseSkill: true,
+        hasLegacySettings: false
+      });
+    }
 
-    await page.locator('#attachBtn').click();
-    const addMenuHeadings = await page.evaluate(() => {
-      const add = document.querySelector('#composerAddSectionTitle');
-      const skill = document.querySelector('#composerSkillSectionTitle')?.closest('.composer-add-section-title');
-      const summarize = element => {
-        const style = getComputedStyle(element);
-        return {
-          minHeight: style.minHeight,
-          padding: style.padding,
-          color: style.color,
-          fontSize: style.fontSize,
-          fontWeight: style.fontWeight,
-          backgroundColor: style.backgroundColor
+    if (process.env.YAN_BROWSER_E2E_SKIP_COMPUTER_CONTROL_CHECK !== '1') {
+      await page.locator('#attachBtn').click();
+      const addMenuHeadings = await page.evaluate(() => {
+        const add = document.querySelector('#composerAddSectionTitle');
+        const skill = document.querySelector('#composerSkillSectionTitle')?.closest('.composer-add-section-title');
+        const summarize = element => {
+          const style = getComputedStyle(element);
+          return {
+            minHeight: style.minHeight,
+            padding: style.padding,
+            color: style.color,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            backgroundColor: style.backgroundColor
+          };
         };
-      };
-      return {
-        addText: add?.textContent?.trim(),
-        skillText: skill?.textContent?.trim(),
-        add: summarize(add),
-        skill: summarize(skill)
-      };
-    });
-    assert.equal(addMenuHeadings.addText, '添加');
-    assert.equal(addMenuHeadings.skillText, '技能');
-    assert.deepEqual(addMenuHeadings.skill, addMenuHeadings.add);
-    await page.screenshot({ path: addMenuScreenshotPath });
-    await page.locator('#attachBtn').click();
+        return {
+          addText: add?.textContent?.trim(),
+          skillText: skill?.textContent?.trim(),
+          add: summarize(add),
+          skill: summarize(skill)
+        };
+      });
+      assert.equal(addMenuHeadings.addText, '添加');
+      assert.equal(addMenuHeadings.skillText, '技能');
+      assert.deepEqual(addMenuHeadings.skill, addMenuHeadings.add);
+      await page.screenshot({ path: addMenuScreenshotPath });
+      await page.locator('#attachBtn').click();
+    }
 
     const mcpReady = await page.evaluate(async () => {
       const servers = await window.yan.mcpList();
@@ -233,6 +235,7 @@ async function guestState(page, tabId) {
     const ref = name => itemNamed(name)?.ref;
     const canvasItem = snapshot.items.find(item => item.name === 'Test canvas');
     assert.ok(ref('Name'));
+    assert.ok(ref('Password'));
     assert.ok(ref('Run action'));
     assert.ok(ref('Mode'));
     assert.ok(ref('Enable feature'));
@@ -240,18 +243,40 @@ async function guestState(page, tabId) {
     assert.ok(ref('Drag source'));
     assert.ok(ref('Drop target'));
     assert.ok(canvasItem?.ref);
+    const passwordItem = itemNamed('Password');
+    assert.equal(passwordItem.state.value, undefined);
+    assert.equal(passwordItem.state.hasValue, true);
+    assert.equal(snapshot.output.includes('fixture-secret'), false);
 
-    await command(page, runId, 'type', { ref: ref('Name'), text: 'Yan Agent' });
-    await command(page, runId, 'select', { ref: ref('Mode'), value: 'advanced' });
-    await command(page, runId, 'check', { ref: ref('Enable feature'), checked: true });
-    await command(page, runId, 'hover', { ref: ref('Hover target') });
-    await command(page, runId, 'drag', { from_ref: ref('Drag source'), to_ref: ref('Drop target') });
+    const freshSnapshot = await command(page, runId, 'snapshot');
+    assert.equal(freshSnapshot.ok, true);
+    assert.notEqual(freshSnapshot.snapshotId, snapshot.snapshotId);
+    assert.equal(freshSnapshot.items.some(item => snapshot.items.some(previous => previous.ref === item.ref)), false);
+    const staleRef = await command(page, runId, 'focus', { ref: ref('Name') });
+    assert.equal(staleRef.ok, false);
+    assert.equal(staleRef.code, 'STALE_REF');
+    const freshItemNamed = name => freshSnapshot.items.find(item => String(item.name || '').includes(name));
+    const freshRef = name => freshItemNamed(name)?.ref;
+    const freshCanvasItem = freshSnapshot.items.find(item => item.name === 'Test canvas');
+
+    const typed = await command(page, runId, 'type', { ref: freshRef('Name'), text: 'Yan Agent' });
+    assert.equal(typed.pageState.target.value, 'Yan Agent');
+    assert.equal(typed.pageState.snapshotRequired, false);
+    const passwordTyped = await command(page, runId, 'type', { ref: freshRef('Password'), text: 'new-secret' });
+    assert.equal(passwordTyped.pageState.target.value, '[redacted]');
+    assert.equal(JSON.stringify(passwordTyped).includes('new-secret'), false);
+    const selected = await command(page, runId, 'select', { ref: freshRef('Mode'), value: 'advanced' });
+    assert.equal(selected.pageState.target.value, 'advanced');
+    const checked = await command(page, runId, 'check', { ref: freshRef('Enable feature'), checked: true });
+    assert.equal(checked.pageState.target.checked, true);
+    await command(page, runId, 'hover', { ref: freshRef('Hover target') });
+    await command(page, runId, 'drag', { from_ref: freshRef('Drag source'), to_ref: freshRef('Drop target') });
     await page.evaluate(id => {
       const agent = browserTabControllers.get(id).agent;
       agent.__e2eSendMouse = agent.sendMouse;
       agent.sendMouse = () => {};
     }, agentTabId);
-    const verifiedClick = await command(page, runId, 'click', { ref: ref('Run action') });
+    const verifiedClick = await command(page, runId, 'click', { ref: freshRef('Run action') });
     await page.evaluate(id => {
       const agent = browserTabControllers.get(id).agent;
       agent.sendMouse = agent.__e2eSendMouse;
@@ -261,13 +286,14 @@ async function guestState(page, tabId) {
     assert.equal(verifiedClick.delivery, 'verified-dom-fallback');
     assert.equal(verifiedClick.eventReceived, true);
     assert.equal(verifiedClick.pageChanged, true);
+    assert.equal(verifiedClick.pageState.changed, true);
     await page.evaluate(async id => {
       await browserTabControllers.get(id).webview.executeJavaScript(
         "document.getElementById('actionButton').disabled = true",
         true
       );
     }, agentTabId);
-    const rejectedClick = await command(page, runId, 'click', { ref: ref('Run action') });
+    const rejectedClick = await command(page, runId, 'click', { ref: freshRef('Run action') });
     assert.equal(rejectedClick.ok, false);
     assert.equal(rejectedClick.code, 'CLICK_NOT_DELIVERED');
     await page.evaluate(async id => {
@@ -296,7 +322,7 @@ async function guestState(page, tabId) {
     assert.equal(heldKey.keydownReceived, true);
     assert.equal(heldKey.keyupReceived, true);
     assert.ok(heldKey.durationMs >= 240);
-    await command(page, runId, 'pointer', { action: 'click', x: canvasItem.rect.x, y: canvasItem.rect.y });
+    await command(page, runId, 'pointer', { action: 'click', x: freshCanvasItem.rect.x, y: freshCanvasItem.rect.y });
     await command(page, runId, 'scroll', { direction: 'down', amount: 600 });
     const waited = await command(page, runId, 'wait', { text: 'action complete', timeout_ms: 1200 });
     assert.equal(waited.ok, true);
@@ -315,6 +341,32 @@ async function guestState(page, tabId) {
     assert.equal(state.keyboard.held, false);
     assert.ok(state.scrollY > 0);
 
+    const queueStartedAt = Date.now();
+    const [firstWait, secondWait] = await concurrentCommands(page, runId, [
+      { action: 'wait', params: { timeout_ms: 500 } },
+      { action: 'wait', params: { timeout_ms: 500 } }
+    ]);
+    assert.equal(firstWait.ok, true);
+    assert.equal(secondWait.ok, true);
+    assert.ok(Date.now() - queueStartedAt >= 900, 'Concurrent browser actions must execute serially');
+
+    const cancellation = await page.evaluate(async ({ runId: id }) => {
+      const controller = getAgentBrowserController(id);
+      const operationId = `${id}-cancel-one`;
+      const pending = executeBrowserAgentCommand({
+        requestId: operationId,
+        action: 'wait',
+        params: { yan_run_id: id, timeout_ms: 5000 }
+      });
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const cancelled = controller.agent.cancelOperation(operationId);
+      return { cancelled, result: await pending };
+    }, { runId });
+    assert.equal(cancellation.cancelled, true);
+    assert.equal(cancellation.result.code, 'BROWSER_ACTION_CANCELLED');
+    const afterCancel = await command(page, runId, 'status');
+    assert.equal(afterCancel.ok, true);
+
     const inspection = await command(page, runId, 'inspect_page');
     assert.equal(inspection.ok, true);
     assert.ok(inspection.brokenImages.length >= 1);
@@ -323,13 +375,22 @@ async function guestState(page, tabId) {
     assert.ok(inspection.canvases[0].sample.pixelCoverage < 0.1);
     assert.ok(inspection.canvases[0].warnings.some(message => message.includes('transparent or unpainted')));
     assert.ok(inspection.diagnostics.console.some(entry => String(entry.message || entry).includes('fixture console diagnostic')));
+    const returnedToTop = await command(page, runId, 'scroll', { direction: 'up', amount: 1200 });
+    assert.equal(returnedToTop.ok, true);
     const screenshot = await command(page, runId, 'screenshot');
     assert.equal(screenshot.ok, true);
     assert.ok(screenshot.image.data.length > 1000);
     assert.equal(screenshot.captureState.title, 'Yan Browser Agent Fixture');
     assert.ok(screenshot.captureState.text.includes('action complete'));
-
     await page.screenshot({ path: screenshotPath });
+
+    const reloaded = await command(page, runId, 'reload');
+    assert.equal(reloaded.ok, true);
+    assert.equal(reloaded.navigationCompleted, true);
+    const staleAfterNavigation = await command(page, runId, 'focus', { ref: freshRef('Name') });
+    assert.equal(staleAfterNavigation.ok, false);
+    assert.equal(staleAfterNavigation.code, 'STALE_REF');
+
     const finalPointer = await application.evaluate(({ screen }) => screen.getCursorScreenPoint());
     assert.deepEqual(finalPointer, initialPointer);
     const cursorVisible = await page.evaluate(id => {
@@ -357,8 +418,27 @@ async function guestState(page, tabId) {
     const releaseRunId = 'browser-e2e-release';
     const releaseOpened = await command(page, releaseRunId, 'open', { target_type: 'url', url_or_path: agentUrl });
     assert.equal(releaseOpened.ok, true);
-    const released = await releaseCommand(page, releaseRunId);
+    const releaseOutcome = await page.evaluate(async id => {
+      const first = executeBrowserAgentCommand({
+        requestId: `${id}-release-first`,
+        action: 'wait',
+        params: { yan_run_id: id, timeout_ms: 5000 }
+      });
+      const second = executeBrowserAgentCommand({
+        requestId: `${id}-release-second`,
+        action: 'wait',
+        params: { yan_run_id: id, timeout_ms: 5000 }
+      });
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const released = await executeBrowserAgentCommand({ action: 'release', params: { yan_run_id: id } });
+      return { released, results: await Promise.all([first, second]) };
+    }, releaseRunId);
+    const released = releaseOutcome.released;
     assert.equal(released.ok, true);
+    assert.deepEqual(releaseOutcome.results.map(result => result.code), [
+      'BROWSER_ACTION_CANCELLED',
+      'BROWSER_ACTION_CANCELLED'
+    ]);
     const releaseState = await page.evaluate(id => {
       const root = document.querySelector(`[data-browser-tab-id="${id}"]`);
       return { exists: !!root, controlled: root?.classList.contains('agent-controlled') };

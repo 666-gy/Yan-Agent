@@ -20,10 +20,13 @@ const requiredVisibleIds = [
   'market-anysearch',
   'officecli',
   'remotion-best-practices',
+  'greensock-gsap',
+  'ui-ux-pro-max',
   'yan-codegraph',
   'yan-prompt-optimizer',
   'yan-react-bits',
   'yan-serena',
+  'yan-computer-use',
   'yan-uiverse',
   'yan-understand-anything'
 ].sort();
@@ -58,6 +61,10 @@ function assertCatalogMetadata() {
   const visibleIds = all.filter(skill => !skill.hidden).map(skill => skill.id).sort();
   const internalIds = all.filter(skill => skill.hidden).map(skill => skill.id).sort();
 
+  const computerUse = all.find(skill => skill.id === 'yan-computer-use');
+  assert.strictEqual(skillRegistry.resolveSkillLogo(computerUse), 'assets/skill-logos/computer-use.png');
+  assert.ok(fs.existsSync(path.join(appRoot, 'renderer', 'assets', 'skill-logos', 'computer-use.png')));
+
   assert.strictEqual(market.length, 0, 'prompt-only market entries must not return');
   assert.strictEqual(new Set(all.map(skill => skill.id)).size, retainedIds.length);
   for (const skill of all) {
@@ -79,7 +86,12 @@ function assertCatalogMetadata() {
     ['hyperframes-registry', 'references/discovery.md'],
     ['website-to-hyperframes', 'references/step-7-validate.md'],
     ['remotion-best-practices', 'rules/3d.md'],
-    ['remotion-best-practices', 'rules/voiceover.md']
+    ['remotion-best-practices', 'rules/voiceover.md'],
+    ['greensock-gsap', 'SKILL.md'],
+    ['ui-ux-pro-max', 'data/styles.csv'],
+    ['ui-ux-pro-max', 'data/stacks/threejs.csv'],
+    ['ui-ux-pro-max', 'references/quick-reference.md'],
+    ['ui-ux-pro-max', 'scripts/search.py']
   ];
   for (const [id, relativePath] of expectedPackages) {
     assert.ok(fs.existsSync(path.join(appRoot, 'lib', 'skills', id, relativePath)), `${id} is missing ${relativePath}`);
@@ -165,6 +177,15 @@ function assertRetiredMigration() {
     assert.strictEqual(remotion.ok, true);
     assert.ok(remotion.prompt.includes('do not install Remotion or its Agent Skills globally'));
     assert.ok(remotion.prompt.includes(path.join(appRoot, 'lib', 'skills', 'remotion-best-practices')));
+
+    const uiux = skillRegistry.readSkill('ui-ux-pro-max', 'build a responsive dashboard', cfg, appRoot, dataDir);
+    assert.strictEqual(uiux.ok, true);
+    assert.ok(uiux.prompt.includes(path.join(appRoot, 'lib', 'skills', 'ui-ux-pro-max', 'scripts', 'search.py')));
+    assert.ok(!uiux.prompt.includes('${CLAUDE_PLUGIN_ROOT}'));
+
+    const gsap = skillRegistry.readSkill('greensock-gsap', 'add a scroll reveal animation', cfg, appRoot, dataDir);
+    assert.strictEqual(gsap.ok, true);
+    assert.ok(gsap.prompt.includes(path.join(appRoot, 'lib', 'skills', 'greensock-gsap')));
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

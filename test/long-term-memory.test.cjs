@@ -113,3 +113,61 @@ test('storage rejects prompt injection and credential-bearing memory', t => {
   }).ok, false);
 });
 
+test('rollback removes only the matching refinement source', t => {
+  const fixture = createStore();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const memory = {
+    key: 'project.verify.command',
+    type: 'project',
+    scope: 'workspace',
+    content: 'The verified project command is npm run verify.',
+    confidence: 0.95
+  };
+  fixture.store.upsert(memory, {
+    workspace: fixture.workspaceA,
+    runId: 'run-1',
+    refinementId: 'refine-1'
+  });
+  fixture.store.upsert(memory, {
+    workspace: fixture.workspaceA,
+    runId: 'run-2',
+    refinementId: 'refine-2'
+  });
+  assert.equal(fixture.store.list({ workspace: fixture.workspaceA })[0].occurrences, 2);
+  assert.equal(fixture.store.removeBySource({
+    workspace: fixture.workspaceA,
+    refinementId: 'refine-1'
+  }).removed, 0);
+  const retained = fixture.store.list({ workspace: fixture.workspaceA })[0];
+  assert.equal(retained.occurrences, 1);
+  assert.equal(retained.source.refinementId, 'refine-2');
+  assert.equal(fixture.store.removeBySource({
+    workspace: fixture.workspaceA,
+    refinementId: 'refine-2'
+  }).removed, 1);
+  assert.equal(fixture.store.list({ workspace: fixture.workspaceA }).length, 0);
+});
+
+test('rolling back a corrected fact reactivates the superseded fact', t => {
+  const fixture = createStore();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  fixture.store.upsert({
+    key: 'project.build.command',
+    type: 'project',
+    scope: 'workspace',
+    content: 'The original verified build command is npm run build.',
+    confidence: 0.9
+  }, { workspace: fixture.workspaceA, refinementId: 'refine-original' });
+  fixture.store.upsert({
+    key: 'project.build.command',
+    type: 'project',
+    scope: 'workspace',
+    content: 'The corrected verified build command is npm run verify.',
+    confidence: 0.95
+  }, { workspace: fixture.workspaceA, refinementId: 'refine-correction' });
+  fixture.store.removeBySource({ workspace: fixture.workspaceA, refinementId: 'refine-correction' });
+  const active = fixture.store.list({ workspace: fixture.workspaceA });
+  assert.equal(active.length, 1);
+  assert.match(active[0].content, /npm run build/);
+  assert.equal(active[0].status, 'active');
+});

@@ -171,3 +171,33 @@ test('fetchRemoteModelCatalog accepts a double-encoded successful response', asy
   assert.equal(request.url, 'https://relay.example/v1/models');
   assert.equal(request.options.headers.Authorization, 'Bearer secret-key');
 });
+
+test('fetchRemoteModelCatalog uses Anthropic gateway URL and authentication headers', async () => {
+  let request = null;
+  const models = await fetchRemoteModelCatalog({
+    baseUrl: 'https://ark.example.com',
+    apiKey: 'anthropic-key',
+    apiFormat: 'anthropic',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ data: [{ id: 'kimi-k2.7-code' }] })
+      };
+    }
+  });
+  assert.deepEqual(models, [{ id: 'kimi-k2.7-code', name: 'kimi-k2.7-code' }]);
+  assert.equal(request.url, 'https://ark.example.com/v1/models');
+  assert.equal(request.options.headers.Authorization, 'Bearer anthropic-key');
+  assert.equal(request.options.headers['x-api-key'], 'anthropic-key');
+  assert.equal(request.options.headers['anthropic-version'], '2023-06-01');
+});
+
+test('remote model catalogs omit models marked unavailable by the provider', () => {
+  assert.deepEqual(normalizeRemoteModels([
+    { id: 'available', status: 'active' },
+    { id: 'shutdown-model', status: 'shutdown' },
+    { id: 'deprecated-model', status: 'deprecated' }
+  ]), [{ id: 'available', name: 'available' }]);
+});

@@ -117,7 +117,9 @@ test('normalization accepts durable evidence and rejects transient, sensitive, o
         transient: false
       }
     ],
-    skillCandidate: null
+    skillCandidate: null,
+    harnessCandidates: [],
+    refinementOutcomes: []
   }, 'C:\\workspace');
 
   assert.deepEqual(review.memories.map(item => item.key), [
@@ -154,7 +156,9 @@ test('memory reviewer uses an isolated no-tool session and deletes it after stru
             sensitive: false,
             transient: false
           }],
-          skillCandidate: null
+          skillCandidate: null,
+          harnessCandidates: [],
+          refinementOutcomes: []
         } } } };
       },
       delete: async payload => {

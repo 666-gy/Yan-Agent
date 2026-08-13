@@ -62,12 +62,12 @@
     {
       "id": "yan-computer-use",
       "name": "Yan Computer Use",
-      "desc": "让 Yan Agent 操控用户本地 Windows 电脑上的软件，不锁定键鼠，支持 Esc 退出。",
-      "prompt": "用户使用 Yan Computer Use 时请调用 start_computer_use 启动电脑操控。启动前会通过高危命令面板询问是否使用视觉中继。操控期间不锁定用户键鼠；若目标窗口被覆盖，系统会自动找回。用户按 Esc 即可退出。",
+      "desc": "使用官方 Nuphus MCP 原生桌面工具操控 Windows 软件。",
+      "logo": "assets/skill-logos/computer-use.png",
+      "prompt": "使用常驻 nuphus-desktop MCP 的原生 desktop_* 工具。先 desktop_windows_list 并激活目标窗口，再用 desktop_vision 理解界面、desktop_perceive 获取精确坐标；点击只能采用 perceive 返回的 center。执行动作后界面变化才重新观察，最后做一次有针对性的视觉验收。桌面任务不得改用网页工具。官方项目：https://github.com/mrpulor-gh/nuphus-mcp",
+      "repo": "mrpulor-gh/nuphus-mcp",
       "tags": [
-        "computer-use",
-        "windows",
-        "automation"
+        "agent-rules"
       ],
       "triggers": [
         "电脑操控",
@@ -76,7 +76,7 @@
         "帮我操作"
       ],
       "tier": "builtin",
-      "version": 1,
+      "version": 3,
       "updatedAt": 1785945600000
     }
   ]

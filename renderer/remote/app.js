@@ -190,13 +190,9 @@ async function switchRemoteModel(modelId) {
 
 function renderSessions() {
   const list = $('sessionList');
-  const query = $('sessionSearch').value.trim().toLowerCase();
-  const sessions = state.sessions.filter((session) => (
-    !query || sessionTitle(session).toLowerCase().includes(query)
-      || workspaceLabel(session.workspace).toLowerCase().includes(query)
-  ));
+  const sessions = state.sessions;
   if (!sessions.length) {
-    list.innerHTML = `<div class="empty">${query ? '没有匹配的任务' : '暂无任务'}</div>`;
+    list.innerHTML = '<div class="empty">暂无任务</div>';
     return;
   }
 
@@ -687,7 +683,6 @@ function autoResizeTextarea(element) {
 $('connectBtn').addEventListener('click', onConnectClick);
 $('passwordInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') onConnectClick(); });
 $('newChatBtn').addEventListener('click', () => onNewChat().catch((error) => showToast(friendlyError(error))));
-$('sessionSearch').addEventListener('input', renderSessions);
 $('backBtn').addEventListener('click', () => { state.activeSessionId = null; showView('listView'); loadSessions().catch(() => {}); });
 $('chatActionsBtn').addEventListener('click', () => { if (state.activeSessionId) openTaskMenu(state.activeSessionId); });
 $('chatModelBtn').addEventListener('click', () => {

@@ -31,7 +31,6 @@ async function launch() {
     const page = await application.firstWindow();
     await page.waitForFunction(() => typeof openSettings === 'function');
     await page.locator('#settingsBtn').click();
-    await page.locator('#settingsMenuOpen').click();
     await page.locator('#settingsOverlay:not(.hidden)').waitFor();
     await page.locator('[data-tab="tone"]').click();
     await page.locator('#tab-tone.active').waitFor();

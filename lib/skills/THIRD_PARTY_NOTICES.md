@@ -121,6 +121,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Nuphus MCP
+
+Yan Agent bundles `@nuphus/nuphus-mcp` version `0.1.11` and its Windows
+platform runtime, copyright mrpulor-gh and contributors, licensed under the
+MIT License.
+
+Source: https://github.com/mrpulor-gh/nuphus-mcp
+
+The package's native runtime and license metadata are distributed with
+`node_modules/@nuphus` in Yan's application bundle.
+
 ## Matt Pocock Agent Skills
 
 Yan Agent bundles `diagnosing-bugs`, `codebase-design`, and
@@ -151,6 +162,21 @@ License.
 Source: https://github.com/greensock/gsap-skills
 
 Bundled revision: `aed9cfd3277740755f6bfc1155c7aa645403b760`
+
+## UI/UX Pro Max
+
+Yan Agent bundles the complete UI/UX Pro Max Skill from
+`nextlevelbuilder/ui-ux-pro-max-skill`, copyright Next Level Builder, licensed
+under the MIT License. The bundle includes its local design databases, Python
+search and design-system scripts, reference documents, and upstream tests.
+
+Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill
+
+Bundled version: `2.13.0`
+Bundled revision: `abb7f2fd5a083fa1ff55c326a963ff0d95c33f99`
+
+The complete upstream license is distributed at
+`lib/skills/ui-ux-pro-max/LICENSE`.
 
 ## Emil Kowalski Agent Skills
 

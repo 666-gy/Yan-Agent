@@ -28,7 +28,6 @@ fs.mkdirSync(outputDir, { recursive: true });
     const page = await application.firstWindow();
     await page.waitForFunction(() => typeof openSettings === 'function');
     await page.locator('#settingsBtn').click();
-    await page.locator('#settingsMenuOpen').click();
     await page.locator('[data-tab="quick-launch"]').click();
     await page.locator('#tab-quick-launch.active').waitFor();
 

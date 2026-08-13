@@ -70,19 +70,21 @@
         </nav>
 
         <div id="sidebarTasksPanel" class="sidebar-panel">
-          <div class="sidebar-search">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input id="searchInput" type="text" placeholder="搜索任务…" />
-          </div>
           <div id="sessionList" class="session-list"></div>
         </div>
 
         <div class="sidebar-bottom">
           <div id="settingsMenuWrap" class="settings-menu-wrap">
-            <button id="settingsBtn" class="bottom-btn" type="button" title="打开设置菜单" aria-label="打开设置菜单" aria-haspopup="menu" aria-expanded="false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              <span class="bottom-btn-label">设置</span>
-            </button>
+            <div class="sidebar-profile-row">
+              <span class="sidebar-user-logo" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c.8-3.2 3.2-5 7.5-5s6.7 1.8 7.5 5" stroke-linecap="round"/></svg>
+              </span>
+              <button id="settingsBtn" class="bottom-btn" type="button" title="打开设置" aria-label="打开设置" aria-expanded="false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span class="bottom-btn-label">设置</span>
+              </button>
+              <input id="userNameInput" class="sidebar-user-name-input" type="text" value="Yanxi" maxlength="32" autocomplete="off" spellcheck="false" aria-label="用户名" title="单击修改用户名" />
+            </div>
             <div id="settingsMenu" class="settings-menu hidden" role="menu" aria-label="Yan Agent 设置菜单">
               <button id="petWindowToggle" class="settings-menu-item" type="button" role="menuitem" title="关闭桌宠" aria-label="关闭桌宠" aria-pressed="true">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c3.7 0 6.5 3.9 6.5 8.5S15.7 20 12 20s-6.5-3.7-6.5-8.3S8.3 3.2 12 3.2Z"/><circle cx="9.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="11.5" r="1" fill="currentColor" stroke="none"/></svg>
@@ -148,6 +150,10 @@
                   <span class="task-tool-logo task-tool-logo-code" aria-hidden="true"><img src="assets/yanxi-code.png" alt="" /></span>
                   <span class="task-tool-copy"><strong>Yanxi Code</strong><small>在代码编辑器中打开</small></span>
                 </button>
+                <button id="taskBarVsCode" class="task-tool-item hidden" type="button" role="menuitem" data-tool="vscode" title="在 VS Code 中打开当前工作区" aria-label="在 VS Code 中打开当前工作区" disabled>
+                  <span class="task-tool-logo task-tool-logo-vscode" aria-hidden="true"><img id="taskBarVsCodeIcon" alt="" /></span>
+                  <span class="task-tool-copy"><strong>VS Code</strong><small>打开并同步当前工作区</small></span>
+                </button>
                 <button id="taskBarTerminal" class="task-tool-item" type="button" role="menuitem" data-tool="powershell" title="打开 PowerShell" aria-label="打开 PowerShell">
                   <span class="task-tool-logo task-tool-logo-terminal" aria-hidden="true"><img src="assets/powershell.png" alt="" /></span>
                   <span class="task-tool-copy"><strong>终端</strong><small>打开电脑上的 PowerShell</small></span>
@@ -158,26 +164,6 @@
                 </button>
               </div>
             </div>
-            <button id="interjectionToggle" class="interjection-trigger" type="button" popovertarget="interjectionPopover" disabled aria-label="Yan Agent Interrupt" title="当前任务未在工作" aria-controls="interjectionPopover" data-state="idle">
-              <svg class="interjection-trigger-mark" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 4h13A2.5 2.5 0 0 1 21 6.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-5.5 3.5V17A2.5 2.5 0 0 1 3 14.5v-8A2.5 2.5 0 0 1 5.5 4Z"/><path d="M7 11h2.3l1.55-3.2 2.35 6.4 1.55-3.2H18"/></svg>
-              <span class="interjection-trigger-lamp" aria-hidden="true"></span>
-            </button>
-            <section id="interjectionPopover" class="interjection-popover" popover="auto" aria-label="Yan Agent Interrupt" data-state="idle">
-              <header class="interjection-header">
-                <div class="interjection-heading">
-                  <strong>Yan Agent Interrupt</strong>
-                  <span class="interjection-status"><span class="interjection-status-lamp" aria-hidden="true"></span><span id="interjectionRunStatus">未在工作</span></span>
-                </div>
-                <button id="interjectionClose" class="interjection-close icon-btn" type="button" popovertarget="interjectionPopover" popovertargetaction="hide" aria-label="关闭 Yan Agent Interrupt">×</button>
-              </header>
-              <div id="interjectionTranscript" class="interjection-transcript" aria-live="polite"></div>
-              <form id="interjectionForm" class="interjection-composer">
-                <textarea id="interjectionInput" rows="1" maxlength="4000" placeholder="询问状态，或引导 Agent 接下来的工作…" aria-label="Yan Agent Interrupt 内容"></textarea>
-                <button id="interjectionSend" class="interjection-send" type="submit" disabled aria-label="发送插话" title="发送插话">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15"/><path d="m13 6 6 6-6 6"/></svg>
-                </button>
-              </form>
-            </section>
           </div>
         </div>
 
@@ -253,7 +239,7 @@
                 </button>
                 <section id="todoProgressPanel" class="todo-progress-panel" role="dialog" aria-label="任务待办" aria-hidden="true">
                   <header class="todo-progress-panel-head">
-                    <strong>待办</strong>
+                    <span class="todo-panel-title"><span class="todo-panel-head-icon" aria-hidden="true"><span></span></span><strong>待办</strong></span>
                     <span id="todoProgressSummary">已完成 0/0</span>
                   </header>
                   <div id="todoList" class="todo-list"></div>
@@ -290,9 +276,9 @@
                     <span id="modelPillSpeed" class="model-pill-speed">标准</span>
                     <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
-                  <section id="modelQuickMenu" class="model-quick-menu hidden" role="dialog" aria-label="模型与推理速度" aria-busy="false">
+                  <section id="modelQuickMenu" class="model-quick-menu hidden" role="dialog" aria-label="模型与供应商选择" aria-busy="false">
                     <div id="modelQuickDefaultView" class="model-quick-view">
-                      <button id="modelQuickAdvancedBtn" class="reasoning-speed-menu-head model-quick-speed-head" type="button" aria-label="展开模型与推理速度设置">
+                      <button id="modelQuickAdvancedBtn" class="reasoning-speed-menu-head model-quick-speed-head" type="button" aria-label="展开模型与供应商选择">
                         <span>推理速度</span>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                       </button>
@@ -310,9 +296,9 @@
                           <span id="modelQuickModelValue" class="model-quick-route-value">—</span>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                         </button>
-                        <button id="modelQuickReasoningRoute" class="model-quick-route" type="button" aria-controls="modelQuickReasoningView" aria-expanded="false">
-                          <span class="model-quick-route-label">推理速度</span>
-                          <span id="modelQuickReasoningValue" class="model-quick-route-value">标准</span>
+                        <button id="modelQuickSupplierRoute" class="model-quick-route" type="button" aria-controls="modelQuickSuppliersView" aria-expanded="false">
+                          <span class="model-quick-route-label">供应商选择</span>
+                          <span id="modelQuickSupplierValue" class="model-quick-route-value">—</span>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                         </button>
                       </div>
@@ -322,18 +308,30 @@
                       </button>
                     </div>
                     <div id="modelQuickModelsView" class="model-quick-view hidden">
+                      <div class="model-quick-subhead">
+                        <button id="modelQuickModelsBack" class="model-quick-subback" type="button" aria-label="返回模型与供应商选择">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+                          <span>模型</span>
+                        </button>
+                      </div>
+                      <div class="mq-search">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+                        <input id="modelQuickSearch" type="text" placeholder="搜索模型…" autocomplete="off" />
+                      </div>
                       <div id="modelQuickList" class="model-quick-list"></div>
-                      <button id="manageModelsBtn" class="model-quick-manage" type="button" hidden>
+                      <button id="manageModelsBtn" class="model-quick-manage" type="button">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.38.26.61.68.6 1.14V13.6h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg>
-                        <span>管理模型与 API</span>
+                        <span>管理模型</span>
                       </button>
                     </div>
-                    <div id="modelQuickReasoningView" class="model-quick-view hidden">
-                      <div class="reasoning-choice-list is-compact" role="group" aria-label="推理速度">
-                        <button type="button" class="reasoning-choice" data-reasoning-mode="balanced" aria-pressed="true">标准</button>
-                        <button type="button" class="reasoning-choice" data-reasoning-mode="fast" aria-pressed="false">高效</button>
-                        <button type="button" class="reasoning-choice" data-reasoning-mode="smart" aria-pressed="false">更智能</button>
+                    <div id="modelQuickSuppliersView" class="model-quick-view hidden">
+                      <div class="model-quick-subhead">
+                        <button id="modelQuickSuppliersBack" class="model-quick-subback" type="button" aria-label="返回模型与供应商选择">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+                          <span>供应商选择</span>
+                        </button>
                       </div>
+                      <div id="modelQuickSupplierList" class="model-quick-list"></div>
                     </div>
                   </section>
                 </div>
@@ -860,15 +858,29 @@
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>
                   <span>审阅</span>
                 </button>
+                <button type="button" role="menuitem" data-rs-open-tool="git">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="4" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="20" r="2"/><path d="M6 6v12M8 6h5a5 5 0 0 1 5 5v-3"/></svg>
+                  <span>Git</span>
+                </button>
+                <button type="button" role="menuitem" data-rs-open-tool="interjection">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></svg>
+                  <span>辅助对话</span>
+                </button>
               </div>
           </div>
           <button id="rightSidebarFocusBtn" class="rs-tabbar-btn right-sidebar-focus-toggle" type="button" title="全屏显示右侧面板" aria-label="全屏显示右侧面板" aria-controls="rightSidebar" aria-pressed="false">
-            <svg class="right-sidebar-focus-expand-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
-            <svg class="right-sidebar-focus-collapse-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"/></svg>
+            <span class="rs-focus-icon-shell" aria-hidden="true">
+              <svg class="rs-focus-icon expand" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+              <svg class="rs-focus-icon collapse" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"/></svg>
+            </span>
           </button>
         </div>
         <div class="rs-content">
           <div id="rightSidebarLauncher" class="rs-launcher active">
+            <div class="rs-launcher-heading">
+              <strong>打开标签页</strong>
+              <span>选择要在侧边面板中打开的标签。</span>
+            </div>
             <div class="rs-launcher-list" aria-label="打开右侧工具">
               <button type="button" data-rs-open-tool="files">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"/></svg>
@@ -882,6 +894,14 @@
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>
                 <span>审阅</span>
               </button>
+              <button type="button" data-rs-open-tool="git">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="4" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="20" r="2"/><path d="M6 6v12M8 6h5a5 5 0 0 1 5 5v-3"/></svg>
+                <span>Git</span>
+              </button>
+              <button type="button" data-rs-open-tool="interjection">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></svg>
+                <span>辅助对话</span>
+              </button>
             </div>
           </div>
           <div id="rs-files" class="rs-panel" role="tabpanel" aria-label="文件">
@@ -889,6 +909,102 @@
               <div class="rs-empty">未设置工作区</div>
             </div>
           </div>
+          <section id="rs-git" class="rs-panel rs-git-panel" role="tabpanel" aria-label="Git" data-state="idle">
+            <header class="git-toolbar">
+              <div class="git-repository-heading">
+                <strong id="gitRepositoryName">Git</strong>
+                <span id="gitRepositoryMeta">当前工作区</span>
+              </div>
+              <div class="git-repository-controls">
+                <div id="gitBranchSelect" class="git-branch-select-shell" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-controls="gitBranchDropdown" aria-label="当前分支" title="切换分支">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="4" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="20" r="2"/><path d="M6 6v12M8 6h5a5 5 0 0 1 5 5v-3"/></svg>
+                  <span id="gitBranchSelected" class="git-branch-selected">main</span>
+                  <div id="gitBranchDropdown" class="git-branch-dropdown hidden" role="listbox" aria-label="分支列表"></div>
+                </div>
+                <span id="gitSyncBadge" class="git-sync-badge"></span>
+                <button id="gitCreateBranchBtn" class="git-icon-btn" type="button" title="新建分支" aria-label="新建分支">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <button id="gitRefreshBtn" class="git-icon-btn" type="button" title="刷新 Git 状态" aria-label="刷新 Git 状态">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
+              </div>
+            </header>
+            <div id="gitUnavailable" class="git-empty-state hidden">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="4" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="20" r="2"/><path d="M6 6v12M8 6h5a5 5 0 0 1 5 5v-3"/></svg>
+              <strong id="gitUnavailableTitle">未设置工作区</strong>
+              <span id="gitUnavailableMessage"></span>
+              <div class="git-empty-actions">
+                <button id="gitInitBtn" class="secondary-btn" type="button">初始化仓库</button>
+                <button id="gitCloneBtn" class="primary-btn" type="button">克隆仓库</button>
+              </div>
+            </div>
+            <div id="gitWorkspace" class="git-workspace hidden">
+              <div class="git-command-bar">
+                <div class="git-view-tabs" role="tablist" aria-label="Git 视图">
+                  <button type="button" role="tab" data-git-view="changes" aria-selected="true">更改 <span id="gitChangeCount">0</span></button>
+                  <button type="button" role="tab" data-git-view="history" aria-selected="false">历史</button>
+                  <button type="button" role="tab" data-git-view="remotes" aria-selected="false">仓库</button>
+                </div>
+                <div class="git-sync-actions" aria-label="远程同步">
+                  <button id="gitFetchBtn" class="git-icon-btn" type="button" title="获取远程更新" aria-label="获取远程更新" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m8 11 4 4 4-4"/><path d="M5 20h14"/></svg>
+                  </button>
+                  <button id="gitPullBtn" class="git-icon-btn" type="button" title="拉取当前分支" aria-label="拉取当前分支" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4v12"/><path d="m4.5 12.5 3.5 3.5 3.5-3.5"/><path d="M16 20V8"/></svg>
+                  </button>
+                  <button id="gitPushBtn" class="git-icon-btn" type="button" title="推送当前分支" aria-label="推送当前分支" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V9"/><path d="m8 13 4-4 4 4"/><path d="M5 4h14"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div id="gitViewChanges" class="git-view active" data-git-view-panel="changes">
+                <div class="git-view-heading">
+                  <div>
+                    <strong>未提交的更改</strong>
+                    <span id="gitChangeSummary">工作区干净</span>
+                  </div>
+                </div>
+                <div id="gitChangeList" class="git-change-list"></div>
+                <section id="gitDiffPanel" class="git-diff-panel hidden" aria-label="Git 差异">
+                  <header>
+                    <button id="gitDiffCloseBtn" class="git-icon-btn" type="button" title="返回更改列表" aria-label="返回更改列表">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <strong id="gitDiffTitle"></strong>
+                  </header>
+                  <pre id="gitDiffContent"></pre>
+                </section>
+                <form id="gitCommitForm" class="git-commit-form">
+                  <textarea id="gitCommitMessage" rows="2" maxlength="10000" placeholder="提交说明" aria-label="提交说明"></textarea>
+                  <div class="git-commit-footer">
+                    <span id="gitCommitHint">暂存更改后可提交</span>
+                    <button id="gitCommitBtn" class="primary-btn" type="submit" disabled>提交</button>
+                  </div>
+                </form>
+              </div>
+              <div id="gitViewHistory" class="git-view" data-git-view-panel="history">
+                <div class="git-view-heading">
+                  <div><strong>提交历史</strong><span>当前分支的最近提交</span></div>
+                </div>
+                <div id="gitHistoryList" class="git-history-list"></div>
+              </div>
+              <div id="gitViewRemotes" class="git-view" data-git-view-panel="remotes">
+                <div class="git-view-heading">
+                  <div><strong>仓库设置</strong><span>远程仓库与提交身份</span></div>
+                  <button id="gitAddRemoteBtn" class="git-icon-btn" type="button" title="添加远程仓库" aria-label="添加远程仓库">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                </div>
+                <div class="git-section-label">远程</div>
+                <div id="gitRemoteList" class="git-remote-list"></div>
+                <div class="git-identity-row">
+                  <div><strong>提交身份</strong><span id="gitIdentityLabel">未配置</span></div>
+                  <button id="gitIdentityBtn" class="git-text-btn" type="button">编辑</button>
+                </div>
+              </div>
+            </div>
+          </section>
           <section id="rs-review" class="rs-panel rs-review-panel" role="tabpanel" aria-label="审阅" data-state="idle">
             <header class="review-toolbar">
               <div class="review-heading">
@@ -913,6 +1029,25 @@
                 <header id="reviewDiffHeader" class="review-diff-header"></header>
                 <div id="reviewDiffRows" class="review-diff-rows" role="table" aria-label="行级差异"></div>
               </section>
+            </div>
+          </section>
+          <section id="rs-interjection" class="rs-panel rs-interjection-panel" role="tabpanel" aria-label="辅助对话" data-state="idle">
+            <form id="interjectionForm" class="auxiliary-dialogue-composer">
+              <div class="auxiliary-dialogue-input-shell">
+                <textarea id="interjectionInput" class="auxiliary-dialogue-input" rows="1" maxlength="4000" placeholder="询问状态，或引导 Agent 接下来的工作…" aria-label="辅助对话内容"></textarea>
+                <button id="interjectionSend" class="send-btn" type="submit" disabled aria-label="发送辅助对话" title="发送辅助对话">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>
+                </button>
+              </div>
+            </form>
+            <div id="interjectionScroll" class="chat-scroll auxiliary-dialogue-scroll">
+              <div id="interjectionTranscript" class="messages auxiliary-dialogue-messages" aria-live="polite">
+                <div class="auxiliary-dialogue-empty" aria-hidden="true">
+                  <img class="auxiliary-dialogue-logo auxiliary-dialogue-logo-light" src="assets/logo.png" alt="" />
+                  <img class="auxiliary-dialogue-logo auxiliary-dialogue-logo-dark" src="assets/logo-light.png" alt="" />
+                  <span>Yan Agent工作期间，提问以辅助工作</span>
+                </div>
+              </div>
             </div>
           </section>
           <div id="rsBrowserHost"></div>
@@ -980,6 +1115,23 @@
           </template>
         </div>
       </aside>
+
+      <dialog id="gitActionDialog" class="git-action-dialog" aria-labelledby="gitActionTitle">
+        <form id="gitActionForm" method="dialog" class="git-action-dialog-shell">
+          <header>
+            <div><h3 id="gitActionTitle">Git 操作</h3><p id="gitActionDescription"></p></div>
+            <button id="gitActionClose" class="capability-dialog-close" type="button" aria-label="关闭 Git 弹窗">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+          </header>
+          <div id="gitActionFields" class="git-action-fields"></div>
+          <p id="gitActionError" class="git-action-error hidden" role="alert"></p>
+          <footer>
+            <button id="gitActionCancel" class="secondary-btn" type="button">取消</button>
+            <button id="gitActionSubmit" class="primary-btn" type="submit">确认</button>
+          </footer>
+        </form>
+      </dialog>
 
       <button id="rightSidebarToggleBtn" class="task-bar-icon-btn right-sidebar-fixed-toggle hidden" type="button" title="打开右侧面板" aria-label="打开右侧面板" aria-controls="rightSidebar" aria-expanded="false">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
@@ -1053,51 +1205,101 @@
             <!-- API -->
             <section id="tab-api" class="tab-panel">
               <div class="settings-form-section">
-                <div class="settings-group-heading"><h3>厂商</h3><p>选择要连接的模型服务。</p></div>
+                <div class="settings-group-heading"><h3>模型厂商</h3><p>点击厂商卡片配置官方接口或多个供应商。</p></div>
                 <div class="field"><label>选择厂商</label>
                   <div id="providerList" class="provider-list"></div>
                 </div>
               </div>
-              <div class="settings-form-section">
-                <div class="settings-group-heading"><h3>API</h3><p>凭据只保存在当前设备。</p></div>
-                <div class="field"><label id="cfgApiKeyLabel">API Key</label>
-                  <div class="input-with-action">
-                    <input id="cfgApiKey" class="input" type="password" placeholder="sk-..." />
-                    <button id="toggleKey" class="ghost-btn" type="button">显示</button>
-                  </div>
-                </div>
-                <div class="field"><label id="cfgBaseUrlLabel" for="cfgBaseUrl">Base URL</label>
-                  <input id="cfgBaseUrl" class="input" type="url" placeholder="https://api.example.com/v1" />
-                  <p id="cfgBaseUrlHint" class="field-hint">可填写官方 API、CC Switch、中转站或自建 OpenAI 兼容网关。</p>
-                  <p id="providerMediaSupportNote" class="field-hint hidden"></p>
-                </div>
-                <div id="providerWorkspaceField" class="field hidden"><label for="cfgWorkspaceId">Workspace ID（可选）</label>
-                  <input id="cfgWorkspaceId" class="input" type="text" placeholder="百炼业务空间 ID" />
-                  <p class="field-hint">仅用于通义千问 DashScope 原生图片与视频接口；默认业务空间可留空。</p>
-                </div>
-              </div>
-              <div id="providerImageEndpointSection" class="settings-form-section hidden">
-                <div class="settings-group-heading"><h3>图像端点</h3><p>留空时使用 Base URL 自动补全。</p></div>
-                <div class="form-grid provider-image-endpoints">
-                  <div class="field"><label for="cfgImageGenerationUrl">文生图 POST URL（可选）</label>
-                    <input id="cfgImageGenerationUrl" class="input" type="url" placeholder="https://.../images/generations" />
-                  </div>
-                  <div class="field"><label for="cfgImageEditUrl">P 图 POST URL（可选）</label>
-                    <input id="cfgImageEditUrl" class="input" type="url" placeholder="https://.../images/edits" />
-                  </div>
-                </div>
-                <p id="imageEndpointHint" class="field-hint">图片端点留空时按 Base URL 自动使用 <code>/images/generations</code> 与 <code>/images/edits</code>。</p>
-              </div>
-              <div class="settings-actions">
-                <button id="removeProviderConfig" class="settings-danger-btn hidden" type="button">取消配置</button>
-                <button id="saveApi" class="primary-btn" type="button">保存配置</button>
-              </div>
             </section>
+
+            <dialog id="providerConfigDialog" class="provider-config-dialog" aria-labelledby="providerDialogTitle">
+              <div class="provider-dialog-shell">
+                <header class="provider-dialog-head">
+                  <div>
+                    <h3 id="providerDialogTitle">配置厂商</h3>
+                    <p id="providerDialogSubtitle">选择供应商并填写连接信息。</p>
+                  </div>
+                  <button id="providerDialogClose" class="capability-dialog-close" type="button" aria-label="关闭厂商配置">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                  </button>
+                </header>
+                <div class="provider-dialog-body">
+                  <aside class="provider-supplier-sidebar">
+                    <div id="providerSupplierList" class="provider-supplier-list"></div>
+                    <button id="addProviderSupplier" class="provider-supplier-add" type="button">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                      添加供应商
+                    </button>
+                  </aside>
+                  <section class="provider-supplier-editor" aria-live="polite">
+                    <div class="provider-editor-title-row">
+                      <div>
+                        <h4 id="providerSupplierTitle">官方</h4>
+                        <p id="providerSupplierHint">凭据只保存在当前设备。</p>
+                      </div>
+                    </div>
+                    <div class="provider-editor-grid">
+                      <div class="field provider-editor-supplier-field"><label id="cfgSupplierNameLabel" for="cfgSupplierName">供应商</label>
+                        <input id="cfgSupplierName" class="input" type="text" placeholder="官方或我的中转站" />
+                      </div>
+                      <div id="providerModelIdField" class="field hidden"><label for="cfgModelId">模型 ID</label>
+                        <input id="cfgModelId" class="input" type="text" placeholder="例如 grok-4.5" autocomplete="off" />
+                      </div>
+                      <div class="field provider-editor-endpoint-field"><label for="cfgEndpointUrl">接口地址</label>
+                        <div class="provider-endpoint-control">
+                          <select id="cfgEndpointType" class="input provider-endpoint-select" aria-label="接口地址类型">
+                            <option value="baseUrl">Base URL</option>
+                            <option value="imageGenerationUrl">Image POST</option>
+                            <option value="imageEditUrl">Edit Image POST</option>
+                            <option value="videoGenerationUrl">Video POST</option>
+                          </select>
+                          <input id="cfgEndpointUrl" class="input" type="url" placeholder="https://api.example.com/v1" />
+                        </div>
+                        <p id="cfgEndpointHint" class="field-hint">可填写官方 API、中转站或自建 OpenAI 兼容网关。</p>
+                      </div>
+                      <div class="field provider-editor-full provider-editor-api-field"><label for="cfgApiKey">API Key</label>
+                        <div class="input-with-action"><input id="cfgApiKey" class="input" type="password" placeholder="sk-..." autocomplete="off" />
+                          <button id="toggleKey" class="provider-eye-btn" type="button" title="显示 API Key" aria-label="显示 API Key">
+                            <svg class="provider-eye-icon" data-eye="closed" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+                          </button></div>
+                      </div>
+                      <div id="providerWorkspaceField" class="field"><label for="cfgWorkspaceId">Workspace ID（可选）</label>
+                        <input id="cfgWorkspaceId" class="input" type="text" placeholder="百炼业务空间 ID" />
+                      </div>
+                    </div>
+                    <p id="providerMediaSupportNote" class="field-hint hidden"></p>
+                    <div class="provider-models-heading"><h4>可用模型</h4><span id="providerModelCount">0 个</span></div>
+                    <div id="providerSupplierModels" class="provider-supplier-models"></div>
+                    <div id="providerConfigNotice" class="provider-config-notice hidden" role="status" aria-live="polite"></div>
+                    <div class="settings-actions provider-editor-actions">
+                      <button id="removeProviderConfig" class="provider-icon-action provider-icon-action-danger hidden" type="button" title="清空当前配置" aria-label="清空当前配置">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>
+                      </button>
+                      <button id="saveApi" class="provider-icon-action provider-icon-action-save" type="button" title="保存并同步模型" aria-label="保存并同步模型">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>
+                      </button>
+                    </div>
+                  </section>
+                </div>
+                <div id="providerConfirmModal" class="provider-confirm-layer hidden" aria-hidden="true">
+                  <div class="provider-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="providerConfirmTitle" aria-describedby="providerConfirmDescription">
+                    <h3 id="providerConfirmTitle">确认操作</h3>
+                    <p id="providerConfirmDescription"></p>
+                    <div class="provider-confirm-actions">
+                      <button id="providerConfirmCancel" class="secondary-btn" type="button">取消</button>
+                      <button id="providerConfirmAccept" class="delete-task-confirm" type="button">确认</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </dialog>
 
             <!-- Model -->
             <section id="tab-model" class="tab-panel">
-              <p class="tab-desc">已配置厂商的模型会按用途归类显示。</p>
-              <div id="modelGrid" class="model-grid"></div>
+              <div class="settings-form-section">
+                <div class="settings-group-heading"><h3>可用模型</h3><p>已配置厂商的模型会按用途归类显示。</p></div>
+                <div id="modelGrid" class="model-grid"></div>
+              </div>
             </section>
 
             <!-- Vision relay -->
@@ -1141,24 +1343,26 @@
 
             <!-- Permissions -->
             <section id="tab-permissions" class="tab-panel">
-              <p class="tab-desc">控制 Agent 可执行的操作权限。</p>
-              <div class="toggle-list">
-                <label class="toggle-row">
-                  <div><div class="toggle-title">读取文件</div><div class="toggle-sub">允许读取工作区与上传的文件</div></div>
-                  <input type="checkbox" id="permRead" class="switch" />
-                </label>
-                <label class="toggle-row">
-                  <div><div class="toggle-title">写入文件</div><div class="toggle-sub">允许创建或修改文件</div></div>
-                  <input type="checkbox" id="permWrite" class="switch" />
-                </label>
-                <label class="toggle-row">
-                  <div><div class="toggle-title">执行命令</div><div class="toggle-sub">允许运行 Shell 命令（谨慎）</div></div>
-                  <input type="checkbox" id="permShell" class="switch" />
-                </label>
-                <label class="toggle-row">
-                  <div><div class="toggle-title">网络访问</div><div class="toggle-sub">允许调用外部 API</div></div>
-                  <input type="checkbox" id="permNet" class="switch" />
-                </label>
+              <div class="settings-form-section">
+                <div class="settings-group-heading"><h3>操作权限</h3><p>控制 Agent 可执行的操作。</p></div>
+                <div class="toggle-list">
+                  <label class="toggle-row">
+                    <div><div class="toggle-title">读取文件</div><div class="toggle-sub">允许读取工作区与上传的文件</div></div>
+                    <input type="checkbox" id="permRead" class="switch" />
+                  </label>
+                  <label class="toggle-row">
+                    <div><div class="toggle-title">写入文件</div><div class="toggle-sub">允许创建或修改文件</div></div>
+                    <input type="checkbox" id="permWrite" class="switch" />
+                  </label>
+                  <label class="toggle-row">
+                    <div><div class="toggle-title">执行命令</div><div class="toggle-sub">允许运行 Shell 命令（谨慎）</div></div>
+                    <input type="checkbox" id="permShell" class="switch" />
+                  </label>
+                  <label class="toggle-row">
+                    <div><div class="toggle-title">网络访问</div><div class="toggle-sub">允许调用外部 API</div></div>
+                    <input type="checkbox" id="permNet" class="switch" />
+                  </label>
+                </div>
               </div>
             </section>
 
@@ -1190,7 +1394,7 @@
             <!-- Quick launch -->
             <section id="tab-quick-launch" class="tab-panel">
               <div class="quick-launch-layout">
-                <div class="quick-launch-controls">
+                <div class="quick-launch-controls settings-form-section">
                   <div class="settings-group-heading"><h3>快捷唤醒</h3><p>关闭主窗口后，Yan Agent 仍可从系统托盘驻留并被全局快捷键唤醒。</p></div>
                   <label class="toggle-row quick-launch-toggle-row">
                     <div><div class="toggle-title">启用快速启动</div><div class="toggle-sub">在其他软件或桌面上直接呼出快速输入</div></div>
@@ -1217,31 +1421,36 @@
 
             <!-- Mobile remote -->
             <section id="tab-remote" class="tab-panel">
-              <p class="tab-desc">启动后自动开放局域网端口，手机浏览器访问即可遥控 Agent。</p>
-              <label class="toggle-row">
-                <div><div class="toggle-title">启用移动端控制</div><div class="toggle-sub">绑定 0.0.0.0，仅限同一 Wi‑Fi 内访问</div></div>
-                <input type="checkbox" id="remoteEnabled" class="switch" />
-              </label>
-              <div class="field" style="margin-top:16px"><label>访问地址</label>
-                <div id="remoteUrls" class="remote-url-list"></div>
-              </div>
-              <div class="remote-ip-guide" aria-labelledby="remoteIpGuideTitle">
-                <h3 id="remoteIpGuideTitle">查询你的电脑 IP</h3>
-                <ol>
-                  <li>按 <kbd>Win</kbd> + <kbd>R</kbd> 唤出运行框</li>
-                  <li>输入 <code>cmd</code> 并回车</li>
-                  <li>输入 <code>ipconfig</code>，在当前网络连接下找到 IPv4 地址</li>
-                </ol>
-              </div>
-              <div class="field"><label>访问密码</label>
-                <div class="input-with-action">
-                  <input id="remotePassword" class="input" type="password" placeholder="至少 4 位" minlength="4" autocomplete="new-password" />
-                  <button id="remoteSavePassword" class="ghost-btn" type="button">保存</button>
-                  <button id="remoteRestart" class="ghost-btn" type="button">重启服务</button>
+              <div class="settings-form-section">
+                <div class="settings-group-heading"><h3>移动端控制</h3><p>启动后自动开放局域网端口，手机浏览器访问即可遥控 Agent。</p></div>
+                <label class="toggle-row">
+                  <div><div class="toggle-title">启用移动端控制</div><div class="toggle-sub">绑定 0.0.0.0，仅限同一 Wi‑Fi 内访问</div></div>
+                  <input type="checkbox" id="remoteEnabled" class="switch" />
+                </label>
+                <div class="field" style="margin-top:16px"><label>访问地址</label>
+                  <div id="remoteUrls" class="remote-url-list"></div>
                 </div>
-                <p id="remotePasswordHint" class="field-hint">手机端连接时需输入此密码</p>
+                <div class="remote-ip-guide" aria-labelledby="remoteIpGuideTitle">
+                  <h3 id="remoteIpGuideTitle">查询你的电脑 IP</h3>
+                  <ol>
+                    <li>按 <kbd>Win</kbd> + <kbd>R</kbd> 唤出运行框</li>
+                    <li>输入 <code>cmd</code> 并回车</li>
+                    <li>输入 <code>ipconfig</code>，在当前网络连接下找到 IPv4 地址</li>
+                  </ol>
+                </div>
               </div>
-              <p id="remoteStatus" class="field-hint"></p>
+              <div class="settings-form-section">
+                <div class="settings-group-heading"><h3>访问密码</h3><p>手机端连接时需输入此密码。</p></div>
+                <div class="field">
+                  <div class="input-with-action">
+                    <input id="remotePassword" class="input" type="password" placeholder="至少 4 位" minlength="4" autocomplete="new-password" />
+                    <button id="remoteSavePassword" class="secondary-btn" type="button">保存</button>
+                    <button id="remoteRestart" class="secondary-btn" type="button">重启服务</button>
+                  </div>
+                  <p id="remotePasswordHint" class="field-hint">手机端连接时需输入此密码</p>
+                </div>
+                <p id="remoteStatus" class="field-hint"></p>
+              </div>
             </section>
 
             <!-- About -->
@@ -1398,23 +1607,6 @@
       </div>
     </div>
 
-    <!-- ===== Workspace permission dialog ===== -->
-    <div id="workspacePermModal" class="overlay hidden">
-      <div class="perm-dialog workspace-perm-dialog" role="dialog" aria-modal="true" aria-labelledby="workspacePermTitle">
-        <h3 id="workspacePermTitle" class="perm-dialog-title">Agent 申请工作区</h3>
-        <p id="workspacePermReason" class="perm-dialog-desc"></p>
-        <div class="workspace-perm-target">
-          <span id="workspacePermLabel"></span>
-          <code id="workspacePermPath"></code>
-        </div>
-        <div class="perm-dialog-actions">
-          <button type="button" id="workspacePermDeny" class="ghost-btn">拒绝</button>
-          <button type="button" id="workspacePermChoose" class="secondary-btn">选择其他文件夹</button>
-          <button type="button" id="workspacePermAllow" class="primary-btn">允许</button>
-        </div>
-      </div>
-    </div>
-
     <!-- ===== Full access confirmation ===== -->
     <div id="accessModeConfirmModal" class="overlay hidden">
       <div class="perm-dialog access-mode-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="accessModeConfirmTitle">
@@ -1422,8 +1614,20 @@
         <p class="perm-dialog-desc">Agent 将不再为常规操作请求确认，并可使用绝对路径访问本机文件。仅在你完全信任当前任务、模型和工作区时开启。</p>
         <p class="access-mode-confirm-note">你在设置中关闭的文件读写与网络权限仍然生效；高风险系统命令仍会被拦截。</p>
         <div class="perm-dialog-actions">
-          <button type="button" id="accessModeConfirmCancel" class="ghost-btn">取消</button>
+          <button type="button" id="accessModeConfirmCancel" class="secondary-btn">取消</button>
           <button type="button" id="accessModeConfirmAccept" class="primary-btn">开启完全访问</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Generic confirmation ===== -->
+    <div id="genericConfirmModal" class="overlay hidden">
+      <div class="perm-dialog generic-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="genericConfirmTitle" aria-describedby="genericConfirmDesc">
+        <h3 id="genericConfirmTitle" class="perm-dialog-title">确认操作</h3>
+        <p id="genericConfirmDesc" class="perm-dialog-desc"></p>
+        <div class="perm-dialog-actions">
+          <button type="button" id="genericConfirmCancel" class="secondary-btn">取消</button>
+          <button type="button" id="genericConfirmAccept" class="primary-btn">确认</button>
         </div>
       </div>
     </div>
@@ -1433,6 +1637,21 @@
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
   <script src="terminal/index.js"></script>
+      <div id="modelManagerMask" class="mmgr-mask hidden"></div>
+      <aside id="modelManager" class="mmgr hidden" role="dialog" aria-label="模型管理">
+        <div class="mmgr-head">
+          <h3>模型管理</h3>
+          <button id="modelManagerClose" class="mmgr-close" type="button" aria-label="关闭">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="mq-search mmgr-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+          <input id="modelManagerSearch" type="text" placeholder="搜索模型" autocomplete="off" />
+        </div>
+        <div id="modelManagerList" class="mmgr-list"></div>
+        <div id="modelManagerFoot" class="mmgr-foot"></div>
+      </aside>
   <script src="browser-agent.js"></script>
   <script src="skill-market.js"></script>
   <script src="renderer.js"></script>

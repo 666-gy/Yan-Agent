@@ -24,7 +24,7 @@ function assistant(id, parts, parentID = 'user') {
   };
 }
 
-function fakeClient(directory, promptHandler, existingSession = null) {
+function fakeClient(directory, promptHandler, existingSession = null, options = {}) {
   const messages = [];
   const calls = { create: [], get: [], update: [], promptAsync: [] };
   const client = {
@@ -49,12 +49,14 @@ function fakeClient(directory, promptHandler, existingSession = null) {
         if (next) messages.push(next);
         return { data: true };
       },
-      todo: async () => ({ data: [] }),
+      todo: async () => ({ data: typeof options.todos === 'function' ? options.todos() : (options.todos || []) }),
       diff: async () => ({ data: [] })
     },
     event: {
       subscribe: async () => ({
-        stream: (async function* emptyStream() {})()
+        stream: (async function* eventStream() {
+          for (const event of options.events || []) yield event;
+        })()
       })
     }
   };
@@ -87,6 +89,62 @@ test('collects the explicitly settled summary assistant instead of an adjacent e
   assert.equal(result.text, '已完成并验收。');
 });
 
+test('discloses skipped Skills without failing an otherwise successful run', () => {
+  const messages = [assistant('answer', [{ type: 'text', text: '主任务已完成。' }])];
+  const result = collectRunResult(messages, new Set(), [[]], [], {
+    workMode: 'normal',
+    skippedSkills: [{ id: 'broken-skill', name: 'Broken Skill', attempts: 3, error: 'parse failed' }]
+  }, 'session');
+  assert.equal(result.status, 'done');
+  assert.equal(result.skippedSkills.length, 1);
+  assert.match(result.text, /Skill 加载说明/);
+  assert.match(result.text, /Broken Skill/);
+  assert.match(result.text, /尝试 3 次/);
+});
+
+test('discovers a skipped Skill from the completed Yan Skills tool result', () => {
+  const messages = [assistant('answer', [
+    {
+      type: 'tool',
+      tool: 'yan_skills_read_skill',
+      callID: 'skill-call',
+      state: {
+        status: 'completed',
+        input: { id: 'runtime-broken', task_id: 'run-1' },
+        output: JSON.stringify({
+          ok: false,
+          skipped: true,
+          id: 'runtime-broken',
+          name: 'Runtime Broken',
+          attempts: 3,
+          error: 'temporary parse failure'
+        })
+      }
+    },
+    { type: 'text', text: '已使用其他能力完成任务。' }
+  ])];
+  const result = collectRunResult(messages, new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.equal(result.status, 'done');
+  assert.equal(result.skippedSkills.length, 1);
+  assert.equal(result.skippedSkills[0].id, 'runtime-broken');
+  assert.match(result.text, /Runtime Broken/);
+});
+
+test('a skipped Skill disclosure cannot turn an empty assistant response into success', () => {
+  const messages = [assistant('empty', [{
+    type: 'tool',
+    tool: 'yan_skills_read_skill',
+    state: {
+      status: 'completed',
+      output: JSON.stringify({ skipped: true, id: 'broken', attempts: 3, error: 'parse failed' })
+    }
+  }])];
+  const result = collectRunResult(messages, new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /without a final user-facing answer/);
+  assert.match(result.text, /Skill 加载说明/);
+});
+
 test('creates a workspace-bound session when a Yan task leaves Blank', async () => {
   const directory = path.resolve('workspace-target');
   const fixture = fakeClient(directory, (_payload, call) => (
@@ -117,6 +175,73 @@ test('creates a workspace-bound session when a Yan task leaves Blank', async () 
   assert.equal(fixture.calls.create[0].directory, directory);
   assert.equal(result.openCodeSessionId, 'workspace-session');
   assert.equal(result.text, '已进入工作区。');
+});
+
+test('does not carry stale todos from a reused OpenCode session into a new turn', async () => {
+  const directory = path.resolve('todo-session-workspace');
+  const staleTodos = [{ content: '上一轮任务', status: 'completed', priority: 'medium' }];
+  const fixture = fakeClient(directory, (_payload, call) => (
+    call === 1 ? assistant('direct-answer', [{ type: 'text', text: '当前问题已回答。' }]) : null
+  ), { id: 'workspace-session', directory }, { todos: staleTodos });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd(),
+    finalTextSettleTimeoutMs: 5
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'stale-todo-turn',
+    openCodeSessionId: 'workspace-session',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '回答当前问题',
+    providerId: 'deepseek',
+    modelId: 'deepseek-v4-flash',
+    workMode: 'normal'
+  });
+
+  assert.deepEqual(result.todos, []);
+  assert.match(fixture.calls.promptAsync[0].system, /Use todowrite for work that has at least three distinct/);
+  assert.match(fixture.calls.promptAsync[0].system, /Skip todos for greetings/);
+});
+
+test('keeps todos that were updated during the current OpenCode turn', async () => {
+  const directory = path.resolve('current-todo-workspace');
+  const currentTodos = [
+    { content: '读取项目', status: 'completed', priority: 'high' },
+    { content: '修复问题', status: 'in_progress', priority: 'high' }
+  ];
+  const fixture = fakeClient(directory, (_payload, call) => (
+    call === 1 ? assistant('direct-answer', [{ type: 'text', text: '正在处理。' }]) : null
+  ), { id: 'workspace-session', directory }, {
+    todos: currentTodos,
+    events: [{ type: 'todo.updated', properties: { sessionID: 'workspace-session', todos: currentTodos } }]
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd(),
+    finalTextSettleTimeoutMs: 5
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'current-todo-turn',
+    openCodeSessionId: 'workspace-session',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '完成两步任务',
+    providerId: 'deepseek',
+    modelId: 'deepseek-v4-flash',
+    workMode: 'normal'
+  });
+
+  assert.deepEqual(result.todos.map(todo => ({ text: todo.text, done: todo.done, inProgress: todo.inProgress })), [
+    { text: '读取项目', done: true, inProgress: false },
+    { text: '修复问题', done: false, inProgress: true }
+  ]);
 });
 
 test('disables tools in finalization and retries one empty summary response', async () => {
