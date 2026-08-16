@@ -3862,6 +3862,9 @@ function abortSessionById(sessionId) {
   if (contexts.includes(agentPermissionRequest?.runCtx)) {
     settleAgentPermission('deny');
   }
+  if (contexts.includes(agentQuestionRequest?.runCtx)) {
+    settleAgentQuestion({ reject: true }, { silent: true });
+  }
   if (runCtx.runId && window.yan.cancelImageGeneration) {
     window.yan.cancelImageGeneration(runCtx.runId).catch(() => {});
   }
@@ -5145,29 +5148,39 @@ async function handleOpenCodeQuestion(runCtx, event) {
   if (!requestId || runCtx.openCodeHandledRequests.has(`question:${requestId}`)) return;
   runCtx.openCodeHandledRequests.add(`question:${requestId}`);
   const questions = Array.isArray(data.questions) ? data.questions : [];
-  const answers = [];
-  let reject = false;
-  for (const question of questions) {
-    const choices = (question.options || []).map(option => `${option.label}: ${option.description}`).join('\n');
-    const answer = window.prompt([question.question || question.header || 'Yan Kernel 需要你的输入', choices].filter(Boolean).join('\n\n'));
-    if (answer == null) {
-      reject = true;
-      break;
+  if (!questions.length) {
+    let emptyResult;
+    try {
+      emptyResult = await api.openCodeReplyQuestion({
+        runId: runCtx.runId,
+        requestId,
+        answers: [],
+        reject: true
+      });
+    } catch (error) {
+      emptyResult = { ok: false, error: error?.message || String(error) };
     }
-    answers.push([answer]);
+    await requireOpenCodeInteractionReply(emptyResult, runCtx, '问题拒绝');
+    return;
   }
+  const response = await requestAgentQuestion({
+    requestId,
+    questions,
+    sessionId: runCtx.sessionId
+  }, runCtx);
+  if (response?.cancelled) return;
   let result;
   try {
     result = await api.openCodeReplyQuestion({
       runId: runCtx.runId,
       requestId,
-      answers,
-      reject
+      answers: response?.answers || [],
+      reject: response?.reject === true
     });
   } catch (error) {
     result = { ok: false, error: error?.message || String(error) };
   }
-  await requireOpenCodeInteractionReply(result, runCtx, reject ? '问题拒绝' : '问题回复');
+  await requireOpenCodeInteractionReply(result, runCtx, response?.reject ? '问题拒绝' : '问题回复');
 }
 
 function mapOpenCodeEventToPet(event, runCtx) {
@@ -5579,6 +5592,17 @@ function applyOpenCodeEvent(runCtx, event) {
     }
   } else if (event.type === 'question.v2.asked' || event.type === 'question.asked') {
     void handleOpenCodeQuestion(runCtx, event);
+  } else if (
+    event.type === 'question.v2.replied'
+    || event.type === 'question.replied'
+    || event.type === 'question.v2.rejected'
+    || event.type === 'question.rejected'
+  ) {
+    const requestId = String(data.requestID || data.id || '');
+    if (requestId) runCtx.openCodeHandledRequests.add(`question:${requestId}`);
+    if (requestId && agentQuestionRequest?.runCtx === runCtx && agentQuestionRequest.requestId === requestId) {
+      settleAgentQuestion({ cancelled: true }, { silent: true });
+    }
   }
   const petEvent = mapOpenCodeEventToPet(event, runCtx);
   if (petEvent) handlePetSupervisorEvent(petEvent, runCtx);
@@ -5787,6 +5811,7 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
       if (detail?.runId !== openCodeRunId) return;
       removeEvent?.();
       removeCompleted?.();
+      settleAgentInteractionForRun(runCtx);
       setRunComputerUseActive(runCtx, false);
       const agentRun = openCodeResultToAgentRun(detail.result || {}, runCtx);
       resolve({ content: agentRun.textContent || '', agentRun });
@@ -5826,6 +5851,7 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
     } catch (error) {
       removeEvent?.();
       removeCompleted?.();
+      settleAgentInteractionForRun(runCtx);
       setRunComputerUseActive(runCtx, false);
       reject(error);
     }
@@ -6212,36 +6238,358 @@ function finalizeAgentRun(content, status, activeRun, bodyEl, error, runCtx) {
 }
 
 let agentPermissionRequest = null;
+let agentQuestionRequest = null;
+
+function settleAgentInteractionForRun(runCtx) {
+  if (agentPermissionRequest?.runCtx === runCtx) {
+    settleAgentPermission(null, { silent: true });
+  }
+  if (agentQuestionRequest?.runCtx === runCtx) {
+    settleAgentQuestion({ cancelled: true }, { silent: true });
+  }
+}
+
+function resetAgentPermissionPanel() {
+  const panel = $('#agentPermissionPanel');
+  const title = $('#agentPermissionTitle');
+  const description = $('#agentPermissionDescription');
+  const detail = $('#agentPermissionDetail');
+  const alwaysButton = $('#agentPermissionAlways');
+  const onceButton = $('#agentPermissionOnce');
+  const denyButton = $('#agentPermissionDeny');
+  panel?.classList.add('hidden');
+  panel?.classList.remove('collapsed');
+  if (panel) {
+    delete panel.dataset.mode;
+    delete panel.dataset.state;
+    panel.style.removeProperty('--agent-permission-max-height');
+  }
+  if (title) title.textContent = '权限确认';
+  if (description) description.textContent = '';
+  description?.classList.remove('hidden');
+  if (detail) detail.textContent = '';
+  detail?.classList.remove('hidden');
+  $('#agentQuestionFields')?.replaceChildren();
+  $('#agentQuestionFields')?.classList.add('hidden');
+  $('#agentPermissionVisionRelayOption')?.classList.add('hidden');
+  alwaysButton?.classList.remove('hidden');
+  alwaysButton?.classList.remove('ghost-btn', 'secondary-btn');
+  alwaysButton?.classList.add('primary-btn');
+  alwaysButton && (alwaysButton.disabled = false);
+  if (alwaysButton) alwaysButton.textContent = '总是允许';
+  onceButton?.classList.remove('primary-btn');
+  onceButton?.classList.add('secondary-btn');
+  onceButton && (onceButton.disabled = false);
+  if (onceButton) onceButton.textContent = '本次允许';
+  denyButton && (denyButton.disabled = false);
+  if (denyButton) denyButton.textContent = '拒绝';
+}
 
 function positionAgentPermissionPanel() {
   const panel = $('#agentPermissionPanel');
   const host = $('#chatMainColumn');
+  const composer = $('#composer');
   const stage = $('#composerStage');
   if (!panel || panel.classList.contains('hidden') || !host) return;
   const hostRect = host.getBoundingClientRect();
+  const composerRect = composer?.getBoundingClientRect();
   const stageRect = stage?.getBoundingClientRect();
-  const stageVisible = stageRect && stageRect.height > 0 && stageRect.top < hostRect.bottom;
-  const bottom = stageVisible ? Math.max(18, Math.ceil(hostRect.bottom - stageRect.top + 12)) : 24;
+  const anchorRect = composerRect?.height > 0 ? composerRect : stageRect;
+  const anchorVisible = anchorRect && anchorRect.top > hostRect.top && anchorRect.top < hostRect.bottom;
+  const bottom = anchorVisible ? Math.max(18, Math.ceil(hostRect.bottom - anchorRect.top + 12)) : 24;
+  const availableHeight = anchorVisible
+    ? Math.max(220, Math.min(360, Math.floor(anchorRect.top - hostRect.top - 24)))
+    : 360;
   panel.style.setProperty('--agent-permission-bottom', `${bottom}px`);
+  panel.style.setProperty('--agent-permission-max-height', `${availableHeight}px`);
 }
 
 function settleAgentPermission(decision, { silent = false } = {}) {
   const request = agentPermissionRequest;
   agentPermissionRequest = null;
-  $('#agentPermissionPanel')?.classList.add('hidden');
-  $('#agentPermissionPanel')?.classList.remove('collapsed');
   $('#chatMainColumn')?.classList.remove('permission-pending');
   request?.resolve(decision, { silent });
+  resetAgentPermissionPanel();
+}
+
+function normalizeAgentQuestionOptions(question) {
+  return Array.isArray(question?.options)
+    ? question.options.map(option => ({
+      label: String(option?.label || '').trim(),
+      description: String(option?.description || '').trim()
+    })).filter(option => option.label)
+    : [];
+}
+
+function agentQuestionDraftAnswer(question, draft = {}) {
+  const selected = Array.isArray(draft.selected) ? [...draft.selected] : [];
+  const custom = String(draft.custom || '').trim();
+  if (custom) {
+    if (question?.multiple) selected.push(custom);
+    else return [custom];
+  }
+  return selected.filter(Boolean);
+}
+
+function updateAgentQuestionNote(item, options, draft) {
+  const note = $('.agent-question-option-note', item);
+  if (!note) return;
+  const descriptions = options
+    .filter(option => draft.selected.includes(option.label) && option.description)
+    .map(option => option.description);
+  note.textContent = descriptions.join(' · ');
+}
+
+function clearAgentQuestionError() {
+  const panel = $('#agentPermissionPanel');
+  const error = $('.agent-question-error', $('#agentQuestionFields'));
+  if (panel?.dataset.state === 'error') panel.dataset.state = 'ready';
+  if (error) error.textContent = '';
+}
+
+function syncAgentQuestionButtons() {
+  const request = agentQuestionRequest;
+  if (!request) return;
+  const backButton = $('#agentPermissionAlways');
+  const nextButton = $('#agentPermissionOnce');
+  const denyButton = $('#agentPermissionDeny');
+  const isFirst = request.currentIndex === 0;
+  const isLast = request.currentIndex === request.questions.length - 1;
+  backButton?.classList.toggle('hidden', isFirst);
+  if (backButton) backButton.textContent = '上一步';
+  if (nextButton) nextButton.textContent = isLast ? '发送回答' : '下一题';
+  if (denyButton) denyButton.textContent = '不回答';
+}
+
+function renderAgentQuestionStep({ focus = true } = {}) {
+  const request = agentQuestionRequest;
+  const fields = $('#agentQuestionFields');
+  if (!request || !fields) return;
+  const questionIndex = request.currentIndex;
+  const question = request.questions[questionIndex] || {};
+  const draft = request.drafts[questionIndex];
+  const options = normalizeAgentQuestionOptions(question);
+  fields.replaceChildren();
+
+  const progress = document.createElement('div');
+  progress.className = 'agent-question-progress';
+  const count = document.createElement('span');
+  count.className = 'agent-question-count';
+  count.textContent = `${questionIndex + 1} / ${request.questions.length}`;
+  const topic = document.createElement('span');
+  topic.className = 'agent-question-topic';
+  topic.textContent = String(question.header || (question.multiple ? '可多选' : '请选择')).trim();
+  progress.append(count, topic);
+
+  const item = document.createElement('section');
+  item.className = 'agent-question-item';
+  item.dataset.questionIndex = String(questionIndex);
+  const prompt = document.createElement('p');
+  prompt.className = 'agent-question-prompt';
+  prompt.textContent = String(question.question || question.header || '请提供你的回答').trim();
+  item.appendChild(prompt);
+
+  if (options.length) {
+    const optionGroup = document.createElement('div');
+    optionGroup.className = 'agent-question-options';
+    optionGroup.setAttribute('role', question.multiple ? 'group' : 'radiogroup');
+    options.forEach((option, optionIndex) => {
+      const optionId = `agent-question-${questionIndex}-${optionIndex}`;
+      const label = document.createElement('label');
+      label.className = 'agent-question-option';
+      label.htmlFor = optionId;
+      label.title = option.description;
+      const input = document.createElement('input');
+      input.id = optionId;
+      input.type = question.multiple ? 'checkbox' : 'radio';
+      input.name = `agent-question-${questionIndex}`;
+      input.value = option.label;
+      input.checked = draft.selected.includes(option.label);
+      input.setAttribute('aria-label', option.description ? `${option.label}：${option.description}` : option.label);
+      const optionLabel = document.createElement('span');
+      optionLabel.textContent = option.label;
+      input.addEventListener('change', () => {
+        if (question.multiple) {
+          draft.selected = Array.from(optionGroup.querySelectorAll('input:checked')).map(control => control.value);
+        } else {
+          draft.selected = input.checked ? [option.label] : [];
+          draft.custom = '';
+          const custom = $('.agent-question-custom', item);
+          if (custom) custom.value = '';
+        }
+        clearAgentQuestionError();
+        updateAgentQuestionNote(item, options, draft);
+      });
+      label.append(input, optionLabel);
+      optionGroup.appendChild(label);
+    });
+    item.appendChild(optionGroup);
+
+    const optionNote = document.createElement('p');
+    optionNote.className = 'agent-question-option-note';
+    optionNote.setAttribute('aria-live', 'polite');
+    item.appendChild(optionNote);
+    updateAgentQuestionNote(item, options, draft);
+  }
+
+  if (question.custom === true || options.length === 0) {
+    const fieldId = `agent-question-custom-${questionIndex}`;
+    const customLabel = document.createElement('label');
+    customLabel.className = 'agent-question-custom-label';
+    customLabel.htmlFor = fieldId;
+    customLabel.textContent = options.length ? '其他回答' : '你的回答';
+    const custom = document.createElement('input');
+    custom.id = fieldId;
+    custom.type = 'text';
+    custom.className = 'agent-question-custom';
+    custom.value = draft.custom;
+    custom.autocomplete = 'off';
+    custom.addEventListener('input', () => {
+      draft.custom = String(custom.value || '');
+      if (!question.multiple && draft.custom.trim()) {
+        draft.selected = [];
+        item.querySelectorAll('.agent-question-options input').forEach(control => { control.checked = false; });
+      }
+      clearAgentQuestionError();
+      updateAgentQuestionNote(item, options, draft);
+    });
+    item.append(customLabel, custom);
+  }
+
+  const error = document.createElement('p');
+  error.className = 'agent-question-error';
+  error.id = `agent-question-error-${questionIndex}`;
+  error.setAttribute('role', 'alert');
+  item.appendChild(error);
+  fields.append(progress, item);
+  syncAgentQuestionButtons();
+  requestAnimationFrame(() => {
+    positionAgentPermissionPanel();
+    if (focus) fields.querySelector('input')?.focus({ preventScroll: true });
+  });
+}
+
+function collectAgentQuestionAnswers() {
+  const request = agentQuestionRequest;
+  if (!request) return { answers: [] };
+  const answers = request.questions.map((question, index) => (
+    agentQuestionDraftAnswer(question, request.drafts[index])
+  ));
+  const missing = answers.findIndex(answer => answer.length === 0);
+  if (missing >= 0) return { error: `第 ${missing + 1} 个问题还没有回答。`, missing };
+  return { answers };
+}
+
+function advanceAgentQuestion() {
+  const request = agentQuestionRequest;
+  if (!request) return;
+  const answer = agentQuestionDraftAnswer(
+    request.questions[request.currentIndex],
+    request.drafts[request.currentIndex]
+  );
+  if (!answer.length) {
+    const panel = $('#agentPermissionPanel');
+    const error = $('.agent-question-error', $('#agentQuestionFields'));
+    if (panel) panel.dataset.state = 'error';
+    if (error) error.textContent = '先回答这个问题，再继续。';
+    return;
+  }
+  if (request.currentIndex < request.questions.length - 1) {
+    request.currentIndex += 1;
+    clearAgentQuestionError();
+    renderAgentQuestionStep();
+    return;
+  }
+  const collected = collectAgentQuestionAnswers();
+  if (collected.error) {
+    request.currentIndex = collected.missing;
+    renderAgentQuestionStep();
+    const panel = $('#agentPermissionPanel');
+    const error = $('.agent-question-error', $('#agentQuestionFields'));
+    if (panel) panel.dataset.state = 'error';
+    if (error) error.textContent = collected.error;
+    return;
+  }
+  settleAgentQuestion({ answers: collected.answers, reject: false });
+}
+
+function retreatAgentQuestion() {
+  const request = agentQuestionRequest;
+  if (!request || request.currentIndex <= 0) return;
+  request.currentIndex -= 1;
+  clearAgentQuestionError();
+  renderAgentQuestionStep();
+}
+
+function settleAgentQuestion(result = {}, { silent = false } = {}) {
+  const request = agentQuestionRequest;
+  if (!request) return;
+  agentQuestionRequest = null;
+  $('#chatMainColumn')?.classList.remove('permission-pending');
+  request.resolve({
+    answers: Array.isArray(result.answers) ? result.answers : [],
+    reject: result.reject === true,
+    cancelled: result.cancelled === true
+  });
+  if (!silent && result.reject === true) toast('已拒绝问题，Agent 将继续处理');
+  resetAgentPermissionPanel();
+}
+
+function requestAgentQuestion({ requestId = '', questions = [], sessionId }, runCtx) {
+  return new Promise(resolve => {
+    if (agentPermissionRequest) settleAgentPermission('deny', { silent: true });
+    if (agentQuestionRequest) settleAgentQuestion({ reject: true }, { silent: true });
+    const panel = $('#agentPermissionPanel');
+    const titleEl = $('#agentPermissionTitle');
+    const descriptionEl = $('#agentPermissionDescription');
+    const fields = $('#agentQuestionFields');
+    const detailEl = $('#agentPermissionDetail');
+    const alwaysButton = $('#agentPermissionAlways');
+    const onceButton = $('#agentPermissionOnce');
+    const denyButton = $('#agentPermissionDeny');
+    if (!panel || !titleEl || !descriptionEl || !fields || !detailEl || !onceButton || !denyButton) {
+      resolve({ reject: true });
+      return;
+    }
+    titleEl.textContent = '等待你的回答';
+    descriptionEl.textContent = '';
+    descriptionEl.classList.add('hidden');
+    fields.classList.remove('hidden');
+    detailEl.classList.add('hidden');
+    alwaysButton?.classList.remove('primary-btn', 'secondary-btn');
+    alwaysButton?.classList.add('ghost-btn');
+    onceButton.classList.remove('secondary-btn');
+    onceButton.classList.add('primary-btn');
+    panel.dataset.mode = 'question';
+    panel.dataset.state = 'ready';
+    panel.classList.remove('hidden', 'collapsed');
+    $('#agentPermissionToggle')?.setAttribute('aria-expanded', 'true');
+    $('#chatMainColumn')?.classList.add('permission-pending');
+    agentQuestionRequest = {
+      resolve,
+      runCtx,
+      sessionId,
+      requestId: String(requestId || ''),
+      questions,
+      currentIndex: 0,
+      drafts: questions.map(() => ({ selected: [], custom: '' }))
+    };
+    renderAgentQuestionStep();
+  });
 }
 
 function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true, visionRelay = null }, runCtx) {
   return new Promise((resolve) => {
-    if (agentPermissionRequest) settleAgentPermission('deny');
+    if (agentQuestionRequest) settleAgentQuestion({ reject: true }, { silent: true });
+    if (agentPermissionRequest) settleAgentPermission('deny', { silent: true });
     const panel = $('#agentPermissionPanel');
     const titleEl = $('#agentPermissionTitle');
     const descriptionEl = $('#agentPermissionDescription');
     const detailEl = $('#agentPermissionDetail');
     const alwaysButton = $('#agentPermissionAlways');
+    const onceButton = $('#agentPermissionOnce');
+    const denyButton = $('#agentPermissionDeny');
+    const questionFields = $('#agentQuestionFields');
     const visionRelayOption = $('#agentPermissionVisionRelayOption');
     const visionRelayCheck = $('#agentPermissionVisionRelayCheck');
     const visionRelayDesc = $('#agentPermissionVisionRelayDesc');
@@ -6252,6 +6600,12 @@ function requestAgentPermission({ requestId = '', title, description, detail, se
     titleEl.textContent = title || '权限确认';
     descriptionEl.textContent = description || 'Agent 请求执行受限操作，是否允许：';
     detailEl.textContent = detail || '(empty)';
+    detailEl.classList.remove('hidden');
+    questionFields?.classList.add('hidden');
+    questionFields?.replaceChildren();
+    onceButton && (onceButton.textContent = '本次允许');
+    denyButton && (denyButton.textContent = '拒绝');
+    panel.dataset.mode = 'permission';
     alwaysButton?.classList.toggle('hidden', allowAlways === false);
 
     const showVisionRelay = !!visionRelay?.show;
@@ -6358,9 +6712,18 @@ api.onSessionAgentHandoffReady?.((detail = {}) => {
 });
 
 function bindAgentPermissionPanel() {
-  $('#agentPermissionAlways')?.addEventListener('click', () => settleAgentPermission('always'));
-  $('#agentPermissionOnce')?.addEventListener('click', () => settleAgentPermission('once'));
-  $('#agentPermissionDeny')?.addEventListener('click', () => settleAgentPermission('deny'));
+  $('#agentPermissionAlways')?.addEventListener('click', () => {
+    if (agentQuestionRequest) retreatAgentQuestion();
+    else settleAgentPermission('always');
+  });
+  $('#agentPermissionOnce')?.addEventListener('click', () => {
+    if (agentQuestionRequest) advanceAgentQuestion();
+    else settleAgentPermission('once');
+  });
+  $('#agentPermissionDeny')?.addEventListener('click', () => {
+    if (agentQuestionRequest) settleAgentQuestion({ reject: true });
+    else settleAgentPermission('deny');
+  });
   $('#agentPermissionToggle')?.addEventListener('click', () => {
     const panel = $('#agentPermissionPanel');
     if (!panel) return;
