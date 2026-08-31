@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.4.0-111111">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.5.0-111111">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848f">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a">
@@ -21,7 +21,7 @@ Yan Agent understands tasks, uses tools, changes projects, verifies results, and
 
 ## Release Positioning
 
-Yan Agent 1.4.0 is a full runtime upgrade from 1.3.2, not only a UI refresh or model-catalog update. Its runtime is now **Yan Kernel**, an extensively adapted kernel based on OpenCode. Yan adds its own workspace and permission model, Skills, MCP services, built-in browser automation, multimodal roles, memory, review workflow, and desktop integration.
+Yan Agent 1.5.0 builds on the **Yan Kernel** introduced in 1.4.0 and focuses on making the complete Agent workflow faster, more resilient, easier to configure, and more comfortable to use every day. Yan Kernel is an extensively adapted runtime based on OpenCode, with Yan's own workspace and permission model, Skills, MCP services, built-in browser automation, multimodal roles, memory, review workflow, and desktop integration.
 
 Model availability, billing, quota, regional access, and VPN requirements always depend on the user's real API account and network. A model name appearing in the catalog is not a promise that the remote service is available.
 
@@ -34,26 +34,29 @@ Yan Agent is a Windows desktop Agent for real workspace tasks. The primary text 
 - **What it is designed for:** grounded tool use, explicit workspace and permission boundaries, browser-first web automation, media roles that do not replace the text model, targeted goal validation, and evidence-backed delivery.
 - **What it does not pretend:** an unconfigured model, Skill, MCP server, balance, network, or VPN is never treated as available. Results that cannot be verified are marked as unverified or failed.
 
-## What's New in 1.4.0
+## What's New in 1.5.0
 
-| Area | 1.4.0 change |
+| Area | 1.5.0 change |
 | --- | --- |
-| **Yan Kernel** | OpenCode-based runtime adapted for Yan sessions, tools, permissions, final summaries, DSML, and goal acceptance |
+| **Performance** | Throughput-aware request shaping, batched high-frequency events, reusable OpenCode kernels, and a lower-overhead streaming path for long or fast responses |
+| **Reliability** | Up to five stream reconnects, bounded transient retries before tool execution, stall detection, kernel-exit handling, run recovery, and explicit resource cleanup |
+| **API connections** | Any number of named connections with a Base URL, API key, compatibility preset, optional media endpoints, discovered models, and custom model IDs |
+| **Subagents** | Optional Explore, Review, Research, Test, and Build roles with task-local workspace, permission, and concurrency limits |
+| **Desktop experience** | Chinese and English UI, a connection-first model picker, bundled and custom wallpapers, onboarding, tone profiles, and clearer task status |
+| **Yan Kernel** | OpenCode-based runtime adapted for Yan sessions, tools, permissions, native final responses, DSML, and goal acceptance |
 | **Agent output** | Live reasoning summaries and tool activity share the final-answer surface; completed work collapses behind a process toggle |
 | **Built-in browser** | Multi-tab browser that the Agent can open, read, click, type into, scroll, capture, and verify without taking over the user's tab |
 | **Computer Use** | Initial Windows desktop integration through the official Nuphus MCP, with native `desktop_*` tools, a dedicated Skill, a visible safety overlay, and Esc cancellation |
 | **Multimodal roles** | A primary text model can coexist with optional image and video models; generated assets stay in conversation context |
-| **Provider connections** | Multiple suppliers can coexist under one provider, while text, image, and video roles retain their own supplier identity |
 | **Workspace continuity** | Blank tasks, task-local workspaces, authorized workspace transitions, and bounded cross-session handoffs follow one model |
 | **Extensions** | Yan Skills, MCP, CodeGraph, Serena, AnySearch, OfficeCLI, Understand Anything, and the controlled continual Harness are exposed through Yan Kernel |
-| **Desktop experience** | New composer, settings, review and Git panels, VS Code workspace handoff, startup animation, global quick launch, and second-generation Yan Agent Pet |
 
 ### Yan Kernel Runtime
 
-- Yan Kernel is the only authoritative task runtime. `lib/opencode-sidecar.js` coordinates OpenCode sessions, tool exposure, permissions, goal validation, interruption, and final summaries; the retired renderer Agent loop no longer executes tasks.
+- Yan Kernel is the only authoritative task runtime. `lib/opencode-sidecar.js` coordinates OpenCode sessions, tool exposure, permissions, goal validation, interruption, and final responses; the retired renderer Agent loop no longer executes tasks.
 - Model messages, tool calls, tool results, permission requests, questions, compaction, goal rounds, media generation, and failures reach the desktop as structured events.
 - DeepSeek DSML tool calls are parsed and adapted into real Yan/OpenCode tool calls. DSML protocol fragments are kept out of user-facing output.
-- The final summary is a separate tool-free stage grounded in the conversation, actual tool results, and verified workspace state.
+- Yan uses OpenCode's native final assistant response directly. It does not submit a second tool-free summary request after the model has already completed the task.
 - Stream failures, empty responses, unavailable tools, repeated failures, cancellations, and MCP startup errors end in explicit visible states instead of leaving a task spinning forever.
 - OpenCode manages model-aware context budgets. Yan records context size, thresholds, compaction events, token usage, and cache reads for the UI.
 - Yan Kernel currently uses OpenCode `1.18.11` as its underlying runtime component. OpenCode is an implementation foundation, not Yan Agent's product identity.
@@ -71,7 +74,7 @@ Goal mode is deliberately bounded:
 - It checks only explicit requirements and essential runnability. It must not invent features, expand gameplay, or redesign UI that the user did not request.
 - A repair round requires concrete failure evidence. Repairs should locate the relevant file and position, then make the smallest useful change rather than rewrite the project.
 - Browser and command evidence must be meaningful. A successful command, changing hash, color count, or single-frame pixel delta alone does not prove that a Canvas, WebGL, animation, or 3D result works.
-- Goal acceptance is capped at six rounds. Stable success, a user request to finish, or the round limit all lead to a final summary that states the evidence and remaining issue.
+- Goal acceptance is capped at six rounds. Stable success, a user request to finish, or the round limit produces the final response in that same acceptance round, including evidence and remaining issues, without another summary round.
 
 ### Workspaces, Blank Tasks, and Session Handoffs
 
@@ -127,7 +130,7 @@ An auxiliary conversation does not become a second task, inherit new permissions
 - Readiness checks and explicit waits avoid treating one short timeout as proof that a network page failed to open.
 - Canvas, WebGL, animation, and 3D acceptance combines real interaction, screenshots, and visible state. DOM presence or a synthetic metric is not enough to claim playability.
 
-Yan Agent 1.4.0 includes an initial **Yan Computer Use** integration. A thin Yan adapter connects to the official Nuphus MCP and exposes only native `desktop_*` tools; Nuphus browser tools are hidden to avoid conflicting with the Yan built-in browser. The bundled Skill guides the model through window activation, visual understanding, precise coordinate perception, actions, and final visual verification.
+Yan Agent 1.5.0 continues to provide **Yan Computer Use** as a preview capability. A thin Yan adapter connects to the official Nuphus MCP and exposes only native `desktop_*` tools; Nuphus browser tools are hidden to avoid conflicting with the Yan built-in browser. The bundled Skill guides the model through window activation, visual understanding, precise coordinate perception, actions, and final visual verification.
 
 When a real desktop tool begins, Yan displays an independent blue edge animation and an opaque top-center notice. Pressing `Esc` cancels the active Computer Use run. The generic Vision Relay remains available. Desktop accessibility, application UI structure, and Nuphus perception quality vary, so this initial integration does not guarantee automation of every application.
 
@@ -143,16 +146,18 @@ Yan separates model responsibilities so media work does not discard text context
 - Supported image ratios include `auto`, `1:1`, `4:3`, `3:4`, `3:2`, `2:3`, `16:9`, `9:16`, and `21:9`.
 - Successful media generation does not automatically call image reading again. Vision is used only when the task requires inspection, the text model cannot see, or the user asks for it.
 - Provider catalogs are dynamically loaded where supported and separated into text, image, and video groups. Catalog discovery does not replace endpoint, quota, or network validation.
-- Each provider can keep multiple isolated supplier connections. Official and third-party Base URLs, API keys, and model inventories remain separate, and text, image, and video roles retain their own supplier identity. Choosing a text supplier does not erase an image or video selection from another supplier.
-- The Custom Model card accepts a Base URL, API format, API key, and explicit model ID. Manual configuration or dynamic discovery does not guarantee endpoint compatibility, permission, or quota.
+- Users can keep any number of isolated API connections. Official services, third-party relays, and private deployments retain separate names, Base URLs, API keys, compatibility presets, and model inventories. Text, image, and video roles retain their own connection identity.
+- A connection can include a manually entered model ID when its catalog endpoint is unavailable. Manual configuration or dynamic discovery does not guarantee endpoint compatibility, permission, or quota.
 - The application does not label models with prices or long-term free-tier promises.
 
 When a text model cannot read an attachment or screenshot, Yan Vision Relay can inspect it and return a grounded report to the primary model. The current order is:
 
-1. GLM: `GLM-5V Turbo` -> `GLM-4.6V Flash` -> `GLM-4.1V Thinking Flash` -> `GLM-4V Flash`
-2. Agnes: `Agnes 2.5 Flash` -> `Agnes 2.0 Flash`
+1. glm
+2. sensenova
+3. Agnes
+4. SiliconFlow
 
-Yan currently describes GLM as not requiring a VPN in the application's target network setup, while Agnes commonly requires one. Real access still depends on API configuration, service state, quota, rate limits, and the user's network.
+Yan currently treats GLM and SenseNova as domestic direct connections, while Agnes commonly requires a VPN. Real access still depends on API configuration, service state, quota, rate limits, and the user's network.
 
 ### Output, Review, Memory, and Cache
 
@@ -175,8 +180,8 @@ Yan currently describes GLM as not requiring a VPN in the application's target n
 - **Yan Prompt Optimizer** runs only when selected by the user. It preserves intent, tone, paths, URLs, code, numbers, model names, and constraints while reducing ambiguity; it does not invent features or tools.
 - Tone settings support up to four named profiles. A profile controls expression, including direct or playful styles, but cannot change facts, permissions, or safety boundaries.
 - `Ctrl+Shift+Y` opens the global quick-input surface while Yan remains available in the system tray. The shortcut is configurable.
-- The startup animation, theme switcher, settings navigation, full-screen layouts, and model configuration surfaces were redesigned for 1.4.0.
-- Provider configuration uses a multi-supplier panel. The primary-model menu selects a supplier first and then lists only that connection's text models, while image and video selections keep their own connections.
+- The startup animation, theme switcher, settings navigation, full-screen layouts, model configuration surfaces, bilingual UI, and wallpaper library are integrated in 1.5.0.
+- API configuration uses a user-owned connection list. Each connection stores its name, Base URL, API key, compatibility preset, optional media endpoints, and returned models; legacy provider-grouped settings are imported on first launch.
 - The right sidebar includes Auxiliary Conversation, browser, file, and Git workspaces. Bottom utilities provide separate vertical controls for the user, current theme, Pet, and settings.
 - The integrated Git panel covers status, branches, stage/unstage, commit, fetch, pull, push, remotes, and file diffs. Yan also detects VS Code dynamically and can open the selected workspace when VS Code is available.
 
@@ -229,7 +234,7 @@ npm start
 
 First use:
 
-1. Open `Settings -> API`, choose a real provider, and enter its API key and Base URL when required.
+1. Open `Settings -> API`, create a named connection, enter its Base URL, API key, and compatibility preset, then test the connection.
 2. Check the dynamically loaded model inventory under `Settings -> Models`.
 3. Start a Blank task for conversation, browsing, Skill installation, or media generation. Select a workspace before creating or changing user files.
 4. Choose Normal, Plan, or Goal mode, then select Skills, reasoning speed, and access policy as needed.
@@ -243,11 +248,11 @@ npm run build              # Build the Windows NSIS installer only
 npm run build:portable     # Build the portable executable separately
 ```
 
-The default v1.4.0 packaging run produces only the installer. The build bundles the DeepSeek DSML provider and then validates packaged provider runtimes and CodeGraph.
+The default v1.5.0 packaging run produces only the installer. The build bundles the DeepSeek DSML provider and then validates packaged provider runtimes and CodeGraph.
 
 ### Download
 
-The official v1.4.0 installer is published through GitHub Releases:
+The official v1.5.0 installer is published through GitHub Releases:
 
 <https://github.com/666-gy/Yan-Agent/releases>
 
@@ -273,10 +278,9 @@ Deleting a task does not delete its workspace. The uninstaller option **Clear al
 
 ## Current Boundaries and Roadmap
 
-- **Yan Computer Use is an initial 1.4.0 integration, not a promise of universal desktop automation.** It depends on Nuphus MCP, the target application's UI, and perception quality; custom-drawn interfaces, permission windows, and rapidly changing desktops may still fail.
-- **Yan Agent GUI is under development and planned for v1.5.0.** The current Yan Work GUI entry is a development placeholder.
-- **The mobile Web UI has not received the full 1.4.0 redesign and is not recommended** as the primary interface for this release.
-- Resident subagents, dynamic concurrency scheduling, hosted PR/Issue workflows, built-in Git credential management, and a bundled PowerShell 7 runtime are not part of the stable 1.4.0 promise. Local Git workspace operations are integrated.
+- **Yan Computer Use remains a preview capability, not a promise of universal desktop automation.** It depends on Nuphus MCP, the target application's UI, and perception quality; custom-drawn interfaces, permission windows, and rapidly changing desktops may still fail.
+- **Yan Work GUI remains under development.** Its current entry is a development preview rather than a production delivery surface.
+- Yan Agent 1.5.0 includes opt-in, role-based subagents inside a task. Resident subagents, unbounded dynamic concurrency, hosted PR/Issue workflows, built-in Git credential management, and a bundled PowerShell 7 runtime are not part of the stable promise. Local Git workspace operations are integrated.
 - Dynamic model discovery does not guarantee that every media endpoint, request format, balance, rate limit, or region is usable.
 - Vision relay, web search, and third-party MCP services depend on user API configuration, network access, VPN conditions, and service health.
 
@@ -300,7 +304,6 @@ Yan-Agent/
 |-- renderer/browser-agent.js  Built-in browser control UI and state
 |-- renderer/computer-use-overlay/  Visible Computer Use safety overlay
 |-- renderer/pet/              Yan Agent Pet
-|-- renderer/remote/           Mobile Web UI
 |-- build/                     NSIS installer configuration
 `-- package.json               Runtime and packaging configuration
 ```

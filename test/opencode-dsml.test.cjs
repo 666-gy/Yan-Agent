@@ -5,19 +5,57 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { fileURLToPath, pathToFileURL } = require('node:url');
 const {
   containsDsmlToolCallMarkup,
   recoverDsmlToolCalls
 } = require('../lib/dsml-tool-call');
 const {
+  DEFAULT_PROVIDER_CHUNK_TIMEOUT_MS,
+  DEFAULT_PROVIDER_HEADER_TIMEOUT_MS,
+  DEFAULT_PROVIDER_TIMEOUT_MS,
   buildOpenCodeConfig,
   permissionRulesForRun,
   sessionPermissionForRun,
   openCodeMessageContextTokens,
+  openCodeErrorDetail,
+  stageDeepSeekProviderModule,
   buildPromptParts
 } = require('../lib/opencode-sidecar');
+const { resolveModelCapabilities } = require('../lib/model-capabilities');
 
 const providerModule = import('../lib/opencode-dsml-provider.mjs');
+
+function sseBlock(payload) {
+  return `data: ${typeof payload === 'string' ? payload : JSON.stringify(payload)}\n\n`;
+}
+
+function fragmentedSseResponse(source, chunkBytes = 19) {
+  const bytes = new TextEncoder().encode(source);
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
+        controller.enqueue(bytes.slice(offset, offset + chunkBytes));
+      }
+      controller.close();
+    }
+  }), {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'content-length': String(bytes.length)
+    }
+  });
+}
+
+function parseSseOutput(source) {
+  return String(source).split(/\r?\n\r?\n/gu).filter(Boolean).map(block => {
+    const data = block.split(/\r?\n/gu)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).replace(/^ /u, ''))
+      .join('\n');
+    return data === '[DONE]' ? data : JSON.parse(data);
+  });
+}
 
 const dsml = [
   '<｜｜DSML｜｜tool_calls>',
@@ -301,6 +339,29 @@ test('leaves an ordinary text stream unchanged in content and finish reason', as
   assert.deepEqual(output.at(-1).finishReason, { unified: 'stop', raw: 'stop' });
 });
 
+test('forwards ordinary text immediately instead of retaining a fixed tail', async () => {
+  const { transformDsmlStream } = await providerModule;
+  let input;
+  const source = new ReadableStream({ start(controller) { input = controller; } });
+  const reader = transformDsmlStream(source).getReader();
+  input.enqueue({ type: 'text-start', id: 'answer' });
+  input.enqueue({ type: 'text-delta', id: 'answer', delta: 'Hi' });
+
+  const first = await Promise.race([
+    reader.read(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('ordinary text was buffered')), 100))
+  ]);
+  const second = await reader.read();
+  assert.equal(first.value.type, 'text-start');
+  assert.equal(second.value.type, 'text-delta');
+  assert.equal(second.value.delta, 'Hi');
+
+  input.enqueue({ type: 'text-end', id: 'answer' });
+  input.enqueue({ type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: {} });
+  input.close();
+  await reader.cancel();
+});
+
 test('converts DSML emitted through the DeepSeek reasoning channel', async () => {
   const { transformDsmlStream } = await providerModule;
   const source = new ReadableStream({
@@ -335,20 +396,99 @@ test('factory wraps callable and named language-model entry points', async () =>
   assert.equal(callableModel.modelId, 'deepseek-v4-flash');
 });
 
-test('selects the local DSML provider only for DeepSeek models', () => {
+test('uses the optimized local provider for OpenAI-compatible models', () => {
   const deepseek = buildOpenCodeConfig({
     providerId: 'deepseek',
     providerName: 'DeepSeek',
-    modelId: 'deepseek-v4-flash'
+    modelId: 'deepseek-v4-flash',
+    deepSeekProviderModule: 'file:///staged/yan-provider.mjs'
   });
   const qwen = buildOpenCodeConfig({
     providerId: 'qwen',
     providerName: 'Qwen',
-    modelId: 'qwen3.5-plus'
+    modelId: 'qwen3.5-plus',
+    deepSeekProviderModule: 'file:///staged/yan-provider.mjs'
   });
-  assert.match(deepseek.provider.deepseek.npm, /^file:\/\//);
-  assert.match(deepseek.provider.deepseek.npm, /opencode-dsml-provider\.mjs$/);
-  assert.equal(qwen.provider.qwen.npm, '@ai-sdk/openai-compatible');
+  assert.equal(deepseek.provider.deepseek.npm, 'file:///staged/yan-provider.mjs');
+  assert.equal(qwen.provider.qwen.npm, 'file:///staged/yan-provider.mjs');
+  assert.equal(deepseek.provider.deepseek.options.yanDsmlCompatibility, true);
+  assert.equal(qwen.provider.qwen.options.yanDsmlCompatibility, false);
+});
+
+test('keeps provider requests alive for slow first-token and streaming models', () => {
+  const config = buildOpenCodeConfig({
+    providerId: 'deepseek',
+    modelId: 'deepseek-v4-flash-vision-exp'
+  });
+  const options = config.provider.deepseek.options;
+  assert.equal(options.timeout, DEFAULT_PROVIDER_TIMEOUT_MS);
+  assert.equal(options.headerTimeout, DEFAULT_PROVIDER_HEADER_TIMEOUT_MS);
+  assert.equal(options.chunkTimeout, DEFAULT_PROVIDER_CHUNK_TIMEOUT_MS);
+  assert.ok(options.timeout > 30_000);
+  assert.ok(options.headerTimeout > 10_000);
+  assert.ok(options.chunkTimeout > 15_000);
+  assert.equal('yan' in config, false);
+});
+
+test('always stages the bundled provider outside the application directory', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-provider-stage-'));
+  try {
+    const moduleUrl = stageDeepSeekProviderModule({
+      appRoot: path.resolve(__dirname, '..'),
+      dataDir
+    });
+    const stagedPath = fileURLToPath(moduleUrl);
+    assert.equal(stagedPath.startsWith(path.join(dataDir, 'opencode-runtime', 'providers')), true);
+    assert.equal(fs.readFileSync(stagedPath).equals(
+      fs.readFileSync(path.resolve(__dirname, '..', 'lib', 'opencode-dsml-provider.bundle.mjs'))
+    ), true);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('stages an installed app.asar provider into the user runtime', () => {
+  const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-provider-asar-'));
+  const packedRoot = path.join(packageRoot, 'resources', 'app.asar');
+  const unpackedProvider = path.join(`${packedRoot}.unpacked`, 'lib', 'opencode-dsml-provider.bundle.mjs');
+  const dataDir = path.join(packageRoot, 'data');
+  try {
+    fs.mkdirSync(path.dirname(unpackedProvider), { recursive: true });
+    fs.writeFileSync(unpackedProvider, 'export default function provider() {}\n');
+    const moduleUrl = stageDeepSeekProviderModule({ appRoot: packedRoot, dataDir });
+    const stagedPath = fileURLToPath(moduleUrl);
+    assert.equal(stagedPath.startsWith(path.join(dataDir, 'opencode-runtime', 'providers')), true);
+    assert.doesNotMatch(moduleUrl, /app\.asar(?:\.unpacked)?/u);
+    assert.equal(fs.readFileSync(stagedPath, 'utf8'), 'export default function provider() {}\n');
+  } finally {
+    fs.rmSync(packageRoot, { recursive: true, force: true });
+  }
+});
+
+test('repairs a corrupted provider in the content-addressed runtime cache', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-provider-repair-'));
+  try {
+    const options = { appRoot: path.resolve(__dirname, '..'), dataDir };
+    const moduleUrl = stageDeepSeekProviderModule(options);
+    const stagedPath = fileURLToPath(moduleUrl);
+    fs.writeFileSync(stagedPath, 'corrupted provider');
+    assert.equal(stageDeepSeekProviderModule(options), moduleUrl);
+    assert.equal(fs.readFileSync(stagedPath).equals(
+      fs.readFileSync(path.resolve(__dirname, '..', 'lib', 'opencode-dsml-provider.bundle.mjs'))
+    ), true);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('recognizes the DeepSeek experimental vision model as image-capable', () => {
+  const capabilities = resolveModelCapabilities('deepseek', {
+    id: 'deepseek-v4-flash-vision-exp'
+  });
+  assert.equal(capabilities.vision, true);
+  assert.equal(capabilities.imageInput, true);
+  assert.equal(capabilities.modelType, 'text');
+  assert.deepEqual(capabilities.imageMimeTypes, ['image/png', 'image/jpeg']);
 });
 
 test('configures Anthropic-compatible gateways with the native provider', () => {
@@ -363,4 +503,271 @@ test('configures Anthropic-compatible gateways with the native provider', () => 
   assert.equal(config.provider['custom-ark'].npm, '@ai-sdk/anthropic');
   assert.equal(config.provider['custom-ark'].options.baseURL, 'https://ark.example.com/v1');
   assert.equal(config.provider['custom-ark'].options.headers.Authorization, 'Bearer secret-key');
+  assert.equal('yanDsmlCompatibility' in config.provider['custom-ark'].options, false);
+});
+
+test('provider fetch leaves non-stream responses untouched', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const original = new Response('{"ok":true}', {
+    status: 201,
+    headers: { 'content-type': 'application/json' }
+  });
+  const optimizedFetch = createYanProviderFetch(async () => original);
+  const result = await optimizedFetch('https://example.test');
+  assert.equal(result, original);
+  assert.equal(await result.text(), '{"ok":true}');
+});
+
+test('provider fetch normalizes non-stream native tool-call ids', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const original = new Response(JSON.stringify({
+    choices: [{
+      message: {
+        role: 'assistant',
+        tool_calls: [
+          { id: 7, function: { name: 'generate_image', arguments: '{}' } },
+          { function: { name: 'read', arguments: '{}' } }
+        ]
+      }
+    }]
+  }), {
+    headers: { 'content-type': 'application/json' }
+  });
+  const result = await createYanProviderFetch(async () => original)('https://example.test');
+  const payload = await result.json();
+  const ids = payload.choices[0].message.tool_calls.map(call => call.id);
+  assert.equal(ids[0], '7');
+  assert.equal(typeof ids[1], 'string');
+  assert.ok(ids[1].length > 0);
+});
+
+test('provider fetch preserves ordinary fragmented SSE streams', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const chunks = [
+    { id: 'chat-plain', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { content: '你' }, finish_reason: null }] },
+    { id: 'chat-plain', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { content: '好' }, finish_reason: null }] },
+    { id: 'chat-plain', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }
+  ];
+  const source = `${chunks.map(sseBlock).join('')}data: [DONE]\n\n`;
+  const optimizedFetch = createYanProviderFetch(async () => fragmentedSseResponse(source, 1));
+  const response = await optimizedFetch('https://example.test');
+  const output = parseSseOutput(await response.text());
+  assert.deepEqual(output, [...chunks, '[DONE]']);
+  assert.equal(response.headers.has('content-length'), false);
+});
+
+test('provider fetch coalesces large native tool arguments before SDK parsing', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const writeArguments = JSON.stringify({
+    filePath: 'C:\\workspace\\large.js',
+    content: 'const value = "测试🚀";\n'.repeat(2_048)
+  });
+  const bashArguments = JSON.stringify({ command: 'node --check C:\\workspace\\large.js' });
+  const argumentFragments = writeArguments.match(/[\s\S]{1,47}/gu);
+  const chunks = [
+    { id: 'chat-tools', object: 'chat.completion.chunk', created: 7, model: 'test-model', choices: [{ index: 0, delta: { content: 'Writing now.' }, finish_reason: null }] },
+    ...argumentFragments.map((fragment, index) => ({
+      id: 'chat-tools',
+      object: 'chat.completion.chunk',
+      created: 7,
+      model: 'test-model',
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            ...(index === 0 ? { id: 'call-write', type: 'function' } : {}),
+            function: {
+              ...(index === 0 ? { name: 'write' } : {}),
+              arguments: fragment
+            }
+          }]
+        },
+        finish_reason: null
+      }]
+    })),
+    {
+      id: 'chat-tools',
+      object: 'chat.completion.chunk',
+      choices: [{
+        index: 0,
+        delta: { tool_calls: [{ index: 1, id: 'call-bash', type: 'function', function: { name: 'bash', arguments: bashArguments } }] },
+        finish_reason: null
+      }]
+    },
+    { id: 'chat-tools', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    { id: 'chat-tools', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 } }
+  ];
+  const source = `${chunks.map(sseBlock).join('')}data: [DONE]\n\n`;
+  const optimizedFetch = createYanProviderFetch(async () => fragmentedSseResponse(source, 13));
+  const output = parseSseOutput(await (await optimizedFetch('https://example.test')).text());
+  const toolChunks = output.filter(item => item !== '[DONE]' && item.choices?.some(choice => choice.delta?.tool_calls));
+  assert.equal(toolChunks.length, 1);
+  const calls = toolChunks[0].choices[0].delta.tool_calls;
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].function.name, 'write');
+  assert.equal(calls[0].function.arguments, writeArguments);
+  assert.deepEqual(JSON.parse(calls[0].function.arguments), JSON.parse(writeArguments));
+  assert.equal(calls[1].function.name, 'bash');
+  assert.equal(calls[1].function.arguments, bashArguments);
+  assert.equal(output.filter(item => item !== '[DONE]' && item.choices?.[0]?.delta?.content).length, 1);
+  const toolIndex = output.indexOf(toolChunks[0]);
+  const finishIndex = output.findIndex(item => item !== '[DONE]' && item.choices?.some(choice => choice.finish_reason === 'tool_calls'));
+  const usageIndex = output.findIndex(item => item !== '[DONE]' && item.usage);
+  assert.ok(toolIndex < finishIndex);
+  assert.ok(finishIndex < usageIndex);
+  assert.equal(output.at(-1), '[DONE]');
+});
+
+test('provider fetch repairs missing and non-string native tool-call ids', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const chunks = [
+    {
+      id: 'chat-image-follow-up',
+      object: 'chat.completion.chunk',
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            function: { name: 'generate_image', arguments: '{"prompt":"狐狸"}' }
+          }]
+        },
+        finish_reason: null
+      }]
+    },
+    {
+      id: 'chat-image-follow-up',
+      object: 'chat.completion.chunk',
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 1,
+            id: 42,
+            function: { name: 'read', arguments: '{"path":"image.png"}' }
+          }]
+        },
+        finish_reason: null
+      }]
+    },
+    {
+      id: 'chat-image-follow-up',
+      object: 'chat.completion.chunk',
+      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }]
+    }
+  ];
+  const source = `${chunks.map(sseBlock).join('')}data: [DONE]\n\n`;
+  const response = await createYanProviderFetch(async () => fragmentedSseResponse(source, 5))('https://example.test');
+  const output = parseSseOutput(await response.text());
+  const toolChunk = output.find(item => item !== '[DONE]' && item.choices?.some(choice => choice.delta?.tool_calls));
+  assert.ok(toolChunk);
+  const calls = toolChunk.choices[0].delta.tool_calls;
+  assert.equal(calls.length, 2);
+  assert.equal(typeof calls[0].id, 'string');
+  assert.ok(calls[0].id.length > 0);
+  assert.equal(calls[1].id, '42');
+  assert.equal(output.at(-1), '[DONE]');
+});
+
+test('provider fetch flushes a tool call when an SSE stream ends without DONE', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const args = '{"filePath":"a.js","content":"ok"}';
+  const source = sseBlock({
+    id: 'chat-no-done',
+    object: 'chat.completion.chunk',
+    choices: [{
+      index: 0,
+      delta: { tool_calls: [{ index: 0, id: 'call-1', type: 'function', function: { name: 'write', arguments: args } }] },
+      finish_reason: 'tool_calls'
+    }]
+  });
+  const optimizedFetch = createYanProviderFetch(async () => fragmentedSseResponse(source, 7));
+  const output = parseSseOutput(await (await optimizedFetch('https://example.test')).text());
+  assert.equal(output[0].choices[0].delta.tool_calls[0].function.arguments, args);
+  assert.equal(output[1].choices[0].finish_reason, 'tool_calls');
+});
+
+test('optimized provider presents one complete tool call to the AI SDK', async () => {
+  const { createYanDsmlProvider } = await providerModule;
+  const args = JSON.stringify({
+    filePath: 'C:\\workspace\\snake.js',
+    content: 'const snake = "测试";\n'.repeat(256)
+  });
+  const fragments = args.match(/[\s\S]{1,23}/gu);
+  const source = `${fragments.map((fragment, index) => sseBlock({
+    id: 'chat-sdk',
+    object: 'chat.completion.chunk',
+    choices: [{
+      index: 0,
+      delta: {
+        tool_calls: [{
+          index: 0,
+          ...(index === 0 ? { id: 'call-sdk', type: 'function' } : {}),
+          function: {
+            ...(index === 0 ? { name: 'write' } : {}),
+            arguments: fragment
+          }
+        }]
+      },
+      finish_reason: null
+    }]
+  })).join('')}data: ${JSON.stringify({
+    id: 'chat-sdk',
+    object: 'chat.completion.chunk',
+    choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }]
+  })}\n\ndata: [DONE]\n\n`;
+  const provider = createYanDsmlProvider({
+    baseURL: 'https://example.test/v1',
+    apiKey: 'test',
+    yanDsmlCompatibility: false,
+    fetch: async () => fragmentedSseResponse(source, 5)
+  });
+  const result = await provider('test-model').doStream({
+    prompt: [{ role: 'user', content: [{ type: 'text', text: 'write a file' }] }],
+    tools: [{
+      type: 'function',
+      name: 'write',
+      description: 'Write a file',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: true }
+    }]
+  });
+  const parts = [];
+  for await (const part of result.stream) parts.push(part);
+  const calls = parts.filter(part => part.type === 'tool-call');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].toolCallId, 'call-sdk');
+  assert.equal(calls[0].toolName, 'write');
+  assert.equal(calls[0].input, args);
+  assert.deepEqual(JSON.parse(calls[0].input), JSON.parse(args));
+  assert.equal(parts.at(-1).type, 'finish');
+});
+
+test('bounds provider reservation and tool output for stable multi-step prefill', () => {
+  const config = buildOpenCodeConfig({
+    providerId: 'openai',
+    modelId: 'gpt-5.6-sol',
+    capabilities: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
+    mcpServers: [
+      { id: 'zeta', command: 'zeta', enabled: true },
+      { id: 'alpha', command: 'alpha', enabled: true }
+    ]
+  });
+  assert.equal(config.provider.openai.models['gpt-5.6-sol'].limit.output, 32_768);
+  assert.equal(config.provider.openai.models['gpt-5.6-sol'].limit.context, 1_000_000);
+  assert.deepEqual(config.tool_output, { max_lines: 800, max_bytes: 98_304 });
+  assert.equal(config.compaction.preserve_recent_tokens, 24_000);
+  assert.deepEqual(Object.keys(config.mcp), ['alpha', 'zeta']);
+  assert.equal('yan' in config, false);
+  assert.equal('yanInputTokensPerSecond' in config.provider.openai.options, false);
+  assert.equal('yanInputThroughputBaseline' in config.provider.openai.options, false);
+});
+
+test('preserves nested OpenCode validation details', () => {
+  assert.equal(openCodeErrorDetail({
+    error: {
+      name: 'ConfigInvalidError',
+      data: { message: 'Unrecognized key: yan' }
+    }
+  }), 'ConfigInvalidError: Unrecognized key: yan');
 });

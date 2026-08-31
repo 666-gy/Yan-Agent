@@ -28,13 +28,11 @@ fs.mkdirSync(outputDir, { recursive: true });
     const page = await application.firstWindow();
     await page.waitForFunction(() => typeof openSettings === 'function');
     await page.locator('#settingsBtn').click();
-    await page.locator('[data-tab="quick-launch"]').click();
-    await page.locator('#tab-quick-launch.active').waitFor();
+    await page.locator('[data-tab="general"]').click();
+    await page.locator('#tab-general.active').waitFor();
 
     assert.equal(await page.locator('#quickLaunchEnabled').isChecked(), true);
     assert.equal(await page.locator('#quickLaunchShortcutLabel').textContent(), 'Ctrl+Shift+Y');
-    await page.locator('.quick-launch-preview img').waitFor();
-    assert.equal(await page.locator('.quick-launch-preview img').evaluate(image => image.complete && image.naturalWidth > 0), true);
     await page.screenshot({ path: screenshotPath, fullPage: false });
 
     await page.locator('#quickLaunchEnabled').uncheck();
@@ -56,12 +54,8 @@ fs.mkdirSync(outputDir, { recursive: true });
     await page.locator('#quickLaunchEnabled').uncheck();
     await page.waitForFunction(async () => (await window.yan.getQuickLaunch()).settings.enabled === false);
 
-    await page.locator('#quickLaunchReset').click();
-    await page.waitForFunction(async () => {
-      const state = await window.yan.getQuickLaunch();
-      return state.settings.shortcut === 'CommandOrControl+Shift+Y' && state.settings.enabled === false;
-    });
-    assert.equal(await page.locator('#quickLaunchShortcutLabel').textContent(), 'Ctrl+Shift+Y');
+    assert.equal(await page.locator('#quickLaunchReset').count(), 0);
+    assert.equal(await page.locator('#quickLaunchPreviewLink').count(), 0);
 
     await page.locator('#closeSettings').click();
     await page.locator('#winClose').click();

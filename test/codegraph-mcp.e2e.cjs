@@ -1,15 +1,28 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
-const runtimeRoot = path.resolve(__dirname, '..', 'dist', 'win-unpacked', 'resources', 'codegraph-runtime');
+const packagedAppDir = path.resolve(process.env.YAN_PACKAGED_APP_DIR || path.join(__dirname, '..', 'dist', 'win-unpacked'));
+const runtimeRoot = path.join(packagedAppDir, 'resources', 'codegraph-runtime');
 const nodeCommand = path.join(runtimeRoot, 'node.exe');
 const entryPoint = path.join(runtimeRoot, 'lib', 'dist', 'bin', 'codegraph.js');
 const commanderPackage = path.join(runtimeRoot, 'lib', 'node_modules', 'commander', 'package.json');
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function stopProcessTree(processHandle) {
+  if (!processHandle || processHandle.exitCode !== null) return;
+  const result = spawnSync('taskkill', ['/pid', String(processHandle.pid), '/t', '/f'], {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: 'ignore'
+  });
+  if (result.status !== 0) {
+    try { processHandle.kill(); } catch {}
+  }
 }
 
 function request(server, id, method, params) {
@@ -111,7 +124,7 @@ async function main() {
       pending.reject(new Error('CodeGraph MCP process stopped.'));
     }
     server.pending.clear();
-    try { processHandle.kill(); } catch {}
+    stopProcessTree(processHandle);
   }
 }
 

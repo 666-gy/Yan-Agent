@@ -80,6 +80,10 @@ function assertCatalogMetadata() {
   }
 
   const expectedPackages = [
+    ['hallmark', 'references/macrostructures.md'],
+    ['hallmark', 'references/macrostructures/01-bento-grid.md'],
+    ['hallmark', 'references/themes/grid.md'],
+    ['hallmark', 'references/theme-tokens.css'],
     ['hyperframes', 'references/typography.md'],
     ['hyperframes-cli', 'SKILL.md'],
     ['gsap', 'references/effects.md'],
@@ -103,6 +107,58 @@ function assertCatalogMetadata() {
   for (const id of retainedIds) assert.ok(!retired.includes(id), `${id} cannot be retired`);
   assert.ok(visibleIds.length > requiredVisibleIds.length, 'the expanded v1.4.0 catalog must remain visible');
   assert.ok(internalIds.length >= requiredInternalIds.length, 'companion Skills must remain bundled');
+}
+
+function assertHallmarkPackageIntegrity() {
+  const hallmarkRoot = path.join(appRoot, 'lib', 'skills', 'hallmark');
+  const markdownLink = /\[[^\]]*\]\((?!https?:|mailto:|#)([^)#]+)(?:#[^)]*)?\)/g;
+  const broken = [];
+  for (const file of fs.readdirSync(hallmarkRoot, { recursive: true, withFileTypes: true })) {
+    if (!file.isFile() || !file.name.endsWith('.md')) continue;
+    const fullPath = path.join(file.parentPath, file.name);
+    const content = fs.readFileSync(fullPath, 'utf8');
+    for (const match of content.matchAll(markdownLink)) {
+      const target = decodeURIComponent(match[1]);
+      const resolved = path.resolve(path.dirname(fullPath), target);
+      if (!fs.existsSync(resolved)) broken.push(`${path.relative(hallmarkRoot, fullPath)} -> ${target}`);
+    }
+  }
+  assert.deepStrictEqual(broken, [], `Hallmark contains broken local links:\n${broken.join('\n')}`);
+}
+
+function assertBundledPackageMigration() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-bundled-shadow-'));
+  try {
+    const hallmark = loadBundledConfig().find(skill => skill.id === 'hallmark');
+    const stale = skillRegistry.installYanUserSkill(dataDir, hallmark);
+    assert.strictEqual(stale.ok, true);
+    assert.strictEqual(fs.readdirSync(stale.directory).length, 2, 'fixture must reproduce the legacy two-file shadow');
+
+    const cfg = { customSkills: [hallmark] };
+    const installed = skillRegistry.getInstalledSkills(cfg, appRoot, dataDir);
+    const resolved = installed.find(skill => skill.id === 'hallmark');
+    assert.strictEqual(resolved.runtimeDirectory, path.join(appRoot, 'lib', 'skills', 'hallmark'));
+    assert.ok(fs.existsSync(path.join(resolved.runtimeDirectory, 'references', 'macrostructures.md')));
+
+    const migrated = skillRegistry.migrateBundledSkillShadows(dataDir, appRoot, ['hallmark']);
+    assert.strictEqual(migrated.changed, true);
+    assert.deepStrictEqual(migrated.removedIds, ['hallmark']);
+    assert.strictEqual(fs.existsSync(stale.directory), false);
+
+    const userOwned = skillRegistry.installYanUserSkill(dataDir, {
+      id: 'hallmark',
+      name: 'User Hallmark',
+      desc: 'A user-owned same-name fixture',
+      prompt: 'Keep this directory intact.',
+      source: 'custom'
+    });
+    assert.strictEqual(userOwned.ok, true);
+    const preserved = skillRegistry.migrateBundledSkillShadows(dataDir, appRoot, ['hallmark']);
+    assert.strictEqual(preserved.changed, false);
+    assert.strictEqual(fs.existsSync(userOwned.directory), true, 'user-owned same-name Skill must not be deleted');
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 }
 
 function assertRendererCategories() {
@@ -192,6 +248,8 @@ function assertRetiredMigration() {
 }
 
 assertCatalogMetadata();
+assertHallmarkPackageIntegrity();
+assertBundledPackageMigration();
 assertRendererCategories();
 assertRetiredMigration();
 console.log('Skill catalog tests passed.');

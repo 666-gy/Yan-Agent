@@ -50,7 +50,7 @@ function createClient(runtime, dataDir) {
   return { child, request };
 }
 
-test('Yan Media always exposes read_image and reports missing visual relay configuration', async t => {
+test('Yan Media exposes read_image by default and reports missing visual relay configuration', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
   const client = createClient({
     access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
@@ -72,6 +72,28 @@ test('Yan Media always exposes read_image and reports missing visual relay confi
   });
   assert.equal(called.result.isError, true);
   assert.equal(called.result.structuredContent.error, '通用读图工具需要先配置可用的视觉中继模型');
+});
+
+test('Yan Media hides read_image when visual relay is disabled but keeps generation tools', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
+  const client = createClient({
+    access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    vision: { enabled: false, models: [] },
+    image: {
+      providerId: 'test',
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'test-key',
+      modelId: 'test-image-model'
+    }
+  }, dataDir);
+  t.after(() => {
+    client.child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const listed = await client.request('tools/list');
+  const names = listed.result.tools.map(item => item.name);
+  assert.equal(names.includes('read_image'), false);
+  assert.equal(names.includes('generate_image'), true);
 });
 
 test('read_image prefers configured GLM models before falling back to Agnes', async t => {
@@ -185,4 +207,47 @@ test('read_image keeps compatibility with the legacy Agnes relay configuration',
   });
   assert.equal(called.result.isError, false);
   assert.equal(called.result.structuredContent.report, 'Yan 图片可见。');
+});
+
+test('generate_image normalizes SenseNova dimensions inside Yan Media', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      requests.push(JSON.parse(body));
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        data: [{ b64_json: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64') }]
+      }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const client = createClient({
+    access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    image: {
+      providerId: 'conn-sensenova',
+      baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
+      apiKey: 'test-key',
+      modelId: 'sensenova-u1-fast',
+      strategy: 'chat',
+      providerOptions: { adapterKind: 'openai' }
+    }
+  }, dataDir);
+  t.after(() => {
+    client.child.kill();
+    server.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const called = await client.request('tools/call', {
+    name: 'generate_image',
+    arguments: { prompt: '读取测试提示词', aspect_ratio: '16:9' }
+  });
+  assert.equal(called.result.isError, false);
+  assert.equal(called.result.structuredContent.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].size, '2752x1536');
 });

@@ -1,0 +1,1221 @@
+/*
+  Hallmark — tokens
+  Twenty-four themes. Each occupies a distinct point in OKLCH space.
+  Paper colours span dark / cream / saturated / cool / warm; never adjacent.
+  Display fonts span category-level differences (serif / mono / condensed sans / italic);
+  no theme is a minor variation of another.
+  Switched via [data-theme="..."] on <html>.
+*/
+
+/* ──────────────────────────────────────────────────────────────
+   SPECIMEN — warm oat editorial workshop · serif default
+   ────────────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="specimen"] {
+  --color-paper:    oklch(96%  0.018 80);
+  --color-paper-2:  oklch(93%  0.020 80);
+  --color-paper-3:  oklch(89%  0.022 75);
+  --color-rule:     oklch(82%  0.014 75);
+  --color-rule-2:   oklch(70%  0.012 70);
+  --color-muted:    oklch(52%  0.012 65);
+  --color-neutral:  oklch(38%  0.014 60);
+  --color-ink-2:    oklch(26%  0.014 60);
+  --color-ink:      oklch(18%  0.014 60);
+  --color-accent:   #FC4C02;
+  --color-accent-ink: oklch(55% 0.21 32);
+  --color-focus:    #FC4C02;
+
+  --font-display: "Fraunces", "Tiempos", ui-serif, Georgia, serif;
+  --font-body:    "Geist", "Söhne", ui-sans-serif, sans-serif;
+  --font-serif:   "Fraunces", ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 340;
+  --display-optical: 144;
+  --display-style: normal;
+  --display-soft: 20;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-md:   1.125rem;
+  --text-lg:   1.375rem;
+  --text-xl:   1.75rem;
+  --text-2xl:  2.25rem;
+  --text-3xl:  2.75rem;
+  --text-display:   clamp(3.0rem, 5.5vw + 1.0rem, 5.75rem);
+  --text-display-s: clamp(2rem, 3vw + 1rem, 3rem);
+
+  --lh-tight:   1.02;
+  --lh-snug:    1.18;
+  --lh-normal:  1.45;
+  --lh-relaxed: 1.6;
+
+  --tracking-display: -0.025em;
+  --tracking-tight:   -0.01em;
+  --tracking-normal:  0;
+  --tracking-label:   0.12em;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs:  0.5rem;
+  --space-sm:  0.75rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6.5rem;
+  --space-4xl: 10rem;
+  --space-5xl: 13rem;
+
+  --section-gap: 6.5rem;
+  --section-head-gap: 1.5rem;
+
+  --page-max:      76rem;
+  --page-gutter:   clamp(1.25rem, 4vw, 3rem);
+  --measure:       62ch;
+  --rule-hair:     0.5px;
+  --rule-fine:     1px;
+
+  /* Component shape — square by default; per-theme overrides below.
+     The radius / border-weight choice is part of each theme's voice:
+     editorial themes stay square (Specimen, Newsprint, Atelier),
+     technical themes stay square (Almanac, Midnight, Terminal),
+     brutalist themes get heavier borders (Brutal, Manifesto),
+     soft themes get rounded corners (Garden, Studio, Bloom). */
+  --radius-card:   0;          /* .code, .tell cards, .install__body */
+  --radius-pill:   0;          /* CTAs, dot indicators, badges */
+  --radius-input:  0;          /* form fields, single-line code blocks */
+  --rule-card:     1px;        /* card border thickness */
+  --shadow-card:   none;       /* card depth — most themes have no shadow */
+
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:     cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long:  420ms;
+
+  --z-base:        1;
+  --z-raised:      10;
+  --z-dropdown:    100;
+  --z-sticky:      200;   /* in-page sticky elements (section heads, sidebars) */
+  --z-sticky-nav:  300;   /* top nav / banner — must out-paint in-page sticky so docked section heads slide UNDER it */
+  --z-modal:       400;
+  --z-toast:       500;
+  --z-tooltip:     600;
+
+  /* Banner height — every in-page sticky element must offset by this so it docks BELOW the nav, never overlaps. */
+  --banner-height: 44px;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   MIDNIGHT — deep cool charcoal · technical
+   Paper: cool dark blue-tinted (was warm; now cool for stronger
+   differentiation from the warm-paper themes)
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="midnight"] {
+  --color-paper:    oklch(15%  0.022 250);
+  --color-paper-2:  oklch(20%  0.024 250);
+  --color-paper-3:  oklch(25%  0.026 250);
+  --color-rule:     oklch(33%  0.024 245);
+  --color-rule-2:   oklch(48%  0.020 240);
+  --color-muted:    oklch(60%  0.018 240);
+  --color-neutral:  oklch(72%  0.014 235);
+  --color-ink-2:    oklch(86%  0.010 230);
+  --color-ink:      oklch(95%  0.008 230);
+  --color-accent:   oklch(72%  0.16 220);
+  --color-accent-ink: oklch(72% 0.16 220);
+  --color-focus:    oklch(72%  0.16 220);
+
+  --font-display: "Geist", "Futura", "Avenir Next", ui-sans-serif, sans-serif;
+  --font-body:    "Geist", "Söhne", ui-sans-serif, sans-serif;
+  --font-serif:   "Instrument Serif", ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 300;
+  --display-optical: 144;
+  --display-soft: 0;
+
+  --text-display:   clamp(2.75rem, 5.0vw + 1.0rem, 5.25rem);
+  --text-display-s: clamp(1.75rem, 2.5vw + 1rem, 2.75rem);
+
+  --tracking-display: -0.03em;
+  --tracking-label:   0.16em;
+
+  --section-gap: 6rem;
+  --section-head-gap: 1.5rem;
+  --measure: 60ch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   BRUTAL — stark white · heavy condensed · bright red
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="brutal"] {
+  --color-paper:    oklch(98%  0.001 0);
+  --color-paper-2:  oklch(95%  0.002 0);
+  --color-paper-3:  oklch(91%  0.003 0);
+  --color-rule:     oklch(12%  0.005 0);
+  --color-rule-2:   oklch(8%   0.005 0);
+  --color-muted:    oklch(38%  0.005 0);
+  --color-neutral:  oklch(22%  0.005 0);
+  --color-ink-2:    oklch(12%  0.005 0);
+  --color-ink:      oklch(8%   0.005 0);
+  --color-accent:   #E63946;
+  --color-accent-ink: oklch(58% 0.24 25);
+  --color-focus:    #E63946;
+
+  --font-display: "Albert Sans", "GT America", ui-sans-serif, sans-serif;
+  --font-body:    "Albert Sans", "Hanken Grotesk", ui-sans-serif, sans-serif;
+  --font-serif:   "Albert Sans", ui-sans-serif, sans-serif;
+  --font-label:   "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 700;
+  --display-soft: 0;
+
+  --text-display:   clamp(3.5rem, 6vw + 1.0rem, 6.5rem);
+  --text-display-s: clamp(2.25rem, 4vw + 1rem, 3.75rem);
+  --text-2xl: 2.75rem;
+  --text-xl:  2rem;
+  --text-lg:  1.5rem;
+
+  --tracking-display: -0.045em;
+  --tracking-tight:   -0.02em;
+  --tracking-label:   0.04em;
+
+  /* Manifesto runs uppercase Anton on display heads — line-height < 1.0 makes
+     cap-tops of line N+1 collide with the comma / baseline of line N (visible
+     on multi-line section titles like "SAME PROMPT, TWO / DIFFERENT OUTPUTS").
+     1.02 is the safe floor for all-caps condensed display. */
+  --lh-tight: 1.02;
+  --lh-snug:  1.08;
+
+  --section-gap: 5.5rem;
+  --section-head-gap: 1.25rem;
+
+  --rule-hair: 1px;
+  --rule-fine: 3px;
+  --measure: 58ch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   GARDEN — modern botanical almanac. REWORKED (was flat sage + rose +
+   Cormorant). Warm oat-cream paper · deep "botanical-ink" green · a living
+   leaf-green accent + one earthy clay pop. Young Serif (organic, roman-only)
+   for display over clean Hanken Grotesk body; Geist Mono for herbarium
+   specimen labels. References the antique seed-catalogue register
+   (Floret / Botanical Interests) made contemporary — earthy, alive, clean.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="garden"] {
+  --color-paper:    oklch(95.5% 0.022 92);   /* warm oat cream — never grey-sage */
+  --color-paper-2:  oklch(92.5% 0.026 92);   /* tinted band */
+  --color-paper-3:  oklch(88.5% 0.030 90);   /* hover / deeper */
+  --color-rule:     oklch(83%   0.028 115);  /* soft green-grey hairline */
+  --color-rule-2:   oklch(62%   0.045 132);  /* mossy rule */
+  --color-muted:    oklch(48%   0.040 138);  /* captions — muted green */
+  --color-neutral:  oklch(40%   0.045 142);
+  --color-ink-2:    oklch(33%   0.050 150);  /* deep green body */
+  --color-ink:      oklch(24%   0.052 152);  /* botanical ink — warm near-black green */
+  --color-accent:   oklch(47%   0.13  140);  /* living leaf-green (primary) */
+  --color-accent-2: oklch(54%   0.14  46);   /* earthy clay / terracotta pop */
+  --color-accent-ink: oklch(96% 0.02 92);    /* cream on green / clay fills */
+  --color-focus:    oklch(47%   0.13  140);
+
+  /* botanical tints — soft section bands (used by Garden builds) */
+  --tint-moss: oklch(47% 0.13 140 / 0.10);
+  --tint-clay: oklch(54% 0.14 46 / 0.10);
+
+  --font-display: "Young Serif", ui-serif, Georgia, serif;
+  --font-body:    "Hanken Grotesk", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Newsreader", ui-serif, Georgia, serif;   /* readable text-serif for prose; Young Serif is display-only */
+  --font-label:   "Geist Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", ui-monospace, monospace;
+
+  --display-weight: 400;          /* Young Serif ships one organic weight */
+  --display-style: normal;        /* roman — no italic headers */
+
+  --text-display:   clamp(2.85rem, 5.2vw + 1rem, 5rem);
+  --text-display-s: clamp(2.1rem, 3.2vw + 1rem, 3.25rem);
+
+  --tracking-display: -0.006em;
+  --tracking-tight:   -0.004em;
+  --tracking-label:   0.14em;     /* herbarium specimen tags */
+
+  --lh-tight:   1.06;
+  --lh-snug:    1.22;
+
+  --section-gap: 6.5rem;
+  --section-head-gap: 1.6rem;
+  --measure: 58ch;
+
+  --shadow-card: 0 14px 34px -20px oklch(24% 0.05 150 / 0.22),
+                 0 1px 2px oklch(24% 0.05 150 / 0.08);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   ATELIER — luxury fashion-house
+   Cool cream paper (low chroma so it reads "considered" not "warm")
+   + dark warm-brown ink + Playfair Display 900 (Didone-feel)
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="atelier"] {
+  --color-paper:    oklch(94%  0.005 60);
+  --color-paper-2:  oklch(91%  0.006 60);
+  --color-paper-3:  oklch(87%  0.008 55);
+  --color-rule:     oklch(78%  0.006 55);
+  --color-rule-2:   oklch(56%  0.008 50);
+  --color-muted:    oklch(46%  0.010 50);
+  --color-neutral:  oklch(28%  0.014 45);
+  --color-ink-2:    oklch(18%  0.020 40);
+  --color-ink:      oklch(12%  0.024 40);
+  --color-accent:   oklch(22%  0.060 40);
+  --color-accent-ink: oklch(45% 0.13 60);
+  --color-focus:    oklch(45%  0.13 60);
+
+  --font-display: "Playfair Display", "Cormorant Garamond", "Tiempos Headline", ui-serif, Georgia, serif;
+  --font-body:    "Hanken Grotesk", "Geist", ui-sans-serif, sans-serif;
+  --font-serif:   "Playfair Display", "Cormorant Garamond", ui-serif, Georgia, serif;
+  --font-label:   "IBM Plex Mono", ui-monospace, monospace;
+  --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+  --display-weight: 900;
+  --display-optical: 144;
+  --display-style: normal;
+  --display-soft: 0;
+
+  --text-display:   clamp(3.75rem, 5.5vw + 1.0rem, 6.25rem);
+  --text-display-s: clamp(2.5rem, 4vw + 1rem, 4rem);
+
+  --tracking-display: -0.018em;
+  --tracking-tight:   -0.008em;
+  --tracking-label:   0.24em;
+
+  --lh-tight:   1.0;
+  --lh-snug:    1.16;
+  --lh-normal:  1.55;
+  --lh-relaxed: 1.7;
+
+  --section-gap: 6.5rem;
+  --section-head-gap: 1.75rem;
+  --measure: 56ch;
+  --page-max: 64rem;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   NEWSPRINT — broadsheet · salmon-pink paper · burgundy accent
+   FT-inspired pink (real)
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="newsprint"] {
+  --color-paper:    oklch(92%  0.045 50);
+  --color-paper-2:  oklch(89%  0.050 50);
+  --color-paper-3:  oklch(84%  0.054 45);
+  --color-rule:     oklch(68%  0.030 40);
+  --color-rule-2:   oklch(35%  0.020 35);
+  --color-muted:    oklch(46%  0.022 35);
+  --color-neutral:  oklch(30%  0.025 30);
+  --color-ink-2:    oklch(20%  0.030 28);
+  --color-ink:      oklch(15%  0.030 25);
+  --color-accent:   oklch(32%  0.10 28);
+  --color-accent-ink: oklch(45% 0.13 30);
+  --color-focus:    oklch(48%  0.18 30);
+
+  --font-display: "Playfair Display", "Crimson Pro", "Newsreader", ui-serif, Georgia, serif;
+  --font-body:    "Crimson Pro", "Newsreader", ui-serif, Georgia, serif;
+  --font-serif:   "Playfair Display", "Crimson Pro", ui-serif, Georgia, serif;
+  --font-label:   "Inter", "Geist", ui-sans-serif, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+  --display-weight: 700;
+  --display-optical: 48;
+  --display-style: normal;
+  --display-soft: 0;
+
+  --text-base: 1.0625rem;
+  --text-md:   1.1875rem;
+  --text-lg:   1.375rem;
+  --text-xl:   1.625rem;
+  --text-2xl:  2rem;
+  --text-display:   clamp(2.75rem, 5.0vw + 1.0rem, 5.0rem);
+  --text-display-s: clamp(2rem, 3vw + 1rem, 2.875rem);
+
+  --tracking-display: -0.022em;
+  --tracking-tight:   -0.008em;
+  --tracking-label:   0.06em;
+
+  --lh-normal:  1.55;
+  --lh-relaxed: 1.65;
+
+  --section-gap: 6rem;
+  --section-head-gap: 1.5rem;
+  --measure: 58ch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   TERMINAL — phosphor CRT · monospace everywhere
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="terminal"] {
+  --color-paper:    oklch(11%  0.018 145);
+  --color-paper-2:  oklch(15%  0.022 145);
+  --color-paper-3:  oklch(19%  0.024 145);
+  --color-rule:     oklch(28%  0.030 140);
+  --color-rule-2:   oklch(40%  0.050 140);
+  --color-muted:    oklch(58%  0.090 140);
+  --color-neutral:  oklch(68%  0.120 140);
+  --color-ink-2:    oklch(78%  0.140 138);
+  --color-ink:      oklch(86%  0.160 138);
+  --color-accent:   oklch(78%  0.190 138);
+  --color-accent-ink: oklch(78% 0.190 138);
+  --color-focus:    oklch(86%  0.190 138);
+
+  --font-display: "JetBrains Mono", "IBM Plex Mono", "Geist Mono", ui-monospace, monospace;
+  --font-body:    "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --font-serif:   "JetBrains Mono", ui-monospace, monospace;
+  --font-label:   "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 500;
+  --display-style: normal;
+
+  --text-display:   clamp(2.25rem, 4.0vw + 1.0rem, 4.0rem);
+  --text-display-s: clamp(1.625rem, 2.25vw + 1rem, 2.5rem);
+  --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
+
+  --tracking-display: 0.01em;
+  --tracking-tight:   0;
+  --tracking-label:   0.18em;
+
+  --lh-tight: 1.2;
+  --lh-snug:  1.35;
+  --lh-normal: 1.55;
+
+  --section-gap: 5.5rem;
+  --section-head-gap: 1.25rem;
+  --measure: 70ch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   MANIFESTO — BLACK paper · ALL CAPS condensed · red colour-blocks
+   The opposite pole from Brutal: same red accent, inverted background.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="manifesto"] {
+  --color-paper:    oklch(10%  0.005 60);
+  --color-paper-2:  oklch(15%  0.006 60);
+  --color-paper-3:  oklch(20%  0.008 60);
+  --color-rule:     oklch(28%  0.010 60);
+  --color-rule-2:   oklch(40%  0.012 60);
+  --color-muted:    oklch(60%  0.012 65);
+  --color-neutral:  oklch(72%  0.010 70);
+  --color-ink-2:    oklch(88%  0.006 80);
+  --color-ink:      oklch(98%  0.003 90);
+  --color-accent:   #E51A1A;
+  --color-accent-ink: oklch(58% 0.24 28);
+  --color-focus:    #E51A1A;
+
+  --font-display: "Anton", "Bebas Neue", "Albert Sans", sans-serif;
+  --font-body:    "Public Sans", "Albert Sans", "Hanken Grotesk", ui-sans-serif, sans-serif;
+  --font-serif:   "Anton", "Albert Sans", sans-serif;
+  --font-label:   "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 400;
+  --display-optical: 96;
+  --display-style: normal;
+
+  --text-display:   clamp(4.0rem, 8vw + 1.0rem, 9rem);
+  --text-display-s: clamp(2.75rem, 6vw + 1rem, 5.5rem);
+  --text-2xl: 3rem;
+  --text-xl:  2rem;
+
+  --tracking-display: 0.005em;
+  --tracking-tight:   0;
+  --tracking-label:   0.10em;
+
+  --lh-tight: 0.86;
+  --lh-snug:  1.0;
+
+  --section-gap: 5.5rem;
+  --section-head-gap: 1.25rem;
+
+  --rule-hair: 1px;
+  --rule-fine: 3px;
+  --measure: 56ch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   ALMANAC — encyclopaedic · COOL pale paper (not warm) · slate accent
+   Cool hue 245 is the key differentiator from the warm-cream cluster
+   + dense type · sticky labels · grid lines
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="almanac"] {
+  --color-paper:    oklch(94%  0.008 245);
+  --color-paper-2:  oklch(91%  0.010 245);
+  --color-paper-3:  oklch(86%  0.012 240);
+  --color-rule:     oklch(74%  0.012 240);
+  --color-rule-2:   oklch(38%  0.018 240);
+  --color-muted:    oklch(46%  0.014 245);
+  --color-neutral:  oklch(28%  0.016 245);
+  --color-ink-2:    oklch(20%  0.018 245);
+  --color-ink:      oklch(16%  0.020 245);
+  --color-accent:   oklch(38%  0.135 250);
+  --color-accent-ink: oklch(40% 0.13 250);
+  --color-focus:    oklch(38%  0.135 250);
+
+  --font-display: "Hanken Grotesk", "Inter", ui-sans-serif, sans-serif;
+  --font-body:    "Hanken Grotesk", "Inter", "Geist", ui-sans-serif, sans-serif;
+  --font-serif:   "Newsreader", ui-serif, Georgia, serif;
+  --font-label:   "IBM Plex Mono", ui-monospace, monospace;
+  --font-mono:    "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 600;
+  --display-optical: 48;
+  --display-style: normal;
+
+  --text-xs:   0.6875rem;
+  --text-sm:   0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md:   1.0625rem;
+  --text-lg:   1.25rem;
+  --text-xl:   1.5rem;
+  --text-2xl:  1.875rem;
+  --text-display:   clamp(2.25rem, 3.5vw + 1.0rem, 3.75rem);
+  --text-display-s: clamp(1.5rem, 2vw + 1rem, 2.25rem);
+
+  --tracking-display: -0.014em;
+  --tracking-tight:   -0.005em;
+  --tracking-label:   0.06em;
+
+  --lh-tight: 1.1;
+  --lh-snug:  1.22;
+  --lh-normal: 1.5;
+
+  --space-xl:  2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4.5rem;
+
+  --section-gap: 5.5rem;
+  --section-head-gap: 1.25rem;
+  --measure: 64ch;
+  --page-max: 84rem;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   SPORT — crisp white · italic display · burnt orange accent
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="sport"] {
+  --color-paper:    oklch(98%  0.003 250);
+  --color-paper-2:  oklch(95%  0.005 250);
+  --color-paper-3:  oklch(91%  0.007 250);
+  --color-rule:     oklch(78%  0.008 250);
+  --color-rule-2:   oklch(36%  0.060 255);
+  --color-muted:    oklch(50%  0.020 250);
+  --color-neutral:  oklch(30%  0.040 255);
+  --color-ink-2:    oklch(22%  0.060 258);
+  --color-ink:      oklch(16%  0.080 260);
+  --color-accent:   oklch(58%  0.190 35);
+  --color-accent-ink: oklch(54% 0.20 35);
+  --color-focus:    oklch(58%  0.190 35);
+
+  --font-display: "Inter Tight", "Albert Sans", ui-sans-serif, sans-serif;
+  --font-body:    "Albert Sans", "Hanken Grotesk", ui-sans-serif, sans-serif;
+  --font-serif:   "Inter Tight", ui-sans-serif, sans-serif;
+  --font-label:   "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 700;
+  --display-style: normal;
+  --display-optical: 96;
+
+  --text-display:   clamp(3.5rem, 6vw + 1.0rem, 6.5rem);
+  --text-display-s: clamp(2.25rem, 4vw + 1rem, 4rem);
+  --text-2xl: 2.5rem;
+  --text-xl:  1.875rem;
+
+  --tracking-display: -0.04em;
+  --tracking-tight:   -0.018em;
+  --tracking-label:   0.10em;
+
+  /* Sport runs uppercase Inter Tight on display heads — same collision risk
+     as Manifesto when titles wrap to two lines. 1.02 floor for all-caps. */
+  --lh-tight: 1.02;
+  --lh-snug:  1.06;
+
+  --section-gap: 5.5rem;
+  --section-head-gap: 1.25rem;
+
+  --rule-hair: 1px;
+  --rule-fine: 2px;
+  --measure: 58ch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   STUDIO — modern editorial agency · Fraunces italic display
+   Inspiration: 14islands, Mathieu Triay, Frame, Gretel, contemporary
+   studio portfolios in 2026. Forest-green accent — uncommon, distinctive.
+   Fraunces is a variable serif with conventional italic letterforms;
+   used here at high optical size + soft axis for the editorial agency feel.
+   Repalleted: paper shifts from warm-cream to cool-grey (hue 200, very low
+   chroma) so Studio's italic-Fraunces + forest-green accent reads against
+   a calm, scientific surface — like a research-studio rather than a
+   warm-bohemian-studio. The green accent is the identity, not the paper.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="studio"] {
+  --color-paper:    oklch(96.5%  0.005 200);
+  --color-paper-2:  oklch(93.5%  0.007 200);
+  --color-paper-3:  oklch(89%    0.010 200);
+  --color-rule:     oklch(82%    0.008 200);
+  --color-rule-2:   oklch(68%    0.010 200);
+  --color-muted:    oklch(48%    0.012 205);
+  --color-neutral:  oklch(34%    0.016 205);
+  --color-ink-2:    oklch(22%    0.020 205);
+  --color-ink:      oklch(13%    0.024 205);
+  --color-accent:   oklch(46%    0.140 145);
+  --color-accent-ink: oklch(46%  0.140 145);
+  --color-focus:    oklch(46%    0.140 145);
+
+  --font-display: "Fraunces", "Tiempos", ui-serif, Georgia, serif;
+  --font-body:    "Geist", "Söhne", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Fraunces", ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 400;
+  --display-optical: 144;
+  --display-style: normal;
+  --display-soft: 30;
+
+  --text-display:   clamp(3.5rem, 5.5vw + 1.0rem, 6.25rem);
+  --text-display-s: clamp(2.25rem, 4vw + 1rem, 4.25rem);
+
+  --tracking-display: -0.022em;
+  --tracking-label:   0.08em;
+  --section-gap: 6.5rem;
+  --section-head-gap: 1.5rem;
+
+}
+
+/* ──────────────────────────────────────────────────────────────
+   RISO — risograph print · Public Sans display, off-register
+   Inspiration: Are.na, e-flux, Frieze, indie magazine sites.
+   Warm peach paper, riso cyan + yellow as accents, slight CMYK
+   misregistration on display via text-shadow.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="riso"] {
+  --color-paper:    oklch(91%    0.034 30);
+  --color-paper-2:  oklch(87%    0.040 30);
+  --color-paper-3:  oklch(82%    0.046 30);
+  --color-rule:     oklch(70%    0.040 30);
+  --color-rule-2:   oklch(56%    0.060 30);
+  --color-muted:    oklch(46%    0.060 30);
+  --color-neutral:  oklch(34%    0.060 30);
+  --color-ink-2:    oklch(22%    0.060 30);
+  --color-ink:      oklch(18%    0.060 30);
+  --color-accent:   oklch(58%    0.170 220);   /* riso cyan/teal */
+  --color-accent-2: oklch(78%    0.180 95);    /* riso yellow */
+  --color-accent-ink: oklch(58%  0.170 220);
+  --color-focus:    oklch(58%    0.170 220);
+
+  --font-display: "Public Sans", "Albert Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Newsreader", "Tiempos", ui-serif, Georgia, serif;
+  --font-serif:   "Newsreader", ui-serif, Georgia, serif;
+  --font-label:   "Public Sans", "Albert Sans", ui-sans-serif, sans-serif;
+  --font-mono:    "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 800;
+  --display-style: normal;
+
+  --text-display:   clamp(3.25rem, 5.5vw + 1.0rem, 6.25rem);
+  --text-display-s: clamp(2.25rem, 3.5vw + 1rem, 3.75rem);
+
+  --tracking-display: -0.04em;
+  --tracking-tight:   -0.014em;
+  --tracking-label:   0.06em;
+
+  --lh-tight: 0.92;
+  --lh-snug:  1.10;
+  --section-gap: 6rem;
+  --section-head-gap: 1.5rem;
+
+}
+
+
+
+/* ──────────────────────────────────────────────────────────────
+   BLOOM — clean warm-light minimal · one restrained warm accent ·
+   a single soft bloom. REWORKED from the old high-chroma pink wash to
+   a calm, airy, considered page: warm off-white paper, a muted coral
+   used sparingly, confident clean sans, generous space.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="bloom"] {
+  --color-paper:    oklch(97%   0.010 72);    /* calm warm off-white */
+  --color-paper-2:  oklch(94.5% 0.012 72);
+  --color-paper-3:  oklch(91%   0.014 68);
+  --color-rule:     oklch(86%   0.012 70);
+  --color-rule-2:   oklch(68%   0.016 64);
+  --color-muted:    oklch(50%   0.018 58);
+  --color-neutral:  oklch(40%   0.020 52);
+  --color-ink-2:    oklch(30%   0.022 46);
+  --color-ink:      oklch(20%   0.022 40);    /* warm near-black */
+  --color-accent:   oklch(56%   0.13  35);    /* restrained terracotta-coral — used sparingly */
+  --color-accent-ink: oklch(98% 0.010 72);
+  --color-accent-2:   oklch(64% 0.09  55);    /* soft warm companion (bloom tint only) */
+  --color-focus:    oklch(56%   0.13  35);
+
+  --font-display: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Instrument Serif", ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono:    "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --display-weight: 600;
+  --display-style:  normal;
+
+  --text-display:   clamp(3.0rem, 6.0vw + 1.0rem, 5.75rem);
+  --text-display-s: clamp(2rem, 3vw + 1rem, 3.5rem);
+
+  --tracking-display: -0.022em;
+  --tracking-tight:   -0.014em;
+  --tracking-label:   0.12em;
+
+  --lh-tight: 1.06;
+  --lh-snug:  1.2;
+
+  --section-gap: 7rem;
+  --section-head-gap: 1.6rem;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   CORAL — modern-minimal · warm-grey paper · single coral accent
+   The "Stripe-not-Linear" register. Geist + General Sans. Pill CTAs,
+   warm greys instead of pure neutral. The accent is restrained — a
+   coral mark, not a flood.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="coral"] {
+  --color-paper:      oklch(96.5% 0.005 50);
+  --color-paper-2:    oklch(94%   0.006 50);
+  --color-paper-3:    oklch(91%   0.008 50);
+  --color-rule:       oklch(86%   0.008 50);
+  --color-rule-2:     oklch(72%   0.010 50);
+  --color-muted:      oklch(52%   0.012 50);
+  --color-neutral:    oklch(38%   0.012 45);
+  --color-ink-2:      oklch(26%   0.012 40);
+  --color-ink:        oklch(20%   0.010 35);
+  --color-accent:     oklch(64%   0.165 28);    /* warm coral */
+  --color-accent-ink: oklch(98%   0.005 50);
+  --color-focus:      oklch(64%   0.165 28);
+
+  --font-display: "Geist", "General Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Geist", "General Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", ui-monospace, monospace;
+
+  --display-weight: 600;
+  --display-style:  normal;
+
+  --text-display:   clamp(2.5rem, 5.0vw + 0.5rem, 4.5rem);
+  --text-display-s: clamp(2rem, 3vw + 0.5rem, 3rem);
+
+  --tracking-display: -0.025em;
+  --tracking-tight:   -0.015em;
+  --tracking-label:   0.05em;
+  --section-gap: 6rem;
+  --section-head-gap: 1.5rem;
+
+}
+
+/* ──────────────────────────────────────────────────────────────
+   COBALT — modern-minimal · cool engineered paper · electric cobalt
+   The dev-tool / API / docs register (the GitBook + Firecrawl school)
+   without the now-crowded orange. A calm cool-white ground, ruler-drawn
+   hairlines, one electric cobalt signal accent, and a code/API hero.
+   Space Grotesk display + Inter body + JetBrains Mono for code.
+   Distinct from Coral: cool (not warm) paper, electric blue (not coral),
+   mono-forward type (not Geist), bordered nav + tight technical radii.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="cobalt"] {
+  --color-paper:      oklch(98.5% 0.004 250);   /* cool engineered near-white */
+  --color-paper-2:    oklch(96.5% 0.005 252);   /* faint cool band */
+  --color-paper-3:    oklch(94%   0.006 254);   /* elevated cool surface */
+  --color-rule:       oklch(91%   0.008 255);   /* hairline — borders do the work */
+  --color-rule-2:     oklch(83%   0.011 255);
+  --color-muted:      oklch(56%   0.013 255);   /* captions, meta */
+  --color-neutral:    oklch(46%   0.015 255);
+  --color-ink-2:      oklch(34%   0.018 257);   /* body text */
+  --color-ink:        oklch(24%   0.020 258);   /* cool charcoal — never black */
+  --color-accent:     oklch(58%   0.20  256);   /* electric cobalt — the one signal */
+  --color-accent-ink: oklch(99%   0.004 256);   /* on-cobalt text */
+  --color-focus:      oklch(58%   0.20  256);
+  --color-graphite:   oklch(24%   0.018 260);   /* dark code-card ground */
+
+  --font-display: "Space Grotesk", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Inter", ui-sans-serif, system-ui, sans-serif;  /* Cobalt is all-sans — override the :root serif fallback */
+  --font-label:   "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --display-weight: 500;
+  --display-style:  normal;
+
+  --text-display:   clamp(2.5rem, 4.5vw + 0.75rem, 4.5rem);
+  --text-display-s: clamp(1.85rem, 3vw + 0.5rem, 2.75rem);
+
+  --tracking-display: -0.03em;
+  --tracking-tight:   -0.015em;
+  --tracking-label:   0.06em;
+  --section-gap: 7rem;
+  --section-head-gap: 1.5rem;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   AURORA — atmospheric · cool blue-green gradient on near-black
+   The Linear/Vercel-after-dark register. Sentient body, single cyan
+   accent, two cool blooms behind the content (cyan + teal-green).
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="aurora"] {
+  --color-paper:      oklch(11%   0.025 200);    /* dark cool, cyan tilt */
+  --color-paper-2:    oklch(15%   0.028 200);
+  --color-paper-3:    oklch(18%   0.030 200);
+  --color-rule:       oklch(28%   0.022 200);
+  --color-rule-2:     oklch(38%   0.024 200);
+  --color-muted:      oklch(60%   0.018 200);
+  --color-neutral:    oklch(74%   0.014 200);
+  --color-ink-2:      oklch(82%   0.012 200);
+  --color-ink:        oklch(96%   0.010 200);
+  --color-accent:     oklch(72%   0.170 200);    /* cyan */
+  --color-accent-ink: oklch(11%   0.025 200);
+  --color-accent-2:   oklch(64%   0.150 175);    /* secondary teal-green */
+  --color-focus:      oklch(72%   0.170 200);
+
+  --font-display: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Sentient", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Sentient", ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", ui-monospace, monospace;
+
+  --display-weight: 600;
+  --display-style:  normal;
+
+  --text-display:   clamp(3.0rem, 6.0vw + 1.0rem, 5.75rem);
+  --text-display-s: clamp(2rem, 3vw + 1rem, 3.5rem);
+
+  --tracking-display: -0.035em;
+  --tracking-tight:   -0.02em;
+  --tracking-label:   0.10em;
+
+  --lh-tight: 1.05;
+  --lh-snug:  1.18;
+  --section-gap: 6.5rem;
+  --section-head-gap: 1.5rem;
+
+}
+
+/* ──────────────────────────────────────────────────────────────
+   PER-THEME COMPONENT SHAPE — radius, border weight, shadow.
+   Defaults (in :root above): square edges, 1 px border, no shadow.
+   These overrides give each theme its own component voice without
+   touching colour or typography.
+
+   The discipline: editorial / brutalist / technical themes stay
+   square (the rule is the design); soft / modern themes get
+   measured radius (Bloom 16 px is the most rounded here — the
+   soft modern themes); brutalist / declarative themes get heavier
+   borders. Nothing is rounded "for fun".
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="brutal"]    { --rule-card: 2px; }
+[data-theme="manifesto"] { --rule-card: 2px; }
+[data-theme="sport"]     { --rule-card: 1.5px; }
+[data-theme="garden"]    { --radius-card: 10px; --radius-pill: 8px; --radius-input: 8px; }
+[data-theme="studio"]    { --radius-card: 6px; --radius-pill: 4px;  --shadow-card: 0 1px 2px oklch(20% 0.014 205 / 0.05); }
+[data-theme="riso"]      { --radius-card: 2px; --radius-pill: 2px; }
+[data-theme="bloom"]     { --radius-card: 16px; --radius-pill: 999px; --radius-input: 12px;
+                            --shadow-card: 0 12px 32px -18px oklch(20% 0.03 60 / 0.12),
+                                           0 1px 2px oklch(20% 0.03 60 / 0.06); }
+[data-theme="coral"]     { --radius-card: 8px; --radius-pill: 999px; --radius-input: 6px;
+                            --shadow-card: 0 1px 2px oklch(20% 0.01 50 / 0.06); }
+[data-theme="aurora"]    { --radius-card: 12px; --radius-pill: 999px; --radius-input: 10px;
+                            --shadow-card: 0 16px 40px -16px oklch(11% 0.04 200 / 0.65),
+                                           0 1px 2px oklch(11% 0.04 200 / 0.4); }
+[data-theme="cobalt"]    { --radius-card: 10px; --radius-pill: 6px; --radius-input: 6px;
+                            --shadow-card: 0 1px 2px oklch(24% 0.02 258 / 0.05); }
+[data-theme="editorial"] { --radius-card: 0; --radius-pill: 0; --radius-input: 0; --rule-card: 0.5px; }
+
+
+/* ──────────────────────────────────────────────────────────────
+   EDITORIAL — editorial-premium magazine voice
+   Warm cream paper + coral accent + Inter Tight display with
+   Playfair Display italic emphasis inside. Magazine-shaped: hairline
+   rules, asymmetric grids, Roman-numeral marginalia, 2-axis serif/sans
+   pairing.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="editorial"] {
+  --color-paper:      oklch(94%  0.020 75);     /* warm cream, slightly cooler than Specimen */
+  --color-paper-2:    oklch(91%  0.022 72);     /* card backs */
+  --color-paper-3:    oklch(87%  0.024 70);     /* dark-slab fallback */
+  --color-rule:       oklch(80%  0.018 70);     /* hairlines */
+  --color-rule-2:     oklch(64%  0.014 68);
+  --color-muted:      oklch(48%  0.014 60);
+  --color-neutral:    oklch(34%  0.012 55);
+  --color-ink-2:      oklch(28%  0.014 55);
+  --color-ink:        oklch(15%  0.014 280);    /* near-black with cool tilt */
+  --color-accent:     oklch(60%  0.160 35);     /* coral */
+  --color-accent-ink: oklch(98%  0.005 70);
+  --color-focus:      oklch(62%  0.160 35);
+
+  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Playfair Display", "Fraunces", ui-serif, Georgia, serif;
+  --font-label:   "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight: 800;
+  --display-style:  normal;
+
+  --text-display:   clamp(2.5rem, 5.0vw + 0.75rem, 4.75rem);
+  --text-display-s: clamp(1.875rem, 3vw + 0.5rem, 2.875rem);
+
+  --tracking-display: -0.04em;        /* tight, magazine-shaped */
+  --tracking-tight:   -0.018em;
+  --tracking-label:   0.10em;
+  --section-gap: 6rem;
+  --section-head-gap: 1.5rem;
+
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   CARNIVAL — loud maximalist editorial · variable display
+   Tinted warm-cream paper, oxblood ink, duo-tone accents
+   (mustard primary + oxblood secondary). Big Shoulders variable
+   display with width axis. Decorative ornaments, hard-offset
+   shadows, layered colour blocks. Dropout TV / Fly.io / Stones
+   Throw / Third Man Records register.
+   See references/themes/carnival.md for signature moves + affinity.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="carnival"] {
+  --color-paper:      oklch(92%  0.045 50);     /* warm pink-cream (tinted, not white) */
+  --color-paper-2:    oklch(88%  0.050 45);     /* elevated, slightly deeper */
+  --color-paper-3:    oklch(82%  0.060 40);     /* hover */
+  --color-rule:       oklch(40%  0.18  25);     /* RULES IN OXBLOOD — decorative, not hairline */
+  --color-rule-2:     oklch(18%  0.08  20);     /* heavy rule = ink */
+  --color-muted:      oklch(45%  0.05  30);
+  --color-neutral:    oklch(35%  0.06  25);
+  --color-ink-2:      oklch(28%  0.060 25);
+  --color-ink:        oklch(18%  0.080 20);     /* deep oxblood / aubergine, not black */
+  --color-accent:     oklch(86%  0.18  95);     /* mustard / sun yellow (primary accent) */
+  --color-accent-2:   oklch(40%  0.21  25);     /* deep oxblood-red (secondary accent) */
+  --color-accent-ink: oklch(18%  0.080 20);     /* ink on yellow */
+  --color-focus:      oklch(40%  0.21  25);
+
+  --font-display: "Big Shoulders Display", "Druk Wide", "Anton", ui-sans-serif, sans-serif;
+  --font-body:    "DM Sans", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Newsreader", ui-serif, Georgia, serif;
+  --font-label:   "JetBrains Mono", ui-monospace, monospace;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --display-weight:  700;                  /* lightened from 800 — 800 + loose tracking read too heavy */
+  --display-style:   normal;
+
+  --text-display:   clamp(3.25rem, 6.5vw + 1rem, 6.5rem);
+  --text-display-s: clamp(2.25rem, 4vw + 0.75rem, 3.5rem);
+
+  --tracking-display: 0.02em;              /* tight, professional (was 0.04em, which read as AI-spread) */
+  --tracking-display-loose: 0.04em;        /* spread look — marquee banners only */
+  --tracking-tight:   -0.005em;
+  --tracking-label:   0.18em;              /* mono all-caps labels */
+
+  --section-gap:      5rem;
+  --section-head-gap: 1.25rem;
+
+  --radius-card:   8px;
+  --radius-pill:   999px;
+  --radius-input:  4px;
+  --rule-card:     2px;                    /* CHUNKY, never hairline */
+  --shadow-card:   4px 4px 0 oklch(18% 0.08 20);   /* hard-offset, in ink colour */
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   LUMEN — premium AI-tool · apparatus, not orb · three-register type
+   Two palette drops: NIGHT FOUNDRY (default, dark · cool-violet
+   paper, molten-brass accent) emits light from a hand-built CSS
+   apparatus; DAY FOUNDRY (light · cool bone, deep indigo) refracts
+   light through a transparent prism with measurement annotations.
+   Three font families on one page: Instrument Serif (display, with
+   single italicised verb), Geist Sans (body/UI), JetBrains Mono
+   (technical labels, tabular-nums everywhere numbers appear).
+   Lumen tokens:
+     --color-glow         · translucent halo around the apparatus
+     --color-paper-emit   · faint accent wash behind the hero canvas
+     --rule-blueprint     · grid-pattern hairline (4% opacity)
+   Diversification: Lumen sits hue 265 to exit Midnight's hue 250
+   cell; accent hue 50 (brass) sits clear of the amber 70 band.
+   Reference register: Modal · Anthropic · Together AI · ElevenLabs
+   · Cluely · Adept · Granola. See references/themes/lumen.md.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="lumen"] {
+  color-scheme: dark;
+
+  /* NIGHT FOUNDRY — default drop (cool-violet paper, molten brass) */
+  --color-paper:      oklch(13%  0.014 265);    /* late-night studio, violet tilt */
+  --color-paper-2:    oklch(17%  0.016 265);    /* elevated card */
+  --color-paper-3:    oklch(22%  0.018 263);    /* deeper hover */
+  --color-rule:       oklch(30%  0.018 265);    /* hairline border */
+  --color-rule-2:     oklch(42%  0.020 263);
+  --color-muted:      oklch(60%  0.016 263);
+  --color-neutral:    oklch(72%  0.014 263);
+  --color-ink-2:      oklch(82%  0.010 262);    /* body */
+  --color-ink:        oklch(96%  0.006 262);    /* headlines */
+  --color-accent:     oklch(76%  0.17  50);     /* molten brass */
+  --color-accent-2:   oklch(68%  0.16  18);     /* coral chord (slight warm pull) */
+  --color-accent-ink: oklch(13%  0.014 265);    /* ink on accent fill */
+  --color-focus:      oklch(76%  0.17  50);
+  --color-glow:       oklch(80% 0.16 50 / 0.42);  /* brass halo, denser than amber */
+  --color-glow-2:     oklch(80% 0.16 50 / 0.12);  /* faint radial wash */
+  --color-paper-emit: oklch(76% 0.17 50 / 0.04); /* hero canvas inner-emit */
+  --rule-blueprint:   oklch(96% 0.006 262 / 0.04); /* grid pattern, near-invisible */
+
+  --font-display: "Instrument Serif", "Tiempos Headline", ui-serif, Georgia, serif;
+  --font-body:    "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Instrument Serif", ui-serif, Georgia, serif;
+  --font-label:   "JetBrains Mono", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono:    "JetBrains Mono", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --display-weight: 400;            /* Instrument Serif at 400 — delicate */
+  --display-optical: 144;
+  --display-style: normal;          /* italic toggled per-word via <em> */
+
+  --text-display:   clamp(3rem, 6.5vw + 0.75rem, 6.75rem);  /* 1960s technical-journal masthead */
+  --text-display-s: clamp(2.25rem, 3.75vw + 1rem, 3.75rem);
+
+  --tracking-display: -0.032em;     /* tighter, more classical */
+  --tracking-tight:   -0.014em;
+  --tracking-label:   0.10em;       /* mono labels */
+  --tracking-micro:   0.16em;       /* leader-line callouts on the apparatus */
+
+  --lh-tight:   1.02;
+  --lh-snug:    1.18;
+  --lh-normal:  1.55;
+  --lh-relaxed: 1.7;
+
+  --section-gap:      6.5rem;
+  --section-head-gap: 1.75rem;
+  --measure:          60ch;
+
+  --radius-card:  10px;
+  --radius-pill:  999px;
+  --radius-input: 8px;
+  --rule-card:    1px;              /* hairline borders */
+  --shadow-card:  0 24px 60px -28px oklch(0% 0 0 / 0.55),
+                  0 1px 2px oklch(0% 0 0 / 0.4);
+
+  /* Motion */
+  --dur-headline:    1100ms;
+  --dur-pulse:       4s;            /* filament intensity oscillation */
+  --ease-soft:       cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* DAY FOUNDRY — light drop, violet-shifted indigo, refractive prism */
+[data-theme="lumen"][data-drop="day"] {
+  color-scheme: light;
+
+  --color-paper:      oklch(97%  0.008 265);    /* cool bone, slight violet pull */
+  --color-paper-2:    oklch(94%  0.010 265);
+  --color-paper-3:    oklch(90%  0.012 263);
+  --color-rule:       oklch(86%  0.010 265);
+  --color-rule-2:     oklch(72%  0.012 265);
+  --color-muted:      oklch(52%  0.014 265);
+  --color-neutral:    oklch(38%  0.016 265);
+  --color-ink-2:      oklch(28%  0.016 265);
+  --color-ink:        oklch(18%  0.014 265);
+  --color-accent:     oklch(46%  0.24  268);    /* deeper indigo, slight violet */
+  --color-accent-2:   oklch(68%  0.16  18);     /* coral chord — chromatic exit */
+  --color-accent-ink: oklch(97%  0.008 265);
+  --color-focus:      oklch(46%  0.24  268);
+  --color-glow:       oklch(58% 0.22 268 / 0.28);
+  --color-glow-2:     oklch(68% 0.16 18 / 0.10);
+  --color-paper-emit: oklch(46% 0.24 268 / 0.03);
+  --rule-blueprint:   oklch(18% 0.014 265 / 0.04);
+
+  --shadow-card:  0 24px 60px -28px oklch(18% 0.04 265 / 0.22),
+                  0 1px 2px oklch(18% 0.04 265 / 0.12);
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   HUM — playful · vibrant · alive · multi-accent · rounded-sans
+   The brilliant.org / Duolingo / PostHog register, on cream paper
+   with pear-yellow primary + sky-cyan secondary + coral pop accent.
+   No serif anywhere; rounded sans throughout. Mandatory hover-and-paint
+   motion. One character moment per page. Sits in the `playful` genre
+   cluster as the multi-accent, motion-forward playful register.
+   See references/themes/hum.md.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="hum"] {
+  color-scheme: light;
+
+  /* Palette — multi-accent on cream */
+  --color-paper:      oklch(97%  0.012 95);     /* cream, pear-yellow pull */
+  --color-paper-2:    oklch(94%  0.016 95);     /* tinted band */
+  --color-paper-3:    oklch(91%  0.020 95);     /* deeper hover */
+  --color-rule:       oklch(86%  0.014 90);
+  --color-rule-2:     oklch(70%  0.018 85);
+  --color-muted:      oklch(52%  0.014 90);
+  --color-neutral:    oklch(38%  0.014 100);
+  --color-ink-2:      oklch(28%  0.014 250);
+  --color-ink:        oklch(20%  0.012 250);    /* never pure black, cool tilt */
+  --color-accent:     oklch(86%  0.18 95);      /* pear-yellow (primary) */
+  --color-accent-2:   oklch(66%  0.18 235);     /* sky-cyan (secondary) */
+  --color-accent-3:   oklch(68%  0.24 18);      /* coral-red (pop, single moment) */
+  --color-mint:       oklch(80%  0.16 150);     /* soft mint (sparingly) */
+  --color-lavender:   oklch(74%  0.16 305);     /* lavender (sparingly) */
+  --color-accent-ink: oklch(20%  0.012 250);    /* ink on pear fill */
+  --color-focus:      oklch(66%  0.18 235);     /* cyan focus ring */
+
+  /* Type — rounded sans only */
+  --font-display: "Plus Jakarta Sans", "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Plus Jakarta Sans", "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif:   "Plus Jakarta Sans", ui-sans-serif, sans-serif;   /* override — no serif in Hum */
+  --font-label:   "JetBrains Mono", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono:    "JetBrains Mono", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --display-weight: 600;            /* heavier than Lumen's 400 — confident */
+  --display-style:  normal;
+
+  --text-display:   clamp(2.75rem, 5.5vw + 0.75rem, 5.25rem);
+  --text-display-s: clamp(2rem, 3.25vw + 1rem, 3.25rem);
+
+  --tracking-display: -0.025em;
+  --tracking-tight:   -0.014em;
+  --tracking-normal:   0;
+  --tracking-label:    0.10em;
+  --tracking-micro:    0.16em;
+
+  --lh-tight:   1.05;
+  --lh-snug:    1.18;
+  --lh-normal:  1.55;
+  --lh-relaxed: 1.7;
+
+  --section-gap:      6.5rem;
+  --section-head-gap: 1.75rem;
+
+  /* Generous rounded radii — the rounded theme */
+  --radius-card:  20px;
+  --radius-pill:  999px;
+  --radius-input: 12px;
+  --rule-card:    1px;
+  --shadow-card:  0 12px 32px -16px oklch(20% 0.012 250 / 0.14),
+                  0 1px 2px oklch(20% 0.012 250 / 0.06);
+
+  /* Motion — bouncy, alive */
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snap:    cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-wobble:   480ms;
+  --dur-burst:    420ms;
+  --dur-tick:     1200ms;
+
+  /* accent EDGE tones — the button's thickness + chunky card edges */
+  --color-accent-deep:   oklch(76% 0.20 95);
+  --color-accent-2-deep: oklch(56% 0.20 235);
+  --color-accent-3-deep: oklch(58% 0.26 18);
+  --color-mint-deep:     oklch(70% 0.18 150);
+  --color-lavender-deep: oklch(64% 0.18 305);
+
+  /* per-accent tint surfaces — the colour-shift cards + section bands */
+  --tint-pear:     oklch(86% 0.18 95 / 0.16);
+  --tint-cyan:     oklch(66% 0.18 235 / 0.14);
+  --tint-coral:    oklch(68% 0.24 18 / 0.12);
+  --tint-mint:     oklch(80% 0.16 150 / 0.16);
+  --tint-lavender: oklch(74% 0.16 305 / 0.14);
+
+  /* layout shell — one width model, every section obeys it */
+  --page-max:    78rem;
+  --page-gutter: clamp(1.25rem, 4vw, 3rem);
+  --measure:     60ch;
+
+  /* type + space scales */
+  --text-xs: 0.75rem;   --text-sm: 0.8125rem; --text-base: 1rem;   --text-md: 1.0625rem;
+  --text-lg: 1.25rem;   --text-xl: 1.5rem;    --text-2xl: 2rem;    --text-3xl: 2.5rem;
+  --space-2xs: 0.25rem; --space-xs: 0.5rem;   --space-sm: 0.75rem; --space-md: 1rem;
+  --space-lg: 1.5rem;   --space-xl: 2.5rem;   --space-2xl: 4rem;   --space-3xl: 6.5rem; --space-4xl: 10rem;
+
+  --shadow-card-hover: 0 24px 56px -20px oklch(20% 0.012 250 / 0.18),
+                       0 2px 6px oklch(20% 0.012 250 / 0.08);
+
+  /* fuller motion set (calm options alongside the spring) */
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long:  420ms;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   GRID - Swiss International, the grid made visible (editorial cluster)
+   Near-white sheet, exposed 12-column hairlines, heavy neo-grotesque,
+   and one signal ink spent on geometry: marks, one plate, giant cropped
+   numerals. The skill picks the ink per page (signal red default;
+   ultramarine or surface-only signal yellow are the alternates); the
+   site shows the red face. Neutrals carry a whisper of cool chroma so
+   no grey is flat. Axes: light / grotesk-heavy / one signal ink.
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="grid"] {
+  --color-paper:      oklch(99%   0.003 255);   /* near-white sheet, faint cool, never #fff */
+  --color-paper-2:    oklch(97.2% 0.003 255);
+  --color-paper-3:    oklch(94.5% 0.004 255);
+  --color-rule:       oklch(88%   0.004 255);   /* the exposed grid hairline */
+  --color-rule-2:     oklch(72%   0.005 255);
+  --color-muted:      oklch(48%   0.006 255);
+  --color-neutral:    oklch(34%   0.006 255);
+  --color-ink-2:      oklch(26%   0.008 255);
+  --color-ink:        oklch(16%   0.010 255);   /* cool near-black */
+  --color-accent:     oklch(55%   0.21  28);    /* the one signal red */
+  --color-accent-ink: oklch(99%   0.003 255);
+  --color-focus:      oklch(55%   0.21  28);
+
+  --font-display: "Archivo", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Archivo", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  /* No serif anywhere in Grid: surfaces that ask for one get the grotesk. */
+  --font-serif:   "Archivo", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  --font-label:   "Archivo", ui-sans-serif, sans-serif;
+  --font-mono:    "Spline Sans Mono", "Geist Mono", ui-monospace, monospace;
+
+  --display-weight: 800;
+  --display-style:  normal;
+
+  --text-display:   clamp(2.75rem, 7vw + 0.5rem, 6rem);
+  --text-display-s: clamp(2rem, 3.5vw + 0.5rem, 3.25rem);
+
+  --tracking-display: -0.045em;
+  --tracking-tight:   -0.02em;
+  --tracking-label:   0.04em;
+  --section-gap: 6rem;
+  --section-head-gap: 1.5rem;
+
+  --radius-card: 0; --radius-pill: 0; --radius-input: 0;
+  --rule-card: 1px; --shadow-card: none;
+}

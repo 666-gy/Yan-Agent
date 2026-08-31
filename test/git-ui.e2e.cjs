@@ -13,28 +13,33 @@ const userDataDir = path.join(testRoot, 'user-data');
 const workspace = path.join(testRoot, 'workspace');
 const remote = path.join(testRoot, 'remote.git');
 const outputDir = path.join(appRoot, 'output', 'playwright');
-const screenshotPath = path.join(outputDir, `yan-git-workbench-${Date.now()}.png`);
-const changesScreenshotPath = path.join(outputDir, `yan-git-changes-${Date.now()}.png`);
-const diffScreenshotPath = path.join(outputDir, `yan-git-diff-${Date.now()}.png`);
-const compactScreenshotPath = path.join(outputDir, `yan-git-compact-${Date.now()}.png`);
-const wideScreenshotPath = path.join(outputDir, `yan-git-wide-${Date.now()}.png`);
-const lightScreenshotPath = path.join(outputDir, `yan-git-light-${Date.now()}.png`);
+const dialogScreenshotPath = path.join(outputDir, `yan-git-commit-dialog-${Date.now()}.png`);
+const graphScreenshotPath = path.join(outputDir, `yan-git-graph-${Date.now()}.png`);
+
+function runGit(args) {
+  return execFileSync('git', args, { cwd: workspace, encoding: 'utf8', windowsHide: true }).trim();
+}
 
 fs.mkdirSync(userDataDir, { recursive: true });
 fs.mkdirSync(workspace, { recursive: true });
 fs.mkdirSync(outputDir, { recursive: true });
+runGit(['init', '-b', 'main']);
+runGit(['config', 'user.name', 'Yan UI Test']);
+runGit(['config', 'user.email', 'git-ui@example.com']);
 fs.writeFileSync(path.join(workspace, 'README.md'), '# Git workbench\n', 'utf8');
+runGit(['add', 'README.md']);
+runGit(['commit', '-m', 'Initial UI commit']);
+runGit(['branch', 'feature/test']);
+runGit(['switch', '-c', 'pr-source']);
+fs.writeFileSync(path.join(workspace, 'PR.md'), '# Merged work\n', 'utf8');
+runGit(['add', 'PR.md']);
+runGit(['commit', '-m', 'Merged PR work']);
+const prCommit = runGit(['rev-parse', 'HEAD']);
+runGit(['update-ref', 'refs/remotes/origin/pr-1', prCommit]);
+runGit(['switch', 'main']);
 execFileSync('git', ['init', '--bare', remote], { windowsHide: true });
-
-async function waitForGitIdle(page) {
-  await page.waitForFunction(() => document.querySelector('#rs-git')?.getAttribute('aria-busy') !== 'true'
-    && !document.querySelector('#rs-git')?.classList.contains('is-busy'));
-}
-
-async function openActionDialog(page, trigger) {
-  await page.locator(trigger).click();
-  await page.locator('#gitActionDialog[open]').waitFor();
-}
+runGit(['remote', 'add', 'origin', remote]);
+fs.appendFileSync(path.join(workspace, 'README.md'), '\nPending change\n', 'utf8');
 
 (async () => {
   let application;
@@ -53,8 +58,8 @@ async function openActionDialog(page, trigger) {
     const page = await application.firstWindow();
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.waitForFunction(() => document.readyState === 'complete'
-      && typeof openRightSidebarTool === 'function'
-      && document.querySelector('#rs-git')?.dataset.bound === 'true'
+      && typeof refreshTaskGitStatus === 'function'
+      && document.querySelector('#taskGitToolsWrap')?.dataset.bound === 'true'
       && state.currentSession);
 
     await page.evaluate(async targetWorkspace => {
@@ -63,160 +68,66 @@ async function openActionDialog(page, trigger) {
       state.config = await window.yan.activateWorkspace(updated.workspace);
       syncCurrentSessionWorkspace(updated.workspace);
       updateTaskBar();
-      setRightSidebarOpen(true);
+      await refreshTaskGitStatus({ force: true });
     }, workspace);
-    await page.locator('#rightSidebarLauncher [data-rs-open-tool="git"]').click();
-    await page.locator('#rs-git.active').waitFor();
-    await waitForGitIdle(page);
 
-    assert.equal(await page.locator('[data-rs-tab="git"] .rs-work-tab-label').textContent(), 'Git');
-    assert.equal(await page.locator('#gitUnavailableTitle').textContent(), '当前目录不是 Git 仓库');
-    assert.equal(await page.locator('#gitInitBtn').isVisible(), true);
-    assert.equal(await page.locator('#gitCloneBtn').isVisible(), true);
+    assert.equal(await page.locator('#rs-git').count(), 0);
+    assert.equal(await page.locator('[data-rs-open-tool="git"]').count(), 0);
+    assert.equal(await page.locator('#taskGitBranchName').textContent(), 'main');
 
-    await page.locator('#gitInitBtn').click();
-    await page.locator('#gitWorkspace:not(.hidden)').waitFor();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitRepositoryName').textContent(), 'workspace');
-    assert.match(await page.locator('#gitRepositoryMeta').textContent(), /1 个变更/);
-    assert.equal(await page.evaluate(() => document.querySelector('#gitBranchSelect')?.dataset.value), 'local:main');
-    assert.equal(await page.locator('#gitChangeCount').textContent(), '1');
-    await page.screenshot({ path: changesScreenshotPath, fullPage: false });
+    await page.locator('#taskGitHubBtn').click();
+    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    assert.equal(await page.locator('#taskGitDiffStats').textContent(), '+2-0');
+    await page.locator('#taskGitChangesBtn').click();
+    await page.locator('#rs-review:not(.hidden)').waitFor();
+    await page.waitForFunction(() => document.querySelector('#reviewFileList')?.textContent.includes('README.md'));
+    assert.match(await page.locator('#reviewRunLabel').textContent(), /Git 工作区更改/);
+    assert.match(await page.locator('#reviewFileList').textContent(), /README\.md/);
+    assert.match(await page.locator('#reviewDiffRows').textContent(), /Pending change/);
 
-    await page.locator('#gitChangeList [data-git-diff]').click();
-    await page.locator('#gitDiffPanel:not(.hidden)').waitFor();
-    assert.match(await page.locator('#gitDiffTitle').textContent(), /README\.md/);
-    assert.match(await page.locator('#gitDiffContent').textContent(), /Git workbench/);
-    await page.screenshot({ path: diffScreenshotPath, fullPage: false });
-    await page.locator('#gitDiffCloseBtn').click();
+    await page.locator('#taskGitHubBtn').click();
+    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    await page.locator('#taskGitCommitOpenBtn').click();
+    await page.locator('#taskGitCommitDialog[open]').waitFor();
+    assert.equal(await page.locator('#taskGitPanel').isVisible(), false);
 
-    await page.locator('[data-git-view="remotes"]').click();
-    await openActionDialog(page, '#gitIdentityBtn');
-    await page.locator('#gitActionFields [name="name"]').fill('Yan UI Test');
-    await page.locator('#gitActionFields [name="email"]').fill('git-ui@example.com');
-    await page.locator('#gitActionSubmit').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitIdentityLabel').textContent(), 'Yan UI Test <git-ui@example.com>');
+    await page.locator('#taskGitCommitBranchBtn').click();
+    assert.equal(await page.locator('[data-task-git-commit-branch="main"]').count(), 1);
+    assert.equal(await page.locator('[data-task-git-commit-branch="feature/test"]').count(), 1);
+    await page.locator('[data-task-git-commit-branch="feature/test"]').click();
+    assert.equal(await page.locator('#taskGitCommitBranch').textContent(), 'feature/test');
 
-    await page.locator('[data-git-view="changes"]').click();
-    await page.locator('#gitChangeList [data-git-stage-action="stage"]').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitChangeList [data-git-change-staged="true"]').count(), 1);
-    await page.locator('#gitCommitMessage').fill('Initial UI commit');
-    assert.equal(await page.locator('#gitCommitBtn').isEnabled(), true);
-    await page.locator('#gitCommitBtn').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitChangeCount').textContent(), '0');
-    assert.equal(await page.locator('#gitChangeSummary').textContent(), '工作区干净');
+    await page.locator('#taskGitGenerateMessageBtn').click();
+    await page.waitForFunction(() => document.querySelector('#taskGitCommitMessageInput')?.value.trim().length > 0);
+    const generatedMessage = await page.locator('#taskGitCommitMessageInput').inputValue();
+    assert.equal(await page.locator('#taskGitCommitDialog kbd').count(), 0);
+    await page.screenshot({ path: dialogScreenshotPath, fullPage: false });
+    await page.locator('[data-task-git-action="commit"]').click();
+    await page.locator('#taskGitCommitDialog:not([open])').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('#taskGitBranchName')?.textContent === 'feature/test');
+    assert.equal(runGit(['show', '-s', '--format=%s', 'HEAD']), generatedMessage);
 
-    await page.locator('[data-git-view="history"]').click();
-    await page.waitForFunction(() => document.querySelector('#gitHistoryList')?.textContent.includes('Initial UI commit'));
-    assert.match(await page.locator('#gitHistoryList').textContent(), /Yan UI Test/);
+    await page.locator('#taskGitBranchBtn').click();
+    await page.locator('#taskGitGraphBtn').click();
+    await page.locator('#taskGitGraphDialog[open]').waitFor();
+    await page.waitForFunction(() => document.querySelector('#taskGitGraphList')?.textContent.includes('Merged PR work'));
+    assert.match(await page.locator('#taskGitGraphList').textContent(), /origin\/pr-1/);
+    const prRow = page.locator('.task-git-graph-row', { hasText: 'Merged PR work' });
+    assert.equal(await prRow.locator('.task-git-graph-node.lane-1').count(), 1);
+    const commonParentRow = page.locator('.task-git-graph-row', { hasText: 'Initial UI commit' });
+    assert.ok(await commonParentRow.locator('path.task-git-lane.lane-1').count() > 0);
+    assert.ok(await commonParentRow.locator('path.task-git-lane.lane-1').evaluateAll(paths => paths.some(path => /C/.test(path.getAttribute('d') || ''))));
+    await page.screenshot({ path: graphScreenshotPath, fullPage: false });
 
-    await openActionDialog(page, '#gitCreateBranchBtn');
-    await page.locator('#gitActionFields [name="name"]').fill('feature/git-ui');
-    await page.locator('#gitActionSubmit').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.evaluate(() => document.querySelector('#gitBranchSelect')?.dataset.value), 'local:feature/git-ui');
-    await page.locator('#gitBranchSelect').click();
-    await page.locator('#gitBranchDropdown .git-branch-option[data-value="local:main"]').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.evaluate(() => document.querySelector('#gitBranchSelect')?.dataset.value), 'local:main');
-
-    await page.locator('[data-git-view="remotes"]').click();
-    await openActionDialog(page, '#gitAddRemoteBtn');
-    await page.locator('#gitActionFields [name="name"]').fill('origin');
-    await page.locator('#gitActionFields [name="url"]').fill(remote);
-    await page.locator('#gitActionSubmit').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitRemoteList [data-git-remote="origin"]').count(), 1);
-
-    await openActionDialog(page, '#gitRemoteList [data-git-remote="origin"] [data-git-remote-action="edit"]');
-    await page.keyboard.press('Escape');
-    await page.locator('#gitActionDialog:not([open])').waitFor({ state: 'hidden' });
-    assert.equal(await page.locator('#gitRemoteList [data-git-remote="origin"]').count(), 1);
-
-    await openActionDialog(page, '#gitRemoteList [data-git-remote="origin"] [data-git-remote-action="remove"]');
-    await page.locator('#gitActionCancel').click();
-    await page.locator('#gitActionDialog:not([open])').waitFor({ state: 'hidden' });
-    assert.equal(await page.locator('#gitRemoteList [data-git-remote="origin"]').count(), 1);
-
-    assert.equal(await page.locator('#gitPushBtn').isEnabled(), true);
-    await page.locator('#gitPushBtn').click();
-    await waitForGitIdle(page);
-    await page.waitForFunction(() => document.querySelector('#gitSyncBadge')?.textContent === '已同步');
-    assert.equal(execFileSync('git', ['--git-dir', remote, 'show', '-s', '--format=%s', 'refs/heads/main'], {
-      encoding: 'utf8',
-      windowsHide: true
-    }).trim(), 'Initial UI commit');
-
-    assert.equal(await page.locator('#gitFetchBtn').isEnabled(), true);
-    assert.equal(await page.locator('#gitPullBtn').isEnabled(), true);
-    await page.locator('#gitFetchBtn').click();
-    await waitForGitIdle(page);
-    await page.screenshot({ path: screenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
-    await page.screenshot({ path: lightScreenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-
-    const geometry = await page.locator('#rs-git').evaluate(panel => {
-      const panelRect = panel.getBoundingClientRect();
-      const workspaceRect = panel.querySelector('#gitWorkspace').getBoundingClientRect();
-      const tabsRect = panel.querySelector('.git-view-tabs').getBoundingClientRect();
-      return {
-        panelWidth: panelRect.width,
-        panelHeight: panelRect.height,
-        workspaceInsidePanel: workspaceRect.left >= panelRect.left && workspaceRect.right <= panelRect.right + 1,
-        tabsInsidePanel: tabsRect.left >= panelRect.left && tabsRect.right <= panelRect.right + 1,
-        horizontalOverflow: panel.scrollWidth > panel.clientWidth + 1
-      };
-    });
-    assert.equal(geometry.workspaceInsidePanel, true, JSON.stringify(geometry));
-    assert.equal(geometry.tabsInsidePanel, true, JSON.stringify(geometry));
+    const geometry = await page.locator('#taskGitGraphDialog').evaluate(dialog => ({
+      horizontalOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
+      verticalOverflow: dialog.scrollHeight > dialog.clientHeight + 1
+    }));
     assert.equal(geometry.horizontalOverflow, false, JSON.stringify(geometry));
-    const responsiveGeometry = await page.evaluate(async () => {
-      const widths = [];
-      for (const width of [280, 640]) {
-        document.documentElement.style.setProperty('--rs-w', `${width}px`);
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const panel = document.querySelector('#rs-git');
-        const bounds = panel.getBoundingClientRect();
-        widths.push({
-          requested: width,
-          actual: bounds.width,
-          horizontalOverflow: panel.scrollWidth > panel.clientWidth + 1,
-          toolbarOverflow: panel.querySelector('.git-toolbar').scrollWidth > panel.querySelector('.git-toolbar').clientWidth + 1,
-          workspaceOverflow: panel.querySelector('#gitWorkspace').scrollWidth > panel.querySelector('#gitWorkspace').clientWidth + 1
-        });
-      }
-      document.documentElement.style.removeProperty('--rs-w');
-      return widths;
-    });
-    for (const width of responsiveGeometry) {
-      assert.equal(width.horizontalOverflow, false, JSON.stringify(responsiveGeometry));
-      assert.equal(width.toolbarOverflow, false, JSON.stringify(responsiveGeometry));
-      assert.equal(width.workspaceOverflow, false, JSON.stringify(responsiveGeometry));
-    }
-    await page.evaluate(() => document.documentElement.style.setProperty('--rs-w', '280px'));
-    await page.screenshot({ path: compactScreenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.style.setProperty('--rs-w', '640px'));
-    await page.screenshot({ path: wideScreenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.style.removeProperty('--rs-w'));
+    assert.equal(geometry.verticalOverflow, false, JSON.stringify(geometry));
     assert.deepEqual(pageErrors, []);
 
-    console.log(JSON.stringify({
-      ok: true,
-      screenshotPath,
-      changesScreenshotPath,
-      diffScreenshotPath,
-      compactScreenshotPath,
-      wideScreenshotPath,
-      lightScreenshotPath,
-      workspace,
-      remote,
-      geometry,
-      responsiveGeometry
-    }));
+    console.log(JSON.stringify({ ok: true, dialogScreenshotPath, graphScreenshotPath, geometry }));
   } finally {
     await application?.close().catch(() => {});
     fs.rmSync(testRoot, { recursive: true, force: true });

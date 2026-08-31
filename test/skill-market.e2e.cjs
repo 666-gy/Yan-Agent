@@ -31,8 +31,17 @@ const legacyBundledSkill = {
   tags: ['code'],
   version: 1
 };
+const legacyHallmarkShadow = {
+  id: 'hallmark',
+  name: 'Hallmark',
+  desc: 'legacy incomplete bundled shadow',
+  prompt: 'This two-file shadow must be removed during startup.',
+  source: 'bundled',
+  version: 110
+};
 fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [retiredSkill, legacyBundledSkill] }, null, 2));
 skillRegistry.installYanUserSkill(dataDir, retiredSkill);
+skillRegistry.installYanUserSkill(dataDir, legacyHallmarkShadow);
 
 (async () => {
   let application;
@@ -62,23 +71,62 @@ skillRegistry.installYanUserSkill(dataDir, retiredSkill);
     await page.locator('#pageSkills:not(.hidden)').waitFor();
     await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedMarketCount);
 
-    const filters = await page.locator('#skillTagFilters .skill-tag-btn').evaluateAll(buttons => (
-      buttons.map(button => button.childNodes[0].textContent.trim())
+    await page.locator('#skillFilterToggle').click();
+    const filters = await page.locator('#skillFilterMenu .skill-filter-option').evaluateAll(buttons => (
+      buttons.map(button => button.textContent.trim())
     ));
-    assert.deepEqual(filters, ['全部', '已安装', '代码辅助', 'UI美化', '网页设计', 'Agent规则', '办公辅助']);
+    assert.deepEqual(filters, ['全部', '代码辅助', 'UI美化', '网页设计', 'Agent规则', '办公辅助', '个人']);
+    assert.equal(await page.locator('.skill-tag-btn').count(), 0);
+    assert.equal(await page.locator('.capability-toolbar').count(), 0);
+    assert.equal(await page.locator('#skillFilterMenu .skill-filter-check').count(), 0);
+    await page.locator('#skillFilterToggle').click();
+
+    await page.locator('#skillSearchToggle').click();
+    await page.locator('#skillSearchPopover:not(.hidden)').waitFor();
+    const searchBox = await page.locator('#skillSearchPopover').boundingBox();
+    const searchButtonBox = await page.locator('#skillSearchToggle').boundingBox();
+    assert.ok(searchBox && searchButtonBox);
+    assert.ok(Math.abs(searchBox.y - searchButtonBox.y) < 8);
+    assert.ok(searchBox.x + searchBox.width < searchButtonBox.x);
+    await page.locator('#skillMarketSearch').fill('hyperframes');
+    await page.waitForFunction(() => document.querySelectorAll('#skillMarketGrid .skill-card').length === 1);
+    await page.locator('#skillMarketSearch').fill('');
+    await page.locator('#skillSearchToggle').click();
 
     for (const [tag, expected] of expectedCounts) {
-      await page.locator(`#skillTagFilters [data-tag="${tag}"]`).click();
+      await page.locator('#skillFilterToggle').click();
+      await page.locator(`#skillFilterMenu [data-filter="${tag}"]`).click();
       await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expected);
       assert.equal(await page.locator('#skillMarketGrid .skill-card').count(), expected);
     }
 
-    await page.locator('#skillTagFilters [data-tag="all"]').click();
+    await page.locator('#skillFilterToggle').click();
+    await page.locator('#skillFilterMenu [data-filter="all"]').click();
     await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedMarketCount);
+    assert.equal(await page.locator('#skillMarketGrid .skill-market-group').count(), 5);
+    assert.equal(await page.locator('#skillMarketGrid .skill-group-grid').count(), 5);
+    assert.equal(await page.locator('#skillMarketGrid .skill-card-tag').count(), 0);
+    assert.equal(await page.locator('#skillMarketGrid .skill-status-pill').count(), 0);
+    assert.equal(await page.locator('#skillMarketGrid .skill-card-open-mark').count(), 0);
+    assert.equal(await page.locator('#skillMarketGrid .skill-child-count').count(), 0);
+    assert.equal(await page.locator('#skillMarketGrid .skill-market-group-count').count(), 0);
+    assert.equal(await page.locator('#skillFilterMenu .skill-tag-count').count(), 0);
+    assert.equal(await page.locator('#skillMarketCount').count(), 0);
+    await page.locator('#skillMarketGrid .skill-card[data-market-id="hyperframes"]').click();
+    await page.locator('#skillDetailView:not(.hidden)').waitFor();
+    await page.waitForFunction(() => document.querySelector('#pageSkills > .capability-page-header')?.classList.contains('hidden'));
+    assert.equal(await page.locator('#skillDetailTitle').textContent(), 'HyperFrames');
+    assert.equal(await page.locator('.skill-detail-row').count(), 4);
+    assert.equal(await page.locator('#skillDetailView .skill-market-group-count').count(), 0);
+    assert.equal(await page.locator('#skillDetailView [data-detail-action="back"]').count(), 1);
+    await page.locator('#skillDetailView [data-detail-action="back"]').click();
+    await page.locator('#skillMarketOverview:not(.hidden)').waitFor();
+    await page.waitForFunction(() => !document.querySelector('#pageSkills > .capability-page-header')?.classList.contains('hidden'));
     const ids = await page.locator('#skillMarketGrid .skill-card').evaluateAll(cards => cards.map(card => card.dataset.marketId));
     assert.ok(!ids.includes(retiredSkill.id));
     assert.equal(await page.locator('#skillMarketGrid [data-skill-action="remove"]').count(), 0);
-    await page.locator('#skillTagFilters [data-tag="office-assist"]').click();
+    await page.locator('#skillFilterToggle').click();
+    await page.locator('#skillFilterMenu [data-filter="office-assist"]').click();
     await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedCounts.get('office-assist'));
     await page.screenshot({ path: screenshotPath, fullPage: false });
 
@@ -91,6 +139,8 @@ skillRegistry.installYanUserSkill(dataDir, retiredSkill);
     const migrated = installed.find(skill => skill.id === legacyBundledSkill.id);
     assert.deepEqual(migrated.tags, ['code-assist']);
     assert.equal(migrated.source, 'bundled');
+    assert.ok(installed.some(skill => skill.id === legacyHallmarkShadow.id));
+    assert.ok(!skillRegistry.scanYanUserSkills(dataDir).some(skill => skill.id === legacyHallmarkShadow.id));
     assert.ok(!skillRegistry.scanYanUserSkills(dataDir).some(skill => skill.id === retiredSkill.id));
     console.log(JSON.stringify({ ok: true, screenshotPath, skills: ids }));
   } finally {

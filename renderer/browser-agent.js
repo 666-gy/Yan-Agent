@@ -241,7 +241,7 @@
       if (!this.status) return;
       this.status.classList.toggle('hidden', !busy);
       this.status.setAttribute('aria-hidden', String(!busy));
-      if (busy) this.status.textContent = 'Agent 操作中';
+      if (busy) this.status.textContent = 'Yan Agent正在操控Browser';
       else if (this.busyTimer) clearTimeout(this.busyTimer);
     }
 

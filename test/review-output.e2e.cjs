@@ -39,7 +39,10 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-output-e2e
         status: 'done',
         summaryStarted: true,
         durationMs: 1000,
-        timeline: [{ type: 'text', stage: 'summary', content: '已修复一行代码。' }],
+        timeline: [
+          { type: 'progress', stage: 'work', content: '正在修改文件。' },
+          { type: 'text', stage: 'summary', content: '已修复一行代码。' }
+        ],
         changeSummary: {
           source: 'opencode',
           count: 1,
@@ -59,19 +62,49 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-output-e2e
           }]
         }
       };
+      const responseTs = new Date(2026, 0, 1, 3, 29).getTime();
       state.currentSession.messages.push({
         role: 'assistant',
         content: '已修复一行代码。',
-        ts: Date.now(),
+        ts: responseTs,
         agentRun
       });
-      appendMessage('assistant', '已修复一行代码。', [], false, 0, Date.now(), 1000, agentRun);
+      appendMessage('assistant', '已修复一行代码。', [], false, 0, responseTs, 1000, agentRun);
+      const message = document.querySelector('#messages .msg.assistant');
+      const workItem = message?.querySelector('[data-agent-stage="work"]');
+      const footerToggle = message?.querySelector('.msg-actions .agent-work-toggle');
+      const workProcess = {
+        topToggleCount: message?.querySelectorAll('.agent-run-summary .agent-work-toggle').length || 0,
+        footerToggleCount: message?.querySelectorAll('.msg-actions .agent-work-toggle').length || 0,
+        durationCount: message?.querySelectorAll('.msg-actions .msg-duration').length || 0,
+        mountedBefore: !!workItem,
+        hiddenBefore: !workItem || getComputedStyle(workItem).display === 'none',
+        labelBefore: footerToggle?.textContent || ''
+      };
+      footerToggle?.click();
+      const expandedWorkItem = message?.querySelector('[data-agent-stage="work"]');
+      workProcess.mountedAfter = !!expandedWorkItem;
+      workProcess.hiddenAfter = !expandedWorkItem || getComputedStyle(expandedWorkItem).display === 'none';
+      workProcess.labelAfter = footerToggle?.textContent || '';
+      footerToggle?.click();
+      workProcess.mountedAfterCollapse = !!message?.querySelector('[data-agent-stage="work"]');
+      workProcess.labelAfterCollapse = footerToggle?.textContent || '';
+      const responseTime = message?.querySelector('.msg-actions .msg-response-time');
+      const copyButton = message?.querySelector('.msg-actions [data-act="copy"]');
+      appendMessage('user', '用户消息', [], false, -1, responseTs);
+      const userMessage = document.querySelector('#messages .msg.user');
       const button = document.querySelector('[data-run-change-file-index="0"]');
       button?.click();
       return {
         buttonCount: document.querySelectorAll('[data-run-change-file-index]').length,
         buttonTag: button?.tagName || '',
-        sidebarOpen: !document.querySelector('#app').classList.contains('rs-hidden')
+        sidebarOpen: !document.querySelector('#app').classList.contains('rs-hidden'),
+        responseTime: responseTime?.textContent || '',
+        responseTimeDateTime: responseTime?.getAttribute('datetime') || '',
+        responseTimeImmediatelyAfterCopy: copyButton?.nextElementSibling === responseTime,
+        userDeleteCount: userMessage?.querySelectorAll('[data-act="delete"]').length || 0,
+        userEditCount: userMessage?.querySelectorAll('[data-act="edit"]').length || 0,
+        workProcess
       };
     });
 
@@ -134,13 +167,71 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-output-e2e
       return { expanded, released };
     });
 
-    assert.deepEqual(initial, { buttonCount: 1, buttonTag: 'BUTTON', sidebarOpen: true });
+    const streamingMarkdown = await page.evaluate(() => {
+      const element = buildWorkNarrationElement('');
+      document.body.appendChild(element);
+      const first = { type: 'text', content: '**Stable block**\n\nTail', streaming: true };
+      updateAgentTimelinePartElement(element, first, null, 'running');
+      const stableNode = element.firstElementChild;
+      const stateAfterFirst = agentElementRenderState.get(element);
+      updateAgentTimelinePartElement(element, {
+        ...first,
+        content: '**Stable block**\n\nTail keeps growing with [a link](https://example.com).'
+      }, null, 'running');
+      const stateAfterSecond = agentElementRenderState.get(element);
+      const settledNodeReused = stableNode === element.firstElementChild;
+      updateAgentTimelinePartElement(element, {
+        ...first,
+        content: '**Stable block**\n\nTail keeps growing with [a link](https://example.com).',
+        streaming: false
+      }, null, 'done');
+      const result = {
+        settledNodeReused,
+        tailAppendedIncrementally: stateAfterSecond.tailTextNode?.data === stateAfterSecond.content,
+        tailTextLength: stateAfterSecond.tailTextNode?.data.length || 0,
+        firstPassWasStreaming: stateAfterFirst.streaming,
+        cursorRemoved: !element.querySelector('.stream-cursor'),
+        finalText: element.textContent.trim()
+      };
+      element.remove();
+      return result;
+    });
+
+    assert.deepEqual(initial, {
+      buttonCount: 1,
+      buttonTag: 'BUTTON',
+      sidebarOpen: true,
+      responseTime: '03:29',
+      responseTimeDateTime: new Date(2026, 0, 1, 3, 29).toISOString(),
+      responseTimeImmediatelyAfterCopy: true,
+      userDeleteCount: 0,
+      userEditCount: 1,
+      workProcess: {
+        topToggleCount: 0,
+        footerToggleCount: 1,
+        durationCount: 0,
+        mountedBefore: false,
+        hiddenBefore: true,
+        labelBefore: '查看工作过程',
+        mountedAfter: true,
+        hiddenAfter: false,
+        labelAfter: '隐藏工作过程',
+        mountedAfterCollapse: false,
+        labelAfterCollapse: '查看工作过程'
+      }
+    });
     assert.equal(review.selectedPath, 'src/app.js');
     assert.equal(review.diffText.includes('const ready = true;'), true);
     assert.deepEqual(backendFilter, { count: 1, paths: ['src/app.js'] });
     assert.ok(browserWidths.expanded > 360, JSON.stringify(browserWidths));
     assert.equal(browserWidths.released, browserWidths.expanded);
-    console.log(JSON.stringify({ ok: true, initial, review, backendFilter, browserWidths }));
+    assert.equal(streamingMarkdown.settledNodeReused, true);
+    assert.equal(streamingMarkdown.tailAppendedIncrementally, true);
+    assert.ok(streamingMarkdown.tailTextLength > 0, JSON.stringify(streamingMarkdown));
+    assert.equal(streamingMarkdown.firstPassWasStreaming, true);
+    assert.equal(streamingMarkdown.cursorRemoved, true);
+    assert.match(streamingMarkdown.finalText, /Stable block.*Tail keeps growing/s);
+    console.log(JSON.stringify({ ok: true, initial, review, backendFilter, browserWidths, streamingMarkdown }));
   } finally {
     await application?.close().catch(() => {});
     fs.rmSync(userDataDir, { recursive: true, force: true });

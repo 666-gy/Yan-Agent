@@ -59,16 +59,35 @@ test('full local Git workflow supports staging, commits, branches and diffs', as
   status = await git.createBranch(repo, 'feature/git-ui');
   assert.equal(status.currentBranch, 'feature/git-ui');
   write(path.join(repo, 'README.md'), '# Yan\n\nGit UI\n');
+  status = await git.repositoryStatus(repo);
+  assert.deepEqual(status.diffStats, { added: 2, deleted: 0, binaryFiles: 0 });
   const unstagedDiff = await git.diff(repo, 'README.md');
   assert.match(unstagedDiff.diff, /Git UI/);
   await git.stageFiles(repo, ['README.md']);
   const stagedDiff = await git.diff(repo, 'README.md', true);
   assert.match(stagedDiff.diff, /Git UI/);
-  await git.commit(repo, 'Add Git UI');
+  const featureCommit = await git.commit(repo, 'Add Git UI');
+  execFileSync('git', ['-C', repo, 'update-ref', 'refs/remotes/origin/pr-1', featureCommit.commit.hash], { windowsHide: true });
   status = await git.switchBranch(repo, 'main');
   assert.equal(status.currentBranch, 'main');
   const log = await git.history(repo);
-  assert.equal(log[0].subject, 'Initial commit');
+  const initialCommit = log.find(commit => commit.subject === 'Initial commit');
+  const loggedFeatureCommit = log.find(commit => commit.subject === 'Add Git UI');
+  assert.ok(initialCommit);
+  assert.ok(loggedFeatureCommit);
+  assert.deepEqual(loggedFeatureCommit.parents, [initialCommit.hash]);
+  assert.ok(log.some(commit => commit.subject === 'Add Git UI'));
+  assert.ok(log.some(commit => commit.refs.includes('origin/pr-1')));
+
+  write(path.join(repo, 'README.md'), '# Yan\n\nReviewed Git UI\n');
+  write(path.join(repo, 'NEW.md'), 'new file\n');
+  const review = await git.review(repo);
+  assert.equal(review.count, 2);
+  assert.equal(review.additions, 3);
+  assert.equal(review.deletions, 0);
+  assert.deepEqual(review.files.map(file => file.path).sort(), ['NEW.md', 'README.md']);
+  assert.ok(review.files.find(file => file.path === 'README.md').diff.rows.some(row => row.type === 'add' && row.text === 'Reviewed Git UI'));
+  assert.ok(review.files.find(file => file.path === 'NEW.md').diff.rows.some(row => row.type === 'add' && row.text === 'new file'));
 });
 
 test('remote workflow supports push, clone, fetch and fast-forward pull', async t => {

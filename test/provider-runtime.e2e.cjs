@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig, stageDeepSeekProviderModule } = require('../lib/opencode-sidecar');
 
 const appRoot = path.resolve(__dirname, '..');
 const executable = path.resolve(process.env.YAN_OPENCODE_EXECUTABLE || path.join(
@@ -124,6 +124,12 @@ function stageProviderBundle(runtimeRoot) {
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+    const providerModuleSpecifier = process.env.YAN_PACKAGED_APP_ROOT
+      ? stageDeepSeekProviderModule({
+          appRoot: process.env.YAN_PACKAGED_APP_ROOT,
+          dataDir: runtimeRoot
+        })
+      : String(process.env.YAN_PROVIDER_MODULE_SPECIFIER || pathToFileURL(providerModule).href);
     const config = buildOpenCodeConfig({
       providerId,
       providerName,
@@ -131,16 +137,11 @@ function stageProviderBundle(runtimeRoot) {
       modelName: `${providerName} Packaged Test`,
       apiKey: 'local-test-key',
       baseUrl,
+      deepSeekProviderModule: providerModuleSpecifier,
       capabilities: { reasoning: true, contextWindow: 32_768, maxOutputTokens: 8_192 },
       permissions: { allowFileRead: true, allowFileWrite: false, allowNetwork: true }
     });
-    if (providerId === 'deepseek') {
-      config.provider[providerId].npm = process.env.YAN_PROVIDER_PACKAGE_MODE === '1'
-        ? stageProviderPackage(runtimeRoot)
-        : (process.env.YAN_PROVIDER_BUNDLE_STAGE === '1'
-          ? stageProviderBundle(runtimeRoot)
-          : (process.env.YAN_PROVIDER_MODULE_SPECIFIER || pathToFileURL(providerModule).href));
-    }
+    assert.equal(config.provider[providerId].npm, providerModuleSpecifier);
     const env = {
       ...process.env,
       XDG_DATA_HOME: path.join(runtimeRoot, 'data'),
@@ -173,6 +174,7 @@ function stageProviderBundle(runtimeRoot) {
     console.log(JSON.stringify({
       ok: true,
       providerModule,
+      providerModuleSpecifier,
       requestCount: requests.length,
       requestedUrls: requests.map(item => item.url)
     }));

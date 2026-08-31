@@ -8,6 +8,7 @@ const path = require('node:path');
 const {
   OpenCodeSidecar,
   combineSystem,
+  combineTurnPrompt,
   normalizeMemoryReview
 } = require('../lib/opencode-sidecar');
 
@@ -30,17 +31,73 @@ function completedPayload() {
   };
 }
 
-test('injects retrieved memory as prior observations with explicit verification boundaries', () => {
-  const system = combineSystem({
+test('injects retrieved memory into the current turn while keeping the system prefix stable', () => {
+  const request = {
+    runId: 'run-memory',
     memoryContext: '- [workspace/project] This project builds with npm run verify.',
     availableSkills: [],
     availableMcpServers: []
+  };
+  const system = combineSystem(request);
+  const turn = combineTurnPrompt(request, 'Fix the build.', false);
+  assert.doesNotMatch(system, /yan-long-term-memory/);
+  assert.doesNotMatch(system, /npm run verify/);
+  assert.match(turn, /yan-long-term-memory/);
+  assert.match(turn, /npm run verify/);
+  assert.match(turn, /not fresh tool evidence/i);
+  assert.match(turn, /reverify paths/i);
+  assert.match(turn, /current request and fresh evidence win/i);
+});
+
+test('dynamic run context never changes the cacheable system prefix', () => {
+  const stable = {
+    providerId: 'deepseek',
+    modelId: 'deepseek-v4-flash',
+    availableSkills: [],
+    availableMcpServers: []
+  };
+  const first = {
+    ...stable,
+    runId: 'run-a',
+    yanSessionId: 'session-a',
+    workspace: 'C:\\workspace-a',
+    workMode: 'normal',
+    memoryContext: 'memory-a',
+    harnessContext: 'harness-a'
+  };
+  const second = {
+    ...stable,
+    runId: 'run-b',
+    yanSessionId: 'session-b',
+    workspace: 'C:\\workspace-b',
+    workMode: 'goal',
+    memoryContext: 'memory-b',
+    harnessContext: 'harness-b'
+  };
+
+  assert.equal(combineSystem(first), combineSystem(second));
+  assert.notEqual(
+    combineTurnPrompt(first, 'Do the work.', false),
+    combineTurnPrompt(second, 'Do the work.', false)
+  );
+});
+
+test('Skill and MCP catalog order cannot invalidate the cacheable prefix', () => {
+  const skills = [
+    { id: 'zeta', name: 'Zeta', description: 'last' },
+    { id: 'alpha', name: 'Alpha', description: 'first' }
+  ];
+  const servers = [
+    { id: 'zeta', name: 'Zeta MCP', description: 'last' },
+    { id: 'alpha', name: 'Alpha MCP', description: 'first' }
+  ];
+  const first = combineSystem({ availableSkills: skills, availableMcpServers: servers });
+  const second = combineSystem({
+    availableSkills: [...skills].reverse(),
+    availableMcpServers: [...servers].reverse()
   });
-  assert.match(system, /yan-long-term-memory/);
-  assert.match(system, /npm run verify/);
-  assert.match(system, /not fresh tool evidence/i);
-  assert.match(system, /reverify paths/i);
-  assert.match(system, /current request and fresh evidence win/i);
+  assert.equal(first, second);
+  assert.ok(first.indexOf('alpha | Alpha') < first.indexOf('zeta | Zeta'));
 });
 
 test('normalization accepts durable evidence and rejects transient, sensitive, or unverified records', () => {

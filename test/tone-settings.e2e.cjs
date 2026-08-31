@@ -32,8 +32,8 @@ async function launch() {
     await page.waitForFunction(() => typeof openSettings === 'function');
     await page.locator('#settingsBtn').click();
     await page.locator('#settingsOverlay:not(.hidden)').waitFor();
-    await page.locator('[data-tab="tone"]').click();
-    await page.locator('#tab-tone.active').waitFor();
+    await page.locator('[data-tab="general"]').click();
+    await page.locator('#tab-general.active').waitFor();
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
 
     const names = ['爽快', '严谨', '简练', '戏谑'];
@@ -46,13 +46,15 @@ async function launch() {
       if (index === 0) await page.screenshot({ path: editorScreenshotPath });
       await page.locator('#toneEditorSave').click();
       await page.locator('#toneEditorDialog').waitFor({ state: 'hidden' });
-      await page.locator('[data-tone-profile-id]').nth(index).waitFor();
+      await page.locator('[data-tone-profile-id]').nth(index).waitFor({ state: 'attached' });
     }
     assert.equal(await page.locator('[data-tone-profile-id]').count(), 4);
     assert.equal(await page.locator('#addToneProfile').isDisabled(), true);
 
     const profileIds = await page.locator('[data-tone-profile-id]').evaluateAll(nodes => nodes.map(node => node.dataset.toneProfileId));
+    await page.locator('#tonePickerTrigger').click();
     await page.locator('[data-tone-select]').nth(2).click();
+    await page.locator('#tonePickerTrigger').click();
     await page.locator('[data-tone-remove]').nth(2).click();
     await page.waitForFunction(async expectedId => {
       const config = await window.yan.getConfig();
@@ -64,14 +66,11 @@ async function launch() {
     assert.equal(saved.profiles[0].name, '爽快');
     assert.equal(saved.profiles[0].instructions, '没素质，爽快');
     assert.equal(saved.activeProfileId, profileIds[1]);
-    assert.equal(await page.locator('[data-tone-select].active').getAttribute('data-tone-select'), profileIds[1]);
+    await page.locator('#tonePickerTrigger').click();
+    assert.equal(await page.locator('.tone-picker-choice.active [data-tone-select]').getAttribute('data-tone-select'), profileIds[1]);
     assert.equal(await page.locator('#addToneProfile').isEnabled(), true);
 
-    const cardBoxes = await page.locator('#toneProfileGrid > *, #toneProfileList > *').evaluateAll(nodes => nodes
-      .filter(node => getComputedStyle(node).display !== 'contents')
-      .map(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height })));
-    assert.ok(cardBoxes.length >= 4);
-    assert.ok(cardBoxes.every(box => box.width > 120 && box.height >= 64 && box.height < 100));
+    assert.ok(await page.locator('.tone-picker-choice').count() >= 4);
     await page.evaluate(() => {
       const content = document.querySelector('.settings-page-layer .sheet-content');
       if (content) content.scrollTop = 0;

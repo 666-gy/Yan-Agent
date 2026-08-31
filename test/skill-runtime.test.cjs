@@ -106,6 +106,14 @@ test('OpenCode does not scan or expose native Skills', () => {
     availableSkills: [{ id: 'demo', name: 'Demo', description: 'demo' }]
   });
   assert.match(system, /Yan Skills read_skill/);
+  assert.match(system, /Yan installed Skill catalog/);
+  assert.match(system, /demo \| Demo \| demo/);
+  assert.match(system, /fetch every chunkPlan entry with read_skill_resource in one parallel tool batch via read_skill_resources/);
+  assert.match(system, /reconstruct the exact instruction document in chunk_index order/);
+  assert.match(system, /input_tokens_per_second|high-throughput/iu);
+  assert.match(system, /Use native write for a complete new text file/);
+  assert.match(system, /Do not use apply_patch Add File or a Bash here-string/);
+  assert.doesNotMatch(system, /prefer (?:a )?Bash here-string/iu);
   assert.doesNotMatch(system, /native skill tool/);
 });
 
@@ -123,6 +131,26 @@ test('skill store read remains available after retry helpers are loaded', async 
     assert.equal(resolved.ok, true);
     assert.match(resolved.prompt, /^Run demo\./);
     assert.equal(resolved.attempts, 1);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('renderer-facing Skill catalogs never carry instruction bodies', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-skill-metadata-'));
+  try {
+    const cfg = { customSkills: [] };
+    skillRegistry.installYanUserSkill(dataDir, {
+      id: 'metadata-demo', name: 'Metadata Demo', desc: 'demo', prompt: 'Private instruction body.'
+    });
+    const list = skillRegistry.getMergedSkillsForList(cfg, appRoot, dataDir);
+    const catalog = skillRegistry.getAllSkillsForCatalog(cfg, appRoot, dataDir);
+    const listed = list.find(skill => skill.id === 'metadata-demo');
+    const cataloged = catalog.find(skill => skill.id === 'metadata-demo');
+    assert.ok(listed);
+    assert.ok(cataloged);
+    assert.equal(Object.hasOwn(listed, 'prompt'), false);
+    assert.equal(Object.hasOwn(cataloged, 'prompt'), false);
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

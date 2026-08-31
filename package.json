@@ -1,12 +1,12 @@
 {
   "name": "yan-agent",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Yan Agent — a modern, minimalist Agent desktop client built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "postinstall": "electron-rebuild -f -w node-pty || echo node-pty rebuild skipped",
+    "postinstall": "electron-rebuild -f -w node-pty || echo native rebuild skipped",
     "rebuild:pty": "electron-rebuild -f -w node-pty",
     "bundle:opencode-provider": "node scripts/build-opencode-provider.cjs",
     "verify:packaged-providers": "node test/provider-runtime-matrix.e2e.cjs",
@@ -36,6 +36,7 @@
       "preload.js",
       "quick-input-preload.js",
       "tokens.css",
+      ".pets/**/*",
       "lib/**/*",
       "renderer/**/*",
       "vendor/opencode/**/*",
@@ -137,6 +138,7 @@
     "node-pty": "^1.1.0",
     "opencode-ai": "1.18.11",
     "opencode-windows-x64": "1.18.11",
-    "skills": "1.5.21"
+    "skills": "1.5.21",
+    "zod": "4.4.3"
   }
 }

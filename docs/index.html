@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Yan Agent 1.4.0 — 完全多模态，完整软实力。面向真实 Windows 工作区的桌面 Agent，把模型、工具、文件与验收放进同一条可检查的任务链。">
+  <meta name="description" content="Yan Agent 1.5.0 — 更快、更稳、更好配置的完全多模态 Windows 桌面 Agent，把模型、工具、文件与验收放进同一条可检查的任务链。">
   <meta name="theme-color" content="#f7f3ec" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
-  <title>Yan Agent · 完全多模态，完整软实力</title>
+  <title>Yan Agent 1.5.0 · 完全多模态，完整软实力</title>
   <link rel="icon" href="assets/logo.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -557,7 +557,7 @@
       <a class="brand" href="#main" aria-label="Yan Agent 首页">
         <img src="assets/logo.png" alt="" width="26" height="26">
         <span class="brand-name">Yan Agent</span>
-        <span class="brand-ver">1.4.0</span>
+        <span class="brand-ver">1.5.0</span>
       </a>
       <div class="nav-mid">
         <a href="#multimodal">多模态</a>
@@ -583,9 +583,9 @@
       <div class="hero-glow" aria-hidden="true"></div>
       <div class="wrap hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow reveal">Yan Agent · 1.4.0 · Yan Kernel</p>
+          <p class="eyebrow reveal">Yan Agent · 1.5.0 · Yan Kernel</p>
           <h1 class="reveal" data-d="1">完全<span class="accent">多模态</span>。<br>完整<span class="accent">软实力</span><span class="dot">。</span></h1>
-          <p class="hero-lead reveal" data-d="2">Yan Agent 1.4.0 基于全新 Yan Kernel 运行时。文本、图像、视频三种模型同链路协作；工具、Skill、MCP、内置浏览器、Yan Computer Use、记忆与审阅各司其职。你描述目标，Yan Kernel 负责理解、执行、回读，并把可核对的结果交回工作区。</p>
+          <p class="hero-lead reveal" data-d="2">Yan Agent 1.5.0 让 Yan Kernel 更快、更稳，也更容易配置。文本、图像、视频三种模型同链路协作；连接式 API 配置、可选子代理、工具、Skill、MCP、内置浏览器、记忆与审阅各司其职。你描述目标，Yan Kernel 负责理解、执行、验证，并把可核对的结果交回工作区。</p>
           <div class="hero-actions reveal" data-d="3">
             <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载 Yan Agent <span class="arr" aria-hidden="true">↗</span></a>
             <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent/blob/main/README.md" target="_blank" rel="noopener">阅读 README</a>
@@ -594,7 +594,7 @@
             <span>Windows 桌面端</span>
             <span>Yan Kernel 运行时</span>
             <span>OpenCode 1.18.11 基础</span>
-            <span>多厂商动态模型目录</span>
+            <span>连接式 API · 可选子代理</span>
           </div>
         </div>
 
@@ -632,7 +632,7 @@
             </div>
             <div class="mm-relay">
               <strong>visual relay</strong>
-              主模型不能读图时，由 GLM / Agnes 视觉中继把读图报告交还主模型——不抢占对话，不替代决策。
+              主模型不能读图时，由已配置的 GLM / SenseNova / Agnes / 硅基流动视觉中继把读图报告交还主模型——不抢占对话，不替代决策。
             </div>
           </div>
         </div>
@@ -674,7 +674,7 @@
         <div class="mm-features reveal" data-d="2">
           <div class="mm-feat">
             <div class="mm-feat-head"><h4>视觉中继</h4><span class="mm-feat-tag">RELAY</span></div>
-            <p>主文本模型不能读图时，由 GLM-5V Turbo → 4.6V Flash → 4.1V Thinking Flash → 4V Flash，或 Agnes 2.5 Flash → 2.0 Flash 接力。只报告它实际看到的事实，不替代主模型执行任务。</p>
+            <p>主文本模型不能读图时，Yan 会按用户配置从 GLM、SenseNova、Agnes 或硅基流动选择视觉中继。中继只报告它实际看到的事实，不替代主模型执行任务。</p>
           </div>
           <div class="mm-feat">
             <div class="mm-feat-head"><h4>不自动复读</h4><span class="mm-feat-tag">NO WASTE</span></div>
@@ -707,8 +707,8 @@
           <div class="power-cell reveal" data-d="1">
             <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg></div>
             <h3>Yan Kernel</h3>
-            <p>基于 OpenCode 1.18.11 二次开发的执行权威。事件结构化、DeepSeek DSML 兼容、错误熔断、独立总结阶段、运行结果可审计。</p>
-            <div class="power-tags"><span class="power-tag">RUNTIME</span><span class="power-tag">EVENTS</span><span class="power-tag">DSML</span></div>
+            <p>基于 OpenCode 1.18.11 二次开发的执行权威。吞吐感知请求、批量事件、内核复用、断流重连、停滞检测、模型原生收尾与运行恢复形成一条完整链路。</p>
+            <div class="power-tags"><span class="power-tag">RUNTIME</span><span class="power-tag">STREAM</span><span class="power-tag">RECOVERY</span></div>
           </div>
 
           <div class="power-cell reveal" data-d="2">
@@ -755,9 +755,9 @@
 
           <div class="power-cell reveal" data-d="2">
             <div class="power-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></div>
-            <h3>权限与提问</h3>
-            <p>请求批准 / 替我审批 / 完全访问三档策略。折叠面板而非强制弹窗，显示即将执行的命令，提供"总是允许 / 本次允许 / 拒绝"。</p>
-            <div class="power-tags"><span class="power-tag">PERMISSION</span><span class="power-tag">APPROVAL</span></div>
+            <h3>权限、提问与子代理</h3>
+            <p>请求批准 / 替我审批 / 完全访问三档策略；Explore、Review、Research、Test、Build 五类子代理按需启用，并受同一工作区、权限和并发边界约束。</p>
+            <div class="power-tags"><span class="power-tag">PERMISSION</span><span class="power-tag">SUBAGENTS</span></div>
           </div>
 
           <div class="power-cell reveal" data-d="3">
@@ -778,12 +778,12 @@
         <div class="sec-head reveal">
           <span class="sec-num">02+ / 桌面操控</span>
           <h2>让 Agent 落到<span class="cu-blue serif-italic">真实桌面</span>，<br>不锁键鼠，Esc 即停。</h2>
-          <p class="lead">Yan Computer Use 是 1.4.0 的初始集成：通过官方 Nuphus MCP 的 desktop_* 工具，Agent 可以激活窗口、理解界面、定位控件并执行点击、输入、截图等操作。只有真实桌面工具开始执行时才进入操控态；屏幕边缘显示蓝色光效，顶部提示“Yan Agent 正在操控你的电脑，按 Esc 退出”。</p>
+          <p class="lead">Yan Computer Use 在 1.5.0 中继续作为测试能力提供：通过官方 Nuphus MCP 的 desktop_* 工具，Agent 可以激活窗口、理解界面、定位控件并执行点击、输入、截图等操作。只有真实桌面工具开始执行时才进入操控态；屏幕边缘显示蓝色光效，顶部提示“Yan Agent 正在操控你的电脑，按 Esc 退出”。</p>
         </div>
 
         <div class="cu-grid reveal" data-d="1">
           <div class="cu-main">
-            <span class="cu-badge">v1.4.0 · Initial Integration</span>
+            <span class="cu-badge">v1.5.0 · Preview</span>
             <h3>不是远程控制，是带边界的桌面协作</h3>
             <ul class="cu-list">
               <li>权限边界：桌面工具仍受当前任务的访问策略、工作区规则与权限判断约束。</li>
@@ -793,7 +793,7 @@
               <li>Skill + MCP 协作：yan-computer-use Skill 约束观察与验收流程，Nuphus MCP 执行原生桌面工具。</li>
             </ul>
             <div class="cu-note">
-              <strong>初始集成说明</strong> Yan Computer Use 依赖 Nuphus MCP、目标软件可访问性与视觉感知质量；复杂 Canvas、自绘界面或权限窗口仍可能失败。这是 1.4.0 的实验性能力，不是全应用自动化承诺。
+              <strong>测试能力说明</strong> Yan Computer Use 依赖 Nuphus MCP、目标软件可访问性与视觉感知质量；复杂 Canvas、自绘界面或权限窗口仍可能失败。这是 1.5.0 的测试能力，不是全应用自动化承诺。
             </div>
           </div>
           <div class="cu-visual" aria-hidden="true">
@@ -838,7 +838,7 @@
             <div class="mode-num">03</div>
             <h3>目标</h3>
             <span class="mode-en">GOAL</span>
-            <p>第一轮完成后按原始要求定点验收。有证据证明问题才修复，再次验收。最多 6 轮，达到稳定通过后进入总结。</p>
+            <p>第一轮完成后按原始要求定点验收。有证据证明问题才修复，再次验收。最多 6 轮，达到稳定通过后由当前验收回合直接交付最终回复。</p>
             <div class="mode-scene">小游戏、网页、项目级任务</div>
           </div>
         </div>
@@ -853,31 +853,32 @@
         <div class="sec-head reveal">
           <span class="sec-num">04 / 边界</span>
           <h2>现在能做什么，<br>也明确不<span class="serif-italic">做什么</span>。</h2>
-          <p class="lead">一款可靠的 Agent 必须把边界写在官网上。以下内容对应当前 1.4.0 的真实状态，不把未来能力包装成今天的承诺。</p>
+          <p class="lead">一款可靠的 Agent 必须把边界写在官网上。以下内容对应当前 1.5.0 的真实状态，不把未来能力包装成今天的承诺。</p>
         </div>
 
         <div class="truth-grid reveal" data-d="1">
           <div class="truth-col">
-            <h3>1.4.0 已支持</h3>
+            <h3>1.5.0 已支持</h3>
             <p class="truth-sub">适合日常开发、资料处理和工作区内的可复核任务。</p>
             <ul>
               <li>Windows 桌面工作区与真实 PTY 终端</li>
               <li>Yan Kernel · Skill · MCP · 内置浏览器</li>
+              <li>连接式 API 配置、模型选择与中英文界面</li>
+              <li>按角色启用的任务内子代理协作</li>
               <li>常规 / 计划 / 目标 三种工作方式与权限</li>
               <li>完全多模态：文本、图片理解、图片与视频生成</li>
-              <li>Yan Computer Use 桌面操控（初始集成）</li>
+              <li>Yan Computer Use 桌面操控（测试能力）</li>
               <li>Git 工作区：状态、分支、提交、推送、拉取、diff</li>
               <li>上下文压缩、长期记忆与审阅面板</li>
-              <li>第二代 Yan Agent Pet 与移动端远程控制</li>
+              <li>第二代 Yan Agent Pet 桌面宠物</li>
             </ul>
           </div>
           <div class="truth-col truth-col--future">
             <h3>正在开发</h3>
-            <p class="truth-sub">有明确计划，但不属于 1.4.0 的稳定承诺。</p>
+            <p class="truth-sub">有明确计划，但不属于 1.5.0 的稳定承诺。</p>
             <ul>
-              <li>Yan Agent GUI：计划随 v1.5.0 上线</li>
-              <li>移动 Web UI 尚未同步完成，不建议作为主界面</li>
-              <li>常驻子 Agent 与动态并发调度</li>
+              <li>Yan Work GUI：当前仍是开发预览</li>
+              <li>常驻子 Agent 与无限动态并发调度</li>
               <li>PowerShell 7 专属运行时切换</li>
             </ul>
           </div>
@@ -930,7 +931,7 @@
       <h2 id="closing-title" class="reveal">把任务交给<br><span class="serif-italic">工作区</span>。</h2>
       <p class="reveal" data-d="1">从一个真实目录和一句清楚的目标开始。Yan Agent 会把过程、证据和结果留在你看得见的地方。</p>
       <div class="closing-actions reveal" data-d="2">
-        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载安装版 1.4.0 <span class="arr" aria-hidden="true">↗</span></a>
+        <a class="btn btn-primary" href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">下载安装版 1.5.0 <span class="arr" aria-hidden="true">↗</span></a>
         <a class="btn btn-ghost" href="https://github.com/666-gy/Yan-Agent" target="_blank" rel="noopener">查看源码</a>
       </div>
     </div>
@@ -948,7 +949,7 @@
         <a href="https://github.com/666-gy/Yan-Agent/releases" target="_blank" rel="noopener">Releases</a>
         <a href="https://github.com/666-gy/Yan-Agent/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
-      <span class="footer-meta">1.4.0 · Windows desktop</span>
+      <span class="footer-meta">1.5.0 · Windows desktop</span>
     </div>
   </footer>
 

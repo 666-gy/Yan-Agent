@@ -40,9 +40,10 @@ test('derives the proactive compaction line from the active model context window
   assert.deepEqual(openCodeContextBudget(requestWithContext()), {
     contextWindow: 128_000,
     reserved: 24_000,
-    softThreshold: 89_600
+    softThreshold: 102_400
   });
-  assert.equal(openCodeContextBudget(requestWithContext(16_384)).softThreshold, 11_468);
+  assert.equal(openCodeContextBudget(requestWithContext(16_384)).softThreshold, 12_288);
+  assert.equal(openCodeContextBudget(requestWithContext(1_000_000)).softThreshold, 800_000);
 });
 
 test('reads the latest measured OpenCode context instead of summing every turn', () => {
@@ -94,7 +95,7 @@ test('compacts a reused OpenCode session and measures its active post-compaction
     session: { id: 'session-high' },
     directory: 'C:\\workspace',
     request: requestWithContext(),
-    messages: [assistantMessage('assistant-high', 96_000)],
+    messages: [assistantMessage('assistant-high', 110_000)],
     onEvent: event => events.push(event)
   });
 
@@ -116,7 +117,7 @@ test('compacts a reused OpenCode session and measures its active post-compaction
 
 test('keeps the task runnable when proactive compaction fails', async () => {
   const events = [];
-  const original = [assistantMessage('assistant-high', 96_000)];
+  const original = [assistantMessage('assistant-high', 110_000)];
   const result = await compactOpenCodeSession({
     client: {
       session: {

@@ -6,7 +6,7 @@ Loaded only when the user has opted into the **custom** theme route in Step 1 of
 
 ## Two routes, plain English
 
-- **catalog** — the named-theme catalogue. Hallmark's 20 themes (Specimen, Midnight, Brutal, Garden, Atelier, Newsprint, Terminal, Manifesto, Almanac, Sport, Studio, Riso, Bloom, Coral, Cobalt, Aurora, Editorial, Carnival, Lumen, Hum). Each one is a fixed combination of paper-band, display-style, and accent-hue. The rotation rule cycles through them so two consecutive runs don't read alike. **This is the default.** Most briefs use it.
+- **catalog** — the named-theme catalogue. Hallmark's 21 themes (Specimen, Midnight, Brutal, Garden, Atelier, Newsprint, Terminal, Manifesto, Almanac, Sport, Studio, Riso, Bloom, Coral, Cobalt, Aurora, Editorial, Carnival, Lumen, Hum, Grid). Each one is a fixed combination of paper-band, display-style, and accent-hue. The rotation rule cycles through them so two consecutive runs don't read alike. **This is the default.** Most briefs use it.
 - **custom** — made-to-measure, at the depth the brief needs:
   - **Tuned** — a one-off OKLCH palette + font pairing built for one brief, *keeping* Hallmark's structures, archetypes, and macrostructures. The rules (paper L bands, accent chroma caps, font ban list, all slop-test gates) still apply; only the *combination* is per-brief.
   - **Bespoke** — when the brief's *structure itself* is the ask, custom goes further and designs the whole page from first principles — its own palette, type, **and** composition — dropping the catalog's structures too, floored only by the universal slop-test gates. Same route, deeper end. See **§ Bespoke depth** below.
@@ -25,7 +25,7 @@ Hallmark must **not** offer catalog-vs-custom on every prompt. That's friction, 
 
 If any signal fires, ask one short follow-up before picking a theme:
 
-> *"This brief reads like a custom palette would fit better than the 20 named themes. Want me to construct a custom OKLCH palette + free-font pairing tuned to <one-line summary of the vibe>, or stay on the catalog for variety + speed?"*
+> *"This brief reads like a custom palette would fit better than the 21 named themes. Want me to construct a custom OKLCH palette + free-font pairing tuned to <one-line summary of the vibe>, or stay on the catalog for variety + speed?"*
 
 Wait for the user to answer. If they say custom (or yes / go) → continue this protocol from § A. If they say catalog (or no / stay catalog) → drop the fork and proceed with the catalog route. **Default to catalog** — silence routes to catalog, not custom.
 
@@ -251,7 +251,7 @@ Custom runs extend the existing schema with a `theme_axes` field and an optional
   "brief": "Coffeebox · subscription" }
 ```
 
-Catalog entries continue to record `theme: <name>` and skip `theme_axes` (the catalog's axes are looked up from [`tokens.css`](../../../site/css/tokens.css)). Step 2.5 logic uses the same diversification check on both — for catalog entries it reads the axes from tokens.css; for custom entries it reads them from the entry.
+Catalog entries continue to record `theme: <name>` and skip `theme_axes` (the catalog's axes are looked up from [`theme-tokens.css`](theme-tokens.css)). Step 2.5 logic uses the same diversification check on both — for catalog entries it reads the axes from theme-tokens.css; for custom entries it reads them from the entry.
 
 When rotating, **a custom run that follows another custom run must differ on at least one axis from the previous custom** — same rule as catalog-vs-catalog. A custom run that follows a catalog run must differ on at least one axis from the catalog's axes. The diversification rule is theme-route-blind.
 
@@ -359,7 +359,7 @@ The vibe names two hues: *moss* (greenish, ~140°) and *soft pink* (warm, ~350°
 ## What custom does **not** do (worth restating)
 
 1. **Does not invent themes that ignore the rules.** Every paper L band, accent chroma cap, neutral-tinting requirement, font ban, and slop-test gate carries forward. The freedom is the *combination* — not the rules.
-2. **Does not save themes for reuse.** A custom run is per-output. The skill does not write back to [`tokens.css`](../../../site/css/tokens.css). If the user wants a permanent theme, they paste the custom palette into tokens.css themselves and name it.
+2. **Does not save themes for reuse.** A custom run is per-output. The skill does not write back to [`theme-tokens.css`](theme-tokens.css). If the user wants a permanent theme, they paste the custom palette into their project's tokens.css themselves and name it.
 3. **Does not ask multiple follow-up questions.** One vibe answer (+ optional anchor) is enough. The audience/use/tone from Step 1 plus the brief plus the macrostructure pick already give the model 80 % of the signal.
 4. **Does not relax the diversification rule.** Custom entries declare their three axes the same way catalog entries do; the rotation rule fires on both, theme-route-blind.
 5. **Does not bypass the Step 5 preview.** The custom palette + pairing surface in plain text *before* any code is emitted, so the user can redirect early.
