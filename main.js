@@ -3827,16 +3827,18 @@ function createSplashWindow() {
 function createWindow() {
   mainRendererReady = false;
   mainWindowReadyForSplash = false;
+  const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1280,
-    height: 820,
+    height: 740,
     minWidth: 880,
-    minHeight: 600,
+    minHeight: 560,
     backgroundColor: '#1a1a1a',
     show: false,
-    titleBarStyle: 'hidden',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     frame: false,
     autoHideMenuBar: true,
+    ...(isMac ? { trafficLightPosition: { x: 16, y: 18 } } : {}),
     icon: lightWindowIconPngPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -3844,8 +3846,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       webviewTag: true,
-      // Idle renderer work is throttled. Active Agent runs temporarily opt out.
-      backgroundThrottling: true
+      backgroundThrottling: false
     }
   });
 
@@ -3861,7 +3862,12 @@ function createWindow() {
     mainWindowReadyForSplash = true;
     finishSplashWhenReady();
   });
-  mainWindow.on('show', () => applyLightWindowIcon(mainWindow));
+  mainWindow.on('show', () => {
+    setImmediate(() => applyLightWindowIcon(mainWindow));
+  });
+  mainWindow.on('focus', () => {
+    try { mainWindow.webContents.setBackgroundThrottling(false); } catch {}
+  });
 
   // Sync maximize state to renderer (for toggling the maximize button icon)
   mainWindow.on('maximize', () => mainWindow.webContents.send('win:maximize-changed', true));
@@ -5688,9 +5694,11 @@ function focusMainWindow() {
     pendingFocusMainFromYanxi = true;
     return;
   }
+  try { mainWindow.webContents.setBackgroundThrottling(false); } catch {}
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+  setImmediate(() => applyLightWindowIcon(mainWindow));
 }
 
 const yanxiReceiver = createYanxiCodeReceiver({
@@ -7950,7 +7958,7 @@ app.whenReady().then(async () => {
     await yanxiReceiver.applyWorkspaceFromYanxiCode(pendingYanxiWorkspace, { requestId: pendingYanxiRequestId });
   }
   createWindow();
-  applyLightWindowIcon(mainWindow);
+  setImmediate(() => applyLightWindowIcon(mainWindow));
   refreshConfiguredProviderModelCache('agnes')
     .catch(error => console.warn(`[Agnes models] background refresh failed: ${error.message}`));
   if (process.env.YAN_E2E_MODE !== '1') {
@@ -7964,7 +7972,7 @@ app.whenReady().then(async () => {
   }
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-    else applyLightWindowIcon(mainWindow);
+    else focusMainWindow();
   });
 });
 

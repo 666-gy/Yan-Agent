@@ -19,6 +19,10 @@
 
 Yan Agent understands tasks, uses tools, changes projects, verifies results, and delivers evidence the user can review.
 
+## macOS DMG
+
+Build a local DMG with a free Apple ID and Xcode / Command Line Tools. See [docs/macos-dmg.md](docs/macos-dmg.md). `build.mac.identity` is `null` on purpose — set `CSC_NAME` to **your** signing identity. Do not commit certificates or DMG binaries.
+
 ## Release Positioning
 
 Yan Agent 1.5.0 builds on the **Yan Kernel** introduced in 1.4.0 and focuses on making the complete Agent workflow faster, more resilient, easier to configure, and more comfortable to use every day. Yan Kernel is an extensively adapted runtime based on OpenCode, with Yan's own workspace and permission model, Skills, MCP services, built-in browser automation, multimodal roles, memory, review workflow, and desktop integration.

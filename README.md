@@ -9,6 +9,12 @@
 
 [English README](README_EN.md)
 
+## macOS 安装包
+
+本仓库可以在 Mac 上自己打 DMG（免费 Apple ID + Xcode / Command Line Tools 即可）。
+步骤见 [docs/macos-dmg.md](docs/macos-dmg.md)，小白逐步避雷见 [docs/macos-dmg-beginner.md](docs/macos-dmg-beginner.md)。
+`package.json` 里 `build.mac.identity` 为 `null`：请用环境变量 `CSC_NAME` 提供 **你自己的** 开发证，不要提交证书或 DMG 二进制。
+
 ## 版本定位
 
 1.5.0 延续 1.4.0 建立的 **Yan Kernel**，重点把 Agent 的速度、稳定性、连接配置、子代理协作和桌面体验做成可长期使用的完整链路。Yan Kernel 是 Yan Agent 的正式内核，基于 OpenCode 内核二次开发，并加入 Yan 自己的工作区、权限、Skill、MCP、内置浏览器、多模态、记忆、审阅和桌面交互能力。

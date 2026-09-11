@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https: file:; media-src 'self' data: blob: https:; connect-src 'self' https://api.deepseek.com https://dashscope.aliyuncs.com https://open.bigmodel.cn https://ark.cn-beijing.volces.com https://api.moonshot.cn https://api.stepfun.com https://api.minimaxi.com https://*; frame-src https: http: file:;" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https: file:; media-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:* http://localhost:* https://api.deepseek.com https://dashscope.aliyuncs.com https://open.bigmodel.cn https://ark.cn-beijing.volces.com https://api.moonshot.cn https://api.stepfun.com https://api.minimaxi.com https://*; frame-src 'self' http://127.0.0.1:* http://localhost:* https: http: file:;" />
   <title>Yan Agent</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="understand-anything/understand-anything.css" />
@@ -222,6 +222,9 @@
                 </button>
               </div>
             </div>
+            <button id="rightSidebarToggleBtn" class="task-bar-icon-btn right-sidebar-fixed-toggle hidden" type="button" title="打开右侧面板" aria-label="打开右侧面板" aria-controls="rightSidebar" aria-expanded="false">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            </button>
           </div>
         </div>
 
@@ -342,6 +345,7 @@
             </div>
             <div id="attachments" class="attachments hidden"></div>
             <div id="composer" class="composer">
+              <div id="composerResizeHandle" class="composer-resize-handle" role="separator" aria-orientation="horizontal" aria-label="拖动调整输入框高度" title="拖动调整输入框高度"></div>
               <svg id="composerContextBorder" class="composer-context-border" role="progressbar" aria-labelledby="composerContextBorderTitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-budget="normal">
                 <title id="composerContextBorderTitle">上下文 0 / 自动压缩阈值 0 tokens</title>
                 <path id="composerContextProgress" class="composer-context-progress" pathLength="1"></path>
@@ -539,6 +543,7 @@
         </div>
 
           <section id="understandAnythingLayer" class="understand-anything-layer hidden" aria-label="Understand Anything">
+            <div id="understandAnythingStatus" class="understand-anything-status" hidden></div>
             <iframe id="understandAnythingFrame" class="understand-anything-frame" title="Understand Anything 本地图谱" loading="eager"></iframe>
           </section>
         </main>
@@ -714,8 +719,19 @@
       </section>
 
 
-      <!-- ===== Main: Yan Work GUI (placeholder) ===== -->
-      <section id="pageWorkGui" class="page-view work-gui-page hidden" aria-label="Yan Work GUI"></section>
+      <!-- ===== Main: Yan Work GUI ===== -->
+      <section id="pageWorkGui" class="page-view work-gui-page hidden" aria-label="Yan Work GUI">
+        <header class="page-header capability-page-header">
+          <div>
+            <h2>Yan Work GUI</h2>
+            <p class="page-sub">当前任务工作区、Git 状态与快捷入口</p>
+          </div>
+          <div class="capability-header-actions">
+            <button id="workGuiRefreshBtn" class="capability-header-btn" type="button">刷新</button>
+          </div>
+        </header>
+        <div id="workGuiBody" class="page-body capability-page-body work-gui-body"></div>
+      </section>
 
       <!-- Media generation is handled directly from the Agent model selector. -->
       <!-- Legacy standalone media studio removed from the application surface.
@@ -1117,9 +1133,6 @@
         </section>
       </dialog>
 
-      <button id="rightSidebarToggleBtn" class="task-bar-icon-btn right-sidebar-fixed-toggle hidden" type="button" title="打开右侧面板" aria-label="打开右侧面板" aria-controls="rightSidebar" aria-expanded="false">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-      </button>
 
       <!-- Detailed context remains wired while its next UI location is decided. -->
       <div id="retainedAgentUi" class="hidden" aria-hidden="true">

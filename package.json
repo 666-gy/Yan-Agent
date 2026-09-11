@@ -12,7 +12,8 @@
     "verify:packaged-providers": "node test/provider-runtime-matrix.e2e.cjs",
     "verify:codegraph": "node test/codegraph-mcp.e2e.cjs",
     "build": "npm run bundle:opencode-provider && electron-builder --win nsis --publish never && npm run verify:packaged-providers && npm run verify:codegraph",
-    "build:portable": "npm run bundle:opencode-provider && electron-builder --win portable --publish never && npm run verify:packaged-providers && npm run verify:codegraph"
+    "build:portable": "npm run bundle:opencode-provider && electron-builder --win portable --publish never && npm run verify:packaged-providers && npm run verify:codegraph",
+    "build:mac": "npm run bundle:opencode-provider && electron-builder --mac dmg --arm64 --publish never"
   },
   "author": "",
   "license": "MIT",
@@ -43,9 +44,12 @@
       "!lib/native/**/*.cs",
       "!lib/**/__pycache__/**/*",
       "!lib/**/*.pyc",
-      "!node_modules/@colbymchenry/codegraph-win32-x64/**/*"
+      "!node_modules/@colbymchenry/codegraph-win32-x64/**/*",
+      "!node_modules/@colbymchenry/codegraph-darwin-arm64/**/*",
+      "!lib/skills/**/*.app"
     ],
     "asarUnpack": [
+      "lib/understand-anything/**/*",
       "lib/codegraph-to-understand-anything.js",
       "lib/yan-media-mcp.js",
       "lib/yan-browser-mcp.js",
@@ -65,7 +69,6 @@
       "lib/dsml-tool-call.js",
       "lib/opencode-dsml-provider.mjs",
       "lib/opencode-dsml-provider.bundle.mjs",
-      "lib/understand-anything/**/*",
       "lib/skills/**/*",
       "node_modules/@ai-sdk/anthropic/**/*",
       "node_modules/@ai-sdk/openai-compatible/**/*",
@@ -83,16 +86,6 @@
       "node_modules/node-pty/**/*",
       "node_modules/@nuphus/nuphus-mcp*/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "node_modules/@colbymchenry/codegraph-win32-x64",
-        "to": "codegraph-runtime"
-      },
-      {
-        "from": "node_modules/@officecli/officecli/vendor",
-        "to": "officecli-runtime"
-      }
-    ],
     "win": {
       "icon": "renderer/assets/logo-light.ico",
       "target": [
@@ -108,7 +101,43 @@
             "x64"
           ]
         }
+      ],
+      "extraResources": [
+        {
+          "from": "node_modules/@colbymchenry/codegraph-win32-x64",
+          "to": "codegraph-runtime"
+        },
+        {
+          "from": "node_modules/@officecli/officecli/vendor",
+          "to": "officecli-runtime"
+        }
       ]
+    },
+    "mac": {
+      "identity": null,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "node_modules/@colbymchenry/codegraph-darwin-arm64",
+          "to": "codegraph-runtime"
+        }
+      ]
+    },
+    "dmg": {
+      "artifactName": "Yan.Agent.Setup.v${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -137,7 +166,6 @@
     "diff": "^7.0.0",
     "node-pty": "^1.1.0",
     "opencode-ai": "1.18.11",
-    "opencode-windows-x64": "1.18.11",
     "skills": "1.5.21",
     "zod": "4.4.3"
   }

@@ -2430,12 +2430,13 @@ function showMainPage(page) {
   if (page !== 'chat') closeTaskActionsMenu();
   closeBrowserPanel();
   window.YanTerminal?.close();
-  if (page !== 'chat') window.YanUnderstandAnything?.close();
+  if (page !== 'chat') window.YanUnderstandAnything?.close?.({ silent: true });
 
   if (page !== 'chat') closeRightSidebar();
 
   if (page === 'skills') renderSkillMarket();
   if (page === 'mcp') renderMcpPage();
+  if (page === 'work-gui') void renderWorkGui();
   syncSidebarAccessibility();
 }
 
@@ -2746,17 +2747,17 @@ async function showWindowView(view) {
     setLeftSidebarOpen(false);
     showMainPage('chat');
     await window.YanUnderstandAnything?.open?.(workspace);
-    if (!window.YanUnderstandAnything?.isOpen?.()) {
-      currentWindowView = 'main';
-      showMainPage('chat');
-      setLeftSidebarOpen(mainSidebarWasOpen);
-      syncSidebarAccessibility();
+    if (currentWindowView !== 'project-map') {
+      window.YanUnderstandAnything?.close?.({ silent: true });
+      return;
     }
+    syncSidebarAccessibility();
     return;
   }
 
   if (currentWindowView === 'main') mainSidebarWasOpen = !$('#app').classList.contains('sidebar-hidden');
   currentWindowView = next;
+  window.YanUnderstandAnything?.close?.({ silent: true });
   if (next === 'work-gui') {
     syncSidebarAccessibility();
     setLeftSidebarOpen(false);
@@ -2766,7 +2767,6 @@ async function showWindowView(view) {
   }
 
   currentWindowView = 'main';
-  window.YanUnderstandAnything?.close?.();
   showMainPage('chat');
   setLeftSidebarOpen(mainSidebarWasOpen);
   syncSidebarAccessibility();
@@ -2775,6 +2775,106 @@ async function showWindowView(view) {
 $$('.window-view-option').forEach(button => {
   button.addEventListener('click', () => { void showWindowView(button.dataset.windowView); });
 });
+
+function workGuiFileLabel(change = {}) {
+  return change.path || change.filePath || change.file || change.name || '未命名文件';
+}
+
+function workGuiStatusLabel(change = {}) {
+  return change.status || change.indexStatus || change.workingTreeStatus || change.kind || '';
+}
+
+async function renderWorkGui() {
+  const root = $('#workGuiBody');
+  if (!root) return;
+  const session = state.currentSession;
+  const workspace = String(session?.workspace || state.config?.workspace || '').trim();
+  if (!session) {
+    root.innerHTML = '<div class="page-empty">还没有当前任务。回到主界面新建或选择一个任务。</div>';
+    return;
+  }
+  if (!workspace) {
+    root.innerHTML = `<div class="page-empty">当前任务还没有工作区。<br>回到主界面，在任务栏选择文件夹后再打开 Yan Work GUI。</div>`;
+    return;
+  }
+
+  root.innerHTML = '<div class="page-empty">正在读取工作区状态…</div>';
+  let gitStatus = null;
+  let gitError = '';
+  try {
+    const result = await api.gitStatus?.(workspace);
+    if (result?.ok === false) gitError = result.error || '无法读取 Git 状态';
+    else gitStatus = result?.status || result || null;
+  } catch (error) {
+    gitError = error?.message || String(error);
+  }
+
+  const branch = gitStatus?.isRepository
+    ? (gitStatus.detached ? `游离 HEAD · ${String(gitStatus.head || '').slice(0, 7)}` : (gitStatus.currentBranch || '无分支'))
+    : (gitError || (gitStatus?.available === false ? (gitStatus.error || '未检测到 Git') : '当前目录不是 Git 仓库'));
+  const changes = Array.isArray(gitStatus?.changes) ? gitStatus.changes : [];
+  const stats = gitStatus?.diffStats || {};
+  const remotes = Array.isArray(gitStatus?.remotes) ? gitStatus.remotes : [];
+  const remoteLabel = remotes[0]?.url || remotes[0]?.name || '未配置远程';
+  const fileRows = changes.slice(0, 24).map(change => `
+    <div class="work-gui-file">
+      <span>${escapeHtml(workGuiFileLabel(change))}</span>
+      <em>${escapeHtml(workGuiStatusLabel(change) || 'changed')}</em>
+    </div>
+  `).join('') || '<div class="page-empty">工作区干净，没有未提交更改。</div>';
+
+  root.innerHTML = `
+    <div class="work-gui-grid">
+      <article class="work-gui-card">
+        <h3>当前任务</h3>
+        <p>${escapeHtml(displaySessionTitle(session.title))}</p>
+        <p class="work-gui-meta">${escapeHtml(workspace)}</p>
+      </article>
+      <article class="work-gui-card">
+        <h3>Git</h3>
+        <p>${escapeHtml(branch)}</p>
+        <p class="work-gui-meta">${gitStatus?.isRepository ? `${changes.length} 个文件 · +${Number(stats.added) || 0} / -${Number(stats.deleted) || 0}` : escapeHtml(gitError || 'Git 数据不可用')}</p>
+      </article>
+      <article class="work-gui-card">
+        <h3>远程</h3>
+        <p>${escapeHtml(String(remoteLabel))}</p>
+        <p class="work-gui-meta">${remotes.length ? `${remotes.length} 个远程` : '可在主界面 Git 工具里添加'}</p>
+      </article>
+    </div>
+    <div class="work-gui-actions">
+      <button type="button" data-work-gui-action="folder">打开文件夹</button>
+      <button type="button" data-work-gui-action="yanxi">用 Yanxi Code 打开</button>
+      <button type="button" data-work-gui-action="vscode">用 VS Code 打开</button>
+      <button type="button" data-work-gui-action="map">打开 Understand Anything</button>
+    </div>
+    <article class="work-gui-card">
+      <h3>未提交更改</h3>
+      ${fileRows}
+    </article>
+  `;
+}
+
+$('#workGuiBody')?.addEventListener('click', event => {
+  const action = event.target.closest('[data-work-gui-action]')?.dataset.workGuiAction;
+  if (!action) return;
+  if (action === 'folder') {
+    const workspace = state.currentSession?.workspace;
+    if (workspace) api.openWorkspaceInExplorer?.(workspace);
+    else toast('请先选择工作区');
+    return;
+  }
+  if (action === 'yanxi') {
+    void openCurrentWorkspaceInYanxiCode();
+    return;
+  }
+  if (action === 'vscode') {
+    void openCurrentWorkspaceInVsCode();
+    return;
+  }
+  if (action === 'map') void showWindowView('project-map');
+});
+
+$('#workGuiRefreshBtn')?.addEventListener('click', () => { void renderWorkGui(); });
 
 function switchSidebarNav(nav) {
   if (!$('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
@@ -4199,6 +4299,79 @@ input.addEventListener('pointerup', () => {
 function autoGrow() {
   // Keep the composer viewport fixed; the editable surface owns scrolling.
   if (input.style.height) input.style.removeProperty('height');
+}
+
+const COMPOSER_HEIGHT_KEY = 'yan.composer-height.v1';
+const COMPOSER_HEIGHT_MIN = 108;
+const COMPOSER_HEIGHT_MAX = 420;
+
+function composerHeightLimit() {
+  return Math.max(COMPOSER_HEIGHT_MIN, Math.min(COMPOSER_HEIGHT_MAX, Math.round(window.innerHeight * 0.48)));
+}
+
+function applyComposerHeight(px, persist = false) {
+  const composer = $('#composer');
+  if (!composer) return COMPOSER_HEIGHT_MIN;
+  const next = Math.max(COMPOSER_HEIGHT_MIN, Math.min(composerHeightLimit(), Math.round(px)));
+  composer.style.setProperty('--composer-h', `${next}px`);
+  composer.style.height = `${next}px`;
+  if (persist) {
+    try { window.localStorage.setItem(COMPOSER_HEIGHT_KEY, String(next)); } catch {}
+  }
+  return next;
+}
+
+function restoreComposerHeight() {
+  let stored = 0;
+  try { stored = parseInt(window.localStorage.getItem(COMPOSER_HEIGHT_KEY) || '', 10) || 0; } catch {}
+  applyComposerHeight(stored || 108);
+}
+
+function setupComposerResize() {
+  const handle = $('#composerResizeHandle');
+  const composer = $('#composer');
+  if (!handle || !composer) return;
+  restoreComposerHeight();
+  let dragging = false;
+  let pointerId = null;
+  let startY = 0;
+  let startH = COMPOSER_HEIGHT_MIN;
+  const onMove = (event) => {
+    if (!dragging) return;
+    if (pointerId != null && event.pointerId !== pointerId) return;
+    applyComposerHeight(startH + (startY - event.clientY));
+  };
+  const onUp = (event) => {
+    if (!dragging) return;
+    if (pointerId != null && event && event.pointerId !== pointerId) return;
+    dragging = false;
+    document.body.classList.remove('composer-resizing');
+    try { if (pointerId != null) handle.releasePointerCapture(pointerId); } catch {}
+    pointerId = null;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    const current = parseInt(getComputedStyle(composer).height, 10) || COMPOSER_HEIGHT_MIN;
+    applyComposerHeight(current, true);
+  };
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragging = true;
+    pointerId = event.pointerId;
+    startY = event.clientY;
+    startH = composer.getBoundingClientRect().height;
+    document.body.classList.add('composer-resizing');
+    try { handle.setPointerCapture(event.pointerId); } catch {}
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
+  window.addEventListener('resize', () => {
+    const current = parseInt(getComputedStyle(composer).height, 10) || COMPOSER_HEIGHT_MIN;
+    applyComposerHeight(current);
+  });
 }
 
 function composerHasText(value) {
@@ -15321,6 +15494,7 @@ function bindUI() {
   renderAccessModeControl();
 
   setupComposerContextBorder();
+  setupComposerResize();
 
   // Resize handles for both sidebars
   setupResizeHandles();
@@ -16518,4 +16692,5 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
 // ============================================================
 // Boot
 // ============================================================
+if (navigator.userAgent.includes('Mac')) document.body.classList.add('is-mac');
 window.addEventListener('DOMContentLoaded', init);
