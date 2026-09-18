@@ -3,6 +3,11 @@
 !include "nsDialogs.nsh"
 !include "WinMessages.nsh"
 
+; Apply to both the installer and generated uninstaller, including nsDialogs.
+!macro customHeader
+  SetFont "Microsoft YaHei UI" 9
+!macroend
+
 !define YAN_PATH_SCRIPT "JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnAAoAJABzAGMAbwBwAGUAPQAkAGUAbgB2ADoAWQBBAE4AXwBBAEcARQBOAFQAXwBQAEEAVABIAF8AUwBDAE8AUABFAAoAJABkAGkAcgA9AFsASQBPAC4AUABhAHQAaABdADoAOgBHAGUAdABGAHUAbABsAFAAYQB0AGgAKAAkAGUAbgB2ADoAWQBBAE4AXwBBAEcARQBOAFQAXwBQAEEAVABIAF8ARABJAFIAKQAuAFQAcgBpAG0ARQBuAGQAKAAnAFwAJwApAAoAJABhAGMAdABpAG8AbgA9ACQAZQBuAHYAOgBZAEEATgBfAEEARwBFAE4AVABfAFAAQQBUAEgAXwBBAEMAVABJAE8ATgAKACQAYwB1AHIAcgBlAG4AdAA9AFsARQBuAHYAaQByAG8AbgBtAGUAbgB0AF0AOgA6AEcAZQB0AEUAbgB2AGkAcgBvAG4AbQBlAG4AdABWAGEAcgBpAGEAYgBsAGUAKAAnAFAAYQB0AGgAJwAsACQAcwBjAG8AcABlACkACgAkAGkAdABlAG0AcwA9AEAAKAAkAGMAdQByAHIAZQBuAHQAIAAtAHMAcABsAGkAdAAgACcAOwAnACAAfAAgAFcAaABlAHIAZQAtAE8AYgBqAGUAYwB0ACAAewAgAC0AbgBvAHQAIABbAHMAdAByAGkAbgBnAF0AOgA6AEkAcwBOAHUAbABsAE8AcgBXAGgAaQB0AGUAUwBwAGEAYwBlACgAJABfACkAIAB9ACkACgAkAG0AYQB0AGMAaABlAHMAPQBAACgAJABpAHQAZQBtAHMAIAB8ACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAJABfAC4AVAByAGkAbQAoACkALgBUAHIAaQBtACgAJwAiACcAKQAuAFQAcgBpAG0ARQBuAGQAKAAnAFwAJwApACAALQBpAGUAcQAgACQAZABpAHIAIAB9ACkACgBpAGYAKAAkAGEAYwB0AGkAbwBuACAALQBlAHEAIAAnAGEAZABkACcAIAAtAGEAbgBkACAAJABtAGEAdABjAGgAZQBzAC4AQwBvAHUAbgB0ACAALQBlAHEAIAAwACkAewAKACAAIAAkAG4AZQB4AHQAPQBpAGYAKABbAHMAdAByAGkAbgBnAF0AOgA6AEkAcwBOAHUAbABsAE8AcgBXAGgAaQB0AGUAUwBwAGEAYwBlACgAJABjAHUAcgByAGUAbgB0ACkAKQB7ACQAZABpAHIAfQBlAGwAcwBlAHsAJABjAHUAcgByAGUAbgB0AC4AVAByAGkAbQBFAG4AZAAoACcAOwAnACkAKwAnADsAJwArACQAZABpAHIAfQAKACAAIABbAEUAbgB2AGkAcgBvAG4AbQBlAG4AdABdADoAOgBTAGUAdABFAG4AdgBpAHIAbwBuAG0AZQBuAHQAVgBhAHIAaQBhAGIAbABlACgAJwBQAGEAdABoACcALAAkAG4AZQB4AHQALAAkAHMAYwBvAHAAZQApAAoAfQBlAGwAcwBlAGkAZgAoACQAYQBjAHQAaQBvAG4AIAAtAGUAcQAgACcAcgBlAG0AbwB2AGUAJwAgAC0AYQBuAGQAIAAkAG0AYQB0AGMAaABlAHMALgBDAG8AdQBuAHQAIAAtAGcAdAAgADAAKQB7AAoAIAAgACQAbgBlAHgAdAA9AEAAKAAkAGkAdABlAG0AcwAgAHwAIABXAGgAZQByAGUALQBPAGIAagBlAGMAdAAgAHsAIAAkAF8ALgBUAHIAaQBtACgAKQAuAFQAcgBpAG0AKAAnACIAJwApAC4AVAByAGkAbQBFAG4AZAAoACcAXAAnACkAIAAtAGkAbgBlACAAJABkAGkAcgAgAH0AKQAgAC0AagBvAGkAbgAgACcAOwAnAAoAIAAgAFsARQBuAHYAaQByAG8AbgBtAGUAbgB0AF0AOgA6AFMAZQB0AEUAbgB2AGkAcgBvAG4AbQBlAG4AdABWAGEAcgBpAGEAYgBsAGUAKAAnAFAAYQB0AGgAJwAsACQAbgBlAHgAdAAsACQAcwBjAG8AcABlACkACgB9AA=="
 
 !macro RunYanPathUpdateForScope ACTION SCOPE
@@ -102,10 +107,14 @@
 
     ${NSD_CreateLabel} 0 0 100% 34u "普通卸载会保留配置、会话、技能和媒体缓存，方便以后重新安装后继续使用。"
     Pop $R8
-    ${NSD_CreateCheckbox} 0 46u 100% 18u "清除本机所有 Yan Agent 数据"
+    ${NSD_CreateCheckbox} 0 46u 100% 18u "清除当前 Windows 用户的 Yan Agent 数据"
     Pop $YanClearDataCheckbox
-    ${NSD_Uncheck} $YanClearDataCheckbox
-    ${NSD_CreateLabel} 18u 70u 94% 44u "勾选后将删除 Yan Agent 的本机用户数据目录、浏览器缓存、运行时缓存、技能存储和临时媒体文件。不会删除工作区、桌面文件或其他项目文件。"
+    ${If} $YanClearDataRequested == "1"
+      ${NSD_Check} $YanClearDataCheckbox
+    ${Else}
+      ${NSD_Uncheck} $YanClearDataCheckbox
+    ${EndIf}
+    ${NSD_CreateLabel} 18u 70u 94% 56u "勾选后删除当前 Windows 用户的配置、会话、浏览器缓存、运行时、技能存储和临时媒体。保留工作区及其他用户的数据；若使用另一管理员账号运行，请在原账号下卸载。"
     Pop $R8
 
     nsDialogs::Show
@@ -130,19 +139,42 @@
 
   Function un.YanRemoveDataPath
     Exch $R0
-    ClearErrors
-    RMDir /r "$R0"
-    ${If} ${Errors}
-      StrCpy $YanClearDataFailed "1"
-      DetailPrint "无法清除：$R0"
-    ${Else}
-      DetailPrint "已清除：$R0"
+    Push $R1
+    Push $R2
+    System::Call 'Kernel32::GetFileAttributes(t "$R0") i.R1'
+    ${If} $R1 == -1
+      DetailPrint "目录不存在，跳过：$R0"
+      Goto yan_remove_done
     ${EndIf}
+    StrCpy $R2 0
+    yan_remove_retry:
+      ClearErrors
+      RMDir /r "$R0"
+      System::Call 'Kernel32::GetFileAttributes(t "$R0") i.R1'
+      ${If} $R1 == -1
+        DetailPrint "已清除：$R0"
+        Goto yan_remove_done
+      ${EndIf}
+      IntOp $R2 $R2 + 1
+      ${If} $R2 < 3
+        Sleep 500
+        Goto yan_remove_retry
+      ${EndIf}
+      StrCpy $YanClearDataFailed "1"
+      DetailPrint "清理失败，仍有残留：$R0"
+    yan_remove_done:
+    Pop $R2
+    Pop $R1
     Pop $R0
   FunctionEnd
 
   Function un.YanClearData
     Call un.YanStopProcesses
+
+    ; Electron data is per-user even when the application is installed for
+    ; all users. In 'all' context APPDATA resolves to ProgramData instead.
+    SetShellVarContext current
+    StrCpy $YanClearDataFailed "0"
 
     Push "$APPDATA\yan-agent"
     Call un.YanRemoveDataPath
@@ -156,10 +188,15 @@
     Call un.YanRemoveDataPath
     Push "$TEMP\YanAgent"
     Call un.YanRemoveDataPath
+    Push "$TEMP\yan-agent-update"
+    Call un.YanRemoveDataPath
+    Push "$TEMP\yan-dsh-code-review"
+    Call un.YanRemoveDataPath
     Delete "$TEMP\yan-agent-yanxi-code-workspace.json"
 
     ${If} $YanClearDataFailed == "1"
-      MessageBox MB_OK|MB_ICONEXCLAMATION "部分 Yan Agent 数据未能删除，可能仍被其他进程占用。请关闭相关进程后手动删除残留目录。"
+      SetErrorLevel 1
+      MessageBox MB_OK|MB_ICONEXCLAMATION "部分 Yan Agent 数据未能删除，可能仍被其他进程占用。请在卸载详情中查看残留路径。" /SD IDOK
     ${Else}
       DetailPrint "Yan Agent 本机数据清理完成。"
     ${EndIf}
@@ -169,6 +206,9 @@
     !insertmacro RunYanPathUpdate "remove"
     ${If} $YanClearDataRequested == "1"
       Call un.YanClearData
+      ${If} $installMode == "all"
+        SetShellVarContext all
+      ${EndIf}
     ${EndIf}
   !macroend
 !endif

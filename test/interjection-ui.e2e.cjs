@@ -10,7 +10,7 @@ const appRoot = path.resolve(__dirname, '..');
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-interjection-e2e-'));
 const screenshotDir = path.join(appRoot, 'output', 'playwright');
 fs.mkdirSync(screenshotDir, { recursive: true });
-const launcherScreenshotPath = path.join(screenshotDir, `yan-right-sidebar-launcher-${Date.now()}.png`);
+const dockScreenshotPath = path.join(screenshotDir, `yan-right-dock-${Date.now()}.png`);
 const screenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-${Date.now()}.png`);
 const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-light-${Date.now()}.png`);
 
@@ -35,9 +35,9 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
       && typeof syncInterjectionUi === 'function'
       && typeof openRightSidebarTool === 'function'
       && quickInputHandlerReady === true);
-    assert.equal(await page.locator('[data-rs-open-tool="interjection"]').count(), 2);
-    assert.equal(await page.locator('#rightSidebarLauncher .rs-launcher-heading strong').textContent(), '打开标签页');
-    assert.equal(await page.locator('#rightSidebarLauncher .rs-launcher-heading span').textContent(), '选择要在侧边面板中打开的标签。');
+    assert.equal(await page.locator('[data-rs-open-tool="interjection"]').count(), 1);
+    assert.equal(await page.locator('#rightDock .rs-dock-btn').count(), 4);
+    assert.equal(await page.locator('#rightDock [data-rs-dock-tool="interjection"]').count(), 1);
 
     const messageCount = await page.evaluate(async () => {
       if (!state.currentSession) await newSession();
@@ -62,13 +62,11 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
       return state.currentSession.messages.length;
     });
 
-    await page.evaluate(() => setRightSidebarOpen(true));
+    await page.screenshot({ path: dockScreenshotPath });
+    await page.locator('#rightDock [data-rs-dock-tool="interjection"]').click();
     await page.waitForFunction(() => !document.querySelector('#app')?.classList.contains('rs-hidden'));
-    await page.screenshot({ path: launcherScreenshotPath });
-    const launcherButton = page.locator('#rightSidebarLauncher [data-rs-open-tool="interjection"]');
-    await launcherButton.click();
     await page.locator('#rs-interjection.active').waitFor();
-    assert.equal(await page.locator('[data-rs-tab="interjection"] .rs-work-tab-label').textContent(), '辅助对话');
+    assert.equal(await page.locator('[data-rs-tab="interjection"] .rs-work-tab-label').textContent(), '临时对话');
     assert.equal(await page.locator('#interjectionInput').isEnabled(), true);
     assert.equal(await page.locator('#interjectionTranscript .auxiliary-dialogue-empty span').textContent(), 'Yan Agent工作期间，提问以辅助工作');
     const geometry = await page.locator('#rs-interjection').evaluate(node => {
@@ -126,7 +124,14 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
       interjectionRequests.set(requestId, { runCtx, thread, item, requestToken });
       renderInterjectionTranscript(runCtx);
       syncInterjectionUi();
-      const headerBefore = item.ui.body.querySelector('.auxiliary-dialogue-agent-header')?.textContent || '';
+      const header = item.ui.body.querySelector('.auxiliary-dialogue-agent-header');
+      const elapsed = header?.querySelector('.auxiliary-dialogue-elapsed');
+      const headerBefore = header?.textContent || '';
+      const headerStyle = header ? getComputedStyle(header) : null;
+      const elapsedStyle = elapsed ? getComputedStyle(elapsed) : null;
+      const headerFontSize = parseFloat(headerStyle?.fontSize || '0');
+      const headerLetterSpacing = headerStyle?.letterSpacing || '';
+      const elapsedFontWeight = Number(elapsedStyle?.fontWeight || 0);
       const stopMode = {
         className: document.querySelector('#interjectionSend')?.className,
         disabled: document.querySelector('#interjectionSend')?.disabled,
@@ -160,6 +165,9 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
       syncInterjectionUi();
       return {
         headerBefore,
+        headerFontSize,
+        headerLetterSpacing,
+        elapsedFontWeight,
         firstText,
         secondText: secondRound?.textContent,
         sameNode: firstRound === secondRound,
@@ -170,7 +178,10 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
         stoppingMode
       };
     });
-    assert.match(streamedUi.headerBefore, /已处理\s+[1-9]/, JSON.stringify(streamedUi));
+    assert.match(streamedUi.headerBefore, /已处理\s*[1-9]/, JSON.stringify(streamedUi));
+    assert.ok(streamedUi.headerFontSize >= 12, JSON.stringify(streamedUi));
+    assert.ok(['normal', '0px'].includes(streamedUi.headerLetterSpacing), JSON.stringify(streamedUi));
+    assert.ok(streamedUi.elapsedFontWeight >= 600, JSON.stringify(streamedUi));
     assert.equal(streamedUi.firstText, '正在生成', JSON.stringify(streamedUi));
     assert.equal(streamedUi.secondText, '正在生成图片。', JSON.stringify(streamedUi));
     assert.equal(streamedUi.sameNode, true, JSON.stringify(streamedUi));
@@ -210,6 +221,36 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
     assert.equal(stateAfterSend.active, true);
     assert.equal(stateAfterSend.messageCount, messageCount);
 
+    await page.waitForFunction(() => !interjectionThreadFor(currentInterjectionRun())?.pending);
+    const checkNotice = await page.evaluate(async () => {
+      const runCtx = currentInterjectionRun();
+      const thread = interjectionThreadFor(runCtx);
+      const notice = interjectionResultSystemNotice({
+        ok: true,
+        kind: 'check',
+        reply: '当前正在读取文件。',
+        guidance: '',
+        delivered: false
+      });
+      if (notice) {
+        thread.items.push(notice);
+        appendInterjectionItem(runCtx, notice);
+      }
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const systems = [...document.querySelectorAll('#interjectionTranscript .auxiliary-dialogue-system')]
+        .map(element => element.textContent.trim());
+      return {
+        noticeText: notice?.text || '',
+        rendered: systems.some(text => text.includes('未转告主 Agent')),
+        deliveredNotice: interjectionResultSystemNotice({ ok: true, delivered: true, requestFinish: false })?.text || '',
+        errorNotice: interjectionResultSystemNotice({ ok: false, error: '当前任务已经结束。' })?.text || ''
+      };
+    });
+    assert.equal(checkNotice.noticeText, '本条按状态询问回答，未转告主 Agent。', JSON.stringify(checkNotice));
+    assert.equal(checkNotice.rendered, true, JSON.stringify(checkNotice));
+    assert.equal(checkNotice.deliveredNotice, '引导已送达主 Agent，当前动作不会被打断。', JSON.stringify(checkNotice));
+    assert.equal(checkNotice.errorNotice, '当前任务已经结束。', JSON.stringify(checkNotice));
+
     await page.screenshot({ path: screenshotPath });
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
     await page.screenshot({ path: lightScreenshotPath });
@@ -221,7 +262,7 @@ const lightScreenshotPath = path.join(screenshotDir, `yan-auxiliary-dialogue-lig
     });
     assert.equal(await page.locator('#interjectionInput').isDisabled(), true);
     assert.ok(await page.locator('#interjectionTranscript .msg').count() >= 2);
-    console.log(JSON.stringify({ ok: true, launcherScreenshotPath, screenshotPath, lightScreenshotPath, geometry }));
+    console.log(JSON.stringify({ ok: true, dockScreenshotPath, screenshotPath, lightScreenshotPath, geometry }));
   } finally {
     await application?.close().catch(() => {});
     fs.rmSync(userDataDir, { recursive: true, force: true });

@@ -10,13 +10,14 @@ const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
 
-function createClient(runtime, dataDir) {
+function createClient(runtime, dataDir, registryPath = '') {
   const child = spawn(process.execPath, [path.join(appRoot, 'lib', 'yan-media-mcp.js')], {
     cwd: appRoot,
     env: {
       ...process.env,
       YAN_MEDIA_DATA_DIR: dataDir,
-      YAN_MEDIA_RUNTIME: Buffer.from(JSON.stringify(runtime), 'utf8').toString('base64')
+      YAN_MEDIA_RUNTIME: Buffer.from(JSON.stringify(runtime), 'utf8').toString('base64'),
+      ...(registryPath ? { YAN_MEDIA_WORKSPACE_REGISTRY: registryPath } : {})
     },
     stdio: ['pipe', 'pipe', 'pipe']
   });
@@ -50,7 +51,7 @@ function createClient(runtime, dataDir) {
   return { child, request };
 }
 
-test('Yan Media always exposes read_image and reports missing visual relay configuration', async t => {
+test('Yan Media exposes read_image by default and reports missing visual relay configuration', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
   const client = createClient({
     access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
@@ -72,6 +73,28 @@ test('Yan Media always exposes read_image and reports missing visual relay confi
   });
   assert.equal(called.result.isError, true);
   assert.equal(called.result.structuredContent.error, '通用读图工具需要先配置可用的视觉中继模型');
+});
+
+test('Yan Media hides read_image when visual relay is disabled but keeps generation tools', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
+  const client = createClient({
+    access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    vision: { enabled: false, models: [] },
+    image: {
+      providerId: 'test',
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'test-key',
+      modelId: 'test-image-model'
+    }
+  }, dataDir);
+  t.after(() => {
+    client.child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const listed = await client.request('tools/list');
+  const names = listed.result.tools.map(item => item.name);
+  assert.equal(names.includes('read_image'), false);
+  assert.equal(names.includes('generate_image'), true);
 });
 
 test('read_image prefers configured GLM models before falling back to Agnes', async t => {
@@ -139,6 +162,7 @@ test('read_image prefers configured GLM models before falling back to Agnes', as
     arguments: { path: imagePath, prompt: '读取测试图片' }
   });
   assert.equal(called.result.isError, false);
+  assert.equal(called.result.structuredContent.message, '已读取图片');
   assert.equal(called.result.structuredContent.report, 'Agnes 后备模型已读取图片。');
   assert.equal(called.result.structuredContent.meta.observerProvider, 'agnes');
   assert.equal(called.result.structuredContent.meta.observerModel, 'agnes-2.5-flash');
@@ -185,4 +209,106 @@ test('read_image keeps compatibility with the legacy Agnes relay configuration',
   });
   assert.equal(called.result.isError, false);
   assert.equal(called.result.structuredContent.report, 'Yan 图片可见。');
+});
+
+test('read_image rejects oversized local images before contacting the relay', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-workspace-'));
+  const imagePath = path.join(workspace, 'oversized.png');
+  fs.writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const descriptor = fs.openSync(imagePath, 'r+');
+  try { fs.ftruncateSync(descriptor, 20 * 1024 * 1024 + 1); }
+  finally { fs.closeSync(descriptor); }
+  const client = createClient({
+    access: { workspace, accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    vision: {
+      providerId: 'agnes',
+      baseUrl: 'http://127.0.0.1:1/v1',
+      apiKey: 'test-key',
+      preferredModelId: 'vision-test'
+    }
+  }, dataDir);
+  t.after(() => {
+    client.child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+  const called = await client.request('tools/call', {
+    name: 'read_image',
+    arguments: { path: imagePath }
+  });
+  assert.equal(called.result.isError, true);
+  assert.equal(called.result.structuredContent.error, '输入图片不能超过 20MB');
+});
+
+test('read_image rejects ambiguous cross-workspace paths from the registry', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
+  const firstWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-workspace-a-'));
+  const secondWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-workspace-b-'));
+  const registryPath = path.join(dataDir, 'registry.json');
+  fs.writeFileSync(registryPath, JSON.stringify({ entries: [
+    { runId: 'run-a', workspace: firstWorkspace },
+    { runId: 'run-b', workspace: secondWorkspace }
+  ] }));
+  const imagePath = path.join(secondWorkspace, 'test.png');
+  fs.writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const client = createClient({
+    access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    vision: { providerId: 'agnes', baseUrl: 'http://127.0.0.1:1', apiKey: 'test-key', preferredModelId: 'vision-test' }
+  }, dataDir, registryPath);
+  t.after(() => {
+    client.child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(firstWorkspace, { recursive: true, force: true });
+    fs.rmSync(secondWorkspace, { recursive: true, force: true });
+  });
+  const called = await client.request('tools/call', {
+    name: 'read_image',
+    arguments: { path: imagePath }
+  });
+  assert.equal(called.result.isError, true);
+  assert.match(called.result.structuredContent.error, /多个并发工作区/);
+});
+
+test('generate_image normalizes SenseNova dimensions inside Yan Media', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      requests.push(JSON.parse(body));
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        data: [{ b64_json: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64') }]
+      }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const client = createClient({
+    access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    image: {
+      providerId: 'conn-sensenova',
+      baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
+      apiKey: 'test-key',
+      modelId: 'sensenova-u1-fast',
+      strategy: 'chat',
+      providerOptions: { adapterKind: 'openai' }
+    }
+  }, dataDir);
+  t.after(() => {
+    client.child.kill();
+    server.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const called = await client.request('tools/call', {
+    name: 'generate_image',
+    arguments: { prompt: '读取测试提示词', aspect_ratio: '16:9' }
+  });
+  assert.equal(called.result.isError, false);
+  assert.equal(called.result.structuredContent.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].size, '2752x1536');
 });

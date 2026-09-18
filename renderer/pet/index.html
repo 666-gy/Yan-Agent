@@ -10,60 +10,20 @@
 </head>
 <body data-state="idle">
   <main class="pet-app">
-    <section class="pet-panel" aria-label="Yan Agent Pet 状态面板" aria-hidden="true" inert hidden>
-      <div class="panel-drag" aria-hidden="true"><span></span><span></span><span></span></div>
-      <header class="panel-header">
-        <div>
-          <div class="panel-brand-row">
-            <h1>Yan Agent Pet</h1>
-            <span class="panel-state"><span class="state-dot"></span><span id="stateLabel">待命</span></span>
-          </div>
-        </div>
-        <div class="panel-window-actions">
-          <button id="openTaskBtn" class="header-action-btn open" type="button" title="打开任务" aria-label="打开任务">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
-          </button>
-          <button id="stopTaskBtn" class="header-action-btn stop" type="button" title="结束任务" aria-label="结束任务" disabled>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
-          </button>
-        </div>
-      </header>
-
-      <div class="task-section">
-        <div class="section-label">当前任务</div>
-        <div id="taskTitle" class="task-title">Yan Agent</div>
-      </div>
-
-      <div class="status-row">
-        <span class="status-label">状态</span>
-        <span id="statusText">随时待命</span>
-      </div>
-
-    </section>
-
     <section class="pet-stage" aria-label="Yan 桌宠">
-      <div class="drag-grip" title="拖动桌宠" aria-hidden="true"><span></span><span></span><span></span></div>
-      <button id="petToggle" class="pet-toggle" type="button" title="拖动桌宠，单击展开" aria-label="展开监督面板">
-        <span class="robot" aria-hidden="true">
-          <span class="antenna"><span class="antenna-light"></span></span>
-          <span class="side-fin left"></span>
-          <span class="side-fin right"></span>
-          <span class="robot-head">
-            <span class="face-screen">
-              <span class="eyes"><span class="eye left"></span><span class="eye right"></span></span>
-              <span class="mouth"></span>
-            </span>
-          </span>
-          <span class="robot-body"><img class="yan-mark" src="../assets/logo.png" alt=""></span>
-          <span class="robot-shadow"></span>
-        </span>
+      <button id="petToggle" class="pet-toggle" type="button" title="拖动桌宠，单击打开当前任务" aria-label="Yan Agent 当前状态">
+        <canvas id="orbCanvas" aria-hidden="true"></canvas>
       </button>
-      <button id="statusStrip" class="status-strip" type="button" title="拖动桌宠，单击展开" aria-label="展开监督面板">
-        <span class="state-dot"></span>
-        <span id="compactStatus">随时待命</span>
+      <button id="entertainmentPet" class="entertainment-pet" type="button" title="拖动桌宠" aria-label="娱乐桌宠" hidden>
+        <span class="pet-sprite" aria-hidden="true"></span>
+      </button>
+      <button id="statusStrip" class="status-strip" type="button" title="拖动桌宠，单击打开当前任务" aria-label="Yan Agent 当前工作">
+        <span id="compactStatus" class="shine-text">随时待命</span>
       </button>
     </section>
   </main>
+  <script src="particles-orb.js"></script>
+  <script src="../i18n.js"></script>
   <script src="pet.js"></script>
 </body>
 </html>

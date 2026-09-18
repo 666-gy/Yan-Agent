@@ -121,17 +121,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Nuphus MCP
-
-Yan Agent bundles `@nuphus/nuphus-mcp` version `0.1.11` and its Windows
-platform runtime, copyright mrpulor-gh and contributors, licensed under the
-MIT License.
-
-Source: https://github.com/mrpulor-gh/nuphus-mcp
-
-The package's native runtime and license metadata are distributed with
-`node_modules/@nuphus` in Yan's application bundle.
-
 ## Matt Pocock Agent Skills
 
 Yan Agent bundles `diagnosing-bugs`, `codebase-design`, and

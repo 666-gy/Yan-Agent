@@ -1,0 +1,11 @@
+const fs=require('node:fs'),path=require('node:path');
+const runtime=path.resolve(__dirname,'../renderer/work-gui/palace');
+let p=path.join(runtime,'index.html'),s=fs.readFileSync(p,'utf8');
+if(!s.includes('href="stargazing.css"'))s=s.replace('</head>','<link rel="stylesheet" href="stargazing.css"></head>');
+if(!s.includes('src="stargazing.js"'))s=s.replace('<script src="app.js"></script>','<script src="stargazing.js"></script><script src="entry-audio.js"></script><script src="app.js"></script>');fs.writeFileSync(p,s);
+p=path.join(runtime,'scene.js');s=fs.readFileSync(p,'utf8').replace("{id:'library',","{id:'stars',name:'观星阁',sub:'瞭望天际 · 一观星河',point:[34,22,-25],shot:3},\n    {id:'library',");fs.writeFileSync(p,s);
+p=path.join(runtime,'app.js');s=fs.readFileSync(p,'utf8').replace("stopTour();window.TiangongPanels.open(id);","stopTour();if(id==='stars'){window.TiangongStars.open();return;}window.TiangongPanels.open(id);");s=s.replace("window.TiangongPanels?.isOpen()||", "window.TiangongPanels?.isOpen()||document.querySelector('.stargazing')?.open||");s=s.replace("  window.addEventListener('pagehide'", "  window.addEventListener('tiangong:star-state',e=>{api?.setPaused(e.detail);if(e.detail)stopTour();});\n  window.addEventListener('pagehide'");fs.writeFileSync(p,s);
+p=path.join(runtime,'palace-gate.js');s=fs.readFileSync(p,'utf8').replace('function open(){if(opened)return;opened=true;', 'function open(){if(opened)return;opened=true;window.TiangongEntryAudio?.playOnce();');fs.writeFileSync(p,s);
+const preview=path.join(require('node:os').homedir(),'Desktop','云顶天宫 Work GUI · V1');
+for(const n of ['index.html','scene.js','app.js','palace-gate.js','stargazing.js','stargazing.css','entry-audio.js','assets/entry-music.mp3'])fs.copyFileSync(path.join(runtime,n),path.join(preview,n));
+console.log('Synced observatory and entry music to app and desktop preview.');

@@ -1,0 +1,14 @@
+{
+  "revision": "all-file-tools-v1",
+  "upstreamVersion": "1.18.11",
+  "upstreamCommit": "012c2f57f976489d88bd4598a056b4bdcdd428ee",
+  "filter": "let j=W.modelID.includes(\"gpt-\")&&!W.modelID.includes(\"oss\")&&!W.modelID.includes(\"gpt-4\");if(J.id===xr.id)return j;if(J.id===Xr.id||J.id===vr.id)return!j;",
+  "binaries": [
+    {
+      "package": "opencode-windows-x64",
+      "size": 174182280,
+      "sourceSha256": "578d7eb3fff2c807fc0dedaab5e5d9177713a9560fa4304db6a0161111e9cc35",
+      "patchedSha256": "344eedb423ef3c4d732af1f2ac8cc694b31a38850e7085705296739123ab77a5"
+    }
+  ]
+}

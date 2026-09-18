@@ -1,0 +1,81 @@
+/* Yan Agent ↔ dsh-code-review 宿主胶水。
+ * 审阅 UI 本体完全位于上游生成的页面（renderer/vendor/dsh-code-review/core.js
+ * → buildStandaloneHtml）。本文件只负责：
+ *   1) 把上游页面继承的 DSW/shiki 主题变量映射到 Yan 主题 token（数值供给，
+ *      非界面样式）；
+ *   2) 宿主区域（mount/iframe/错误文案）的尺寸布局。 */
+
+/* —— DSW 主题变量 → Yan token（明暗主题随 --bg 等自动翻转）—— */
+body {
+  --dsw-alias-bg-base: var(--bg);
+  --dsw-alias-bg-layer-1: var(--bg-elev);
+  --dsw-alias-markdown-code-block: var(--bg-elev2);
+  --dsw-alias-label-primary: var(--text);
+  --dsw-alias-label-secondary: var(--text-dim);
+  --dsw-alias-label-tertiary: var(--text-faint);
+  --dsw-alias-border-l2: var(--border-soft);
+  --dsw-alias-border-l3: var(--border-strong);
+  --dsw-alias-state-error-primary: var(--danger);
+  --dsw-alias-state-success-primary: var(--success);
+  --dsw-alias-state-business-primary: var(--accent);
+  --ds-font-family-code: var(--font-mono);
+
+  /* Shiki 语法高亮 token：浅色取上游 THEME_VAR_DEFAULTS 原值；
+   * 深色按 GitHub-dark 语义取值（Yan 自身无语法 token 变量）。 */
+  --shiki-token-keyword: #7c3aed;
+  --shiki-token-string: #16a34a;
+  --shiki-token-comment: #9aa0a6;
+  --shiki-token-constant: #d97706;
+  --shiki-token-function: #2563eb;
+}
+html[data-theme="dark"] body {
+  --shiki-token-keyword: #b392f0;
+  --shiki-token-string: #7ec699;
+  --shiki-token-comment: #6f6f6f;
+  --shiki-token-constant: #e0b070;
+  --shiki-token-function: #79b8ff;
+}
+
+/* —— 宿主区域尺寸（无审阅样式；iframe 即 UI）—— */
+#yanDshReviewMount {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: hidden;
+}
+#rs-review {
+  padding: 0 !important;
+}
+#yanDshReviewPanel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+#yanDshReviewPanel.hidden { display: none; }
+#yanDshReviewFrame {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+  display: block;
+}
+.yan-dsh-review-error {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}

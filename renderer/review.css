@@ -1,0 +1,859 @@
+/* Hallmark · component: review workbench · genre: modern-minimal · theme: Yan/Codex workbench
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * pre-emit critique: P5 H5 E5 S5 R4 V5 · contrast: pass · designed-as-app
+ */
+
+:root {
+  --review-ui-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  /* Reuse the tool receipt's neutral UI-monospace stack so review diffs have
+     the same contemporary glyphs and weight as command/output panels. */
+  --review-code-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --review-tree-w: 232px;
+  --review-tree-min-w: 168px;
+  --review-tree-max-w: 360px;
+  --review-sash-w: 5px;
+}
+
+[data-theme="dark"] {
+  --review-surface: #18191a;
+  --review-surface-raised: #1e1f20;
+  --review-surface-muted: #232526;
+  --review-surface-hover: #292b2c;
+  --review-surface-selected: #2d3032;
+  --review-selection-edge: #858b91;
+  --review-rule: #303335;
+  --review-rule-strong: #424649;
+  --review-ink: #e7e9ea;
+  --review-ink-muted: #b4b8bc;
+  --review-ink-faint: #7c8287;
+  --review-focus: #8aa8d8;
+  --review-accent: #a4b9df;
+  --review-positive: #79c6a3;
+  --review-positive-strong: #9bd8bb;
+  --review-positive-bg: rgba(101, 190, 147, .13);
+  --review-positive-gutter: rgba(101, 190, 147, .22);
+  --review-negative: #df918d;
+  --review-negative-strong: #eca6a1;
+  --review-negative-bg: rgba(219, 125, 119, .13);
+  --review-negative-gutter: rgba(219, 125, 119, .22);
+  --review-modified: #d5b16a;
+  --review-modified-bg: rgba(213, 177, 106, .12);
+  --review-code-selection: rgba(138, 168, 216, .28);
+}
+
+[data-theme="light"] {
+  --review-surface: #fbfbfa;
+  --review-surface-raised: #ffffff;
+  --review-surface-muted: #f2f3f1;
+  --review-surface-hover: #eef0ee;
+  --review-surface-selected: #e8ecea;
+  --review-selection-edge: #9aa7a2;
+  --review-rule: #e1e4e1;
+  --review-rule-strong: #cbd1cc;
+  --review-ink: #242725;
+  --review-ink-muted: #5e6661;
+  --review-ink-faint: #8c9690;
+  --review-focus: #4779b8;
+  --review-accent: #386a9f;
+  --review-positive: #287d5a;
+  --review-positive-strong: #1f6d4e;
+  --review-positive-bg: rgba(42, 135, 94, .105);
+  --review-positive-gutter: rgba(42, 135, 94, .17);
+  --review-negative: #bb5d5a;
+  --review-negative-strong: #a44b49;
+  --review-negative-bg: rgba(190, 94, 90, .105);
+  --review-negative-gutter: rgba(190, 94, 90, .17);
+  --review-modified: #967329;
+  --review-modified-bg: rgba(150, 115, 41, .10);
+  --review-code-selection: rgba(71, 121, 184, .18);
+}
+
+.rs-review-panel {
+  min-width: 0;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--review-ink);
+  background: var(--review-surface);
+  font-family: var(--review-ui-font);
+  font-size: 12px;
+  line-height: 1.4;
+  color-scheme: light dark;
+}
+.rs-review-panel.active { display: flex; }
+.rs-review-panel button,
+.rs-review-panel input { font-family: inherit; }
+.rs-review-panel button {
+  border: 0;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  background: transparent;
+}
+.rs-review-panel button:focus-visible,
+.review-file-search:focus-within,
+.review-file-divider:focus-visible {
+  outline: 2px solid var(--review-focus);
+  outline-offset: -2px;
+}
+
+/* The top strip is deliberately quiet: the file and line counts do the talking. */
+.review-toolbar {
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 11px 0 14px;
+  border-bottom: 1px solid var(--review-rule);
+  background: var(--review-surface-raised);
+  flex: 0 0 auto;
+}
+.review-toolbar-context {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.review-toolbar-branch-label,
+.review-toolbar-arrow { color: var(--review-ink-faint); }
+.review-toolbar-branch-label { font-size: 11px; font-weight: 450; }
+.review-toolbar-branch,
+.review-toolbar-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-toolbar-branch { color: var(--review-ink); font-size: 12.5px; font-weight: 600; }
+.review-toolbar-target { color: var(--review-ink-muted); font-size: 12px; font-weight: 450; }
+.review-toolbar-arrow { font-size: 12px; }
+.review-toolbar-actions { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.review-refresh-btn,
+.review-diff-nav-btn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  color: var(--review-ink-faint);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.review-refresh-btn { width: 30px; height: 30px; }
+.review-diff-nav-btn { width: 26px; height: 26px; }
+.review-refresh-btn:hover,
+.review-diff-nav-btn:hover:not(:disabled) { color: var(--review-ink); background: var(--review-surface-hover); }
+.review-refresh-btn:active,
+.review-diff-nav-btn:active:not(:disabled) { transform: translateY(1px); }
+.review-refresh-btn:disabled,
+.review-diff-nav-btn:disabled { opacity: .4; cursor: not-allowed; }
+.review-refresh-btn[aria-busy="true"] { cursor: progress; }
+.review-refresh-btn[aria-busy="true"] svg { animation: review-spin 800ms linear infinite; }
+.review-totals,
+.review-file-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-family: var(--review-code-font);
+  font-variant-numeric: tabular-nums;
+}
+.review-totals { margin-left: 4px; color: var(--review-ink-faint); font-size: 11px; font-weight: 600; }
+.rs-review-panel .review-add { color: var(--review-positive); }
+.rs-review-panel .review-del { color: var(--review-negative); }
+
+.review-empty {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  color: var(--review-ink-faint);
+  background: var(--review-surface);
+  text-align: center;
+}
+.review-empty svg { margin-bottom: 4px; }
+.review-empty strong { color: var(--review-ink-muted); font-size: 13px; font-weight: 600; }
+.review-empty span { max-width: 280px; color: var(--review-ink-faint); font-size: 11.5px; line-height: 1.55; }
+.rs-review-panel[data-state="loading"] .review-empty svg { animation: review-pulse 1.2s ease-in-out infinite; }
+
+.review-workspace {
+  --review-tree-w: 232px;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--review-sash-w) minmax(var(--review-tree-min-w), var(--review-tree-w));
+  overflow: hidden;
+  background: var(--review-surface);
+}
+.review-diff-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--review-surface);
+}
+
+/* A real sash, not a border pretending to be draggable. */
+.review-file-divider {
+  position: relative;
+  z-index: 2;
+  width: var(--review-sash-w);
+  min-width: var(--review-sash-w);
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--review-rule);
+}
+.review-file-divider::before { content: ""; position: absolute; inset: 0 -5px; }
+.review-file-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: transparent;
+  transform: translate(-50%, -50%);
+}
+.review-file-divider:hover,
+.review-file-divider[data-dragging="true"],
+.review-file-divider:focus-visible { background: var(--review-focus); }
+.review-file-divider:hover::after,
+.review-file-divider[data-dragging="true"]::after { background: var(--review-focus); }
+body.review-tree-resizing,
+body.review-tree-resizing * { cursor: col-resize !important; user-select: none !important; }
+
+/* File tree */
+.review-file-list {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border-left: 1px solid var(--review-rule);
+  background: var(--review-surface-raised);
+}
+.review-file-search {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 9px 9px 8px;
+  padding: 0 9px;
+  border: 1px solid var(--review-rule);
+  border-radius: 6px;
+  color: var(--review-ink-faint);
+  background: var(--review-surface);
+  flex: 0 0 auto;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.review-file-search:hover { background: var(--review-surface-muted); }
+.review-file-search:focus-within { border-color: var(--review-selection-edge); background: var(--review-surface); }
+.review-file-search svg { flex: 0 0 auto; }
+.review-file-search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--review-ink);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 430;
+}
+.review-file-search input::placeholder { color: var(--review-ink-faint); opacity: 1; }
+.review-file-tree,
+.review-tree-children {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.review-file-tree {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0 7px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--review-rule-strong) transparent;
+}
+.review-tree-group,
+.review-tree-file-item { min-width: 0; }
+.review-tree-children { position: relative; margin-left: 10px; padding-left: 8px; }
+.review-tree-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 5px;
+  left: 0;
+  width: 1px;
+  background: var(--review-rule);
+}
+.review-tree-folder,
+.review-file {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  color: var(--review-ink-muted);
+  text-align: left;
+  cursor: default;
+}
+.review-tree-folder:hover,
+.review-file:hover { color: var(--review-ink); background: var(--review-surface-hover); }
+.review-tree-folder:active,
+.review-file:active { transform: translateY(1px); }
+.review-tree-folder-chevron { position: relative; width: 13px; height: 18px; flex: 0 0 13px; color: var(--review-ink-faint); }
+.review-tree-folder-chevron::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+}
+.review-tree-folder.is-collapsed .review-tree-folder-chevron::before { transform: translate(1px, 1px) rotate(-45deg); }
+.review-tree-folder-name,
+.review-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 480;
+}
+.review-tree-folder-name { flex: 1 1 auto; }
+.review-tree-branch-mark {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  margin-right: 3px;
+  border-radius: 50%;
+  background: var(--review-modified);
+  box-shadow: 0 0 0 2px var(--review-modified-bg);
+}
+.review-tree-branch-mark[data-state="created"] { background: var(--review-positive); box-shadow: 0 0 0 2px var(--review-positive-bg); }
+.review-tree-branch-mark[data-state="deleted"] { background: var(--review-negative); box-shadow: 0 0 0 2px var(--review-negative-bg); }
+.review-file { justify-content: space-between; }
+.review-file-main { min-width: 0; display: flex; align-items: center; gap: 7px; flex: 1 1 auto; }
+.review-file-icon {
+  width: 19px;
+  height: 19px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 19px;
+  color: var(--review-ink-faint);
+  font-family: var(--review-ui-font);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+.review-file-icon-glyph {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 15px;
+  padding: 0 2px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  opacity: .9;
+}
+.review-file-icon-image {
+  width: 18px;
+  height: 18px;
+  background: var(--review-ink-faint);
+  -webkit-mask-image: var(--review-file-icon);
+  mask-image: var(--review-file-icon);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+.review-file-icon-js,
+.review-file-icon-cjs,
+.review-file-icon-mjs,
+.review-file-icon-jsx { color: #d2a94f; }
+.review-file-icon-ts,
+.review-file-icon-tsx { color: #6f9acb; }
+.review-file-icon-css,
+.review-file-icon-scss,
+.review-file-icon-less { color: #a784c5; }
+.review-file-icon-html,
+.review-file-icon-htm { color: #d58966; }
+.review-file-icon-json,
+.review-file-icon-yml,
+.review-file-icon-yaml { color: #b6a268; }
+.review-file-icon-png,
+.review-file-icon-jpg,
+.review-file-icon-jpeg,
+.review-file-icon-webp,
+.review-file-icon-gif,
+.review-file-icon-svg { color: #64aa92; }
+.review-file-stats { flex: 0 0 auto; margin-left: 4px; font-size: 10px; font-weight: 600; }
+.review-file-change-mark {
+  width: 13px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 13px;
+  color: var(--review-modified);
+  font-family: var(--review-code-font);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
+.review-file-change-mark[data-state="created"] { color: var(--review-positive); }
+.review-file-change-mark[data-state="deleted"] { color: var(--review-negative); }
+.review-file.active,
+.review-file[aria-selected="true"] { color: var(--review-ink); background: var(--review-surface-selected); box-shadow: inset 2px 0 0 var(--review-selection-edge); }
+.review-file.active[data-state="created"] { box-shadow: inset 2px 0 0 var(--review-positive); }
+.review-file.active[data-state="deleted"] { box-shadow: inset 2px 0 0 var(--review-negative); }
+
+/* Diff area */
+.review-diff-header {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 8px 0 13px;
+  border-bottom: 1px solid var(--review-rule);
+  background: var(--review-surface);
+  flex: 0 0 auto;
+}
+.review-diff-file { min-width: 0; display: flex; align-items: center; gap: 7px; overflow: hidden; }
+.review-diff-file-icon { display: inline-flex; flex: 0 0 auto; }
+.review-diff-path { min-width: 0; overflow: hidden; color: var(--review-ink); text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 580; }
+.review-diff-header-actions,
+.review-diff-nav { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.review-diff-header-actions { gap: 8px; }
+.review-diff-nav { gap: 1px; }
+.review-diff-header .review-file-stats { padding: 0; }
+.review-diff-rows {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  color: var(--review-ink-muted);
+  background: var(--review-surface);
+  font-family: var(--review-code-font);
+  font-size: 12px;
+  font-weight: 430;
+  line-height: 1.65;
+  font-variant-ligatures: none;
+  font-variant-numeric: tabular-nums;
+  scrollbar-width: thin;
+  scrollbar-color: var(--review-rule-strong) transparent;
+}
+.review-diff-row { min-width: max-content; display: grid; grid-template-columns: 44px 44px 20px minmax(280px, 1fr); align-items: stretch; }
+.review-diff-row.add { color: var(--review-ink); background: var(--review-positive-bg); }
+.review-diff-row.del { color: var(--review-ink); background: var(--review-negative-bg); }
+.review-diff-row:hover { filter: brightness(1.08); }
+.review-line-number { padding: 1px 8px 1px 5px; border-right: 1px solid var(--review-rule); color: var(--review-ink-faint); text-align: right; user-select: none; }
+.review-diff-row.add .review-line-number { color: var(--review-positive-strong); background: var(--review-positive-gutter); }
+.review-diff-row.del .review-line-number { color: var(--review-negative-strong); background: var(--review-negative-gutter); }
+.review-line-prefix { padding: 1px 4px; color: var(--review-ink-faint); text-align: center; user-select: none; }
+.review-diff-row.add .review-line-prefix { color: var(--review-positive-strong); }
+.review-diff-row.del .review-line-prefix { color: var(--review-negative-strong); }
+.review-diff-row code,
+.review-split-cell code { min-width: max-content; padding: 1px 12px 1px 5px; color: inherit; font: inherit; white-space: pre; }
+.review-diff-row ::selection,
+.review-split-cell ::selection { background: var(--review-code-selection); }
+.review-diff-gap,
+.review-diff-empty { color: var(--review-ink-faint); font-family: var(--review-ui-font); font-size: 11.5px; text-align: center; }
+.review-diff-gap { min-width: max-content; padding: 7px 12px; border-top: 1px solid var(--review-rule); border-bottom: 1px solid var(--review-rule); background: var(--review-surface-muted); }
+.review-diff-gap.is-truncated { color: var(--review-modified); }
+.review-diff-empty { padding: 24px 14px; }
+
+/* Keep Codex's two-column diff, but allow the workbench to scroll when a sidebar is narrow. */
+.review-split-diff { min-width: 640px; width: max-content; }
+.review-split-row { min-width: 640px; display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); border-bottom: 1px solid color-mix(in srgb, var(--review-rule) 70%, transparent); }
+.review-split-row > :first-child { border-right: 1px solid var(--review-rule-strong); }
+.review-split-cell { min-width: 0; display: grid; grid-template-columns: 48px 20px minmax(252px, 1fr); color: var(--review-ink-muted); }
+.review-split-cell.context { background: var(--review-surface); }
+.review-split-cell.add { color: var(--review-ink); background: var(--review-positive-bg); }
+.review-split-cell.del { color: var(--review-ink); background: var(--review-negative-bg); }
+.review-split-cell.empty { min-height: 1.65em; background: var(--review-surface-muted); }
+.review-split-cell .review-line-number { grid-column: 1; }
+.review-split-cell.add .review-line-number { color: var(--review-positive-strong); background: var(--review-positive-gutter); }
+.review-split-cell.del .review-line-number { color: var(--review-negative-strong); background: var(--review-negative-gutter); }
+.review-split-cell .review-line-prefix { grid-column: 2; }
+.review-split-cell code { grid-column: 3; }
+.review-split-gap { grid-column: 1 / -1; }
+
+.review-image-preview { min-width: 0; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 0; padding: 24px; overflow: auto; color: var(--review-ink-faint); background: var(--review-surface-muted); font-family: var(--review-ui-font); font-size: 11.5px; }
+.review-image-preview img { display: block; max-width: 100%; max-height: min(72vh, 680px); object-fit: contain; border: 1px solid var(--review-rule-strong); background: var(--review-surface); box-shadow: 0 10px 26px rgba(0, 0, 0, .14); }
+.review-image-preview figcaption { max-width: 100%; display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-image-preview figcaption span { color: var(--review-ink-faint); font-family: var(--review-code-font); }
+
+@container (max-width: 339px) {
+  .review-workspace { display: flex; flex-direction: column; }
+  .review-file-divider { display: none; }
+  .review-diff-pane { order: 1; min-height: 0; flex: 1 1 auto; }
+  .review-file-list { order: 3; height: min(42%, 260px); flex: 0 1 auto; border-top: 1px solid var(--review-rule); border-left: 0; }
+}
+@container (max-width: 319px) {
+  .review-toolbar-target { display: none; }
+  .review-file-stats { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .review-refresh-btn[aria-busy="true"] svg,
+  .rs-review-panel[data-state="loading"] .review-empty svg { animation: none; }
+  .review-tree-folder-chevron::before { transition: none; }
+}
+@media (forced-colors: active) {
+  .review-file.active,
+  .review-file[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+}
+@keyframes review-spin { to { transform: rotate(360deg); } }
+@keyframes review-pulse { 50% { opacity: .4; } }
+
+/* Monaco review surface. The surrounding workbench remains Yan-owned. */
+.rv-diff-body {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  font-family: var(--review-ui-font);
+}
+.review-monaco-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  background: var(--review-surface);
+}
+.review-monaco-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--review-surface);
+}
+.review-monaco-host[data-state="loading"]::after {
+  content: "正在初始化 Monaco";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  color: var(--review-ink-faint);
+  background: var(--review-surface);
+  font: 450 11px/1.4 var(--review-ui-font);
+}
+.review-monaco-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--review-ink-faint);
+  background: var(--review-surface);
+  font: 450 11px/1.4 var(--review-ui-font);
+}
+.review-monaco-loading span {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--review-rule-strong);
+  border-top-color: var(--review-accent);
+  border-radius: 50%;
+  animation: review-spin 800ms linear infinite;
+}
+.review-monaco-annotations {
+  max-height: min(34vh, 260px);
+  overflow: auto;
+  border-top: 1px solid var(--review-rule);
+  background: var(--review-surface-raised);
+  scrollbar-width: thin;
+  scrollbar-color: var(--review-rule-strong) transparent;
+}
+.review-monaco-notes { display: grid; }
+.review-monaco-comment-dock { display: grid; }
+.review-monaco-comment-line {
+  padding: 7px 16px 0;
+  color: var(--review-ink-faint);
+  font: 550 10px/1.3 var(--review-ui-font);
+}
+.review-monaco-comment-dock .rv-note-composer { border-top: 0; }
+.rv-diff-blank.is-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.rv-diff-blank.is-error strong { color: var(--review-ink-muted); font-weight: 600; }
+.rv-diff-blank.is-error span { max-width: 340px; }
+
+.review-monaco-host .monaco-editor,
+.review-monaco-host .monaco-diff-editor,
+.review-monaco-host .monaco-editor-background,
+.review-monaco-host .monaco-editor .margin { background-color: var(--review-surface); }
+.review-monaco-host .monaco-editor .glyph-margin { cursor: cell; }
+.review-monaco-host .monaco-editor .review-monaco-note-line {
+  border-left: 2px solid var(--accent);
+  margin-left: 1px;
+}
+.review-monaco-host .monaco-editor .review-monaco-note-glyph {
+  position: relative;
+  cursor: pointer;
+}
+.review-monaco-host .monaco-editor .review-monaco-note-glyph::before {
+  content: "+";
+  position: absolute;
+  inset: 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  color: #fff;
+  background: var(--accent);
+  font: 700 10px/1 var(--review-ui-font);
+}
+.review-monaco-host .monaco-editor .line-numbers { font-variant-numeric: tabular-nums; }
+.review-monaco-host .monaco-editor .view-overlays .current-line { border: 0; }
+.review-monaco-host .monaco-diff-editor .diffOverview { border-left-color: var(--review-rule); }
+
+@media (prefers-reduced-motion: reduce) {
+  .review-monaco-loading span { animation: none; }
+}
+
+/* ---------- hover quick diff ----------
+ * The preview follows AICSS File Diff's compact header + line-grid pattern.
+ * It is mounted above the workbench so the file rail never clips it. */
+.review-quick-diff {
+  position: fixed;
+  z-index: 120;
+  width: min(860px, calc(100vw - 24px));
+  box-sizing: border-box;
+  max-height: min(520px, 56vh, calc(100vh - 112px));
+  overflow: hidden;
+  border: 1px solid var(--review-rule-strong);
+  border-radius: 12px;
+  background: var(--review-surface-raised);
+  color: var(--review-ink);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .28);
+  font-family: var(--review-ui-font);
+  pointer-events: auto;
+}
+.review-quick-diff-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 12px 10px 14px;
+  border-bottom: .5px solid var(--review-rule);
+  background: transparent;
+}
+.review-quick-diff-file-wrap {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.review-quick-diff-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  display: block;
+  color: var(--review-ink-faint);
+}
+.review-quick-diff-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--review-ink);
+  font-family: var(--review-code-font);
+  font-size: 12.5px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-quick-diff-stat {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  font-family: var(--review-code-font);
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.review-quick-diff-add { color: var(--review-positive); }
+.review-quick-diff-del { color: var(--review-negative); }
+.review-quick-diff-body {
+  max-height: min(478px, calc(56vh - 42px), calc(100vh - 154px));
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--review-rule-strong) transparent;
+  font-family: var(--review-code-font);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  font-variant-ligatures: none;
+}
+.review-quick-diff-body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.review-quick-diff-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.review-quick-diff-body::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--review-rule-strong);
+  background-clip: padding-box;
+}
+.review-quick-diff-body::-webkit-scrollbar-thumb:hover {
+  background: var(--review-selection-edge);
+  background-clip: padding-box;
+}
+.review-quick-diff-lines {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+  padding: 4px 0 7px;
+}
+.review-quick-diff-lines::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  bottom: 7px;
+  left: 64px;
+  width: .5px;
+  background: var(--review-rule);
+  pointer-events: none;
+}
+.review-quick-diff-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px 32px 18px 1fr;
+  align-items: stretch;
+  min-width: 100%;
+}
+.review-quick-diff-row.row-add { background: var(--review-positive-bg); }
+.review-quick-diff-row.row-del { background: var(--review-negative-bg); }
+.review-quick-diff-row.row-add::before,
+.review-quick-diff-row.row-del::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+.review-quick-diff-row.row-add::before { background: var(--review-positive); }
+.review-quick-diff-row.row-del::before {
+  background: repeating-linear-gradient(45deg, var(--review-negative) 0, var(--review-negative) 1.5px, transparent 1.5px, transparent 3px);
+}
+.review-quick-diff-ln,
+.review-quick-diff-sign {
+  min-width: 0;
+  color: var(--review-ink-faint);
+  font-size: 11px;
+  line-height: 20px;
+  user-select: none;
+}
+.review-quick-diff-ln { padding: 0 7px; text-align: right; }
+.review-quick-diff-sign { text-align: center; }
+.review-quick-diff-code {
+  min-width: max-content;
+  padding: 0 12px 0 8px;
+  color: var(--review-ink-muted);
+  font: inherit;
+  line-height: inherit;
+  white-space: pre;
+}
+.review-quick-diff-row.row-add .review-quick-diff-sign { color: var(--review-positive); }
+.review-quick-diff-row.row-add .review-quick-diff-ln-new { color: color-mix(in srgb, var(--review-positive) 70%, var(--review-ink-faint)); }
+.review-quick-diff-row.row-add .review-quick-diff-code { color: var(--review-ink); }
+.review-quick-diff-row.row-del .review-quick-diff-sign { color: var(--review-negative); }
+.review-quick-diff-row.row-del .review-quick-diff-ln-old { color: color-mix(in srgb, var(--review-negative) 70%, var(--review-ink-faint)); }
+.review-quick-diff-row.row-del .review-quick-diff-code { color: var(--review-ink); }
+.review-quick-diff-gap,
+.review-quick-diff-empty,
+.review-quick-diff-loading {
+  padding: 9px 12px;
+  color: var(--review-ink-faint);
+  font-family: var(--review-ui-font);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+.review-quick-diff-gap {
+  min-width: max-content;
+  border-top: 1px solid var(--review-rule);
+  border-bottom: 1px solid var(--review-rule);
+  background: var(--review-surface-muted);
+  text-align: left;
+}
+.review-quick-diff-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 92px;
+}
+.review-quick-diff-loading span {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--review-rule-strong);
+  border-top-color: var(--review-accent);
+  border-radius: 50%;
+  animation: review-spin 800ms linear infinite;
+}
+
+/* Extend the Agent output rail to the chat column. This preserves the left
+ * origin while making its right edge match the user's message column. */
+.msg-body.agent-output .agent-activity-body > * {
+  width: 100%;
+  min-width: 0;
+  margin-inline: 0;
+}
+
+/* The undo affordance is intentionally quiet and compact, like Codex's pill. */
+.run-change-rollback {
+  min-width: 66px;
+  min-height: 28px;
+  padding: 0 10px;
+  gap: 5px;
+  border-color: var(--border-soft);
+  font: 500 12px/1 var(--review-ui-font);
+}
+.run-change-rollback svg { width: 14px; height: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .review-quick-diff-loading span { animation: none; }
+}

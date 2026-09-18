@@ -4,17 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Yan Agent</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'none'">
+  <link rel="preload" href="./fonts/source-serif-4-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="./splash.bundle.css">
   <link rel="stylesheet" href="./splash.css">
 </head>
 <body>
   <main class="splash-shell" aria-label="Yan Agent">
-    <div class="brand-lockup" aria-label="Yan Agent">
-      <div class="brand-mark">
-        <img src="../assets/logo-light.png" alt="">
-      </div>
-      <div class="brand-name">Yan Agent</div>
-    </div>
-    <p class="motto">海内存知己&nbsp;&nbsp;天涯若比邻</p>
+    <div id="background" aria-hidden="true"></div>
+    <h1 class="brand-name">Yan Agent</h1>
   </main>
+  <script src="./splash.bundle.js"></script>
 </body>
 </html>

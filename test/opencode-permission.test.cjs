@@ -2,7 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { OpenCodeSidecar, permissionRulesForRun } = require('../lib/opencode-sidecar');
+const {
+  OpenCodeSidecar,
+  permissionRulesForRun,
+  isPermissionAskedEvent,
+  permissionNameFromEvent,
+  permissionRequestID
+} = require('../lib/opencode-sidecar');
 
 function sidecarWithPermissionReply(reply) {
   const sidecar = new OpenCodeSidecar();
@@ -97,17 +103,16 @@ test('permission reply preserves real OpenCode failures', async () => {
   );
 });
 
-test('Nuphus desktop tools ask in request mode and allow in delegated modes', () => {
-  const mcpServers = [{
-    id: 'nuphus-desktop',
-    runtime: 'nuphus-desktop',
-    command: process.execPath,
-    enabled: true
-  }];
-  const actionFor = accessMode => permissionRulesForRun({ accessMode, mcpServers })
-    .find(rule => rule.permission === 'nuphus-desktop_*')?.action;
-
-  assert.equal(actionFor('request'), 'ask');
-  assert.equal(actionFor('delegate'), 'allow');
-  assert.equal(actionFor('full'), 'allow');
+test('permission.updated events expose the permission type and request id', () => {
+  const event = {
+    type: 'permission.updated',
+    properties: {
+      id: 'per_updated',
+      type: 'yan_browser_open_builtin_browser',
+      metadata: { reason: 'policy gate' }
+    }
+  };
+  assert.equal(isPermissionAskedEvent(event), true);
+  assert.equal(permissionNameFromEvent(event), 'yan_browser_open_builtin_browser');
+  assert.equal(permissionRequestID(event), 'per_updated');
 });

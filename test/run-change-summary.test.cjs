@@ -8,6 +8,8 @@ const path = require('node:path');
 const { createTwoFilesPatch } = require('diff');
 const {
   buildPatchRows,
+  buildRollbackChanges,
+  collectWorkspaceFileSweep,
   filterReviewSummary,
   summarizeOpenCodeDiffs,
   summarizeOpenCodeToolChanges,
@@ -27,6 +29,12 @@ const patch = [
   ' export { title, state };',
   ''
 ].join('\n');
+
+async function mkdtempWorkspace(t) {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-review-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  return workspace;
+}
 
 test('converts an OpenCode unified patch into review rows', () => {
   const result = buildPatchRows(patch);
@@ -240,9 +248,102 @@ test('keeps every touched text file when OpenCode returns mixed diff metadata', 
   const summary = summarizeOpenCodeDiffs(workspace, diffs, { includeDiff: true });
   assert.equal(summary.count, 3);
   assert.deepEqual(summary.files.map(file => file.path).sort(), ['app.js', 'index.html', 'styles.css']);
-  assert.equal(summary.files.find(file => file.path === 'app.js').status, 'unknown');
+  // Touched without recoverable before-content is reported as modified
+  // (partial), never as an opaque "unknown +0/-0" row.
+  const appEntry = summary.files.find(file => file.path === 'app.js');
+  assert.equal(appEntry.status, 'modified');
+  assert.equal(appEntry.additions, 0);
+  assert.equal(appEntry.deletions, 0);
   assert.equal(summary.files.find(file => file.path === 'index.html').status, 'created');
   assert.equal(summary.files.find(file => file.path === 'styles.css').status, 'modified');
+});
+
+test('normalizes alternate OpenCode status labels and avoids unknown for existing files', async t => {
+  const workspace = await mkdtempWorkspace(t);
+  const filePath = path.join(workspace, 'renamed.txt');
+  await fs.writeFile(filePath, 'renamed\n');
+  const summary = summarizeOpenCodeDiffs(workspace, [
+    { file: path.join(workspace, 'a.txt'), additions: 1, deletions: 0, status: 'created' },
+    { file: path.join(workspace, 'b.txt'), additions: 0, deletions: 1, status: 'removed' },
+    { file: filePath, additions: 2, deletions: 2, status: 'renamed' },
+    { file: path.join(workspace, 'c.txt'), additions: 3, deletions: 3, status: 'changed' }
+  ], { includeDiff: false });
+  assert.deepEqual(
+    summary.files.map(file => file.status),
+    ['created', 'deleted', 'modified', 'modified']
+  );
+});
+
+test('collectWorkspaceFileSweep picks up shell-written files by mtime', async t => {
+  const workspace = await mkdtempWorkspace(t);
+  const startedAt = Date.now() - 1000;
+  const freshPath = path.join(workspace, 'fresh.js');
+  const stalePath = path.join(workspace, 'stale.js');
+  await fs.writeFile(freshPath, 'export const fresh = true;\n');
+  await fs.writeFile(stalePath, 'export const stale = true;\n');
+  const staleTime = new Date(Date.now() - 60_000);
+  await fs.utimes(stalePath, staleTime, staleTime);
+  const sweep = await collectWorkspaceFileSweep(workspace, { startTime: startedAt });
+  const keys = [...sweep.keys()];
+  assert.ok(keys.some(key => key.endsWith('fresh.js')));
+  assert.ok(!keys.some(key => key.endsWith('stale.js')));
+});
+
+test('collectWorkspaceFileSweep batches HEAD baselines for tracked git changes', async t => {
+  const { execFileSync } = require('node:child_process');
+  const workspace = await mkdtempWorkspace(t);
+  const git = (...args) => execFileSync('git', args, { cwd: workspace });
+  try {
+    git('init', '-q');
+    git('config', 'user.email', 'test@yan.local');
+    git('config', 'user.name', 'Yan Test');
+  } catch {
+    t.skip('git unavailable');
+    return;
+  }
+  const trackedPath = path.join(workspace, 'app.js');
+  await fs.writeFile(trackedPath, 'const before = true;\n');
+  git('add', '.');
+  git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init');
+
+  const startedAt = Date.now() - 5_000;
+  await fs.writeFile(trackedPath, 'const before = false;\nconst after = 1;\n');
+  const untrackedPath = path.join(workspace, 'brand new file.js');
+  await fs.writeFile(untrackedPath, 'const fresh = 1;\n');
+
+  const sweep = await collectWorkspaceFileSweep(workspace, { startTime: startedAt });
+  const trackedEntry = [...sweep.entries()].find(([, entry]) => entry.path === trackedPath);
+  assert.ok(trackedEntry, 'modified tracked file enters the sweep');
+  assert.equal(trackedEntry[1].before, 'const before = true;\n');
+
+  const untrackedEntry = [...sweep.entries()].find(([, entry]) => entry.path === untrackedPath);
+  assert.ok(untrackedEntry, 'untracked file enters the sweep');
+  assert.equal(untrackedEntry[1].before, null, 'freshly born untracked file has no baseline');
+});
+
+test('buildRollbackChanges prefers baselines and falls back to reversed patches', async t => {
+  const workspace = await mkdtempWorkspace(t);
+  const filePath = path.join(workspace, 'app.js');
+  const before = 'const a = 1;\n';
+  const after = 'const a = 2;\n';
+  await fs.writeFile(filePath, after);
+  const changePatch = createTwoFilesPatch(filePath, filePath, before, after);
+  const fromBaseline = await buildRollbackChanges(workspace, [
+    { file: filePath, patch: changePatch, additions: 1, deletions: 1, status: 'modified' }
+  ], new Map([[filePath.toLowerCase(), { path: filePath, before }]]));
+  assert.equal(fromBaseline.length, 1);
+  assert.equal(fromBaseline[0].before, before);
+
+  const fromPatch = await buildRollbackChanges(workspace, [
+    { file: filePath, patch: changePatch, additions: 1, deletions: 1, status: 'modified' }
+  ]);
+  assert.equal(fromPatch.length, 1);
+  assert.equal(fromPatch[0].before, before);
+
+  const skipped = await buildRollbackChanges(workspace, [
+    { file: filePath, additions: 1, deletions: 0, status: 'modified' }
+  ]);
+  assert.equal(skipped.length, 0);
 });
 
 test('collapses multiple edits into the final per-run file diff', async t => {
@@ -305,4 +406,57 @@ test('uses the authoritative tool patch when a live baseline arrives after the e
   assert.equal(summary.count, 1);
   assert.equal(summary.additions, 1);
   assert.equal(summary.deletions, 1);
+});
+
+test('summarize memoizes per file on stat identity across polls', async t => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-review-cache-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const filePath = path.join(workspace, 'app.js');
+  const before = 'const a = 1;\n';
+  const after = 'const a = 2;\nconst b = 3;\n';
+  await fs.writeFile(filePath, after);
+  const messages = [{
+    info: { id: 'assistant-cache', role: 'assistant', time: { created: 300 } },
+    parts: [{
+      type: 'tool',
+      tool: 'read',
+      state: {
+        status: 'completed',
+        metadata: { display: { path: filePath, text: before } }
+      }
+    }, {
+      type: 'tool',
+      tool: 'edit',
+      state: {
+        status: 'completed',
+        input: { filePath },
+        metadata: { filediff: { file: filePath, patch: 'patch', additions: 2, deletions: 1 } }
+      }
+    }]
+  }];
+  const cache = new Map();
+
+  const first = await summarizeOpenCodeToolChanges(workspace, messages, { cache });
+  assert.equal(first.length, 1);
+  assert.equal(first[0].additions, 2);
+  assert.equal(first[0].deletions, 1);
+
+  // Same stat identity, same baselines: the cached entry replays without
+  // re-reading or re-diffing (the whole point during subagent edit storms).
+  const second = await summarizeOpenCodeToolChanges(workspace, messages, { cache });
+  assert.deepEqual(second, first);
+
+  // File content changes (mtime moves): the entry recomputes.
+  await fs.writeFile(filePath, 'const a = 9;\nconst b = 9;\nconst c = 9;\n');
+  const newStat = await fs.stat(filePath);
+  await fs.utimes(filePath, newStat.atime, new Date(newStat.mtimeMs + 50));
+  const third = await summarizeOpenCodeToolChanges(workspace, messages, { cache });
+  assert.equal(third.length, 1);
+  assert.equal(third[0].additions, 3);
+  assert.equal(third[0].deletions, 1);
+
+  // No cache: behavior identical to the pre-memoization path.
+  const uncached = await summarizeOpenCodeToolChanges(workspace, messages);
+  assert.equal(uncached.length, 1);
+  assert.equal(uncached[0].additions, 3);
 });

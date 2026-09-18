@@ -11,30 +11,45 @@ const appRoot = path.resolve(__dirname, '..');
 const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-git-ui-e2e-'));
 const userDataDir = path.join(testRoot, 'user-data');
 const workspace = path.join(testRoot, 'workspace');
+const nonRepoWorkspace = path.join(testRoot, 'non-repo-workspace');
 const remote = path.join(testRoot, 'remote.git');
 const outputDir = path.join(appRoot, 'output', 'playwright');
-const screenshotPath = path.join(outputDir, `yan-git-workbench-${Date.now()}.png`);
-const changesScreenshotPath = path.join(outputDir, `yan-git-changes-${Date.now()}.png`);
-const diffScreenshotPath = path.join(outputDir, `yan-git-diff-${Date.now()}.png`);
-const compactScreenshotPath = path.join(outputDir, `yan-git-compact-${Date.now()}.png`);
-const wideScreenshotPath = path.join(outputDir, `yan-git-wide-${Date.now()}.png`);
-const lightScreenshotPath = path.join(outputDir, `yan-git-light-${Date.now()}.png`);
+const dialogScreenshotPath = path.join(outputDir, `yan-git-commit-dialog-${Date.now()}.png`);
+const graphScreenshotPath = path.join(outputDir, `yan-git-graph-${Date.now()}.png`);
+const reviewScreenshotPath = path.join(outputDir, `yan-review-sidebar-codex-${Date.now()}.png`);
+const reviewLightScreenshotPath = path.join(outputDir, `yan-review-sidebar-light-${Date.now()}.png`);
+const reviewNarrowScreenshotPath = path.join(outputDir, `yan-review-sidebar-narrow-${Date.now()}.png`);
+
+function runGit(args) {
+  return execFileSync('git', args, { cwd: workspace, encoding: 'utf8', windowsHide: true }).trim();
+}
 
 fs.mkdirSync(userDataDir, { recursive: true });
 fs.mkdirSync(workspace, { recursive: true });
+fs.mkdirSync(nonRepoWorkspace, { recursive: true });
 fs.mkdirSync(outputDir, { recursive: true });
+runGit(['init', '-b', 'main']);
+runGit(['config', 'user.name', 'Yan UI Test']);
+runGit(['config', 'user.email', 'git-ui@example.com']);
 fs.writeFileSync(path.join(workspace, 'README.md'), '# Git workbench\n', 'utf8');
+fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
+const longSource = Array.from({ length: 160 }, (_, index) => `export const line${String(index + 1).padStart(3, '0')} = ${index + 1};`);
+fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n')}\n`, 'utf8');
+runGit(['add', 'README.md', 'src/long.js']);
+runGit(['commit', '-m', 'Initial UI commit']);
+runGit(['branch', 'feature/test']);
+runGit(['switch', '-c', 'pr-source']);
+fs.writeFileSync(path.join(workspace, 'PR.md'), '# Merged work\n', 'utf8');
+runGit(['add', 'PR.md']);
+runGit(['commit', '-m', 'Merged PR work']);
+const prCommit = runGit(['rev-parse', 'HEAD']);
+runGit(['update-ref', 'refs/remotes/origin/pr-1', prCommit]);
+runGit(['switch', 'main']);
 execFileSync('git', ['init', '--bare', remote], { windowsHide: true });
-
-async function waitForGitIdle(page) {
-  await page.waitForFunction(() => document.querySelector('#rs-git')?.getAttribute('aria-busy') !== 'true'
-    && !document.querySelector('#rs-git')?.classList.contains('is-busy'));
-}
-
-async function openActionDialog(page, trigger) {
-  await page.locator(trigger).click();
-  await page.locator('#gitActionDialog[open]').waitFor();
-}
+runGit(['remote', 'add', 'origin', remote]);
+fs.appendFileSync(path.join(workspace, 'README.md'), '\nPending change\n', 'utf8');
+longSource[79] = 'export const line080 = "changed";';
+fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n')}\n`, 'utf8');
 
 (async () => {
   let application;
@@ -53,9 +68,10 @@ async function openActionDialog(page, trigger) {
     const page = await application.firstWindow();
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.waitForFunction(() => document.readyState === 'complete'
-      && typeof openRightSidebarTool === 'function'
-      && document.querySelector('#rs-git')?.dataset.bound === 'true'
+      && typeof refreshTaskGitStatus === 'function'
+      && document.querySelector('#taskGitToolsWrap')?.dataset.bound === 'true'
       && state.currentSession);
+    await page.locator('#taskBar:not(.hidden)').waitFor();
 
     await page.evaluate(async targetWorkspace => {
       const updated = await window.yan.setSessionWorkspace(state.currentSession.id, targetWorkspace, false);
@@ -63,159 +79,211 @@ async function openActionDialog(page, trigger) {
       state.config = await window.yan.activateWorkspace(updated.workspace);
       syncCurrentSessionWorkspace(updated.workspace);
       updateTaskBar();
-      setRightSidebarOpen(true);
+      await refreshTaskGitStatus({ force: true });
     }, workspace);
-    await page.locator('#rightSidebarLauncher [data-rs-open-tool="git"]').click();
-    await page.locator('#rs-git.active').waitFor();
-    await waitForGitIdle(page);
 
-    assert.equal(await page.locator('[data-rs-tab="git"] .rs-work-tab-label').textContent(), 'Git');
-    assert.equal(await page.locator('#gitUnavailableTitle').textContent(), '当前目录不是 Git 仓库');
-    assert.equal(await page.locator('#gitInitBtn').isVisible(), true);
-    assert.equal(await page.locator('#gitCloneBtn').isVisible(), true);
+    assert.equal(await page.locator('#rs-git').count(), 0);
+    assert.equal(await page.locator('[data-rs-open-tool="git"]').count(), 0);
+    assert.equal(await page.locator('#taskGitBranchName').textContent(), 'main');
 
-    await page.locator('#gitInitBtn').click();
-    await page.locator('#gitWorkspace:not(.hidden)').waitFor();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitRepositoryName').textContent(), 'workspace');
-    assert.match(await page.locator('#gitRepositoryMeta').textContent(), /1 个变更/);
-    assert.equal(await page.evaluate(() => document.querySelector('#gitBranchSelect')?.dataset.value), 'local:main');
-    assert.equal(await page.locator('#gitChangeCount').textContent(), '1');
-    await page.screenshot({ path: changesScreenshotPath, fullPage: false });
+    await page.locator('#taskGitHubBtn').click();
+    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    await page.locator('#taskGitRefreshBtn').click();
+    await page.waitForFunction(() => !document.querySelector('#taskGitRefreshBtn')?.hasAttribute('aria-busy'));
+    assert.equal(await page.locator('#taskGitDiffStats').textContent(), '+3-1');
+    await page.locator('#taskGitChangesBtn').click();
+    await page.locator('#rs-review.active').waitFor();
+    await page.locator('#yanDshReviewFrame').waitFor();
+    const reviewFrame = page.frameLocator('#yanDshReviewFrame');
+    await reviewFrame.locator('.sidenav .navitem').first().waitFor();
+    // Review diffs load lazily per file (the panel only receives the manifest
+    // up front): open the first file and wait for its diff before asserting.
+    await reviewFrame.locator('.sidenav .navitem').first().click();
+    await reviewFrame.locator('#file-0[data-yan-state="loaded"]').waitFor({ timeout: 20_000 });
+    const initialReviewText = await reviewFrame.locator('body').textContent();
+    assert.match(initialReviewText, /README\.md/);
+    assert.match(initialReviewText, /Pending change/);
+    assert.equal(await reviewFrame.locator('.sidenav .navitem').count(), 2);
+    const reviewOpenWidth = await page.locator('#rs-review').evaluate(panel => panel.getBoundingClientRect().width);
+    assert.ok(reviewOpenWidth >= 560, `review sidebar did not expand: ${reviewOpenWidth}`);
+    const initialEmbeddedLayout = await reviewFrame.locator('html').evaluate(root => ({
+      filebarWidth: parseFloat(getComputedStyle(root).getPropertyValue('--yan-review-filebar-width')) || 0,
+      navLeft: getComputedStyle(document.querySelector('.sidenav')).left,
+      navRight: getComputedStyle(document.querySelector('.sidenav')).right,
+      mainMarginLeft: getComputedStyle(document.querySelector('main')).marginLeft,
+      mainMarginRight: getComputedStyle(document.querySelector('main')).marginRight,
+      hasResizer: !!document.querySelector('#yan-review-filebar-resizer')
+    }));
+    assert.equal(initialEmbeddedLayout.navRight, '0px');
+    assert.match(initialEmbeddedLayout.navLeft, /\d+(?:\.\d+)?px/);
+    assert.equal(initialEmbeddedLayout.mainMarginLeft, '0px');
+    assert.ok(initialEmbeddedLayout.filebarWidth > 0);
+    assert.equal(initialEmbeddedLayout.mainMarginRight, `${initialEmbeddedLayout.filebarWidth}px`);
+    assert.equal(initialEmbeddedLayout.hasResizer, true);
 
-    await page.locator('#gitChangeList [data-git-diff]').click();
-    await page.locator('#gitDiffPanel:not(.hidden)').waitFor();
-    assert.match(await page.locator('#gitDiffTitle').textContent(), /README\.md/);
-    assert.match(await page.locator('#gitDiffContent').textContent(), /Git workbench/);
-    await page.screenshot({ path: diffScreenshotPath, fullPage: false });
-    await page.locator('#gitDiffCloseBtn').click();
+    let resizerBox = await reviewFrame.locator('#yan-review-filebar-resizer').boundingBox();
+    assert.ok(resizerBox);
+    await page.mouse.move(resizerBox.x + resizerBox.width / 2, resizerBox.y + 24);
+    await page.mouse.down();
+    await page.mouse.move(resizerBox.x - 48, resizerBox.y + 24, { steps: 4 });
+    await page.mouse.up();
+    const widenedFilebar = await reviewFrame.locator('.sidenav').evaluate(element => parseFloat(getComputedStyle(element).width));
+    assert.ok(widenedFilebar > initialEmbeddedLayout.filebarWidth, `filebar did not widen: ${initialEmbeddedLayout.filebarWidth} -> ${widenedFilebar}`);
 
-    await page.locator('[data-git-view="remotes"]').click();
-    await openActionDialog(page, '#gitIdentityBtn');
-    await page.locator('#gitActionFields [name="name"]').fill('Yan UI Test');
-    await page.locator('#gitActionFields [name="email"]').fill('git-ui@example.com');
-    await page.locator('#gitActionSubmit').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitIdentityLabel').textContent(), 'Yan UI Test <git-ui@example.com>');
+    await reviewFrame.locator('#yan-review-filebar-resizer').dispatchEvent('pointerdown', { pointerId: 11, clientX: 99999, bubbles: true });
+    await reviewFrame.locator('#yan-review-filebar-resizer').dispatchEvent('pointerup', { pointerId: 11, clientX: 99999, bubbles: true });
+    const collapsedByDragWidth = await reviewFrame.locator('.sidenav').evaluate(element => parseFloat(getComputedStyle(element).width));
+    assert.ok(collapsedByDragWidth < widenedFilebar, `filebar did not shrink: ${widenedFilebar} -> ${collapsedByDragWidth}`);
+    await reviewFrame.locator('html').evaluate(root => { root.style.setProperty('--yan-review-filebar-width', '0px'); root.classList.add('yan-filebar-zero'); });
+    const zeroFilebarWidth = await reviewFrame.locator('.sidenav').evaluate(element => parseFloat(getComputedStyle(element).width));
+    assert.equal(zeroFilebarWidth, 0);
+    await reviewFrame.locator('html').evaluate((root, width) => { root.style.setProperty('--yan-review-filebar-width', `${width}px`); root.classList.remove('yan-filebar-zero'); }, initialEmbeddedLayout.filebarWidth);
+    const commentLineNumber = reviewFrame.locator('#file-0 .dsh-cr-num-new[data-cr-line]').first();
+    await commentLineNumber.hover();
+    const commentHoverStyle = await commentLineNumber.evaluate(element => {
+      const style = getComputedStyle(element, '::after');
+      return { content: style.content, background: style.backgroundColor, borderRadius: style.borderRadius, width: style.width, height: style.height };
+    });
+    assert.equal(commentHoverStyle.content, '"+"');
+    assert.notEqual(commentHoverStyle.background, 'rgba(0, 0, 0, 0)');
+    assert.equal(commentHoverStyle.borderRadius, '50%');
+    assert.equal(commentHoverStyle.width, '17px');
+    assert.equal(commentHoverStyle.height, '17px');
 
-    await page.locator('[data-git-view="changes"]').click();
-    await page.locator('#gitChangeList [data-git-stage-action="stage"]').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitChangeList [data-git-change-staged="true"]').count(), 1);
-    await page.locator('#gitCommitMessage').fill('Initial UI commit');
-    assert.equal(await page.locator('#gitCommitBtn').isEnabled(), true);
-    await page.locator('#gitCommitBtn').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitChangeCount').textContent(), '0');
-    assert.equal(await page.locator('#gitChangeSummary').textContent(), '工作区干净');
+    const longNav = reviewFrame.locator('.sidenav .navitem', { hasText: 'long.js' });
+    assert.equal(await longNav.count(), 1);
+    assert.equal(await longNav.getAttribute('href'), '#file-1');
+    await longNav.click();
+    // Lazy review loads the file's diff on demand; wait for the rows to land.
+    await reviewFrame.locator('#file-1[data-yan-state="loaded"]').waitFor({ timeout: 20_000 });
+    assert.ok(await reviewFrame.locator('#file-1 .dsh-cr-row').count() > 0);
 
-    await page.locator('[data-git-view="history"]').click();
-    await page.waitForFunction(() => document.querySelector('#gitHistoryList')?.textContent.includes('Initial UI commit'));
-    assert.match(await page.locator('#gitHistoryList').textContent(), /Yan UI Test/);
+    const darkReviewBackground = await reviewFrame.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+    await page.evaluate(async () => {
+      applyTheme('light');
+      await renderRightSidebarReview({ force: true });
+    });
+    await reviewFrame.locator('.sidenav .navitem').first().waitFor();
+    const lightReviewBackground = await reviewFrame.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+    assert.notEqual(lightReviewBackground, darkReviewBackground);
+    await page.screenshot({ path: reviewLightScreenshotPath, fullPage: false });
+    await page.evaluate(() => applyTheme('dark'));
 
-    await openActionDialog(page, '#gitCreateBranchBtn');
-    await page.locator('#gitActionFields [name="name"]').fill('feature/git-ui');
-    await page.locator('#gitActionSubmit').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.evaluate(() => document.querySelector('#gitBranchSelect')?.dataset.value), 'local:feature/git-ui');
-    await page.locator('#gitBranchSelect').click();
-    await page.locator('#gitBranchDropdown .git-branch-option[data-value="local:main"]').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.evaluate(() => document.querySelector('#gitBranchSelect')?.dataset.value), 'local:main');
+    fs.mkdirSync(path.join(workspace, 'renderer', 'pet'), { recursive: true });
+    fs.mkdirSync(path.join(workspace, 'renderer', 'quick-input'), { recursive: true });
+    fs.writeFileSync(path.join(workspace, 'renderer', 'pet', 'pet.js'), 'export const pet = true;\n', 'utf8');
+    fs.writeFileSync(path.join(workspace, 'renderer', 'pet', 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+    fs.writeFileSync(path.join(workspace, 'renderer', 'quick-input', 'index.html'), '<main>quick input</main>\n', 'utf8');
+    await page.evaluate(async () => { await renderRightSidebarReview({ force: true }); });
+    await reviewFrame.locator('.sidenav .navitem', { hasText: 'pet.js' }).waitFor();
+    assert.ok(await reviewFrame.locator('.sidenav .navitem').count() >= 5);
+    const imageNav = reviewFrame.locator('.sidenav .navitem', { hasText: 'icon.png' });
+    assert.equal(await imageNav.count(), 1);
+    await imageNav.click();
+    assert.match(await reviewFrame.locator('body').textContent(), /icon\.png/);
+    const readmeNav = reviewFrame.locator('.sidenav .navitem', { hasText: 'README.md' });
+    await readmeNav.click();
+    await page.screenshot({ path: reviewScreenshotPath, fullPage: false });
 
-    await page.locator('[data-git-view="remotes"]').click();
-    await openActionDialog(page, '#gitAddRemoteBtn');
-    await page.locator('#gitActionFields [name="name"]').fill('origin');
-    await page.locator('#gitActionFields [name="url"]').fill(remote);
-    await page.locator('#gitActionSubmit').click();
-    await waitForGitIdle(page);
-    assert.equal(await page.locator('#gitRemoteList [data-git-remote="origin"]').count(), 1);
-
-    await openActionDialog(page, '#gitRemoteList [data-git-remote="origin"] [data-git-remote-action="edit"]');
-    await page.keyboard.press('Escape');
-    await page.locator('#gitActionDialog:not([open])').waitFor({ state: 'hidden' });
-    assert.equal(await page.locator('#gitRemoteList [data-git-remote="origin"]').count(), 1);
-
-    await openActionDialog(page, '#gitRemoteList [data-git-remote="origin"] [data-git-remote-action="remove"]');
-    await page.locator('#gitActionCancel').click();
-    await page.locator('#gitActionDialog:not([open])').waitFor({ state: 'hidden' });
-    assert.equal(await page.locator('#gitRemoteList [data-git-remote="origin"]').count(), 1);
-
-    assert.equal(await page.locator('#gitPushBtn').isEnabled(), true);
-    await page.locator('#gitPushBtn').click();
-    await waitForGitIdle(page);
-    await page.waitForFunction(() => document.querySelector('#gitSyncBadge')?.textContent === '已同步');
-    assert.equal(execFileSync('git', ['--git-dir', remote, 'show', '-s', '--format=%s', 'refs/heads/main'], {
-      encoding: 'utf8',
-      windowsHide: true
-    }).trim(), 'Initial UI commit');
-
-    assert.equal(await page.locator('#gitFetchBtn').isEnabled(), true);
-    assert.equal(await page.locator('#gitPullBtn').isEnabled(), true);
-    await page.locator('#gitFetchBtn').click();
-    await waitForGitIdle(page);
-    await page.screenshot({ path: screenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
-    await page.screenshot({ path: lightScreenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-
-    const geometry = await page.locator('#rs-git').evaluate(panel => {
-      const panelRect = panel.getBoundingClientRect();
-      const workspaceRect = panel.querySelector('#gitWorkspace').getBoundingClientRect();
-      const tabsRect = panel.querySelector('.git-view-tabs').getBoundingClientRect();
+    const narrowReviewGeometry = await page.evaluate(async () => {
+      document.documentElement.style.setProperty('--rs-w', '320px');
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const panel = document.querySelector('#rs-review');
       return {
-        panelWidth: panelRect.width,
-        panelHeight: panelRect.height,
-        workspaceInsidePanel: workspaceRect.left >= panelRect.left && workspaceRect.right <= panelRect.right + 1,
-        tabsInsidePanel: tabsRect.left >= panelRect.left && tabsRect.right <= panelRect.right + 1,
-        horizontalOverflow: panel.scrollWidth > panel.clientWidth + 1
+        panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
+        panelWidth: panel.getBoundingClientRect().width,
+        frameWidth: document.querySelector('#yanDshReviewFrame')?.getBoundingClientRect().width || 0
       };
     });
-    assert.equal(geometry.workspaceInsidePanel, true, JSON.stringify(geometry));
-    assert.equal(geometry.tabsInsidePanel, true, JSON.stringify(geometry));
+    assert.equal(narrowReviewGeometry.panelOverflow, false, JSON.stringify(narrowReviewGeometry));
+    assert.ok(narrowReviewGeometry.panelWidth <= 321, JSON.stringify(narrowReviewGeometry));
+    assert.ok(narrowReviewGeometry.frameWidth > 0, JSON.stringify(narrowReviewGeometry));
+    const narrowInner = await reviewFrame.locator('body').evaluate(body => ({
+      scrollWidth: body.scrollWidth,
+      clientWidth: body.clientWidth,
+      overflowX: getComputedStyle(body).overflowX,
+      overflowY: getComputedStyle(body).overflowY
+    }));
+    assert.equal(narrowInner.overflowX, 'auto');
+    assert.equal(narrowInner.overflowY, 'auto');
+    await page.screenshot({ path: reviewNarrowScreenshotPath, fullPage: false });
+    await page.evaluate(() => expandRightSidebarForReview());
+    await reviewFrame.locator('.sidenav .navitem', { hasText: 'pet.js' }).click();
+
+    await page.locator('#taskGitHubBtn').click();
+    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    await page.locator('#taskGitCommitOpenBtn').click();
+    await page.locator('#taskGitCommitDialog[open]').waitFor();
+    assert.equal(await page.locator('#taskGitPanel').isVisible(), false);
+
+    await page.locator('#taskGitCommitBranchBtn').click();
+    assert.equal(await page.locator('[data-task-git-commit-branch="main"]').count(), 1);
+    assert.equal(await page.locator('[data-task-git-commit-branch="feature/test"]').count(), 1);
+    await page.locator('[data-task-git-commit-branch="feature/test"]').click();
+    assert.equal(await page.locator('#taskGitCommitBranch').textContent(), 'feature/test');
+
+    await page.locator('#taskGitGenerateMessageBtn').click();
+    await page.waitForFunction(() => document.querySelector('#taskGitCommitMessageInput')?.value.trim().length > 0);
+    const generatedMessage = await page.locator('#taskGitCommitMessageInput').inputValue();
+    assert.equal(await page.locator('#taskGitCommitDialog kbd').count(), 0);
+    await page.screenshot({ path: dialogScreenshotPath, fullPage: false });
+    await page.locator('[data-task-git-action="commit"]').click();
+    await page.locator('#taskGitCommitDialog:not([open])').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('#taskGitBranchName')?.textContent === 'feature/test');
+    assert.equal(runGit(['show', '-s', '--format=%s', 'HEAD']), generatedMessage);
+
+    await page.locator('#taskGitBranchBtn').click();
+    await page.locator('#taskGitGraphBtn').click();
+    await page.locator('#taskGitGraphDialog[open]').waitFor();
+    await page.waitForFunction(() => document.querySelector('#taskGitGraphList')?.textContent.includes('Merged PR work'));
+    assert.match(await page.locator('#taskGitGraphList').textContent(), /origin\/pr-1/);
+    const prRow = page.locator('.task-git-graph-row', { hasText: 'Merged PR work' });
+    assert.equal(await prRow.locator('.task-git-graph-node.lane-1').count(), 1);
+    const commonParentRow = page.locator('.task-git-graph-row', { hasText: 'Initial UI commit' });
+    assert.ok(await commonParentRow.locator('path.task-git-lane.lane-1').count() > 0);
+    assert.ok(await commonParentRow.locator('path.task-git-lane.lane-1').evaluateAll(paths => paths.some(path => /C/.test(path.getAttribute('d') || ''))));
+    await page.screenshot({ path: graphScreenshotPath, fullPage: false });
+
+    const geometry = await page.locator('#taskGitGraphDialog').evaluate(dialog => ({
+      horizontalOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
+      verticalOverflow: dialog.scrollHeight > dialog.clientHeight + 1
+    }));
     assert.equal(geometry.horizontalOverflow, false, JSON.stringify(geometry));
-    const responsiveGeometry = await page.evaluate(async () => {
-      const widths = [];
-      for (const width of [280, 640]) {
-        document.documentElement.style.setProperty('--rs-w', `${width}px`);
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const panel = document.querySelector('#rs-git');
-        const bounds = panel.getBoundingClientRect();
-        widths.push({
-          requested: width,
-          actual: bounds.width,
-          horizontalOverflow: panel.scrollWidth > panel.clientWidth + 1,
-          toolbarOverflow: panel.querySelector('.git-toolbar').scrollWidth > panel.querySelector('.git-toolbar').clientWidth + 1,
-          workspaceOverflow: panel.querySelector('#gitWorkspace').scrollWidth > panel.querySelector('#gitWorkspace').clientWidth + 1
-        });
-      }
-      document.documentElement.style.removeProperty('--rs-w');
-      return widths;
-    });
-    for (const width of responsiveGeometry) {
-      assert.equal(width.horizontalOverflow, false, JSON.stringify(responsiveGeometry));
-      assert.equal(width.toolbarOverflow, false, JSON.stringify(responsiveGeometry));
-      assert.equal(width.workspaceOverflow, false, JSON.stringify(responsiveGeometry));
-    }
-    await page.evaluate(() => document.documentElement.style.setProperty('--rs-w', '280px'));
-    await page.screenshot({ path: compactScreenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.style.setProperty('--rs-w', '640px'));
-    await page.screenshot({ path: wideScreenshotPath, fullPage: false });
-    await page.evaluate(() => document.documentElement.style.removeProperty('--rs-w'));
+    assert.equal(geometry.verticalOverflow, false, JSON.stringify(geometry));
+
+    await page.locator('#taskGitGraphCloseBtn').click();
+    await page.evaluate(async targetWorkspace => {
+      const updated = await window.yan.setSessionWorkspace(state.currentSession.id, targetWorkspace, false);
+      state.currentSession.workspace = updated.workspace;
+      state.config = await window.yan.activateWorkspace(updated.workspace);
+      syncCurrentSessionWorkspace(updated.workspace);
+      updateTaskBar();
+      await refreshTaskGitStatus({ force: true });
+    }, nonRepoWorkspace);
+    await page.locator('#taskGitBranchWrap:not(.hidden)').waitFor();
+    assert.equal(await page.locator('#taskGitBranchBtn').isEnabled(), true);
+    await page.locator('#taskGitBranchBtn').click();
+    await page.locator('#taskGitCreateBranchBtn').click();
+    await page.locator('#gitActionDialog[open]').waitFor();
+    await page.locator('#gitActionFields input[name="name"]').fill('feature/non-repo');
+    await page.locator('#gitActionSubmit').click();
+    await page.locator('#gitActionDialog:not([open])').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('#taskGitBranchName')?.textContent === 'feature/non-repo');
+    assert.equal(execFileSync('git', ['-C', nonRepoWorkspace, 'branch', '--show-current'], { encoding: 'utf8', windowsHide: true }).trim(), 'feature/non-repo');
     assert.deepEqual(pageErrors, []);
 
     console.log(JSON.stringify({
       ok: true,
-      screenshotPath,
-      changesScreenshotPath,
-      diffScreenshotPath,
-      compactScreenshotPath,
-      wideScreenshotPath,
-      lightScreenshotPath,
-      workspace,
-      remote,
+      dialogScreenshotPath,
+      graphScreenshotPath,
+      reviewScreenshotPath,
+      reviewLightScreenshotPath,
+      reviewNarrowScreenshotPath,
       geometry,
-      responsiveGeometry
+      narrowReviewGeometry,
+      reviewOpenWidth,
+      darkReviewBackground,
+      lightReviewBackground
     }));
   } finally {
     await application?.close().catch(() => {});

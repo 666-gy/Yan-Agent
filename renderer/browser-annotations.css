@@ -1,0 +1,16 @@
+.browser-annotate-btn[aria-pressed="true"]{color:#60a5fa;background:rgba(59,130,246,.14)}
+.right-browser-toolbar-row{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px!important;grid-template-columns:none!important}
+.right-browser-toolbar-row>.tool-panel-nav{display:flex;flex:0 0 auto}
+.right-browser-toolbar-row>.browser-address-pill{flex:1 1 0!important;min-width:0!important;width:auto!important}
+.right-browser-toolbar-row>.browser-toolbar-actions{display:flex!important;flex:0 0 auto!important;align-items:center;gap:4px;margin-left:auto;white-space:nowrap}
+.browser-toolbar-actions>.browser-settings-wrap{flex:0 0 28px!important;margin:0!important;grid-column:auto!important;grid-row:auto!important}
+.browser-toolbar-actions>.browser-annotate-btn{flex:0 0 28px;width:28px}
+.browser-annotation-layer{position:absolute;z-index:44;cursor:default;overflow:hidden;outline:none}
+.annotation-pill{cursor:grab}.annotation-pill:active,.annotation-dragging .annotation-pill{cursor:grabbing}.annotation-dragging{user-select:none}
+.browser-annotation-layer[hidden],.browser-annotation-layer [hidden]{display:none!important}
+.right-browser-shell.annotation-active .browser-agent-takeover{opacity:1;visibility:visible}
+.right-browser-shell.annotation-active:not(.agent-controlled) .browser-agent-input-shield,.right-browser-shell.annotation-active:not(.agent-controlled) .browser-agent-control-label,.right-browser-shell.annotation-active:not(.agent-controlled) .browser-agent-cursor{display:none}
+.browser-annotation-box{position:absolute;border:1px solid #60a5fa;background:#60a5fa18;pointer-events:none}
+.browser-annotation-info{position:absolute;pointer-events:none;white-space:pre-line;max-width:232px;padding:9px 12px;background:#18202eef;border:1px solid #506885;border-radius:9px;color:#e2e8f0;font:11px/1.7 sans-serif;box-shadow:0 8px 28px #0004}
+.browser-annotation-editor{position:absolute;width:min(328px,calc(100% - 16px));max-height:calc(100% - 16px);overflow:auto;padding:12px;background:var(--bg-panel,#202329);color:var(--text,#e5e7eb);border:1px solid #60a5fa66;border-radius:12px;box-shadow:0 14px 40px #0005;cursor:default;font-size:12px}
+.annotation-heading,.annotation-footer{display:flex;align-items:center;justify-content:space-between;gap:10px}.annotation-heading button{font-size:20px}.annotation-target{color:var(--text-dim);margin:5px 0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.browser-annotation-editor textarea{box-sizing:border-box;width:100%;min-height:80px;resize:vertical;padding:9px;border:1px solid var(--border,#48505e);border-radius:7px;background:var(--bg,#14171d);color:inherit;font:inherit;outline-color:#60a5fa}.annotation-footer{margin-top:9px}.annotation-footer span{font-size:10px;color:var(--text-dim)}.annotation-footer button[type="submit"]{background:#2563eb;color:white;padding:6px 12px;border-radius:6px}.annotation-options{display:grid;gap:9px;padding:10px 0}.annotation-options label{display:flex;align-items:center;gap:8px}.annotation-options select{background:var(--bg,#202329);color:inherit;max-width:140px}

@@ -58,26 +58,6 @@
       "tier": "builtin",
       "version": 2,
       "updatedAt": 1785945600000
-    },
-    {
-      "id": "yan-computer-use",
-      "name": "Yan Computer Use",
-      "desc": "使用官方 Nuphus MCP 原生桌面工具操控 Windows 软件。",
-      "logo": "assets/skill-logos/computer-use.png",
-      "prompt": "使用常驻 nuphus-desktop MCP 的原生 desktop_* 工具。先 desktop_windows_list 并激活目标窗口，再用 desktop_vision 理解界面、desktop_perceive 获取精确坐标；点击只能采用 perceive 返回的 center。执行动作后界面变化才重新观察，最后做一次有针对性的视觉验收。桌面任务不得改用网页工具。官方项目：https://github.com/mrpulor-gh/nuphus-mcp",
-      "repo": "mrpulor-gh/nuphus-mcp",
-      "tags": [
-        "agent-rules"
-      ],
-      "triggers": [
-        "电脑操控",
-        "Computer Use",
-        "控制我的电脑",
-        "帮我操作"
-      ],
-      "tier": "builtin",
-      "version": 3,
-      "updatedAt": 1785945600000
     }
   ]
 }

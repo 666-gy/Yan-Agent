@@ -1,6 +1,7 @@
 const bridge = window.yanImageViewer;
 const params = new URLSearchParams(window.location.search);
 const assetId = params.get('assetId') || '';
+const filePath = params.get('file') || '';
 const image = document.getElementById('generatedImage');
 const stage = document.querySelector('.image-stage');
 const imageCanvas = document.getElementById('imageCanvas');
@@ -75,13 +76,13 @@ function showDownloadStatus(message, isError = false) {
 }
 
 async function loadImage() {
-  if (!bridge || !assetId) {
-    viewerStatus.textContent = '无法读取会话图片';
+  if (!bridge || (!assetId && !filePath)) {
+    viewerStatus.textContent = '无法读取图片';
     return;
   }
-  const result = await bridge.read(assetId);
+  const result = filePath ? await bridge.readFile(filePath) : await bridge.read(assetId);
   if (result?.error || !result?.dataUrl) {
-    viewerStatus.textContent = result?.error || '会话图片已失效';
+    viewerStatus.textContent = result?.error || '图片已失效';
     return;
   }
   await new Promise((resolve, reject) => {
@@ -125,7 +126,7 @@ downloadBtn.addEventListener('click', async () => {
   downloadBtn.setAttribute('aria-busy', 'true');
   showDownloadStatus('正在选择保存位置…');
   try {
-    const result = await bridge.download(assetId);
+    const result = filePath ? await bridge.downloadFile(filePath) : await bridge.download(assetId);
     if (result?.error) {
       showDownloadStatus(result.error, true);
     } else if (result?.ok) {

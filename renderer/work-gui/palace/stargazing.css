@@ -1,0 +1,3 @@
+/* Observatory stays in the world canvas. */
+.galaxy-credit{display:none;position:absolute;bottom:12px;right:24px;z-index:12;color:#9ca7b5;font:10px/1.5 sans-serif;text-decoration:none;letter-spacing:.03em}.star-view .galaxy-credit{display:block}.galaxy-credit:hover{color:#e4dece}
+.star-view .status,.star-view #hotspots{display:none}.star-view .chapter{pointer-events:none;top:20%;max-width:270px}.star-view .chapter h1{font-size:42px}.star-view .chapter p{font-size:12px}.star-view .navigation-hint{display:none}#music-replay svg{width:17px;height:17px;vertical-align:middle}#music-replay.playing{color:var(--gold)}#world{touch-action:none}

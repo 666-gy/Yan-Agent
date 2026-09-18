@@ -58,8 +58,7 @@ const targetDataDir = path.join(userDataDir, 'YanData');
         && !timeline.some(item => item.type === 'tool_result' && item.name === 'bash');
     }, null, { timeout: 60_000 });
 
-    await page.evaluate(() => setRightSidebarOpen(true));
-    await page.locator('#rightSidebarLauncher [data-rs-open-tool="interjection"]').click();
+    await page.locator('#rightDock [data-rs-dock-tool="interjection"]').click();
     await page.locator('#interjectionInput').fill('当前等待命令还在真实运行吗？只依据任务快照回答。');
     await page.locator('#interjectionInput').press('Enter');
     await page.waitForFunction(() => document.querySelectorAll('#interjectionTranscript .msg').length >= 2, null, { timeout: 90_000 });

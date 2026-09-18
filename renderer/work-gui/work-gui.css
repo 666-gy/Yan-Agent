@@ -1,0 +1,72 @@
+/* Hallmark · macrostructure: continuous world · genre: playful · theme: Yan riverside
+ * User brief: observe real agents working and living. World navigation with contextual hover labels.
+ * Pre-emit critique: P4 H4 E4 S4 R4 V4. Verified in Electron and at 320/375/414/768/1280 px.
+ * Scoped tokens are imported by the existing stylesheet from ../../tokens.css.
+ */
+.work-gui-page { position: relative; display: block; overflow: clip; isolation: isolate; background: var(--wgu-water); }
+.wgu-root { position: absolute; inset: 0; overflow: clip; color: var(--wgu-ink); font: 13px/1.5 var(--wgu-font-body); user-select: none; }
+.wgu-root *, .wgu-root *::before, .wgu-root *::after { box-sizing: border-box; }
+.wgu-root [hidden] { display: none !important; }
+.wgu-root button { font: inherit; color: inherit; }
+.wgu-root button { cursor: pointer; white-space: nowrap; }
+.wgu-root button:disabled { opacity: .45; cursor: default; }
+.wgu-root :focus-visible { outline: 2px solid var(--wgu-accent); outline-offset: 4px; }
+.wgu-root button:active:not(:disabled) { transform: translateY(1px); }
+.wgu-icon { width: 18px; height: 18px; flex: 0 0 auto; display: inline-block; }
+.wgu-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.wgu-top { position: absolute; top: 28px; left: 32px; right: 28px; display: flex; align-items: flex-start; gap: 24px; pointer-events: none; z-index: 4; }
+.wgu-brand { display: flex; align-items: center; min-width: 175px; min-height: 40px; }
+.wgu-brand strong { display: block; font: 600 24px/1.2 var(--wgu-font-display); letter-spacing: 0; }
+.wgu-scenes { position: absolute; left: 50%; transform: translateX(-50%); margin: 0; display: flex; padding: 5px; gap: 3px; background: var(--wgu-paper); box-shadow: 0 4px 18px var(--wgu-shadow); border: 1px solid var(--wgu-rule); border-radius: 999px; pointer-events: auto; }
+.wgu-scene { border: 0; background: var(--wgu-clear); display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 15px; border-radius: 999px; color: var(--wgu-muted) !important; font-size: 12px !important; }
+.wgu-scene:hover { background: var(--wgu-paper-soft); }
+.wgu-scene.active { background: var(--wgu-accent); color: var(--wgu-paper) !important; }
+.wgu-scene .wgu-icon { width: 15px; height: 15px; }
+.wgu-control { border: 1px solid var(--wgu-rule); background: var(--wgu-paper); min-width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; padding: 0 12px; box-shadow: 0 3px 12px var(--wgu-shadow); font-size: 12px !important; }
+.wgu-control:hover { background: var(--wgu-paper-soft); }
+.wgu-control[aria-pressed="true"] { background: var(--wgu-accent); color: var(--wgu-paper); }
+.wgu-empty { color: var(--wgu-muted); font-size: 11px; padding: 10px 0; line-height: 1.8; }
+.wgu-ticker-wrap { position: absolute; left: 32px; bottom: 32px; z-index: 2; width: min(320px, 32%); pointer-events: none; }
+.wgu-ticker-title { display: flex; gap: 8px; align-items: center; font-size: 11px; font-weight: 600; margin-bottom: 10px; }
+.wgu-ticker-title .wgu-icon { width: 13px; height: 13px; }
+.wgu-ticker { font-size: 10px; }
+.wgu-ticker-line { display: flex; align-items: baseline; gap: 10px; line-height: 2.1; min-width: 0; }
+.wgu-ticker-line time { font: 9px/1 var(--wgu-font-code); color: var(--wgu-muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.wgu-ticker-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wgu-camera { position: absolute; z-index: 4; left: 50%; transform: translateX(-50%); bottom: 28px; display: flex; align-items: center; padding: 4px; gap: 2px; border: 1px solid var(--wgu-rule); border-radius: 999px; background: var(--wgu-paper); box-shadow: 0 5px 20px var(--wgu-shadow); }
+.wgu-camera .wgu-control { border: 0; box-shadow: none; width: 34px; min-width: 34px; flex: 0 0 34px; height: 34px; padding: 0; border-radius: 50%; }
+.wgu-camera-sep { height: 17px; width: 1px; background: var(--wgu-rule); margin: 0 3px; }
+.wgu-camera-hint { position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%); pointer-events: none; color: var(--wgu-muted); font-size: 10px; white-space: nowrap; }
+.wgu-tip { position: absolute; z-index: 6; max-width: 240px; padding: 9px 12px; color: var(--wgu-paper); background: var(--wgu-ink); border-radius: 7px; box-shadow: 0 4px 12px var(--wgu-shadow); pointer-events: none; font-size: 11px; line-height: 1.8; transform: translate(-50%, calc(-100% - 10px)); }
+.wgu-tip strong { font-weight: 600; }
+.wgu-hint { position: absolute; color: var(--wgu-muted); font-size: 11px; line-height: 1.8; pointer-events: none; }
+.wgu-hint strong { display: block; color: var(--wgu-ink); font-size: 13px; margin-bottom: 5px; }
+.wgu-root[data-error="true"] .wgu-hint { pointer-events: auto; top: 38%; left: 50%; transform: translateX(-50%); width: min(320px,80%); background: var(--wgu-paper); padding: 24px; border: 1px solid var(--wgu-rule); border-radius: 12px; }
+@media(max-width:1100px) {
+  .wgu-top { left: 20px; right: 20px; gap: 12px; }
+  .wgu-brand { min-width: 155px; }
+  .wgu-brand strong { font-size: 21px; }
+  .wgu-scene { padding: 10px 12px; }
+  .wgu-ticker-wrap { left: 22px; width: 250px; }
+}
+@media(max-width:800px) {
+  .wgu-top { flex-wrap: wrap; top: 18px; }
+  .wgu-scenes { position: static; transform: none; order: 3; margin: 0; }
+  .wgu-camera { left: auto; right: 20px; transform: none; }
+  .wgu-camera-hint { display: none; }
+  .wgu-ticker-wrap { width: calc(100% - 260px); }
+}
+@media(max-width:540px) {
+  .wgu-top { left: 14px; right: 14px; gap: 15px; }
+  .wgu-brand strong { font-size: 20px; }
+  .wgu-scenes { width: 100%; justify-content: space-between; }
+  .wgu-scene { padding: 10px 8px; flex: 1; font-size: 11px !important; gap: 5px; }
+  .wgu-control { min-width: 36px; padding: 0 9px; }
+  .wgu-ticker-wrap { display: none; }
+  .wgu-camera { left: 50%; right: auto; transform: translateX(-50%); bottom: 24px; }
+  .wgu-root button { min-height: 40px; }
+  .wgu-camera .wgu-control { width: 40px; flex-basis: 40px; height: 40px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .wgu-root *, .wgu-root *::before, .wgu-root *::after { animation: none !important; transition: none !important; }
+}

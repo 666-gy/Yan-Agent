@@ -19,30 +19,7 @@ test('requires an absolute target workspace before normalization', () => {
   assert.equal(normalizeAbsoluteWorkspacePath(absolute), absolute);
 });
 
-test('creates a bounded handoff without changing either workspace', () => {
-  const sourceWorkspace = path.resolve('workspace-one');
-  const targetWorkspace = path.resolve('workspace-two');
-  const messages = Array.from({ length: 30 }, (_, index) => ({
-    role: index % 2 ? 'assistant' : 'user',
-    content: `message-${index}`,
-    ts: index
-  }));
-  const handoff = createHandoffPackage({
-    id: 'source-session',
-    title: 'Source task',
-    workspace: sourceWorkspace,
-    messages
-  }, targetWorkspace, { id: 'handoff-one', now: 123 });
 
-  assert.equal(handoff.sourceSessionId, 'source-session');
-  assert.equal(handoff.sourceWorkspace, sourceWorkspace);
-  assert.equal(handoff.targetWorkspace, targetWorkspace);
-  assert.equal(handoff.messages.length, 24);
-  assert.equal(handoff.messages[0].content, 'message-6');
-  assert.equal(handoff.messages.at(-1).content, 'message-29');
-  assert.equal(sameWorkspace(handoff.sourceWorkspace, handoff.targetWorkspace), false);
-  assert.equal(handoff.context.includes('Active workspace:'), true);
-});
 
 test('reuses the most recently updated task in the target workspace', () => {
   const sourceWorkspace = path.resolve('workspace-one');

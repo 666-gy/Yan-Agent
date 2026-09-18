@@ -1,0 +1,29 @@
+{
+  "id": "protocol-reverse",
+  "name": "Protocol Reverse Workbench",
+  "desc": "未知协议/二进制格式的逆向工作台：采样对齐与熵统计、差分实验、可执行解析器回放验证与状态机归纳",
+  "aliases": [
+    "protocol reverse",
+    "reverse engineering",
+    "协议逆向",
+    "逆向工程",
+    "协议分析"
+  ],
+  "tags": [
+    "code-assist"
+  ],
+  "triggers": [
+    "协议逆向",
+    "逆向协议",
+    "未知协议",
+    "协议分析",
+    "二进制格式",
+    "字段对齐",
+    "parse unknown protocol",
+    "reverse protocol",
+    "hexdump"
+  ],
+  "source": "bundled",
+  "version": 1,
+  "promptFile": "../protocol-reverse/SKILL.md"
+}

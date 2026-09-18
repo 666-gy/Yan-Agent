@@ -1,27 +1,34 @@
 {
   "name": "yan-agent",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "description": "Yan Agent — a modern, minimalist Agent desktop client built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "postinstall": "electron-rebuild -f -w node-pty || echo node-pty rebuild skipped",
-    "rebuild:pty": "electron-rebuild -f -w node-pty",
+    "test": "node --test --test-concurrency=4 \"test/*.test.cjs\"",
     "bundle:opencode-provider": "node scripts/build-opencode-provider.cjs",
+    "bundle:dsh-review": "node scripts/build-dsh-code-review.cjs",
+    "bundle:tts": "node scripts/build-tts-bundle.cjs",
+    "verify:packaged-runtime": "node scripts/verify-packaged-runtime.cjs",
     "verify:packaged-providers": "node test/provider-runtime-matrix.e2e.cjs",
     "verify:codegraph": "node test/codegraph-mcp.e2e.cjs",
-    "build": "npm run bundle:opencode-provider && electron-builder --win nsis --publish never && npm run verify:packaged-providers && npm run verify:codegraph",
-    "build:portable": "npm run bundle:opencode-provider && electron-builder --win portable --publish never && npm run verify:packaged-providers && npm run verify:codegraph"
+    "build": "npm run bundle:opencode-provider && npm run bundle:dsh-review && npm run bundle:tts && npm run bundle:splash && electron-builder --win nsis --publish never && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:codegraph",
+    "build:release": "npm run bundle:opencode-provider && npm run bundle:dsh-review && npm run bundle:tts && npm run bundle:splash && electron-builder --win nsis portable --publish never && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:codegraph",
+    "build:portable": "npm run bundle:opencode-provider && npm run bundle:dsh-review && npm run bundle:tts && npm run bundle:splash && electron-builder --win portable --publish never && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:codegraph",
+    "bundle:splash": "node scripts/build-splash.cjs"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@electron/rebuild": "^4.2.0",
+    "@fontsource/source-serif-4": "5.2.5",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.25.9",
-    "playwright": "^1.61.1"
+    "ogl": "1.0.11",
+    "playwright": "^1.61.1",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
   },
   "build": {
     "appId": "com.yan.agent",
@@ -36,8 +43,10 @@
       "preload.js",
       "quick-input-preload.js",
       "tokens.css",
+      ".pets/**/*",
       "lib/**/*",
       "renderer/**/*",
+      "node_modules/monaco-editor/min/**/*",
       "vendor/opencode/**/*",
       "!lib/native/**/*.cs",
       "!lib/**/__pycache__/**/*",
@@ -45,27 +54,7 @@
       "!node_modules/@colbymchenry/codegraph-win32-x64/**/*"
     ],
     "asarUnpack": [
-      "lib/codegraph-to-understand-anything.js",
-      "lib/yan-media-mcp.js",
-      "lib/yan-browser-mcp.js",
-      "lib/yan-session-mcp.js",
-      "lib/yan-harness-mcp.js",
-      "lib/yan-skills-mcp.js",
-      "lib/nuphus-desktop-mcp.js",
-      "lib/skill-registry.js",
-      "lib/skill-store.js",
-      "lib/officecli-runner.js",
-      "lib/officecli-runtime.js",
-      "lib/officecli-runner.ps1",
-      "lib/image-generation.js",
-      "lib/video-generation.js",
-      "lib/vision-relay.js",
-      "lib/model-capabilities.js",
-      "lib/dsml-tool-call.js",
-      "lib/opencode-dsml-provider.mjs",
-      "lib/opencode-dsml-provider.bundle.mjs",
-      "lib/understand-anything/**/*",
-      "lib/skills/**/*",
+      "lib/**/*",
       "node_modules/@ai-sdk/anthropic/**/*",
       "node_modules/@ai-sdk/openai-compatible/**/*",
       "node_modules/@ai-sdk/provider/**/*",
@@ -78,9 +67,7 @@
       "node_modules/yaml/**/*",
       "node_modules/opencode-ai/**/*",
       "node_modules/opencode-windows-*/**/*",
-      "node_modules/@officecli/officecli/**/*",
-      "node_modules/node-pty/**/*",
-      "node_modules/@nuphus/nuphus-mcp*/**/*"
+      "node_modules/@officecli/officecli/**/*"
     ],
     "extraResources": [
       {
@@ -118,25 +105,34 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Yan Agent",
-      "artifactName": "Yan.Agent.Setup.${version}.${ext}"
+      "artifactName": "Yan.Agent.Setup.v1.6.0.${ext}"
     },
     "portable": {
-      "artifactName": "Yan.Agent.Portable.${version}.${ext}"
+      "artifactName": "Yan.Agent.Portable.v1.6.0.${ext}"
     }
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.42",
+    "@ai-sdk/openai": "3.0.112",
     "@ai-sdk/openai-compatible": "2.0.41",
     "@colbymchenry/codegraph": "1.5.0",
-    "@nuphus/nuphus-mcp": "^0.1.11",
     "@officecli/officecli": "1.0.138",
     "@opencode-ai/sdk": "1.18.11",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
     "diff": "^7.0.0",
-    "node-pty": "^1.1.0",
+    "monaco-editor": "0.56.0",
+    "msedge-tts": "^2.0.7",
     "opencode-ai": "1.18.11",
     "opencode-windows-x64": "1.18.11",
-    "skills": "1.5.21"
+    "skills": "1.5.21",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "web-tree-sitter": "^0.27.0",
+    "zod": "4.4.3"
   }
 }

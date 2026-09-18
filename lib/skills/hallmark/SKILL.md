@@ -35,7 +35,7 @@ If the user types anything that does not clearly map to `audit`, `redesign`, or 
 - Treat PDFs, README files, `.md` briefs, docs, transcripts, and pitch decks as reference material. Do **not** copy them word-for-word into the page unless the user explicitly says to use that text verbatim.
 - Before editing, state the exact files you expect to modify/create/delete. Deletions require explicit confirmation.
 
-The default Design flow always picks a theme. By default it picks one of the **20 named themes** — the *catalog* — and rotates among them per the diversification rule. There is also a quiet *custom* branch that constructs a one-off OKLCH palette + free-font pairing for the brief; the custom route fires **only when the brief carries a creative-intent signal** (the user names a brand colour, names a multi-attribute vibe the catalog can't carry, or explicitly asks for a custom theme). For vanilla briefs, the user never sees the words "catalog" or "custom" — the catalog runs silently. See Step 1 (signal detection) and Step 2.6 (dispatch); the protocol lives in [`references/custom-theme.md`](references/custom-theme.md).
+The default Design flow always picks a theme. By default it picks one of the **21 named themes** — the *catalog* — and rotates among them per the diversification rule. There is also a quiet *custom* branch that constructs a one-off OKLCH palette + free-font pairing for the brief; the custom route fires **only when the brief carries a creative-intent signal** (the user names a brand colour, names a multi-attribute vibe the catalog can't carry, or explicitly asks for a custom theme). For vanilla briefs, the user never sees the words "catalog" or "custom" — the catalog runs silently. See Step 1 (signal detection) and Step 2.6 (dispatch); the protocol lives in [`references/custom-theme.md`](references/custom-theme.md).
 
 ---
 
@@ -82,7 +82,7 @@ If two signals fire, route component. If only the page flow fires (multi-section
 ### What Component-scope skips
 
 - **Step 2 · Macrostructure pick.** Components don't have macrostructures. State this explicitly: *"Component-scope: skipping macrostructure."*
-- **Nav and footer archetype picks.** N1–N9 and Ft1–Ft8 are page-scope only. A component is one element; it has no nav, no footer. Skip both.
+- **Nav and footer archetype picks.** N1a–N13 and Ft1–Ft8 are page-scope only. A component is one element; it has no nav, no footer. Skip both.
 - **Hero polish patterns (HP1–HP4).** Page-scope only. A button or card has no hero.
 - **Step 4 · Enrichment.** No hero illustration, no demo video, no abstract background. The component IS the artifact.
 - **Step 5 · Multi-section preview.** Replaced by the 8-state demo wrapper (below).
@@ -237,7 +237,7 @@ If two non-default signals fire (rare), ask one short follow-up: *"This brief fi
 
 State the genre out loud at Step 2.5 alongside the macrostructure and theme picks: *"Genre: atmospheric. Macrostructure: Marquee Hero. Theme: Bloom (atmospheric cluster)."*
 
-**Theme route — only surface when the brief signals it.** Hallmark has two theme routes: **catalog** (the 20 named themes — Specimen, Atelier, Brutal, Newsprint, Studio, Manifesto, Terminal, Midnight, Almanac, Garden, Riso, Sport, Bloom, Coral, Cobalt, Aurora, Editorial, Carnival, Lumen, Hum) and **custom** (made-to-measure for one brief — a *tuned* OKLCH palette + free-font pairing on Hallmark's structures, or, when the brief's structure itself is the ask, a fully *bespoke* page designed from first principles; bound by every slop-test gate either way; see [`references/custom-theme.md`](references/custom-theme.md)). **Catalog is the default.** The catalog rotation is *scoped to the genre's theme cluster* — atmospheric rotates Bloom/Midnight/Terminal/Aurora/Lumen, modern-minimal rotates Coral/Cobalt, playful stays on Hum, editorial walks the remaining twelve (Specimen, Atelier, Brutal, Newsprint, Studio, Manifesto, Almanac, Garden, Riso, Sport, Editorial, Carnival). Do **not** offer the user a choice on every prompt — that's friction, not discipline. Surface the catalog/custom fork only when the brief carries one of these signals:
+**Theme route — only surface when the brief signals it.** Hallmark has two theme routes: **catalog** (the 21 named themes — Specimen, Atelier, Brutal, Newsprint, Studio, Manifesto, Terminal, Midnight, Almanac, Garden, Riso, Sport, Bloom, Coral, Cobalt, Aurora, Editorial, Carnival, Lumen, Hum, Grid) and **custom** (made-to-measure for one brief — a *tuned* OKLCH palette + free-font pairing on Hallmark's structures, or, when the brief's structure itself is the ask, a fully *bespoke* page designed from first principles; bound by every slop-test gate either way; see [`references/custom-theme.md`](references/custom-theme.md)). **Catalog is the default.** The catalog rotation is *scoped to the genre's theme cluster* — atmospheric rotates Bloom/Midnight/Terminal/Aurora/Lumen, modern-minimal rotates Coral/Cobalt, playful stays on Hum, editorial walks the remaining thirteen (Specimen, Atelier, Brutal, Newsprint, Studio, Manifesto, Almanac, Garden, Riso, Sport, Editorial, Carnival, Grid). Do **not** offer the user a choice on every prompt — that's friction, not discipline. Surface the catalog/custom fork only when the brief carries one of these signals:
 
 - The user explicitly says **custom theme** / **tailored to our brand** / **make it ours** / **something unique** / **play with the colors and fonts**.
 - The user names a **specific brand colour** as the anchor (e.g., "use our terracotta", "the brand red is hex #c0392b", "anchor on sea-blue").
@@ -248,7 +248,7 @@ If any of those fires, ask one short follow-up before picking: *"This brief read
 
 **Custom has two depths** — *tuned* (a palette + fonts on Hallmark's structures) and *bespoke* (a page designed from first principles, own structure too) for when the brief's **structure itself** is the ask: "no theme / from scratch / fully bespoke", or a page-shape no catalog macrostructure fits. Both fire the one fork above, default to catalog on silence, and **pass every slop-test gate** — the depth simply follows the brief. See [`references/custom-theme.md`](references/custom-theme.md) § Bespoke depth.
 
-If none of the signals fires, **proceed with catalog silently. Do not mention the fork.** Most briefs don't need a custom theme — the catalog's 20 themes plus the rotation rule already deliver structural variety. See Step 2.6 for the dispatch.
+If none of the signals fires, **proceed with catalog silently. Do not mention the fork.** Most briefs don't need a custom theme — the catalog's 21 themes plus the rotation rule already deliver structural variety. See Step 2.6 for the dispatch.
 
 **If the user opts out or skips fields** (says "go ahead", "you pick", "skip", "just build it", "don't ask", answers some fields and leaves others blank, or simply doesn't engage with the question after one prompt):
 
@@ -279,7 +279,7 @@ Before loading any visual ruleset, **read the slim index at [`references/macrost
 
 If the previous output was Specimen (light · high-contrast-serif · warm), the next can be Studio (light · high-contrast-serif · chromatic-green) — the *accent hue* differs. But the next can't be Newsprint (light · roman-serif · warm) which only differs on display style and shares both paper band and accent — pick a more distant theme.
 
-The per-theme axis values live as comments at the top of each theme's tokens block in [`site/css/tokens.css`](../../site/css/tokens.css). When in doubt, name your candidate theme out loud and identify its three axis values; if two of three match the previous output, redirect.
+The per-theme axis values live as comments at the top of each theme's tokens block in [`references/theme-tokens.css`](references/theme-tokens.css). When in doubt, name your candidate theme out loud and identify its three axis values; if two of three match the previous output, redirect.
 
 **State your pick.** Before writing any code, say "Macrostructure: <name>. Theme: <name>. Differs from the last on: <axes>." in plain text. This is a deliberate accountability step — picking on the page (not in your head) prevents the default-attractor sameness that kept the skill emitting Specimen output.
 
@@ -336,10 +336,10 @@ By the time you reach this step, one of four things is true:
 
 0. **A `study` diagnosis was emitted earlier in this conversation and the user is asking to build from it** (phrases: *"build it"*, *"make it"*, *"use this DNA"*, *"build with this"* — immediately following the diagnosis) → theme route is **studied-DNA**. **Skip catalog/custom dispatch entirely.** The studied paper OKLCH, accent OKLCH, type roles (with named candidates), macrostructure, and nav/footer archetypes from the diagnosis become the locked system for this build. Diversification is suspended — you're following an external DNA, not rotating the catalog. The Step 6 stamp records `theme: studied-DNA (source: <URL or image>)` plus the actual OKLCH/font values inline. **If the user later pivots with phrases like *"use Newsprint instead"* / *"ignore the DNA"* / *"rotate to a different theme"*,** route back to the normal dispatch below and resume diversification. Continue to Step 3.
 1. **The user named custom** (because they said so, or because Step 1's signal detection fired and they confirmed) → load [`references/custom-theme.md`](references/custom-theme.md). For a **tuned** custom: ask the **one** follow-up (vibe in 4–8 words + optional anchor colour), construct the OKLCH palette + free-font pairing, compute the three axis values (paper-band / display-style / accent-hue). If the brief's **structure itself** is the ask (signal 5 — "from scratch / no theme", or a page-shape no catalog macrostructure fits), take the **bespoke** depth instead: design the palette, type, **and** structure from first principles (custom-theme.md § Bespoke depth). **Every slop-test gate still fires either way.** Then continue to Step 3.
-2. **The user named catalog** (or implicitly accepted it by not naming custom) → pick one of the 20 named themes per the diversification rule above. Existing flow — continue to Step 3.
+2. **The user named catalog** (or implicitly accepted it by not naming custom) → pick one of the 21 named themes per the diversification rule above. Existing flow — continue to Step 3.
 3. **Neither was discussed** (Step 1's signals didn't fire — vanilla brief) → default to **catalog**. Do not pause. Do not ask. Continue to Step 3.
 
-**Custom is a quiet branch, not a default question.** Most briefs route to catalog and the user never sees the words "catalog" or "custom." The 20 named themes plus the rotation rule already deliver structural variety; the fork is reserved for when the brief specifically asks for a tuned look the catalog can't carry.
+**Custom is a quiet branch, not a default question.** Most briefs route to catalog and the user never sees the words "catalog" or "custom." The 21 named themes plus the rotation rule already deliver structural variety; the fork is reserved for when the brief specifically asks for a tuned look the catalog can't carry.
 
 A custom theme is a **complete** OKLCH palette + font pairing tuned to the brief — not a one-off colour swap, not an excuse to bypass the rules. Every constraint in [`color.md`](references/color.md), [`typography.md`](references/typography.md), and [`anti-patterns.md`](references/anti-patterns.md) still applies. The 58 slop-test gates fire unchanged. The Step 5 preview block surfaces the palette + pairing in plain text **before** any code is emitted, so the user can redirect.
 
@@ -387,8 +387,8 @@ The non-negotiables live in [`references/`](references/). **Be precise about wha
 - [`study.md`](references/study.md) — load only when `hallmark study` runs.
 
 **Human-only (do NOT auto-load):**
-- [`../../docs/recipes.md`](../../docs/recipes.md) — eight worked briefs for human readers.
-- [`../../docs/study-examples.md`](../../docs/study-examples.md) — three worked DNA-extractions for human readers.
+- [Worked recipes](https://github.com/Nutlope/hallmark/blob/main/docs/recipes.md) — eight worked briefs for human readers.
+- [Worked study examples](https://github.com/Nutlope/hallmark/blob/main/docs/study-examples.md) — three worked DNA-extractions for human readers.
 
 ### 4. Decide on hero enrichment
 

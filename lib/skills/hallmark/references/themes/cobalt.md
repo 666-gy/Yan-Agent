@@ -2,7 +2,7 @@
 
 Modern-minimal, dev-tool register. The page for an **API, an SDK, a CLI, a docs home, a developer platform** — the GitBook / Firecrawl / Vercel school, executed in **cool cobalt-on-light, not orange**. A calm cool-white ground, ruler-drawn hairlines, exactly ONE electric cobalt signal accent, and **code as the hero**. It reads like good infrastructure: calm, precise, fast.
 
-Loaded eagerly by SKILL.md Step 3 whenever the catalog pick is `cobalt`. The OKLCH palette + font stack live in [`site/css/tokens.css`](../../../../site/css/tokens.css) under `[data-theme="cobalt"]`. Canonical build: [`site/examples/cobalt-01/`](../../../../site/examples/cobalt-01/) (an API product landing with a request/response hero).
+Loaded eagerly by SKILL.md Step 3 whenever the catalog pick is `cobalt`. The OKLCH palette + font stack live in [`theme-tokens.css`](../theme-tokens.css) under `[data-theme="cobalt"]`. Canonical build: [upstream cobalt-01](https://github.com/Nutlope/hallmark/tree/main/site/examples/cobalt-01) (an API product landing with a request/response hero).
 
 > **Why not orange.** GitBook and Firecrawl both converged on orange-as-signal — but that lane is now crowded, and Hallmark's warm slots are already taken (Lumen brass, Bloom terracotta, Coral coral). Cobalt keeps their *discipline* (cool ground + one signal + code-as-hero + hairlines) and aims the signal at the open electric-blue lane instead. The blue is the differentiator, not a copy.
 
@@ -143,4 +143,4 @@ body { background: var(--color-paper); color: var(--color-ink-2);
 }
 ```
 
-Plus the Space Grotesk + Inter + JetBrains Mono link and the small reveal/type-in script. The canonical build to mirror is [`site/examples/cobalt-01/`](../../../../site/examples/cobalt-01/).
+Plus the Space Grotesk + Inter + JetBrains Mono link and the small reveal/type-in script. The canonical build to mirror is [upstream cobalt-01](https://github.com/Nutlope/hallmark/tree/main/site/examples/cobalt-01).

@@ -1,0 +1,20 @@
+name: unit-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Native builds (node-pty, Electron binaries) are not needed for the
+      # unit suite; skip lifecycle scripts to keep CI fast and hermetic.
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm test

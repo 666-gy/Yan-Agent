@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {_electron:electron}=require('playwright');
+(async()=>{let app;try{
+ const root=path.resolve(__dirname,'..');app=await electron.launch({executablePath:require('electron'),args:[root],cwd:root,env:{...process.env,YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'yan-stars-'))}});
+ const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(/Shader Error|VALIDATE_STATUS|Error compiling|FRAGMENT shader|VERTEX shader/i.test(m.text()))errors.push(m.text());});
+ await page.waitForFunction(()=>window.YanTiangongHost&&typeof showWindowView==='function'&&state.currentSession);
+ await page.evaluate(()=>showWindowView('work-gui'));const frame=page.frameLocator('.yan-palace-frame');
+ await frame.getByRole('button',{name:'推 门 入 阙',exact:false}).click();await frame.locator('#palace-entry').waitFor({state:'detached'});
+ await frame.locator('#music-replay.playing').waitFor();
+ await frame.getByRole('button',{name:'重播入阙音乐',exact:true}).click();await frame.locator('#music-replay.playing').waitFor();
+ await frame.getByRole('button',{name:'观荷',exact:true}).click();
+ await frame.getByRole('button',{name:'观星阁',exact:true}).click();await frame.getByRole('heading',{name:'一观星河',exact:true}).waitFor();
+ assert.equal(await frame.locator('dialog[open]').count(),0);assert.equal(await frame.locator('canvas').count(),1);
+ await frame.locator('.galaxy-credit').waitFor({state:'visible'});
+ assert.match(await frame.locator('.galaxy-credit').textContent(),/ESO\/S. Brunier/);
+ await page.waitForTimeout(5500);fs.mkdirSync(path.join(root,'output/palace'),{recursive:true});await page.screenshot({path:path.join(root,'output/palace/observatory.png')});
+ const canvas=frame.locator('#world');await canvas.press('ArrowLeft');await canvas.press('ArrowUp');
+ await page.waitForTimeout(350);await page.screenshot({path:path.join(root,'output/palace/observatory-rotated.png')});
+ await frame.getByRole('button',{name:'返回天宫',exact:true}).click();await frame.getByRole('button',{name:'观荷',exact:true}).click();await frame.getByRole('heading',{name:'风过莲池',exact:true}).waitFor();
+ await frame.locator('[data-shot="0"]').click();await page.waitForTimeout(3500);await page.screenshot({path:path.join(root,'output/palace/overview-refined.png')});
+ await frame.locator('[data-shot="2"]').click();await page.waitForTimeout(3500);await page.screenshot({path:path.join(root,'output/palace/hall-refined.png')});
+ assert.deepEqual(errors,[]);console.log('PASS: entry audio, replay, observatory rendering, exit and pond navigation');
+}finally{await app?.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

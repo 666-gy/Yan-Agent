@@ -5,21 +5,40 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 
-function startMcp(root) {
+function startMcp(root, { runtimeContext = false } = {}) {
   const workspace = path.join(root, 'workspace');
   fs.mkdirSync(workspace, { recursive: true });
-  const requestPath = path.join(root, 'pending', 'run-test.json');
+  const taskId = runtimeContext ? 'run-runtime-test' : 'run-test';
+  const requestPath = path.join(root, 'pending', `${taskId}.json`);
+  const contextDir = path.join(root, 'runtime');
+  const workspaceStatePath = path.join(workspace, '.yanagent', 'harness', 'harness-state.json');
+  if (runtimeContext) {
+    fs.mkdirSync(contextDir, { recursive: true });
+    const contextKey = crypto.createHash('sha256').update(taskId).digest('hex');
+    fs.writeFileSync(path.join(contextDir, `${contextKey}.json`), JSON.stringify({
+      runId: taskId,
+      sessionId: 'session-runtime-test',
+      workspace,
+      requestPath,
+      workspaceStatePath
+    }));
+  }
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'lib', 'yan-harness-mcp.js')], {
     env: {
       ...process.env,
-      YAN_HARNESS_REQUEST_PATH: requestPath,
-      YAN_HARNESS_RUN_ID: 'run-test',
-      YAN_HARNESS_SESSION_ID: 'session-test',
-      YAN_HARNESS_WORKSPACE: workspace,
       YAN_HARNESS_GLOBAL_STATE_PATH: path.join(root, 'global.json'),
-      YAN_HARNESS_WORKSPACE_STATE_PATH: path.join(workspace, '.yanagent', 'harness', 'harness-state.json')
+      ...(runtimeContext ? {
+        YAN_HARNESS_CONTEXT_DIR: contextDir
+      } : {
+        YAN_HARNESS_REQUEST_PATH: requestPath,
+        YAN_HARNESS_RUN_ID: taskId,
+        YAN_HARNESS_SESSION_ID: 'session-test',
+        YAN_HARNESS_WORKSPACE: workspace,
+        YAN_HARNESS_WORKSPACE_STATE_PATH: workspaceStatePath
+      })
     },
     stdio: ['pipe', 'pipe', 'pipe']
   });
@@ -48,7 +67,7 @@ function startMcp(root) {
     });
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
   });
-  return { child, request, requestPath, workspace };
+  return { child, request, requestPath, workspace, taskId };
 }
 
 test('MCP queues refine and rollback operations without applying them', async t => {
@@ -63,9 +82,52 @@ test('MCP queues refine and rollback operations without applying them', async t 
   const listed = await mcp.request('tools/list');
   assert.deepEqual(listed.result.tools.map(tool => tool.name), [
     'schedule_refinement',
+    'list_entries',
+    'get_entry',
+    'delete_entry',
     'get_refinement_status',
     'schedule_rollback'
   ]);
+  fs.writeFileSync(path.join(root, 'global.json'), JSON.stringify({
+    schema: 1,
+    scope: 'global',
+    revision: 1,
+    entries: {
+      prompt: {},
+      memory: {
+        'mcp-read-memory': {
+          id: 'mcp-read-memory',
+          kind: 'memory',
+          title: 'MCP 读取条目',
+          content: 'MCP 读取工具应返回这条记忆的完整内容。',
+          path: 'harness',
+          scope: 'global',
+          metadata: { status: 'active' },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          version: 1
+        }
+      },
+      skill: {},
+      subagent: {}
+    },
+    refinements: [],
+    updatedAt: Date.now()
+  }));
+  const listedEntries = await mcp.request('tools/call', { name: 'list_entries', arguments: {} });
+  assert.equal(listedEntries.result.structuredContent.count, 1);
+  assert.equal(listedEntries.result.structuredContent.entries[0].id, 'mcp-read-memory');
+  const fetched = await mcp.request('tools/call', {
+    name: 'get_entry',
+    arguments: { kind: 'memory', id: 'mcp-read-memory' }
+  });
+  assert.equal(fetched.result.structuredContent.entry.content, 'MCP 读取工具应返回这条记忆的完整内容。');
+  const invalidRead = await mcp.request('tools/call', {
+    name: 'get_entry',
+    arguments: { kind: 'unknown', id: 'x' }
+  });
+  assert.equal(invalidRead.result.isError, true);
+  assert.match(invalidRead.result.structuredContent.error, /Unsupported harness kind/);
   const refine = await mcp.request('tools/call', {
     name: 'schedule_refinement',
     arguments: { instructions: 'Retain the verified project build recovery tactic.', scope: 'workspace' }
@@ -82,4 +144,76 @@ test('MCP queues refine and rollback operations without applying them', async t 
   const queued = JSON.parse(fs.readFileSync(mcp.requestPath, 'utf8'));
   assert.equal(queued.action, 'rollback');
   assert.equal(queued.rollbackId, 'refine-target');
+});
+
+test('stable MCP runtime routes calls through the latest task context', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-harness-runtime-mcp-'));
+  const mcp = startMcp(root, { runtimeContext: true });
+  t.after(() => {
+    mcp.child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await mcp.request('initialize', { protocolVersion: '2025-03-26' });
+  const listed = await mcp.request('tools/list');
+  for (const tool of listed.result.tools) {
+    assert.equal(tool.inputSchema.required.includes('task_id'), true, tool.name);
+  }
+
+  const missing = await mcp.request('tools/call', {
+    name: 'get_refinement_status',
+    arguments: {}
+  });
+  assert.equal(missing.result.isError, true);
+  assert.match(missing.result.structuredContent.error, /task_id/i);
+
+  const refine = await mcp.request('tools/call', {
+    name: 'schedule_refinement',
+    arguments: {
+      task_id: mcp.taskId,
+      instructions: 'Retain the runtime-routed recovery tactic.',
+      scope: 'workspace'
+    }
+  });
+  assert.equal(refine.result.structuredContent.scheduled, true);
+  const queued = JSON.parse(fs.readFileSync(mcp.requestPath, 'utf8'));
+  assert.equal(queued.runId, mcp.taskId);
+  assert.equal(queued.sessionId, 'session-runtime-test');
+
+  const expired = await mcp.request('tools/call', {
+    name: 'get_refinement_status',
+    arguments: { task_id: 'unknown-run' }
+  });
+  assert.equal(expired.result.isError, true);
+  assert.match(expired.result.structuredContent.error, /no live yan harness task context matches/i);
+
+  // A one-character transcription slip must still land on the live context.
+  const mistyped = `${mcp.taskId.slice(0, -1)}${mcp.taskId.slice(-1) === 'a' ? 'b' : 'a'}`;
+  const typo = await mcp.request('tools/call', {
+    name: 'get_refinement_status',
+    arguments: { task_id: mistyped }
+  });
+  assert.equal(typo.result.isError, false, typo.result.structuredContent?.error);
+  assert.equal(typo.result.structuredContent.ok, true);
+});
+
+test('durable refinement activates before the current turn releases its pending request', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-harness-mcp-immediate-'));
+  const mcp = startMcp(root);
+  t.after(() => {
+    mcp.child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await mcp.request('initialize', { protocolVersion: '2025-03-26' });
+  const refine = await mcp.request('tools/call', {
+    name: 'schedule_refinement',
+    arguments: {
+      instructions: '以后搜索优先使用 AnySearch，只有不可用时才回退内置浏览器。',
+      scope: 'global'
+    }
+  });
+  assert.equal(refine.result.structuredContent.activated, true);
+  const state = JSON.parse(fs.readFileSync(path.join(root, 'global.json'), 'utf8'));
+  const entry = Object.values(state.entries.prompt).find(item => item.content.includes('AnySearch'));
+  assert.equal(entry.metadata.status, 'active');
+  assert.equal(entry.metadata.enforcement, 'mandatory');
 });

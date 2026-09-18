@@ -120,9 +120,6 @@ async function guestState(page, tabId) {
       return {
         hasLegacyConfig: Object.hasOwn(config, 'computerUseV3'),
         hasLegacyMcp: servers.some(server => server.id === 'mcp_default_windows'),
-        hasComputerControlMcp: servers.some(server => server.id === 'nuphus-desktop'),
-        hasComputerUseSkill: [...(installedSkills || []), ...(marketSkills || [])]
-          .some(skill => skill.id === 'yan-computer-use'),
         hasLegacySettings: !!document.querySelector('#computerUseV3Enabled, #computerUseV3Actor')
       };
     });
@@ -130,38 +127,21 @@ async function guestState(page, tabId) {
       assert.deepEqual(computerControlIntegration, {
         hasLegacyConfig: false,
         hasLegacyMcp: false,
-        hasComputerControlMcp: true,
-        hasComputerUseSkill: true,
         hasLegacySettings: false
       });
     }
 
     if (process.env.YAN_BROWSER_E2E_SKIP_COMPUTER_CONTROL_CHECK !== '1') {
       await page.locator('#attachBtn').click();
-      const addMenuHeadings = await page.evaluate(() => {
-        const add = document.querySelector('#composerAddSectionTitle');
-        const skill = document.querySelector('#composerSkillSectionTitle')?.closest('.composer-add-section-title');
-        const summarize = element => {
-          const style = getComputedStyle(element);
-          return {
-            minHeight: style.minHeight,
-            padding: style.padding,
-            color: style.color,
-            fontSize: style.fontSize,
-            fontWeight: style.fontWeight,
-            backgroundColor: style.backgroundColor
-          };
-        };
-        return {
-          addText: add?.textContent?.trim(),
-          skillText: skill?.textContent?.trim(),
-          add: summarize(add),
-          skill: summarize(skill)
-        };
-      });
-      assert.equal(addMenuHeadings.addText, '添加');
-      assert.equal(addMenuHeadings.skillText, '技能');
-      assert.deepEqual(addMenuHeadings.skill, addMenuHeadings.add);
+      const addMenu = await page.evaluate(() => ({
+        labels: [...document.querySelectorAll('#attachmentMenu .composer-add-action-name')]
+          .map(element => element.textContent.trim()),
+        role: document.querySelector('#attachmentMenu')?.getAttribute('role'),
+        workModeLauncherExpanded: document.querySelector('#composerSkillWorkModeAction')?.getAttribute('aria-expanded')
+      }));
+      assert.deepEqual(addMenu.labels.slice(0, 3), ['添加附件', '优化你的prompt', '使用/选择技能或工作方式']);
+      assert.equal(addMenu.role, 'menu');
+      assert.equal(addMenu.workModeLauncherExpanded, 'false');
       await page.screenshot({ path: addMenuScreenshotPath });
       await page.locator('#attachBtn').click();
     }
@@ -205,7 +185,11 @@ async function guestState(page, tabId) {
         tabCount: roots.length,
         urls: roots.map(root => root.querySelector('webview')?.getURL?.() || ''),
         controlled: agentRoot.classList.contains('agent-controlled'),
-        label: agentRoot.querySelector('[data-browser-role="agent-control-label"]')?.textContent,
+        label: agentRoot.querySelector('[data-browser-role="agent-control-label"] span')?.textContent?.trim(),
+        handButton: !!agentRoot.querySelector('.browser-agent-control-label-button'),
+        topStatusHidden: getComputedStyle(
+          agentRoot.querySelector('[data-browser-role="agent-status"]')
+        ).display === 'none',
         shieldFocused: document.activeElement === agentRoot.querySelector('[data-browser-role="agent-input-shield"]'),
         takeoverVisible: takeoverStyle.visibility === 'visible' && Number(takeoverStyle.opacity) === 1,
         controls,
@@ -218,7 +202,9 @@ async function guestState(page, tabId) {
     assert.equal(takeover.userUrlIntact, true);
     assert.equal(takeover.controlled, true);
     assert.equal(takeover.takeoverVisible, true);
-    assert.equal(takeover.label, 'Agent正在操控该网页，按Esc退出');
+    assert.equal(takeover.label, 'Yan Agent正在操控Browser');
+    assert.equal(takeover.handButton, true);
+    assert.equal(takeover.topStatusHidden, true);
     assert.equal(takeover.shieldFocused, true);
     assert.equal(takeover.addressDisabled, true);
     assert.equal(takeover.controls.find(item => item.action === 'reload')?.disabled, false);
@@ -399,7 +385,9 @@ async function guestState(page, tabId) {
     }, agentTabId);
     assert.equal(cursorVisible, true);
 
-    await page.keyboard.press('Escape');
+    await page.locator(
+      `[data-browser-tab-id="${agentTabId}"] .browser-agent-control-label-button`
+    ).click();
     await page.waitForFunction(id => !document.querySelector(`[data-browser-tab-id="${id}"]`)?.classList.contains('agent-controlled'), agentTabId);
     const retainedRightWidth = await page.evaluate(() => (
       parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--rs-w')) || 0
@@ -407,6 +395,16 @@ async function guestState(page, tabId) {
     assert.equal(retainedRightWidth, expandedRightWidth);
     const afterEscape = await command(page, runId, 'status');
     assert.equal(afterEscape.code, 'BROWSER_AGENT_CONTROL_RELEASED');
+
+    // A later task must reclaim the retained Agent tab without opening it
+    // again. This mirrors a user starting a second conversation after the
+    // first browser task has completed.
+    const sequentialRunId = 'browser-e2e-sequential';
+    const sequentialStatus = await command(page, sequentialRunId, 'status');
+    assert.equal(sequentialStatus.ok, true);
+    assert.equal(sequentialStatus.tabId, agentTabId);
+    assert.equal(sequentialStatus.agentControlled, true);
+    await releaseCommand(page, sequentialRunId);
 
     const closeRunId = 'browser-e2e-close';
     const closeOpened = await command(page, closeRunId, 'open', { target_type: 'url', url_or_path: agentUrl });

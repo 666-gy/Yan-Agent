@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>云顶天宫 · Yan Work GUI</title>
+  <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="palace-panels.css"><link rel="stylesheet" href="palace-gate.css">
+<link rel="stylesheet" href="stargazing.css"></head>
+<body>
+  <main id="experience" aria-label="云顶天宫交互场景">
+    <canvas id="world" aria-label="可拖动观察的天宫三维场景" tabindex="0"></canvas>
+    <div class="shade" aria-hidden="true"></div>
+    <header class="chrome top">
+      <a class="brand" href="#" aria-label="回到天宫全景"><span class="seal">阙</span><span>YAN AGENT <i>／</i> WORK GUI</span></a>
+      <div class="top-actions"><span class="prototype">云阙工作台</span><label class="quality-control">画质 <select id="quality" aria-label="场景画质"><option value="auto">自适应</option><option value="high">精细</option><option value="balanced">均衡</option><option value="smooth">流畅</option></select></label><button id="pond-button">观荷</button><button id="ambience" aria-label="切换暮色" title="切换晨光与暮色">晨光 <span>◐</span></button><button id="hide-ui" aria-label="隐藏界面" title="沉浸模式 · H">沉浸 <span>⛶</span></button></div>
+    </header>
+    <section class="chrome chapter" aria-label="当前镜头">
+      <div class="eyebrow"><span class="chapter-line"></span><span id="chapter-index">第一境 · 观局</span></div>
+      <h1 id="chapter-title">云顶天宫</h1>
+      <p id="chapter-description">云起万重阙，一览众事生。</p>
+      <div class="chapter-caption"><span id="lens-caption">全景 · 宫阙群</span><span class="tiny-rule"></span><span>实时三维</span></div>
+    </section>
+    <section class="chrome status" aria-label="演示运转状态">
+      <div class="status-heading"><span class="pulse"></span>天工殿<span class="demo-label">LIVE</span></div>
+      <h2>任务与工具，汇于此间</h2><p>主任务 · 协作 · Skill / MCP</p>
+      <button class="task-link" id="open-task">前往天工殿 <span>↗</span></button>
+      <div class="status-foot"><span>工作空间</span><span id="task-stage">实现与编排</span></div>
+    </section>
+    <div id="hotspots" aria-label="宫阙运转入口"></div>
+    <aside id="detail" hidden aria-labelledby="detail-title">
+      <button class="close" id="close-detail" aria-label="关闭建筑详情">×</button>
+      <div class="eyebrow">宫阙志 <span id="detail-number">01</span></div>
+      <h2 id="detail-title"></h2><p id="detail-subtitle" class="detail-subtitle"></p>
+      <div class="detail-divider"></div><div id="detail-content"></div>
+      <p class="detail-note">此处为交互演示，未连接真实任务。</p>
+    </aside>
+    <footer class="chrome bottom">
+      <div class="scene-index"><span id="scene-number">01</span><i> / 06</i><p>一境一事 · 移步换景</p></div>
+      <nav class="shots" aria-label="镜头相位">
+        <button data-shot="0" class="active" aria-current="true"><span>01</span>观局</button>
+        <button data-shot="1"><span>02</span>入境</button>
+        <button data-shot="2"><span>03</span>天工</button>
+        <button data-shot="3"><span>04</span>协同</button>
+        <button data-shot="4"><span>05</span>藏卷</button>
+        <button data-shot="5"><span>06</span>归阙</button>
+      </nav>
+      <div class="tour-control"><button id="tour" aria-pressed="false"><span id="tour-icon">▷</span> 自动巡游</button><div class="tour-track"><i id="tour-progress"></i></div></div>
+    </footer>
+    <div class="chrome navigation-hint">拖动微调视角 <b>·</b> 滚轮拉近 <b>·</b> 点击殿宇查看运转 <b>·</b> <kbd>H</kbd> 沉浸</div>
+    <button id="restore-ui" hidden aria-label="显示界面">显示界面 <kbd>H</kbd></button>
+    <div id="loading" role="status"><span class="loading-seal">阙</span><p>穿云入境</p><span>正在构筑宫阙</span><i></i></div>
+    <div id="error" hidden role="alert"><h2>暂时无法打开三维场景</h2><p>请使用支持 WebGL 的 Edge 或 Chrome，并开启浏览器图形加速。</p><button onclick="location.reload()">重新打开</button></div>
+    <p id="announcement" class="sr-only" aria-live="polite"></p>
+  </main>
+  <script src="assets/three.global.js"></script><script src="assets/textures-data.js"></script><script src="assets/gltf-loader.js"></script><script src="lotus-ponds.js"></script><script src="scene.js"></script><script src="performance.js"></script><script src="palace-panels.js"></script><script src="stargazing.js"></script><script src="entry-audio.js"></script><script src="app.js"></script><script src="palace-gate.js"></script>
+</body>
+</html>

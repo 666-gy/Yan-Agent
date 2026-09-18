@@ -171,3 +171,45 @@ test('rolling back a corrected fact reactivates the superseded fact', t => {
   assert.match(active[0].content, /npm run build/);
   assert.equal(active[0].status, 'active');
 });
+
+test('memory writes land through an atomic rename without temp-file litter', t => {
+  const fixture = createStore();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+  for (let index = 0; index < 3; index++) {
+    const result = fixture.store.upsert({
+      type: 'project',
+      scope: 'global',
+      content: `Durable project fact number ${index} for atomic write verification.`
+    });
+    assert.equal(result.ok, true);
+  }
+  assert.equal(JSON.parse(fs.readFileSync(fixture.store.globalPath, 'utf8')).memories.length, 3);
+  assert.deepEqual(fs.readdirSync(fixture.root).filter(name => name.includes('.tmp')), []);
+});
+
+test('the newest workspace work-state card is always injected for continuity', t => {
+  const fixture = createStore();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const writeState = content => fixture.store.upsert({
+    key: 'work.state.current',
+    type: 'work_state',
+    scope: 'workspace',
+    content,
+    evidence: 'output/playwright/result.png',
+    confidence: 0.9
+  }, { workspace: fixture.workspaceA });
+
+  writeState('进展：完成 icon 抓取；下一步：接入页面');
+  const unrelated = fixture.store.query({ query: '完全无关的新话题 天气如何', workspace: fixture.workspaceA });
+  assert.match(unrelated.context, /workspace\/work_state/);
+  assert.match(unrelated.context, /完成 icon 抓取/);
+
+  writeState('进展：完成页面接入；未决：移动端；下一步：回归测试');
+  const resumed = fixture.store.query({ query: '继续之前的工作', workspace: fixture.workspaceA });
+  assert.match(resumed.context, /完成页面接入/);
+  assert.doesNotMatch(resumed.context, /完成 icon 抓取/);
+
+  const otherWorkspace = fixture.store.query({ query: '继续之前的工作', workspace: fixture.workspaceB });
+  assert.doesNotMatch(otherWorkspace.context, /完成页面接入/);
+});

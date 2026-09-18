@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, webContents, screen, session, clipboard, globalShortcut, net: electronNet } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, webContents, screen, session, clipboard, globalShortcut, safeStorage, net: electronNet } = require('electron');
 const path = require('path');
+const { agiEnabled, evolutionEnabled, isolateWorkMode } = require('./lib/work-mode-isolation');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const net = require('net');
@@ -9,6 +10,12 @@ const { pathToFileURL } = require('url');
 const { execFile, spawn } = require('child_process');
 const { fetchRemoteModelCatalog, normalizeRemoteModels } = require('./lib/model-catalog');
 const {
+  GLM_OFFICIAL_SUPPLEMENTAL_MODELS,
+  SENSENOVA_OFFICIAL_SUPPLEMENTAL_MODELS,
+  buildSelectableModelCatalog,
+  summarizeModelCatalog
+} = require('./lib/provider-model-catalog');
+const {
   decorateModels,
   resolveModelCapabilities,
   resolveImageGenerationConfig,
@@ -17,7 +24,8 @@ const {
 const {
   AGNES_FALLBACK_MODELS,
   DEFAULT_MODEL_ROLES,
-  GLM_VISION_RELAY_MODELS,
+  VISION_RELAY_MODELS_BY_PRESET,
+  VISION_RELAY_PRESET_ORDER,
   buildMediaModelList,
   buildQuickSupplierGroups,
   configuredSupplierModels,
@@ -25,7 +33,9 @@ const {
 } = require('./lib/model-roles');
 const { detectImageType, generateImage } = require('./lib/image-generation');
 const { generateVideo } = require('./lib/video-generation');
-const { describeImages, isRecoverableVisionRelayError } = require('./lib/vision-relay');
+const { buildScreenshotRelayInput, describeImages, isRecoverableVisionRelayError } = require('./lib/vision-relay');
+const { createTextToSpeech, normalizeVoice, normalizeRate } = require('./lib/text-to-speech');
+const { analyzeWallpaperSource } = require('./lib/wallpaper-analysis');
 const {
   filterReviewSummary,
   mergeChangeHistory,
@@ -45,29 +55,93 @@ const {
   normalizeWorkspacePath,
   sameWorkspace
 } = require('./lib/session-handoff');
+const { pruneYanagentEvidence } = require('./lib/yanagent-evidence');
 const skillRegistry = require('./lib/skill-registry');
 const codeGraphRuntime = require('./lib/codegraph-runtime');
+const { plansRoot, writePlanDocument } = require('./lib/plan-document');
 const understandAnythingRuntime = require('./lib/understand-anything-runtime');
 const { LongTermMemoryStore, tokenize: tokenizeMemoryText } = require('./lib/long-term-memory');
 const { SkillEvolutionStore } = require('./lib/skill-evolution');
 const { ContinualHarnessStore } = require('./lib/continual-harness');
-const { launchYanxiCode } = require('./lib/yanxi-launcher');
+const { createUtilityLedger } = require('./lib/agi/utility');
+const { createTrajectoryStore } = require('./lib/agi/trajectory');
+const { loadProtocol, readProtocol, renderProtocolPrompt } = require('./lib/agi/long-horizon');
+const { checkConsistency } = require('./lib/agi/skill-guards');
+const { sidepathCeiling, summarizeSidepath } = require('./lib/agi/reasoning-sidepath');
+const { createExperienceGraph, distillOutcome } = require('./lib/agi/memory-consolidation');
+const { evaluateSkillCandidate, SKILL_VALIDATION_SUITE_ID } = require('./lib/agi/eval');
+const {
+  collectExperienceEdgeContext,
+  collectWorkflowProposals,
+  createEscalationMemo,
+  createVerifiedRunIndex,
+  maintainMemoryStore,
+  raiseReasoningSpeed,
+  recordTopologyOutcome,
+  selectTopologyForRun,
+  verifiedRunsFromTrajectories
+} = require('./lib/agi/runtime-bridge');
+const { deliveryContractId, deliveryReviewInstructions, deliveryVisualPrompt } = require('./lib/delivery-policy');
+const {
+  derivePolicyControls,
+  extractExplicitPolicyInstruction,
+  policyId
+} = require('./lib/behavior-policy');
+const updateChecker = require('./lib/update-checker');
 const { detectVsCode, launchVsCode } = require('./lib/vscode-launcher');
-const { parseOpenWorkspaceArg, parseYanxiRequestIdArg, createYanxiCodeReceiver } = require('./lib/yanxi-code-receiver');
-const { TerminalManager, resolveWindowsPowerShell } = require('./lib/terminal-manager');
+const { resolveWindowsPowerShell } = require('./lib/powershell-resolver');
 const crypto = require('crypto');
-const { RemoteServer } = require('./lib/remote-server');
 const workspaceSandbox = require('./lib/workspace-sandbox');
 const { classifyDelegatedShellCommand } = require('./lib/shell-command-risk');
 const {
   OpenCodeSidecar,
   buildOpenCodeConfig,
+  DEFAULT_INPUT_TOKENS_PER_SECOND,
+  normalizeInputTokensPerSecond,
   stageDeepSeekProviderModule,
-  OPENCODE_VERSION
+  stageCodingEnvironmentModule,
+  stageGlmmProviderModule,
+  stageQwemProviderModule,
+  stageKimlProviderModule,
+  stageGptlProviderModule,
+  stageResponsesProviderModule,
+  OPENCODE_VERSION,
+  normalizeSubagentRoles,
+  isSelectedSkillReadOnlyRequest,
+  openCodeErrorDetail
 } = require('./lib/opencode-sidecar');
-const { normalizeAgentTone, getActiveToneProfile } = require('./lib/agent-tone');
+const {
+  isTrustworthyMeasurement,
+  measurementKey,
+  normalizeMeasurementStore,
+  smoothMeasurement
+} = require('./lib/input-throughput');
+const { isRemoteMcpServer, normalizeRemoteHeaders, probeRemoteServer } = require('./lib/mcp-remote');
+const {
+  CONNECTION_PRESETS,
+  inferConnectionPreset,
+  normalizeApiFormat,
+  normalizeConnectionStore,
+  resolveConnectionApiFormat,
+  resolveConnectionPreset
+} = require('./lib/connection-presets');
+const { OpenCodeEventBatcher } = require('./lib/open-code-stream');
+const { normalizeReasoningSpeed, reasoningSpeedEnablesThinking } = require('./lib/reasoning-effort');
 const { createSerenaServer } = require('./lib/serena-runtime');
 const gitService = require('./lib/git-service');
+const { projectReviewSummary } = require('./lib/review-data');
+const { runReviewTask } = require('./lib/review-worker');
+const worktreeService = require('./lib/worktree-service');
+const ghService = require('./lib/gh-service');
+const { buildRepoMapBackground } = require('./lib/analysis/repo-map-background');
+const { YanCore, OpenCodeProviderAdapter, ResourceLockManager, registerAdapter } = require('./lib/yan-core');
+const { WorkGuiFeed } = require('./lib/work-gui/feed');
+const { writeAtomic } = require('./lib/yan-core/store');
+const {
+  DEFAULT_CONTEXT_SETTINGS,
+  normalizeContextSettings
+} = require('./lib/context-settings');
+const { migrateVisionRelaySwitch } = require('./lib/vision-relay-switch');
 
 const appRoot = __dirname;
 
@@ -81,55 +155,237 @@ if (e2eUserDataDir) {
   app.setPath('userData', path.resolve(e2eUserDataDir));
 }
 
+const isE2EMode = process.env.YAN_E2E_MODE === '1';
+const e2eParentPid = isE2EMode
+  ? Number.parseInt(process.env.YAN_E2E_PARENT_PID || String(process.ppid), 10)
+  : 0;
+let e2eParentWatchdog = null;
+let e2eOrphanShutdownStarted = false;
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but cannot be signalled by this process.
+    return error?.code === 'EPERM';
+  }
+}
+
+function startE2EParentWatchdog() {
+  if (!isE2EMode || e2eParentWatchdog || !Number.isInteger(e2eParentPid) || e2eParentPid <= 0) return;
+  e2eParentWatchdog = setInterval(() => {
+    if (e2eOrphanShutdownStarted || isProcessAlive(e2eParentPid)) return;
+    e2eOrphanShutdownStarted = true;
+    clearInterval(e2eParentWatchdog);
+    e2eParentWatchdog = null;
+    console.error(`[E2E] Parent process ${e2eParentPid} exited; shutting down orphaned Yan runtime.`);
+    app.quit();
+    const forcedExit = setTimeout(() => app.exit(0), 3_000);
+    forcedExit.unref?.();
+  }, 1_000);
+  e2eParentWatchdog.unref?.();
+}
+
+startE2EParentWatchdog();
+
 let openCodeSidecar = null;
 const openCodeActiveRuns = new Map();
+// Runs reserve a slot before the async admission path creates the active-run
+// record. Keep the target session with that reservation so session deletion
+// cannot race through this short but real window.
+const openCodeRunAdmissions = new Map(); // runId -> yanSessionId
+const MAX_CONCURRENT_AGENT_RUNS = 3;
+const OPENCODE_IDLE_RELEASE_MS = Math.max(1_000, Number(process.env.YAN_OPENCODE_IDLE_RELEASE_MS) || 5 * 60_000);
+let openCodeIdleReleaseTimer = null;
+let openCodePrewarmPromise = null;
+let openCodeBackgroundLeases = 0;
 const browserAgentToolClaims = new Map();
 const sessionAgentToolClaims = new Map();
-
-/**
- * Resolve an agent path inside a workspace (session workspace preferred, else config).
- * @returns {{ ok: true, path: string, workspace: string } | { ok: false, error: string, code: string }}
- */
-function resolveAgentPath(filePath, workspaceHint) {
-  const cfg = loadConfig();
-  if (cfg.agent?.accessMode === 'full') return resolveFullAccessPath(filePath, workspaceHint);
-  const workspace = workspaceSandbox.normalizeWorkspace(workspaceHint || cfg.workspace);
-  return workspaceSandbox.resolveInsideWorkspace(workspace, filePath);
-}
-
-function resolveAgentDir(dirPath, workspaceHint) {
-  const cfg = loadConfig();
-  if (cfg.agent?.accessMode === 'full') return resolveFullAccessPath(dirPath, workspaceHint, { allowEmpty: true });
-  const workspace = workspaceSandbox.normalizeWorkspace(workspaceHint || cfg.workspace);
-  if (!dirPath) {
-    if (!workspace) return { ok: false, error: 'Workspace is not set.', code: 'WORKSPACE_REQUIRED' };
-    return { ok: true, path: workspace, workspace };
-  }
-  return workspaceSandbox.resolveInsideWorkspace(workspace, dirPath);
-}
-
-function resolveFullAccessPath(filePath, workspaceHint, { allowEmpty = false } = {}) {
-  const raw = String(filePath || '').trim();
-  const cfg = loadConfig();
-  const base = workspaceSandbox.normalizeWorkspace(workspaceHint || cfg.workspace || app.getPath('home')) || app.getPath('home');
-  if (!raw && !allowEmpty) return { ok: false, error: 'Path is empty.', code: 'PATH_EMPTY' };
-  try {
-    const resolved = raw
-      ? path.resolve(path.isAbsolute(raw) ? raw : path.join(base, raw))
-      : path.resolve(base);
-    return { ok: true, path: resolved, workspace: base, relative: path.relative(base, resolved) || '.' };
-  } catch (error) {
-    return { ok: false, error: `Invalid path: ${error.message}`, code: 'PATH_INVALID' };
-  }
-}
+let yanCore = null;
+let openCodeProviderAdapter = null;
+const resourceLocks = new ResourceLockManager({ maxWaiters: 256 });
 
 let mainWindow = null;
+const openCodeEventBatcher = new OpenCodeEventBatcher({
+  flushIntervalMs: 16,
+  onBatch(runId, events) {
+    if (!mainWindow || mainWindow.isDestroyed() || !events.length) return;
+    mainWindow.webContents.send('opencode:event-batch', { runId, events });
+  },
+  onSlowConsumer(runId, info) {
+    console.warn(`[opencode] slow renderer consumer for run ${runId}: dropped ${info.droppedTotal} buffered delta(s)`);
+    try { yanCore?.recordBackpressure(runId, info); } catch (error) {
+      console.warn('[yan-core] backpressure telemetry failed:', error?.message || error);
+    }
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('opencode:event', {
+      runId,
+      event: { type: 'yan.opencode.slow-consumer', data: info }
+    });
+  }
+});
+
+function sendOpenCodeRendererEvent(runId, event) {
+  try { yanCore?.ingestProviderEvent(runId, event); } catch (error) {
+    console.warn('[yan-core] provider event ingestion failed:', error?.message || error);
+  }
+  recordOpenCodeReconcileEvent(runId, event);
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    openCodeEventBatcher.flush(runId);
+    return;
+  }
+  if (openCodeEventBatcher.push(runId, event)) return;
+  openCodeEventBatcher.flush(runId);
+  mainWindow.webContents.send('opencode:event', { runId, event });
+}
+
+// ---------------------------------------------------------------------------
+// OpenCode run reconciliation: keep a recent per-run event log so a reloaded
+// renderer can catch up on runs that are still executing (or just finished)
+// inside the kernel instead of losing them forever.
+// ---------------------------------------------------------------------------
+const OPENCODE_RECONCILE_EVENT_CAP = 400;
+const OPENCODE_RECONCILE_COMPLETED_TTL_MS = 60_000;
+const openCodeRunReconcile = new Map(); // runId -> { meta, events, completed, completedAt }
+
+function ensureOpenCodeReconcileRun(runId, meta = {}) {
+  const id = String(runId || '');
+  if (!id || openCodeRunReconcile.has(id)) return openCodeRunReconcile.get(id);
+  const entry = {
+    meta: {
+      yanSessionId: String(meta.yanSessionId || ''),
+      workspace: String(meta.workspace || ''),
+      startedAt: Number(meta.startedAt) || Date.now()
+    },
+    events: [],
+    completed: null,
+    completedAt: 0
+  };
+  openCodeRunReconcile.set(id, entry);
+  return entry;
+}
+
+function recordOpenCodeReconcileEvent(runId, event) {
+  const entry = openCodeRunReconcile.get(String(runId || ''));
+  if (!entry || entry.completed) return;
+  entry.events.push(event);
+  if (entry.events.length > OPENCODE_RECONCILE_EVENT_CAP) {
+    entry.events.splice(0, entry.events.length - OPENCODE_RECONCILE_EVENT_CAP);
+  }
+}
+
+function completeOpenCodeReconcileRun(runId, completedResult) {
+  const entry = openCodeRunReconcile.get(String(runId || ''));
+  if (!entry || entry.completed) return;
+  entry.completed = completedResult || null;
+  entry.completedAt = Date.now();
+  const timer = setTimeout(() => openCodeRunReconcile.delete(String(runId)), OPENCODE_RECONCILE_COMPLETED_TTL_MS);
+  timer.unref?.();
+}
+
+function flushOpenCodeRendererEvents(runId) {
+  openCodeEventBatcher.flush(runId);
+}
+
+// ---------------------------------------------------------------------------
+// Interrupted-run recovery: Yan Core journals every provider event that fed
+// the renderer, so a Turn that died with the previous process can be replayed
+// from disk instead of vanishing from the session UI.
+// ---------------------------------------------------------------------------
+const OPENCODE_RECOVERY_MAX_RUNS = 3;
+const OPENCODE_RECOVERY_MAX_EVENTS_PER_RUN = 8_000;
+const OPENCODE_RECOVERY_MAX_BYTES_PER_RUN = 8 * 1024 * 1024;
+const OPENCODE_RECOVERY_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+
+// Rebuild the exact renderer-facing event from one journal entry. Mapped
+// provider events keep their original payload under `raw`; lifecycle entries
+// and payloads flattened by the protocol size guard are not replayable.
+function recoveryRendererEvent(coreEvent) {
+  const payload = coreEvent?.payload;
+  if (!payload || typeof payload !== 'object' || !payload.rawType) return null;
+  const raw = payload.raw;
+  if (raw && typeof raw === 'object' && typeof raw.type === 'string' && raw.type) return raw;
+  if (payload.data && typeof payload.data === 'object') {
+    return { type: String(payload.rawType), data: payload.data };
+  }
+  return null;
+}
+
+function recoveringCoreTurns(core = yanCore) {
+  try {
+    const turns = core?.getState?.()?.turns;
+    if (!turns || typeof turns !== 'object') return [];
+    return Object.values(turns)
+      .filter(turn => turn && String(turn.status || '') === 'recovering')
+      .sort((left, right) => (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0));
+  } catch (error) {
+    console.warn('[opencode] recovering Turn lookup failed:', error?.message || error);
+    return [];
+  }
+}
+
+function buildRecoveredRunDescriptors(runIds = [], core = yanCore) {
+  const requested = new Set((Array.isArray(runIds) ? runIds : []).map(id => String(id || '')).filter(Boolean));
+  const turns = recoveringCoreTurns(core).filter(turn => !requested.size || requested.has(String(turn.id)));
+  const descriptors = [];
+  if (!turns.length) return descriptors;
+  // One journal read for every recovering Turn: the file can be tens of
+  // megabytes, and re-parsing it per Turn would stall startup after a crash.
+  const journalEvents = typeof core.readJournalEvents === 'function' ? core.readJournalEvents() : null;
+  let totalBytes = 0;
+  for (const turn of turns.slice(0, OPENCODE_RECOVERY_MAX_RUNS)) {
+    const journal = core.listTurnEvents(turn.id, {
+      maxEvents: OPENCODE_RECOVERY_MAX_EVENTS_PER_RUN,
+      events: journalEvents
+    });
+    const events = [];
+    let bytes = 0;
+    let dropped = 0;
+    // Newest events first while budgeting: the tail is what the user last saw.
+    for (let index = journal.events.length - 1; index >= 0; index -= 1) {
+      const rendererEvent = recoveryRendererEvent(journal.events[index]);
+      // Lifecycle/telemetry entries are expected and not replayable; they are
+      // not recoverable content and must not mark the slice as truncated.
+      if (!rendererEvent) continue;
+      const estimated = JSON.stringify(rendererEvent)?.length || 0;
+      if (estimated > OPENCODE_RECOVERY_MAX_BYTES_PER_RUN) {
+        dropped += 1;
+        continue;
+      }
+      if (bytes + estimated > OPENCODE_RECOVERY_MAX_BYTES_PER_RUN
+        || totalBytes + estimated > OPENCODE_RECOVERY_MAX_TOTAL_BYTES) {
+        dropped += index + 1;
+        break;
+      }
+      events.push(rendererEvent);
+      bytes += estimated;
+      totalBytes += estimated;
+    }
+    events.reverse();
+    const thread = core.getThread?.(turn.threadId) || null;
+    descriptors.push({
+      runId: String(turn.id || ''),
+      yanSessionId: String(turn.threadId || ''),
+      workspace: String(thread?.workspace || ''),
+      startedAt: Number(turn.startedAt) || Number(turn.createdAt) || 0,
+      lastEventAt: Number(journal.lastTimestamp) || Number(turn.updatedAt) || 0,
+      configSnapshot: turn.configSnapshot && typeof turn.configSnapshot === 'object' ? turn.configSnapshot : {},
+      intent: turn.intent && typeof turn.intent === 'object' ? { prompt: String(turn.intent.prompt || '') } : {},
+      events,
+      journalEvents: journal.total,
+      truncated: journal.truncated === true || dropped > 0
+    });
+  }
+  return descriptors;
+}
 let mainRendererReady = false;
 let splashWindow = null;
 let splashStartedAt = 0;
 let splashCloseTimer = null;
 let mainWindowReadyForSplash = false;
-const SPLASH_DURATION_MS = 4000;
+const SPLASH_DURATION_MS = 3000;
 let quickInputWindow = null;
 let quickInputGlowWindow = null;
 let quickInputGlowDisplayId = null;
@@ -137,16 +393,9 @@ let quickInputActive = false;
 let registeredQuickInputShortcut = '';
 const DEFAULT_QUICK_INPUT_SHORTCUT = 'CommandOrControl+Shift+Y';
 let petWindow = null;
-let computerUseOverlayWindow = null;
-let computerUseOverlayTimer = null;
-let computerUseOverlayActive = false;
-let computerUseOverlayReady = false;
-let computerUseOverlayDisplayId = null;
-const computerUseOverlayRunIds = new Set();
-let computerUseEscapeRegistered = false;
+let workGuiFeed = null;
 let tray = null;
 let isQuiting = false;
-let remoteServer = null;
 let petState = {
   status: 'idle',
   sessionId: null,
@@ -154,17 +403,18 @@ let petState = {
   title: 'Yan Agent',
   message: '随时待命'
 };
-const remotePending = new Map();
+const PET_IDS = Object.freeze(['orb', 'yuexinmiao', 'deepseek', 'claude']);
+const PET_LABELS = Object.freeze({
+  orb: 'Yan Agent Orb',
+  yuexinmiao: '月薪猫',
+  deepseek: '大烧货',
+  claude: 'claude'
+});
+let activePetId = 'orb';
 const activeImageGenerations = new Map();
 const activeVideoGenerations = new Map();
 const generatedImages = new Map();
 const generatedImageViewers = new Map();
-const terminalManager = new TerminalManager({
-  onEvent(ownerId, payload) {
-    const target = webContents.fromId(ownerId);
-    if (target && !target.isDestroyed()) target.send('terminal:event', payload);
-  }
-});
 const BROWSER_PARTITION = 'persist:yan-browser';
 const configuredBrowserGuestIds = new Set();
 const browserAgentBridgeToken = crypto.randomBytes(32).toString('hex');
@@ -187,6 +437,7 @@ const BROWSER_AGENT_BRIDGE_ACTIONS = new Set([
   'wait',
   'screenshot',
   'inspect_page',
+  'apply_annotation',
   'back',
   'forward',
   'reload',
@@ -209,6 +460,7 @@ const OPEN_CODE_BROWSER_TOOL_ACTIONS = Object.freeze({
   browser_wait: 'wait',
   browser_screenshot: 'screenshot',
   browser_inspect_page: 'inspect_page',
+  browser_apply_annotation: 'apply_annotation',
   browser_status: 'status'
 });
 let browserAgentBridgeServer = null;
@@ -314,12 +566,43 @@ function plainBrowserBridgeError(error, fallback = 'Yan 内置浏览器桥接失
   };
 }
 
-async function relayBrowserScreenshotForTextModel(result, runId) {
+async function relayBrowserScreenshotForTextModel(result, runId, params = {}) {
   if (!result?.ok || !result.image?.data || !result.image?.mimeType) return result;
   const activeRun = openCodeActiveRuns.get(String(runId || ''));
+  const deliveryContract = activeRun?.deliveryContract;
+  const question = String(params?.question || '').trim().slice(0, 600);
+  const previousFrame = activeRun?.lastBrowserScreenshot?.data ? activeRun.lastBrowserScreenshot : null;
+  if (activeRun) {
+    // Keep exactly one previous frame per run so a later screenshot can ask
+    // for a before/after comparison without reopening the browser panel.
+    activeRun.lastBrowserScreenshot = {
+      mimeType: String(result.image.mimeType),
+      data: String(result.image.data),
+      capturedAt: Date.now()
+    };
+  }
+  const relayInput = buildScreenshotRelayInput({
+    basePrompt: deliveryVisualPrompt(activeRun?.prompt, deliveryContract),
+    question,
+    compare: params?.compare_to_previous === true,
+    previous: previousFrame,
+    current: { mimeType: result.image.mimeType, data: result.image.data }
+  });
+  result = {
+    ...result,
+    ...(question ? { focusQuestion: question } : {}),
+    comparedWithPrevious: relayInput.withPrevious,
+    previousFrameAvailable: !!previousFrame
+  };
+  if (deliveryContract) {
+    result = { ...result, deliveryContract, deliveryContractId: deliveryContractId(deliveryContract),
+      deliveryReviewInstructions: deliveryReviewInstructions(deliveryContract) };
+  }
   const cfg = loadConfig();
   const selection = activeRun?.selection || normalizeAgentModelSelection(cfg);
-  if (selection.capabilities?.imageInput) return result;
+  // Same user override as relayImagesForTextModel: when the relay is disabled
+  // the screenshot goes to the main model as-is.
+  if (selection.capabilities?.imageInput || cfg.api?.visionRelayEnabled === false) return result;
   if (cfg.permissions?.allowNetwork === false) {
     return {
       ...result,
@@ -330,7 +613,7 @@ async function relayBrowserScreenshotForTextModel(result, runId) {
   if (!attempts.length) {
     return {
       ...result,
-      visualEvidence: { available: false, error: '未配置可用的 GLM 或 Agnes 视觉中继模型，当前文本模型无法读取浏览器截图。' }
+      visualEvidence: { available: false, error: '未配置可用的 GLM、SenseNova、Agnes 或硅基流动视觉中继模型，当前文本模型无法读取浏览器截图。' }
     };
   }
   let lastError = null;
@@ -340,17 +623,9 @@ async function relayBrowserScreenshotForTextModel(result, runId) {
         baseUrl: model.baseUrl,
         apiKey: model.apiKey,
         modelId: model.modelId,
-        attachments: [{
-          name: 'yan-browser-screenshot.png',
-          mimeType: result.image.mimeType,
-          data: result.image.data
-        }],
-        userPrompt: [
-          `当前 Agent 任务：${String(activeRun?.prompt || '').trim()}`,
-          '这张图片是 Yan 内置浏览器当前可见视口。请具体描述可见页面、控件状态、文字、数值、布局、异常和视觉结果。',
-          '只报告单张截图能够证明的事实；不要从动画、颜色变化或单帧画面推断未被直接观察到的操作结果。'
-        ].join('\n'),
-        maxTokens: model.providerId === 'glm' ? 1024 : 3000,
+        attachments: relayInput.attachments,
+        userPrompt: relayInput.userPrompt,
+        maxTokens: deliveryContract ? 3000 : model.providerId === 'glm' ? 1024 : 3000,
         signal: activeRun?.visionAbortController?.signal,
         fetchImpl: (url, options = {}) => electronNet.fetch(url, {
           ...options,
@@ -411,32 +686,41 @@ async function dispatchBrowserAgentCommand(action, params = {}, { operationId = 
   if (!authority.ok) return authority;
   const authorizedParams = {
     ...params,
-    yan_run_id: authority.runId
+    yan_run_id: authority.runId,
+    yan_workspace: openCodeActiveRuns.get(authority.runId)?.workspace || '',
+    yan_session_id: openCodeActiveRuns.get(authority.runId)?.yanSessionId || ''
   };
-  if (!mainWindow || mainWindow.isDestroyed() || !mainRendererReady) {
-    return { ok: false, error: 'Yan 主窗口尚未就绪，无法控制内置浏览器。', code: 'YAN_RENDERER_NOT_READY' };
-  }
-  const requestId = crypto.randomUUID();
-  const browserOperationId = String(operationId || requestId);
-  const result = await new Promise(resolve => {
-    const timer = setTimeout(() => {
-      browserAgentBridgePending.delete(requestId);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('browser:agent-command', {
-          requestId: '',
-          operationId: browserOperationId,
-          action: 'cancel',
-          params: { yan_run_id: authority.runId, operation_id: browserOperationId, reason: 'bridge_timeout' }
-        });
-      }
-      resolve({ ok: false, error: 'Yan 内置浏览器操作超时。', code: 'YAN_BROWSER_TIMEOUT' });
-    }, 40_000);
-    browserAgentBridgePending.set(requestId, { resolve, timer, operationId: browserOperationId, runId: authority.runId });
-    mainWindow.webContents.send('browser:agent-command', { requestId, operationId: browserOperationId, action, params: authorizedParams });
-  });
-  return action === 'screenshot'
-    ? relayBrowserScreenshotForTextModel(result, authority.runId)
-    : result;
+  const execute = async () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainRendererReady) {
+      return { ok: false, error: 'Yan 主窗口尚未就绪，无法控制内置浏览器。', code: 'YAN_RENDERER_NOT_READY' };
+    }
+    const requestId = crypto.randomUUID();
+    const browserOperationId = String(operationId || requestId);
+    const result = await new Promise(resolve => {
+      const timer = setTimeout(() => {
+        browserAgentBridgePending.delete(requestId);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('browser:agent-command', {
+            requestId: '',
+            operationId: browserOperationId,
+            action: 'cancel',
+            params: { yan_run_id: authority.runId, operation_id: browserOperationId, reason: 'bridge_timeout' }
+          });
+        }
+        resolve({ ok: false, error: 'Yan 内置浏览器操作超时。', code: 'YAN_BROWSER_TIMEOUT' });
+      }, 40_000);
+      browserAgentBridgePending.set(requestId, { resolve, timer, operationId: browserOperationId, runId: authority.runId });
+      mainWindow.webContents.send('browser:agent-command', { requestId, operationId: browserOperationId, action, params: authorizedParams });
+    });
+    return action === 'screenshot'
+      ? relayBrowserScreenshotForTextModel(result, authority.runId, authorizedParams)
+      : result;
+  };
+  const mutating = new Set(['open', 'click', 'type', 'select', 'check', 'drag', 'pointer', 'press', 'scroll', 'back', 'forward', 'reload', 'apply_annotation']).has(action);
+  return resourceLocks.withLock('browser:agent', mutating ? 'write' : 'read', {
+    owner: authority.runId,
+    timeoutMs: 45_000
+  }, execute);
 }
 
 function notifyBrowserAgentRelease(runId, reason = 'run_finished') {
@@ -906,7 +1190,7 @@ function buildBrowserContextMenu(contents, params) {
       { type: 'separator' },
       { label: '全选', accelerator: 'CmdOrCtrl+A', enabled: editFlags.canSelectAll !== false, click: () => contents.selectAll() }
     );
-    if (params.misspelledWord) {
+    if (params.misspelledWord && contents.session.getSpellCheckerEnabled?.()) {
       template.push({
         label: '添加到词典',
         click: () => contents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
@@ -998,7 +1282,7 @@ async function refreshBrowserNetworkSession(url = 'https://example.com', { reset
 const userDataDir = app.getPath('userData');
 const STABLE_DATA_DIR = path.join(userDataDir, 'YanData');
 
-function migrateLegacyDataDir() {
+async function migrateLegacyDataDir() {
   if (fs.existsSync(path.join(STABLE_DATA_DIR, 'config.json'))) return;
 
   let names = [];
@@ -1023,7 +1307,9 @@ function migrateLegacyDataDir() {
   if (!bestDir) return;
   try {
     fs.mkdirSync(STABLE_DATA_DIR, { recursive: true });
-    fs.cpSync(bestDir, STABLE_DATA_DIR, { recursive: true, force: true });
+    // 异步拷贝:旧目录可能包含全部会话与上 GB 的图片缓存,同步 cpSync 会让启动
+    // 界面冻结数分钟;await 保证后续启动流程仍在迁移完成后才开始
+    await fsp.cp(bestDir, STABLE_DATA_DIR, { recursive: true, force: true });
     console.log('[data] migrated legacy data from', path.basename(bestDir), 'to YanData');
   } catch (e) {
     console.error('[data] migrate legacy data failed:', e.message);
@@ -1036,6 +1322,111 @@ process.env.YAN_ELECTRON_RUNTIME = process.execPath;
 const configPath = path.join(dataDir, 'config.json');
 const sessionsDir = path.join(dataDir, 'sessions');
 const filesDir = path.join(dataDir, 'uploads');
+
+// 进程级兜底:主进程没有任何未捕获异常处理时,单个 EPIPE/类型错误就会让整个应用
+// 直接消失。这里记录崩溃现场(文件+控制台)但保持存活,让用户有机会保存会话。
+let lastCrashLogAt = 0;
+function reportProcessError(kind, error) {
+  const message = `[${kind}] ${new Date().toISOString()} ${error && error.stack ? error.stack : String(error)}`;
+  console.error(message);
+  const now = Date.now();
+  if (now - lastCrashLogAt < 1000) return; // 风暴限流:每秒最多落盘一次
+  lastCrashLogAt = now;
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.appendFileSync(path.join(dataDir, 'main-crash.log'), `${message}\n`, 'utf8');
+  } catch { /* 日志失败不能再引发异常 */ }
+}
+
+process.on('uncaughtException', (error) => reportProcessError('uncaughtException', error));
+process.on('unhandledRejection', (reason) => reportProcessError('unhandledRejection', reason));
+
+function initializeYanCore() {
+  if (yanCore) return yanCore;
+  yanCore = new YanCore({
+    rootDir: path.join(dataDir, 'yan-core'),
+    logger: console
+  });
+  yanCore.on('event', event => {
+    // Work GUI observes every event before the renderer-channel filter drops
+    // streaming deltas; the feed owns its own coalescing.
+    try {
+      workGuiFeed?.handleCoreEvent(event);
+    } catch (error) {
+      console.warn('[work-gui] feed event failed:', error?.message || error);
+    }
+    // Renderer consumes raw provider streaming over the OpenCode path; only
+    // lifecycle, tool, context, and queue events are useful over this channel.
+    if (['message.delta', 'reasoning.delta', 'provider.event'].includes(event?.type)) return;
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+    mainWindow.webContents.send('yan:core-event', event);
+  });
+  workGuiFeed = new WorkGuiFeed({
+    dataDir: STABLE_DATA_DIR,
+    core: () => yanCore,
+    emit: batch => {
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+      mainWindow.webContents.send('work-gui:event-batch', batch);
+    },
+    listSessions: () => listSessionSummaries(),
+    listSkills: () => getMergedSkills(loadConfig()).map(skill => ({
+      id: String(skill?.id || skill?.name || ''),
+      name: String(skill?.name || skill?.id || '')
+    })),
+    listMcp: () => (loadConfig().mcpServers || []).map(server => ({
+      id: String(server?.id || server?.name || ''),
+      name: String(server?.name || server?.id || ''),
+      enabled: server?.enabled !== false
+    })),
+    listMemory: () => {
+      const entries = longTermMemory.list({});
+      return {
+        count: entries.length,
+        recent: entries.slice(0, 4).map(entry => ({
+          title: String(entry?.title || entry?.content || '').slice(0, 48)
+        }))
+      };
+    }
+  });
+  return yanCore;
+}
+// Active-run workspaces for the Yan Media MCP. The MCP env must stay
+// config-stable (see buildYanMediaMcpServer), so per-run workspaces are
+// delivered through this file and read dynamically per tool call.
+const mediaWorkspaceRegistryPath = path.join(dataDir, 'media-workspace-registry.json');
+
+function readMediaWorkspaceRegistry() {
+  try {
+    const data = JSON.parse(fs.readFileSync(mediaWorkspaceRegistryPath, 'utf8'));
+    return Array.isArray(data?.entries) ? data.entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeMediaWorkspaceRegistry(entries) {
+  try {
+    fs.writeFileSync(mediaWorkspaceRegistryPath, JSON.stringify({
+      entries: entries.slice(0, 8)
+    }, null, 0), 'utf8');
+  } catch (error) {
+    console.warn('[media-registry] write failed:', error?.message || error);
+  }
+}
+
+function registerMediaWorkspace(runId, workspace) {
+  const normalized = workspaceSandbox.normalizeWorkspace(workspace);
+  const id = String(runId || '');
+  const entries = readMediaWorkspaceRegistry().filter(entry => entry?.runId !== id);
+  if (normalized) entries.unshift({ runId: id, workspace: normalized, ts: Date.now() });
+  writeMediaWorkspaceRegistry(entries);
+}
+
+function releaseMediaWorkspace(runId) {
+  const id = String(runId || '');
+  const entries = readMediaWorkspaceRegistry().filter(entry => entry?.runId !== id);
+  writeMediaWorkspaceRegistry(entries);
+}
 const skillsDir = skillRegistry.getYanSkillDirectory(dataDir);
 const generatedImageStoreDir = path.join(dataDir, 'generated-images');
 const generatedVideoStoreDir = path.join(dataDir, 'generated-videos');
@@ -1048,6 +1439,21 @@ const YANAGENT_DIR = '.yanagent';
 const longTermMemory = new LongTermMemoryStore({ globalPath: memoryPath, yanagentDir: YANAGENT_DIR });
 const skillEvolution = new SkillEvolutionStore({ filePath: skillEvolutionPath });
 const continualHarness = new ContinualHarnessStore({ globalPath: continualHarnessPath, yanagentDir: YANAGENT_DIR });
+const agiUtilityLedger = createUtilityLedger({ filePath: path.join(dataDir, 'agi', 'utility.json') });
+const agiTrajectoryStore = createTrajectoryStore({ dir: path.join(dataDir, 'agi', 'trajectories') });
+const agiEscalationMemo = createEscalationMemo({ filePath: path.join(dataDir, 'agi', 'escalation.json') });
+const agiVerifiedRunIndex = createVerifiedRunIndex({ store: agiTrajectoryStore });
+const agiExperienceGraph = createExperienceGraph({ filePath: path.join(dataDir, 'agi', 'experience-graph.json') });
+const AGI_EVAL_EVIDENCE_PATH = path.join(dataDir, 'agi', 'eval-evidence.json');
+const AGI_TOPOLOGY_HISTORY_PATH = path.join(dataDir, 'agi', 'topology-history.json');
+const AGI_MEMORY_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
+let lastAgiMemoryMaintenanceAt = 0;
+// 恢复流程已异步化(锁等待不能阻塞事件循环),模块加载阶段用 Promise 链兜底
+continualHarness.recoverRejectedAgentRefinements({ scope: 'global' })
+  .then((recovered) => {
+    if (recovered.length) console.log(`[harness] recovered ${recovered.length} explicit user policy record(s)`);
+  })
+  .catch((error) => console.warn('[harness] explicit policy recovery failed:', error?.message || error));
 const MAX_STORED_GENERATED_IMAGES = 100;
 const MAX_STORED_GENERATED_IMAGE_BYTES = 1024 * 1024 * 1024;
 const GENERATED_IMAGE_MIME_BY_EXTENSION = {
@@ -1208,17 +1614,25 @@ function yanagentRoot(workspace) {
 function ensureYanagent(workspace) {
   const root = yanagentRoot(workspace);
   if (!root) return null;
-  for (const sub of ['logs', 'snapshots']) {
+  for (const sub of ['logs', 'snapshots', 'scratch', 'evidence']) {
     const d = path.join(root, sub);
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   }
+  // Reusable acceptance evidence is allowed to outlive the run that produced
+  // it; the TTL keeps a long-lived workspace bounded without deleting it.
+  pruneYanagentEvidence(root);
   const readme = path.join(root, 'README.txt');
   if (!fs.existsSync(readme)) {
     fs.writeFileSync(readme,
-      'Yan Agent 数据目录（记忆、日志、会话快照）。\n' +
-      '可随时删除，不影响项目代码；删除后记忆与日志会丢失。\n',
+      'Yan Agent 数据目录（记忆、日志、会话快照、工具产物与验收证据）。\n' +
+      '内部含 .gitignore，不会出现在你的 Git 变更里。\n' +
+      '可随时删除，不影响项目代码；删除后记忆、日志、会话快照与验收证据会丢失。\n',
       'utf8');
   }
+  // Yan runtime files must never surface in the user's git status. The project
+  // .gitignore stays untouched; this file only hides this folder.
+  const ignore = path.join(root, '.gitignore');
+  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n', 'utf8');
   return root;
 }
 
@@ -1228,13 +1642,35 @@ function migrateMemoryToWorkspace(workspace) {
 }
 
 function runSnapshotPath(workspace, sessionId, runId) {
+  if (!isSafeSessionId(sessionId) || !isSafePathSegment(runId)) return null;
   ensureYanagent(workspace);
   const dir = path.join(yanagentRoot(workspace), 'snapshots', sessionId);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, `${runId}.json`);
 }
 
+function isSafePathSegment(value) {
+  return /^[A-Za-z0-9_-]{1,200}$/.test(String(value || '').trim());
+}
+
+async function writeRunRollbackSnapshot({ workspace, sessionId, runId, rollbackChanges }) {
+  try {
+    if (!workspace || !sessionId || !runId) return;
+    const changes = (Array.isArray(rollbackChanges) ? rollbackChanges : [])
+      .filter(change => change?.path && Object.prototype.hasOwnProperty.call(change, 'before'));
+    if (!changes.length) return;
+    await resourceLocks.withLock(`workspace:${path.resolve(workspace)}`, 'write', { owner: runId }, async () => {
+      const snapPath = runSnapshotPath(workspace, sessionId, runId);
+      if (!snapPath) return;
+      await fsp.writeFile(snapPath, JSON.stringify({ sessionId, runId, ts: Date.now(), changes }), 'utf8');
+    });
+  } catch (error) {
+    console.warn('[opencode] Rollback snapshot write failed:', error?.message || error);
+  }
+}
+
 async function loadSessionChangeHistory(workspace, sessionId) {
+  if (!isSafeSessionId(sessionId)) return [];
   const dir = path.join(yanagentRoot(workspace), 'snapshots', sessionId);
   if (!fs.existsSync(dir)) return [];
   const names = (await fsp.readdir(dir)).filter(name => name.toLowerCase().endsWith('.json'));
@@ -1252,27 +1688,57 @@ async function loadSessionChangeHistory(workspace, sessionId) {
   return mergeChangeHistory(snapshots);
 }
 
-async function applySnapshotRollback(changes) {
-  const results = [];
-  for (const ch of [...(changes || [])].reverse()) {
-    if (ch.before === null || ch.before === undefined) {
-      try {
-        if (fs.existsSync(ch.path)) await fsp.unlink(ch.path);
-        results.push({ path: ch.path, ok: true, action: 'deleted' });
-      } catch (e) {
-        results.push({ path: ch.path, ok: false, error: e.message });
+function isPathInside(rootPath, targetPath) {
+  const relative = path.relative(path.resolve(rootPath), path.resolve(targetPath));
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+async function resolveRollbackTarget(workspace, rawPath) {
+  const checked = workspaceSandbox.resolveInsideWorkspace(workspace, rawPath);
+  if (!checked.ok) return checked;
+  const realWorkspace = await fsp.realpath(checked.workspace).catch(() => path.resolve(checked.workspace));
+  // Resolve existing files and their parent directories through symlinks /
+  // junctions. Lexical path.relative checks alone cannot stop a snapshot from
+  // writing through a link that points outside the session workspace.
+  const realTarget = await fsp.realpath(checked.path).catch(async () => {
+    const parent = await fsp.realpath(path.dirname(checked.path)).catch(() => path.dirname(checked.path));
+    return path.join(parent, path.basename(checked.path));
+  });
+  if (!isPathInside(realWorkspace, realTarget)) {
+    return { ok: false, error: '回滚路径通过符号链接越界', code: 'PATH_SYMLINK_ESCAPE' };
+  }
+  return checked;
+}
+
+async function applySnapshotRollback(changes, workspace) {
+  return resourceLocks.withLock(`workspace:${path.resolve(workspace || '')}`, 'write', { owner: 'rollback' }, async () => {
+    const results = [];
+    for (const ch of [...(changes || [])].reverse()) {
+      const checked = await resolveRollbackTarget(workspace, ch?.path);
+      if (!checked.ok) {
+        results.push({ path: ch?.path, ok: false, error: checked.error });
+        continue;
       }
-    } else {
-      try {
-        await fsp.mkdir(path.dirname(ch.path), { recursive: true });
-        await fsp.writeFile(ch.path, ch.before, 'utf8');
-        results.push({ path: ch.path, ok: true, action: 'restored' });
-      } catch (e) {
-        results.push({ path: ch.path, ok: false, error: e.message });
+      const targetPath = checked.path;
+      if (ch.before === null || ch.before === undefined) {
+        try {
+          if (fs.existsSync(targetPath)) await fsp.unlink(targetPath);
+          results.push({ path: targetPath, ok: true, action: 'deleted' });
+        } catch (e) {
+          results.push({ path: targetPath, ok: false, error: e.message });
+        }
+      } else {
+        try {
+          await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+          await fsp.writeFile(targetPath, ch.before, 'utf8');
+          results.push({ path: targetPath, ok: true, action: 'restored' });
+        } catch (e) {
+          results.push({ path: targetPath, ok: false, error: e.message });
+        }
       }
     }
-  }
-  return results;
+    return results;
+  });
 }
 
 function appendYanagentLog(workspace, line) {
@@ -1302,6 +1768,7 @@ const PROVIDER_MEDIA_CAPABILITIES = Object.freeze({
   openai: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
   grok: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
   agnes: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
+  sensenova: Object.freeze({ imageGeneration: true, imageEditing: false, videoGeneration: false }),
   deepseek: Object.freeze({ imageGeneration: false, imageEditing: false, videoGeneration: false }),
   qwen: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
   glm: Object.freeze({ imageGeneration: true, imageEditing: false, videoGeneration: true }),
@@ -1321,6 +1788,7 @@ const PROVIDER_MEDIA_ADAPTERS = Object.freeze({
   openai: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
   grok: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
   agnes: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
+  sensenova: Object.freeze({ imageGeneration: true, imageEditing: false, videoGeneration: false }),
   deepseek: Object.freeze({ imageGeneration: false, imageEditing: false, videoGeneration: false }),
   qwen: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true }),
   glm: Object.freeze({ imageGeneration: true, imageEditing: false, videoGeneration: true }),
@@ -1334,32 +1802,26 @@ const PROVIDER_MEDIA_ADAPTERS = Object.freeze({
   siliconflow: Object.freeze({ imageGeneration: true, imageEditing: true, videoGeneration: true })
 });
 
-const STATIC_PROVIDER_MEDIA_MODELS = Object.freeze({
-  // GLM exposes text models through GET /models, while its documented image
-  // and video models are selected on the media endpoints and are not included
-  // in that response. Keep this catalog separate from the remote text cache.
-  glm: Object.freeze([
-    { id: 'glm-image', name: 'GLM-Image', modelType: 'image', source: 'official-media-catalog' },
-    { id: 'cogview-4', name: 'CogView-4 (Latest)', modelType: 'image', source: 'official-media-catalog' },
-    { id: 'cogview-4-250304', name: 'CogView-4 250304', modelType: 'image', source: 'official-media-catalog' },
-    { id: 'cogview-3-flash', name: 'CogView-3-Flash', modelType: 'image', source: 'official-media-catalog' },
-    { id: 'cogvideox-3', name: 'CogVideoX-3', modelType: 'video', source: 'official-media-catalog' },
-    { id: 'cogvideox-flash', name: 'CogVideoX-Flash', modelType: 'video', source: 'official-media-catalog' }
-  ]),
+const STATIC_PROVIDER_SUPPLEMENTAL_MODELS = Object.freeze({
+  // GLM's /models response is incomplete: documented free, vision, image and
+  // video IDs remain callable but are not returned. Keep them sourced and
+  // separate so the UI never presents them as API-discovered models.
+  glm: GLM_OFFICIAL_SUPPLEMENTAL_MODELS,
+  sensenova: SENSENOVA_OFFICIAL_SUPPLEMENTAL_MODELS,
   doubao: Object.freeze([
-    { id: 'doubao-seedream-5-0-pro-260628', name: 'Doubao Seedream 5.0 Pro', modelType: 'image' },
-    { id: 'doubao-seedance-2-0-260128', name: 'Doubao Seedance 2.0', modelType: 'video' }
+    { id: 'doubao-seedream-5-0-pro-260628', name: 'Doubao Seedream 5.0 Pro', modelType: 'image', source: 'official-supplement' },
+    { id: 'doubao-seedance-2-0-260128', name: 'Doubao Seedance 2.0', modelType: 'video', source: 'official-supplement' }
   ]),
   stepfun: Object.freeze([
-    { id: 'step-image-edit-2', name: 'Step Image Edit 2', modelType: 'image' },
-    { id: 'step-2x-large', name: 'Step 2X Large', modelType: 'image' }
+    { id: 'step-image-edit-2', name: 'Step Image Edit 2', modelType: 'image', source: 'official-supplement' },
+    { id: 'step-2x-large', name: 'Step 2X Large', modelType: 'image', source: 'official-supplement' }
   ]),
   minimax: Object.freeze([
-    { id: 'image-01', name: 'MiniMax Image 01', modelType: 'image' },
-    { id: 'image-01-live', name: 'MiniMax Image 01 Live', modelType: 'image' },
-    { id: 'MiniMax-H3', name: 'MiniMax H3', modelType: 'video' },
-    { id: 'video-01', name: 'MiniMax Video 01', modelType: 'video' },
-    { id: 'video-01-live2', name: 'MiniMax Video 01 Live2', modelType: 'video' }
+    { id: 'image-01', name: 'MiniMax Image 01', modelType: 'image', source: 'official-supplement' },
+    { id: 'image-01-live', name: 'MiniMax Image 01 Live', modelType: 'image', source: 'official-supplement' },
+    { id: 'MiniMax-H3', name: 'MiniMax H3', modelType: 'video', source: 'official-supplement' },
+    { id: 'video-01', name: 'MiniMax Video 01', modelType: 'video', source: 'official-supplement' },
+    { id: 'video-01-live2', name: 'MiniMax Video 01 Live2', modelType: 'video', source: 'official-supplement' }
   ])
 });
 
@@ -1396,7 +1858,8 @@ const MODEL_PROVIDERS = {
     dynamicModels: true,
     models: [
       { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
-      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek V4 Flash Vision Experimental', capabilities: { vision: true } }
     ]
   },
   qwen: {
@@ -1531,7 +1994,9 @@ const DEFAULT_MCP_SERVERS = [
     name: 'Playwright',
     description: '隔离式网页自动化与端到端测试。Yan 内置浏览器无法满足脚本化测试需求时再使用。',
     command: 'npx',
-    args: ['-y', '@playwright/mcp@latest'],
+    // Relative on purpose: the MCP runs with the task workspace as cwd, so its
+    // screenshots and traces land in .yanagent instead of the project tree.
+    args: ['-y', '@playwright/mcp@latest', '--output-dir', '.yanagent/playwright'],
     enabled: true,
     builtin: true
   },
@@ -1685,76 +2150,165 @@ function normalizeCustomModelEntry(raw = {}, legacy = {}) {
   };
 }
 
-function syncCustomProviders(cfg) {
-  for (const key of Object.keys(MODEL_PROVIDERS)) {
-    if (key.startsWith('custom-')) delete MODEL_PROVIDERS[key];
+// ---------------------------------------------------------------------------
+// User-defined connections. The UI no longer exposes vendor cards: every API
+// endpoint the user talks to is a "connection" — a flat list of named
+// endpoints with their own key and POST URLs. Internally each connection
+// points at a supplier entry; connections created from scratch get a dynamic
+// `conn-*` provider registered below, while migrated ones keep pointing at
+// the built-in provider they came from so every existing role binding,
+// catalog cache, and media adapter keeps working unchanged.
+// ---------------------------------------------------------------------------
+function newConnectionId() {
+  return `conn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function findConnection(cfg, connectionId) {
+  const id = String(connectionId || '').trim();
+  if (!id) return null;
+  return (cfg?.api?.connections || []).find(item => item.id === id) || null;
+}
+
+// The adapter shape a provider talks: built-in providers use their own id;
+// connection providers resolve through their stored/auto preset.
+function providerAdapterPreset(cfg, providerId) {
+  const id = String(providerId || '');
+  const provider = MODEL_PROVIDERS[id];
+  if (provider?.connection) {
+    const connection = (cfg?.api?.connections || []).find(item => item.providerId === id);
+    return resolveConnectionPreset(connection, provider.name, provider.baseUrl);
   }
-  const customs = Array.isArray(cfg?.customProviders) ? cfg.customProviders : [];
-  const activeLegacyId = String(cfg.api?.provider || '').startsWith('custom-')
-    ? String(cfg.api.provider)
-    : '';
-  const legacy = customs.find(item => item?.id === activeLegacyId)
-    || customs.find(item => {
-      const id = String(item?.id || '');
-      const supplierId = String(cfg.api?.providerActiveSupplierIds?.[id] || 'official');
-      const supplier = cfg.api?.providerSuppliers?.[id]?.find(candidate => candidate.id === supplierId)
-        || cfg.api?.providerSuppliers?.[id]?.[0];
-      return !!(supplier?.apiKey || cfg.api?.providerConfigs?.[id]?.apiKey || cfg.api?.apiKeys?.[id]);
-    })
-    || customs.find(item => item && typeof item === 'object')
-    || {};
-  const legacyId = String(legacy.id || '').trim();
-  const legacySupplierId = String(cfg.api?.providerActiveSupplierIds?.[legacyId] || 'official').trim();
-  const legacySupplier = cfg.api?.providerSuppliers?.[legacyId]?.find(item => item.id === legacySupplierId)
-    || cfg.api?.providerSuppliers?.[legacyId]?.[0]
-    || {};
-  const legacyProviderConfig = cfg.api?.providerConfigs?.[legacyId] || {};
-  const legacyModels = cfg.providerModels?.[legacyId] || legacy.models || [];
-  const storedCustomModel = cfg.customModel && (
-    cfg.customModel.modelId || cfg.customModel.baseUrl || cfg.customModel.apiKey || cfg.customModel.models?.length
-  ) ? cfg.customModel : legacy;
-  const entry = normalizeCustomModelEntry(
-    storedCustomModel,
-    {
-      ...legacy,
-      ...legacyProviderConfig,
-      ...legacySupplier,
-      apiKey: legacySupplier.apiKey || legacyProviderConfig.apiKey || cfg.api?.apiKeys?.[legacyId] || legacy.apiKey,
-      models: legacyModels
+  return id;
+}
+
+// Registry-level preset (baked at registration) for media adapters and static
+// media-model merges that do not carry a cfg handle.
+function providerMediaPresetId(provider) {
+  return provider?.connection ? (provider.preset || 'openai') : (provider?.id || '');
+}
+
+function providerCapabilityPresetId(provider) {
+  return provider?.connection ? (provider.preset || 'openai') : (provider?.id || '');
+}
+
+function registerConnectionProvider(cfg, connection) {
+  const providerId = String(connection?.providerId || '');
+  if (!providerId.startsWith('conn-')) return;
+  const supplier = (cfg.api?.providerSuppliers?.[providerId] || [])[0] || {};
+  const name = String(supplier.name || connection.name || '新连接').trim() || '新连接';
+  const preset = resolveConnectionPreset(connection, name, supplier.baseUrl);
+  const manualModelId = String(connection.manualModelId || '').trim();
+  MODEL_PROVIDERS[providerId] = {
+    id: providerId,
+    name,
+    baseUrl: String(supplier.baseUrl || '').trim(),
+    apiKeyPlaceholder: 'sk-...',
+    dynamicModels: !manualModelId,
+    models: manualModelId
+      ? [{ id: manualModelId, name: manualModelId, modelType: 'text', source: 'custom' }]
+      : [],
+    connection: true,
+    custom: !!manualModelId,
+    preset,
+    apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl)
+  };
+}
+
+function syncConnectionProviders(cfg) {
+  for (const key of Object.keys(MODEL_PROVIDERS)) {
+    if (key.startsWith('custom-') || key.startsWith('conn-')) delete MODEL_PROVIDERS[key];
+  }
+  for (const connection of cfg?.api?.connections || []) {
+    registerConnectionProvider(cfg, connection);
+  }
+}
+
+// One-time migration: turn every configured supplier (and the legacy
+// custom-model card) into a flat connection entry. Idempotent and additive —
+// the underlying supplier data is never moved or rewritten.
+function migrateLegacyConnections(cfg) {
+  if (!cfg.api || typeof cfg.api !== 'object') cfg.api = {};
+  if (cfg.api.connectionsMigrated === true) return;
+  const connections = Array.isArray(cfg.api.connections) ? cfg.api.connections : [];
+  for (const [providerId, suppliers] of Object.entries(cfg.api.providerSuppliers || {})) {
+    if (providerId === 'custom-model' || providerId.startsWith('conn-')) continue;
+    const activeId = String(cfg.api.providerActiveSupplierIds?.[providerId] || 'official');
+    for (const supplier of Array.isArray(suppliers) ? suppliers : []) {
+      // Older builds kept the active supplier's key only in the legacy
+      // providerConfigs/apiKeys mirrors; honor those during migration.
+      const mirroredKey = supplier.id === activeId
+        ? (cfg.api.providerConfigs?.[providerId]?.apiKey || cfg.api.apiKeys?.[providerId])
+        : '';
+      if (!supplier?.apiKey && !mirroredKey) continue;
+      connections.push({
+        id: newConnectionId(),
+        providerId,
+        supplierId: String(supplier?.id || 'official'),
+        preset: providerId,
+        manualModelId: '',
+        createdAt: Date.now()
+      });
     }
-  );
-  if (legacyId && legacyId !== 'custom-model') {
-    if (cfg.api?.provider === legacyId) cfg.api.provider = 'custom-model';
-    if (cfg.agentModel?.providerId === legacyId) {
+  }
+  const custom = cfg.customModel && (
+    cfg.customModel.modelId || cfg.customModel.baseUrl || cfg.customModel.apiKey || cfg.customModel.models?.length
+  )
+    ? normalizeCustomModelEntry(cfg.customModel, {})
+    : null;
+  if (custom) {
+    const providerId = newConnectionId();
+    if (!cfg.api.providerSuppliers || typeof cfg.api.providerSuppliers !== 'object') cfg.api.providerSuppliers = {};
+    cfg.api.providerSuppliers[providerId] = [{
+      id: 'official',
+      name: custom.modelName || custom.modelId || '自定义连接',
+      kind: 'official',
+      baseUrl: custom.baseUrl || '',
+      apiKey: custom.apiKey || '',
+      imageGenerationUrl: '',
+      imageEditUrl: '',
+      videoGenerationUrl: '',
+      workspaceId: '',
+      models: custom.models || []
+    }];
+    if (!cfg.api.providerActiveSupplierIds || typeof cfg.api.providerActiveSupplierIds !== 'object') {
+      cfg.api.providerActiveSupplierIds = {};
+    }
+    cfg.api.providerActiveSupplierIds[providerId] = 'official';
+    if (!cfg.providerModels || typeof cfg.providerModels !== 'object') cfg.providerModels = {};
+    cfg.providerModels[providerId] = custom.models || [];
+    connections.push({
+      id: providerId,
+      providerId,
+      supplierId: 'official',
+      preset: custom.apiFormat === 'anthropic' ? 'anthropic' : 'auto',
+      manualModelId: custom.modelId || '',
+      createdAt: Date.now()
+    });
+    if (cfg.agentModel?.providerId === 'custom-model') {
       cfg.agentModel = {
         ...cfg.agentModel,
-        providerId: 'custom-model',
-        modelId: entry.modelId,
-        name: entry.modelName || entry.modelId
+        providerId,
+        modelId: custom.modelId || cfg.agentModel.modelId,
+        name: custom.modelName || custom.modelId || cfg.agentModel.name
       };
     }
+    for (const role of ['image', 'video']) {
+      if (cfg.media?.[`${role}Provider`] === 'custom-model') {
+        cfg.media[`${role}Provider`] = providerId;
+      }
+    }
+    if (cfg.api.provider === 'custom-model') cfg.api.provider = providerId;
+    delete cfg.api.providerSuppliers['custom-model'];
+    delete cfg.api.providerActiveSupplierIds?.['custom-model'];
+    delete cfg.api.providerConfigs?.['custom-model'];
+    delete cfg.api.apiKeys?.['custom-model'];
+    delete cfg.providerModels?.['custom-model'];
+    delete MODEL_PROVIDERS['custom-model'];
+    cfg.customModel = null;
+    cfg.customProviders = [];
   }
-  cfg.customModel = entry;
-  cfg.customProviders = [entry];
-  if (!cfg.providerModels || typeof cfg.providerModels !== 'object') cfg.providerModels = {};
-  cfg.providerModels['custom-model'] = entry.models;
-  if (!cfg.api || typeof cfg.api !== 'object') cfg.api = {};
-  if (!cfg.api.providerConfigs || typeof cfg.api.providerConfigs !== 'object') cfg.api.providerConfigs = {};
-  if (!cfg.api.apiKeys || typeof cfg.api.apiKeys !== 'object') cfg.api.apiKeys = {};
-  cfg.api.providerConfigs['custom-model'] = normalizeProviderConfig(entry, {
-    baseUrl: entry.baseUrl
-  });
-  cfg.api.apiKeys['custom-model'] = entry.apiKey;
-  MODEL_PROVIDERS['custom-model'] = {
-    id: 'custom-model',
-    name: '自定义模型',
-    baseUrl: entry.baseUrl,
-    apiKeyPlaceholder: 'sk-...',
-    dynamicModels: true,
-    models: entry.models,
-    custom: true,
-    apiFormat: entry.apiFormat
-  };
+  cfg.api.connections = connections;
+  cfg.api.connectionsMigrated = true;
 }
 
 function ensureProviderConfigs(cfg) {
@@ -1865,6 +2419,88 @@ function getProviderSuppliers(cfg, providerId) {
   return cfg.api.providerSuppliers[providerId];
 }
 
+// After the connection migration, the flat connection list is the source of
+// truth for which supplier is enabled. Credentials and cached catalogs can be
+// intentionally retained for a later re-enable, but they must not contribute
+// models while their connection card is absent.
+function isSupplierListedAsConnection(cfg, providerId, supplierId) {
+  if (cfg?.api?.connectionsMigrated !== true) return true;
+  const id = String(providerId || '').trim();
+  const supplier = String(supplierId || '').trim();
+  return Array.isArray(cfg?.api?.connections)
+    && cfg.api.connections.some(connection => (
+      String(connection?.providerId || '').trim() === id
+      && String(connection?.supplierId || '').trim() === supplier
+    ));
+}
+
+function isConfiguredSupplier(cfg, providerId, supplier) {
+  return !!supplier
+    && !!String(supplier.apiKey || '').trim()
+    && isSupplierListedAsConnection(cfg, providerId, supplier.id);
+}
+
+function pruneUnlistedSupplierState(cfg) {
+  if (cfg?.api?.connectionsMigrated !== true) return false;
+  const connections = Array.isArray(cfg.api.connections) ? cfg.api.connections : [];
+  let changed = false;
+  for (const providerId of Object.keys(MODEL_PROVIDERS)) {
+    const provider = MODEL_PROVIDERS[providerId];
+    const suppliers = Array.isArray(cfg.api.providerSuppliers?.[providerId])
+      ? cfg.api.providerSuppliers[providerId]
+      : [];
+    const listedIds = new Set(connections
+      .filter(connection => String(connection?.providerId || '').trim() === providerId)
+      .map(connection => String(connection?.supplierId || '').trim())
+      .filter(Boolean));
+    for (const supplier of suppliers) {
+      if (listedIds.has(String(supplier.id || '').trim())) continue;
+      const clearCatalog = !!provider?.dynamicModels || !!String(supplier.apiKey || '').trim();
+      if (supplier.apiKey || (clearCatalog && supplier.models?.length) || supplier.imageGenerationUrl
+        || supplier.imageEditUrl || supplier.videoGenerationUrl || supplier.workspaceId) {
+        supplier.apiKey = '';
+        if (clearCatalog) supplier.models = [];
+        supplier.imageGenerationUrl = '';
+        supplier.imageEditUrl = '';
+        supplier.videoGenerationUrl = '';
+        supplier.workspaceId = '';
+        changed = true;
+      }
+    }
+    const hasEnabledSupplier = suppliers.some(supplier => (
+      listedIds.has(String(supplier.id || '').trim())
+      && !!String(supplier.apiKey || '').trim()
+    ));
+    if (!hasEnabledSupplier) {
+      if (provider?.dynamicModels && Array.isArray(cfg.providerModels?.[providerId]) && cfg.providerModels[providerId].length) {
+        cfg.providerModels[providerId] = [];
+        changed = true;
+      }
+      if (cfg.api.apiKeys?.[providerId]) {
+        cfg.api.apiKeys[providerId] = '';
+        changed = true;
+      }
+      if (cfg.api.providerConfigs?.[providerId]?.apiKey) {
+        cfg.api.providerConfigs[providerId].apiKey = '';
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function getConfiguredSupplierEntries(cfg) {
+  const entries = [];
+  for (const [providerId, suppliers] of Object.entries(cfg?.api?.providerSuppliers || {})) {
+    if (!MODEL_PROVIDERS[providerId] || !Array.isArray(suppliers)) continue;
+    for (const supplier of suppliers) {
+      if (!isConfiguredSupplier(cfg, providerId, supplier)) continue;
+      entries.push({ providerId, supplierId: String(supplier.id || ''), supplier });
+    }
+  }
+  return entries.filter(entry => entry.supplierId);
+}
+
 function getActiveProviderSupplier(cfg, providerId) {
   const suppliers = getProviderSuppliers(cfg, providerId);
   const activeId = String(cfg.api.providerActiveSupplierIds?.[providerId] || '').trim();
@@ -1953,14 +2589,16 @@ function mergeProviderModelCatalog(...groups) {
 function getProviderModels(cfg, providerId, supplierId = '') {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return [];
+  const mediaPresetId = providerMediaPresetId(provider);
   const activeSupplier = getProviderSupplier(cfg, providerId, supplierId);
-  const models = provider.dynamicModels
-    ? mergeProviderModelCatalog(
-        normalizeRemoteModels(activeSupplier?.models || cfg?.providerModels?.[providerId] || []),
-        STATIC_PROVIDER_MEDIA_MODELS[providerId] || []
-      )
-    : mergeProviderModelCatalog(provider.models, STATIC_PROVIDER_MEDIA_MODELS[providerId] || []);
-  return decorateModels(providerId, models);
+  const apiModels = provider.dynamicModels
+    ? normalizeRemoteModels(activeSupplier?.models || cfg?.providerModels?.[providerId] || [])
+    : mergeProviderModelCatalog(provider.models, activeSupplier?.models || []);
+  const models = buildSelectableModelCatalog(
+    apiModels,
+    STATIC_PROVIDER_SUPPLEMENTAL_MODELS[mediaPresetId] || []
+  );
+  return decorateModels(providerCapabilityPresetId(provider), models);
 }
 
 function getRoleSupplierId(cfg, role, providerId) {
@@ -1978,20 +2616,26 @@ function getRoleSupplierId(cfg, role, providerId) {
   return String(cfg.api?.providerActiveSupplierIds?.[id] || '').trim();
 }
 
-function getProviderSupplierCatalog(providerId, supplier) {
+function getProviderSupplierApiCatalog(providerId, supplier) {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider || !supplier) return [];
   const models = provider.dynamicModels
-    ? mergeProviderModelCatalog(
-        normalizeRemoteModels(supplier.models || []),
-        STATIC_PROVIDER_MEDIA_MODELS[providerId] || []
-      )
+    ? normalizeRemoteModels(supplier.models || [])
     : mergeProviderModelCatalog(
         provider.models,
-        supplier.models || [],
-        STATIC_PROVIDER_MEDIA_MODELS[providerId] || []
+        supplier.models || []
       );
-  return decorateModels(providerId, models);
+  return decorateModels(providerCapabilityPresetId(provider), models);
+}
+
+function getProviderSupplierCatalog(providerId, supplier) {
+  const provider = MODEL_PROVIDERS[providerId];
+  if (!provider || !supplier) return [];
+  const models = buildSelectableModelCatalog(
+    getProviderSupplierApiCatalog(providerId, supplier),
+    STATIC_PROVIDER_SUPPLEMENTAL_MODELS[providerMediaPresetId(provider)] || []
+  );
+  return decorateModels(providerCapabilityPresetId(provider), models);
 }
 
 function getChildReadableAppRoot() {
@@ -2020,17 +2664,18 @@ function getConfiguredMediaModels(cfg) {
 
 function buildYanMediaMcpServer(cfg, childAppRoot, options = {}) {
   const configured = getConfiguredMediaModels(cfg);
-  const runWorkspace = Object.prototype.hasOwnProperty.call(options, 'workspace')
-    ? options.workspace
-    : cfg.workspace;
+  // NOTE: nothing per-run may enter this env — the whole config feeds
+  // configSignature() and any per-run value restarts the kernel / breaks
+  // concurrent runs. The run workspace is delivered through the registry
+  // file (see registerMediaWorkspace), read dynamically per tool call.
   const runtime = {
     access: {
-      workspace: workspaceSandbox.normalizeWorkspace(runWorkspace),
       accessMode: String(cfg.agent?.accessMode || 'request'),
       allowFileRead: cfg.permissions?.allowFileRead !== false,
       allowNetwork: cfg.permissions?.allowNetwork !== false
     },
     vision: {
+      enabled: cfg.api?.visionRelayEnabled !== false,
       models: getVisionRelayModels(cfg)
     }
   };
@@ -2044,7 +2689,8 @@ function buildYanMediaMcpServer(cfg, childAppRoot, options = {}) {
         apiKey: connection.apiKey,
         strategy: cfg.imageGeneration.strategy,
         providerOptions: {
-          workspaceId: connection.workspaceId
+          workspaceId: connection.workspaceId,
+          adapterKind: providerAdapterPreset(cfg, selection.providerId)
         },
         imageEndpoints: {
           generations: connection.imageGenerationUrl,
@@ -2059,7 +2705,8 @@ function buildYanMediaMcpServer(cfg, childAppRoot, options = {}) {
         apiKey: connection.apiKey,
         providerOptions: {
           workspaceId: connection.workspaceId,
-          videoGenerationUrl: connection.videoGenerationUrl
+          videoGenerationUrl: connection.videoGenerationUrl,
+          adapterKind: providerAdapterPreset(cfg, selection.providerId)
         }
       };
     }
@@ -2067,14 +2714,17 @@ function buildYanMediaMcpServer(cfg, childAppRoot, options = {}) {
   return {
     id: 'yan_media',
     name: 'Yan Media',
-    description: '通过视觉中继读取本地或历史生成图片，并调用当前会话选定的生图与生视频次模型。',
+    description: cfg.api?.visionRelayEnabled === false
+      ? '调用当前会话选定的生图与生视频次模型。'
+      : '通过视觉中继读取本地或历史生成图片，并调用当前会话选定的生图与生视频次模型。',
     runtime: 'yan-media',
     command: process.execPath,
     args: [path.join(childAppRoot, 'lib', 'yan-media-mcp.js')],
     env: {
       ELECTRON_RUN_AS_NODE: '1',
       YAN_MEDIA_RUNTIME: Buffer.from(JSON.stringify(runtime), 'utf8').toString('base64'),
-      YAN_MEDIA_DATA_DIR: dataDir
+      YAN_MEDIA_DATA_DIR: dataDir,
+      YAN_MEDIA_WORKSPACE_REGISTRY: mediaWorkspaceRegistryPath
     },
     enabled: true,
     builtin: true,
@@ -2100,7 +2750,14 @@ function buildYanSkillsMcpServer(cfg, childAppRoot, options = {}) {
       YAN_SKILLS_CONFIG_PATH: configPath,
       YAN_SKILLS_APP_ROOT: childAppRoot,
       YAN_SKILLS_CLI: cli,
-      YAN_SKILLS_ALLOW_NETWORK: cfg.permissions?.allowNetwork === false ? 'false' : 'true'
+      YAN_SKILLS_ALLOW_NETWORK: cfg.permissions?.allowNetwork === false ? 'false' : 'true',
+      // Lets high-throughput models request larger lossless Skill chunks.
+      // The MCP keeps a 10000-token/s default when older configs omit it.
+      YAN_INPUT_TOKENS_PER_SECOND: String(
+        Math.max(DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond(
+          cfg.api?.inputTokensPerSecond || cfg.agent?.inputTokensPerSecond
+        ))
+      )
     },
     enabled: true,
     builtin: true,
@@ -2131,6 +2788,26 @@ function buildYanBrowserMcpServer(cfg, childAppRoot) {
   };
 }
 
+function buildYanWebMcpServer(cfg, childAppRoot) {
+  return {
+    id: 'yan_web',
+    name: 'Yan Web Fetch',
+    description: '直接抓取静态资源并落盘（图标、图片、SVG、字体、压缩包等），已知 URL 的文本/页面也可直接读取；不需要打开内置浏览器，搜索仍优先 AnySearch。',
+    runtime: 'yan-web',
+    command: process.execPath,
+    args: [path.join(childAppRoot, 'lib', 'yan-web-mcp.js')],
+    env: {
+      ELECTRON_RUN_AS_NODE: '1',
+      YAN_WEB_CONTEXT_DIR: path.join(dataDir, 'harness', 'runtime'),
+      YAN_WEB_ALLOW_NETWORK: cfg.permissions?.allowNetwork === false ? 'false' : 'true'
+    },
+    enabled: true,
+    builtin: true,
+    systemManaged: true,
+    timeout: 120_000
+  };
+}
+
 function buildYanSessionMcpServer(childAppRoot) {
   if (!sessionAgentBridgePort) return null;
   return {
@@ -2152,11 +2829,7 @@ function buildYanSessionMcpServer(childAppRoot) {
   };
 }
 
-function buildYanHarnessMcpServer(childAppRoot, options = {}) {
-  const runId = String(options.runId || '');
-  if (!runId) return null;
-  const requestPath = path.join(dataDir, 'harness', 'pending', `${runId}.json`);
-  try { fs.rmSync(requestPath, { force: true }); } catch {}
+function buildYanHarnessMcpServer(childAppRoot) {
   return {
     id: 'yan_harness',
     name: 'Yan Continual Harness',
@@ -2166,14 +2839,8 @@ function buildYanHarnessMcpServer(childAppRoot, options = {}) {
     args: [path.join(childAppRoot, 'lib', 'yan-harness-mcp.js')],
     env: {
       ELECTRON_RUN_AS_NODE: '1',
-      YAN_HARNESS_REQUEST_PATH: requestPath,
-      YAN_HARNESS_RUN_ID: runId,
-      YAN_HARNESS_SESSION_ID: String(options.yanSessionId || ''),
-      YAN_HARNESS_WORKSPACE: String(options.workspace || ''),
-      YAN_HARNESS_GLOBAL_STATE_PATH: continualHarnessPath,
-      YAN_HARNESS_WORKSPACE_STATE_PATH: options.workspace
-        ? continualHarness.statePath({ scope: 'workspace', workspace: options.workspace })
-        : ''
+      YAN_HARNESS_CONTEXT_DIR: path.join(dataDir, 'harness', 'runtime'),
+      YAN_HARNESS_GLOBAL_STATE_PATH: continualHarnessPath
     },
     enabled: true,
     builtin: true,
@@ -2182,27 +2849,45 @@ function buildYanHarnessMcpServer(childAppRoot, options = {}) {
   };
 }
 
-function buildNuphusDesktopMcpServer(cfg, childAppRoot) {
-  if (process.platform !== 'win32') return null;
-  const visionModel = cfg.permissions?.allowNetwork === false ? null : getVisionRelayModels(cfg)[0];
-  const env = { ELECTRON_RUN_AS_NODE: '1' };
-  if (visionModel) {
-    env.NUPHUS_MCP_VISION_API_KEY = visionModel.apiKey;
-    env.NUPHUS_MCP_VISION_BASE_URL = visionModel.baseUrl;
-    env.NUPHUS_MCP_VISION_MODEL = visionModel.modelId;
-  }
+function buildYanAnalysisMcpServer(cfg, childAppRoot) {
+  // Config-signature stable on purpose: no per-run values (workspace) here.
+  // Task context carries workspace authorization without restarting the MCP.
   return {
-    id: 'nuphus-desktop',
-    name: 'Nuphus Desktop',
-    description: '官方 Nuphus Windows 桌面操控工具；Yan 仅隐藏其浏览器工具以避免与内置浏览器冲突。',
-    runtime: 'nuphus-desktop',
+    id: 'yan_analysis',
+    name: 'Yan Analysis',
+    description: '确定性代码理解工具：repo map、符号大纲与精读、调用树、BM25 代码/历史检索。供分析与逆向子代理及主任务使用。',
+    runtime: 'yan-analysis',
     command: process.execPath,
-    args: [path.join(childAppRoot, 'lib', 'nuphus-desktop-mcp.js')],
-    env,
+    args: [path.join(childAppRoot, 'lib', 'yan-analysis-mcp.js')],
+    env: {
+      ELECTRON_RUN_AS_NODE: '1',
+      YAN_ANALYSIS_CONTEXT_DIR: path.join(dataDir, 'harness', 'runtime')
+    },
     enabled: true,
     builtin: true,
     systemManaged: true,
-    timeout: 180_000
+    timeout: 120_000
+  };
+}
+
+function buildYanWorkspaceMcpServer(cfg, childAppRoot) {
+  // Config-signature stable like yan_analysis: workspace authorization flows
+  // through the per-run harness context file, not the server environment.
+  return {
+    id: 'yan_workspace',
+    name: 'Yan Workspace',
+    description: '工作区工程工具：任务级 git worktree 创建/合并/清理（并行 builder 隔离）与 code_impact 反向依赖影响面检查。',
+    runtime: 'yan-workspace',
+    command: process.execPath,
+    args: [path.join(childAppRoot, 'lib', 'yan-workspace-mcp.js')],
+    env: {
+      ELECTRON_RUN_AS_NODE: '1',
+      YAN_WORKSPACE_CONTEXT_DIR: path.join(dataDir, 'harness', 'runtime')
+    },
+    enabled: true,
+    builtin: true,
+    systemManaged: true,
+    timeout: 120_000
   };
 }
 
@@ -2218,41 +2903,91 @@ function shouldEnableSerenaForRun(options = {}) {
   return selectedSkillIds(options.selectedSkills).has('yan-serena');
 }
 
+function inferMcpTaskCapabilities(options = {}) {
+  // Per-run MCP trimming may only react to construction-level facts about
+  // what this run physically has — never to prompt or attachment content.
+  // Keyword guessing cannot be exhaustive (v1.6.0 regression: "画一张海报"
+  // missed the media list and the session was silently denied yan_media
+  // mid-conversation), and a wrong deny is a hard capability loss, so
+  // intent-derived trimming is forbidden. Builtins already gate their own
+  // existence at build time (media models configured, browser bridge ready,
+  // desktop on win32); the only exact trim left is workspace indexers
+  // (codegraph/serena/playwright e2e) in runs that have no workspace.
+  if (!Object.prototype.hasOwnProperty.call(options, 'workspace')) {
+    return { media: true, browser: true, session: true, desktop: true, code: true, playwright: true };
+  }
+  const hasWorkspace = !!workspaceSandbox.normalizeWorkspace(options.workspace);
+  return {
+    media: true,
+    browser: true,
+    session: true,
+    desktop: true,
+    code: hasWorkspace,
+    playwright: hasWorkspace
+  };
+}
+
+function isDesktopTaskRequest({ prompt = '' } = {}) {
+  const text = String(prompt || '').toLowerCase();
+  // This is intentionally narrower than desktop MCP capability exposure:
+  // the desktop server stays available for every run, but only an explicit
+  // desktop/software intent downgrades the otherwise full-access shell.
+  return /电脑|桌面|窗口|软件|应用|鼠标|键盘|点开|点击|拖拽|播放歌曲|打开(?:波点音乐|记事本|计算器|浏览器)|computer\s*use|desktop\s*(?:task|control)|gui\s*(?:task|automation)|open\s+(?:the\s+)?(?:app|window)/i.test(text);
+}
+
+function withTaskCapability(server, enabled) {
+  return server ? { ...server, taskEnabled: enabled !== false } : server;
+}
+
 function getOpenCodeMcpServers(cfg, options = {}) {
   const childAppRoot = getChildReadableAppRoot();
+  if (options.skillOnly) {
+    return [buildYanSkillsMcpServer(cfg, childAppRoot, options)];
+  }
+  const capabilities = inferMcpTaskCapabilities(options);
   const serenaEnabled = shouldEnableSerenaForRun(options);
   const servers = (cfg.mcpServers || []).flatMap(server => {
     if (server?.runtime === 'serena' || String(server?.id || '') === 'mcp_default_serena') {
       if (options.includeInactiveSerena) return [server];
       if (!serenaEnabled) return [];
-      return [createSerenaServer(dataDir, { workspace: options.workspace })];
+      return [withTaskCapability(createSerenaServer(dataDir, { workspace: options.workspace }), capabilities.code)];
     }
+    const id = String(server?.id || '');
+    if (id === 'mcp_default_playwright') return [withTaskCapability(server, capabilities.playwright)];
+    if (id === 'mcp_default_codegraph' && !capabilities.code) return [withTaskCapability(server, false)];
     if (server?.runtime !== 'codegraph' && String(server?.command || '').toLowerCase() !== 'codegraph') {
-      return [server];
+      return [withTaskCapability(server, true)];
     }
-    if (process.platform !== 'win32') return [server];
+    if (process.platform !== 'win32') return [withTaskCapability(server, capabilities.code)];
     const runtime = codeGraphRuntime.resolveRuntime(appRoot);
-    if (!runtime.ok) return [server];
-    return [{
+    if (!runtime.ok) return [withTaskCapability(server, capabilities.code)];
+    return [withTaskCapability({
       ...server,
       command: runtime.command,
       args: [...runtime.args, ...(Array.isArray(server.args) ? server.args : [])],
       env: { ...runtime.env, ...(server.env || {}) }
-    }];
+    }, capabilities.code)];
   });
   const mediaServer = buildYanMediaMcpServer(cfg, childAppRoot, options);
-  if (mediaServer) servers.push(mediaServer);
-  servers.push(buildYanSkillsMcpServer(cfg, childAppRoot, options));
+  if (mediaServer) servers.push(withTaskCapability(mediaServer, capabilities.media));
+  servers.push(withTaskCapability(buildYanSkillsMcpServer(cfg, childAppRoot, options), true));
   const browserServer = buildYanBrowserMcpServer(cfg, childAppRoot);
-  if (browserServer) servers.push(browserServer);
+  if (browserServer) servers.push(withTaskCapability(browserServer, capabilities.browser));
   const sessionServer = buildYanSessionMcpServer(childAppRoot);
-  if (sessionServer) servers.push(sessionServer);
+  if (sessionServer) servers.push(withTaskCapability(sessionServer, capabilities.session));
   const harnessServer = buildYanHarnessMcpServer(childAppRoot, options);
-  if (harnessServer) servers.push(harnessServer);
-  const nuphusDesktopServer = buildNuphusDesktopMcpServer(cfg, childAppRoot);
-  if (nuphusDesktopServer && !servers.some(server => server.id === nuphusDesktopServer.id)) {
-    servers.push(nuphusDesktopServer);
-  }
+  // Self-evolution is opt-in per run: outside its own work mode the Harness
+  // tools are denied for the session. taskEnabled stays out of the shared
+  // config signature, so switching modes never restarts the kernel.
+  if (harnessServer) servers.push(withTaskCapability(harnessServer, options.evolutionMode !== false));
+  // Unconditional: the server is lightweight, workspace-less until called, and
+  // its presence must not vary with run capabilities (the OpenCode config
+  // signature has to stay identical across tasks).
+  servers.push(withTaskCapability(buildYanAnalysisMcpServer(cfg, childAppRoot), true));
+  servers.push(withTaskCapability(buildYanWorkspaceMcpServer(cfg, childAppRoot), true));
+  // Unconditional like yan_analysis: the tool process stays workspace-less
+  // until call time, and the shared kernel signature must not vary by run.
+  servers.push(withTaskCapability(buildYanWebMcpServer(cfg, childAppRoot), true));
   return servers;
 }
 
@@ -2314,7 +3049,16 @@ function getMcpManagementServers(cfg) {
     builtin: !!server.builtin,
     systemManaged: !!server.systemManaged,
     runtime: String(server.runtime || ''),
-    sourceVersion: String(server.sourceVersion || '')
+    sourceVersion: String(server.sourceVersion || ''),
+    // Management views distinguish configured servers from live connections.
+    status: server.systemManaged
+      ? (server.available === false ? '不可用' : '随任务启动')
+      : (mcpServers.has(String(server.id || '')) ? 'connected' : (server.type === 'remote' ? '远程 · 按需连接' : 'stopped')),
+    type: server.type === 'remote' ? 'remote' : 'local',
+    url: server.type === 'remote' ? String(server.url || '') : '',
+    headerCount: server.type === 'remote' && server.headers && typeof server.headers === 'object'
+      ? Object.keys(server.headers).length
+      : 0
   }));
 }
 
@@ -2334,14 +3078,45 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
     modelId: selection.modelId,
     modelName: model.name || selection.name || selection.modelId,
     capabilities: model.capabilities || selection.capabilities || {},
+    contextWindow: cfg.context?.maxTokens,
+    compactionThreshold: cfg.context?.compactionThreshold,
     apiKey: connection.apiKey,
     baseUrl: connection.baseUrl,
     apiFormat: provider.apiFormat || 'openai',
+    // Explicit DSML signal for user connections whose preset resolved to
+    // deepseek; the sidecar keeps its own name/model inference as fallback.
+    dsml: providerAdapterPreset(cfg, providerId) === 'deepseek' ? true : undefined,
+    glmm: providerAdapterPreset(cfg, providerId) === 'glm' ? true : undefined,
+    qwem: providerAdapterPreset(cfg, providerId) === 'qwen' ? true : undefined,
+    kiml: providerAdapterPreset(cfg, providerId) === 'kimi' ? true : undefined,
+    gptl: providerAdapterPreset(cfg, providerId) === 'gptl' ? true : undefined,
     deepSeekProviderModule: stageDeepSeekProviderModule({ appRoot, dataDir }),
-    reasoningSpeed: cfg.api?.reasoningSpeed,
+    codingEnvironmentModule: stageCodingEnvironmentModule({ appRoot, dataDir }),
+    glmmProviderModule: stageGlmmProviderModule({ appRoot, dataDir }),
+    qwemProviderModule: stageQwemProviderModule({ appRoot, dataDir }),
+    kimlProviderModule: stageKimlProviderModule({ appRoot, dataDir }),
+    responsesProviderModule: stageResponsesProviderModule({ appRoot, dataDir }),
+    gptlProviderModule: stageGptlProviderModule({ appRoot, dataDir }),
+    reasoningSpeed: options.reasoningSpeed || cfg.api?.reasoningSpeed,
+    visionRelayEnabled: cfg.api?.visionRelayEnabled !== false,
+    yanTaskId: String(options.taskId || '').trim(),
+    inputTokensPerSecond: Math.max(DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond(
+      cfg.api?.inputTokensPerSecond || cfg.agent?.inputTokensPerSecond
+    )),
+    // Learned per-(provider, model) prefill rate from previous runs. Zero
+    // until a trustworthy measurement exists; the sidecar then lets this real
+    // value override the declared baseline everywhere it matters.
+    measuredInputTokensPerSecond: Number(
+      cfg.api?.inputThroughput?.[measurementKey(providerId, selection.modelId)]?.tokensPerSecond
+    ) || 0,
     workMode: cfg.agent?.workMode,
     accessMode: cfg.agent?.accessMode,
+    disableKernelFormatter: cfg.agent?.disableAutoFormatter === true,
     permissions: cfg.permissions,
+    enableSubagents: cfg.agent?.enableSubagents === true,
+    subagentRoles: cfg.agent?.subagentRoles,
+    subagentMaxChildren: cfg.agent?.subagentMaxChildren,
+    skillOnly: options.skillOnly === true,
     yanSkillDirectory: skillsDir,
     mcpServers: Array.isArray(options.mcpServers) ? options.mcpServers : getOpenCodeMcpServers(cfg)
   });
@@ -2364,7 +3139,8 @@ function getOpenCodeCapabilityContext(cfg, mcpServers, options = {}) {
     }).filter(Boolean) : []
   })).filter(skill => skill.id);
   const servers = (Array.isArray(mcpServers) ? mcpServers : [])
-    .filter(server => server?.enabled && server.command)
+    .filter(server => server?.taskEnabled !== false)
+    .filter(server => server?.enabled && (server.command || isRemoteMcpServer(server)))
     .map(server => ({
       id: String(server.id || ''),
       name: String(server.name || server.id || ''),
@@ -2386,38 +3162,84 @@ function isImageAttachmentForRelay(attachment = {}) {
   return ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension);
 }
 
-function resolveVisionRelayModel(cfg, providerId, modelId) {
-  const supplierId = getRoleSupplierId(cfg, 'text', providerId);
-  const connection = getProviderConnectionForSupplier(cfg, providerId, supplierId);
-  if (!connection.apiKey || !connection.baseUrl) return null;
-  const fallbackModels = providerId === 'glm' ? GLM_VISION_RELAY_MODELS : AGNES_FALLBACK_MODELS;
+function getConfiguredVisionRelaySources(cfg, preset) {
+  const activeProviderId = String(cfg.agentModel?.providerId || cfg.api?.provider || '');
+  const sources = [];
+  for (const provider of Object.values(MODEL_PROVIDERS)) {
+    if (providerCapabilityPresetId(provider) !== preset) continue;
+    for (const supplier of getProviderSuppliers(cfg, provider.id)) {
+      if (!isConfiguredSupplier(cfg, provider.id, supplier)) continue;
+      const connection = getProviderConnectionForSupplier(cfg, provider.id, supplier.id);
+      if (!connection.apiKey || !connection.baseUrl) continue;
+      sources.push({
+        preset,
+        providerId: provider.id,
+        supplierId: supplier.id,
+        providerName: provider.name || provider.id,
+        supplierName: supplier.name || supplier.id,
+        baseUrl: connection.baseUrl,
+        apiKey: connection.apiKey,
+        active: provider.id === activeProviderId
+      });
+    }
+  }
+  return sources.sort((left, right) => Number(right.active) - Number(left.active));
+}
+
+function resolveVisionRelayModel(cfg, source, modelId) {
+  const { preset, providerId, supplierId } = source;
+  const fallbackModels = VISION_RELAY_MODELS_BY_PRESET[preset] || [];
   const model = getProviderModels(cfg, providerId, supplierId).find(item => item.id === modelId)
     || fallbackModels.find(item => item.id === modelId);
-  const capabilities = model ? resolveModelCapabilities(providerId, model) : null;
+  const capabilities = model ? resolveModelCapabilities(preset, model) : null;
   if (!model || capabilities?.modelType !== 'text' || capabilities.imageInput !== true) return null;
   return {
+    preset,
     providerId,
+    supplierId,
     modelId,
     modelName: model.name || modelId,
-    baseUrl: connection.baseUrl,
-    apiKey: connection.apiKey
+    baseUrl: source.baseUrl,
+    apiKey: source.apiKey
   };
 }
 
 function getVisionRelayModels(cfg) {
-  const ordered = [
-    ...GLM_VISION_RELAY_MODELS.map(model => ({ providerId: 'glm', modelId: model.id })),
-    { providerId: 'agnes', modelId: 'agnes-2.5-flash' },
-    { providerId: 'agnes', modelId: 'agnes-2.0-flash' }
-  ];
   const seen = new Set();
-  return ordered.flatMap(item => {
-    const key = `${item.providerId}:${item.modelId}`;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    const model = resolveVisionRelayModel(cfg, item.providerId, item.modelId);
-    return model ? [model] : [];
-  });
+  const attempts = [];
+  for (const preset of VISION_RELAY_PRESET_ORDER) {
+    for (const source of getConfiguredVisionRelaySources(cfg, preset)) {
+      for (const definition of VISION_RELAY_MODELS_BY_PRESET[preset] || []) {
+        const modelId = definition.id;
+        const key = `${source.providerId}:${source.supplierId}:${modelId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const candidate = resolveVisionRelayModel(cfg, source, modelId);
+        if (candidate) attempts.push(candidate);
+      }
+    }
+  }
+  return attempts;
+}
+
+function getVisionRelayStatus(cfg) {
+  const attempts = getVisionRelayModels(cfg);
+  return Object.fromEntries(VISION_RELAY_PRESET_ORDER.map(preset => {
+    const sources = getConfiguredVisionRelaySources(cfg, preset);
+    const models = attempts.filter(model => model.preset === preset);
+    return [preset, {
+      configured: sources.length > 0,
+      available: models.length > 0,
+      sourceCount: sources.length,
+      modelCount: models.length,
+      models: models.map(model => ({
+        providerId: model.providerId,
+        supplierId: model.supplierId,
+        modelId: model.modelId,
+        modelName: model.modelName
+      }))
+    }];
+  }));
 }
 
 function buildVisionRelayPrompt(prompt, report, modelId) {
@@ -2439,6 +3261,17 @@ async function relayImagesForTextModel(cfg, selection, request, runId, emitEvent
       path: resolveStoredUploadPath(attachment.path) || ''
     }))
     .filter(attachment => attachment.path);
+  // The user-override switch: capability detection misclassifies multimodal
+  // models all the time (new model ids are unknown to the static lists), so
+  // when the relay is explicitly disabled the images go to the main model
+  // untouched — if it truly cannot see them, the user re-enables the relay.
+  // The user-override switch ("启用视觉中继"): capability detection
+  // misclassifies multimodal models all the time (new ids are unknown to the
+  // static lists), so the choice stays with the user — relay off means images
+  // go to the main model untouched.
+  if (cfg.api?.visionRelayEnabled === false) {
+    return { prompt: String(request.prompt || ''), attachments: request.attachments || [], relay: null };
+  }
   if (selection.capabilities?.imageInput || !attachments.length) {
     return { prompt: String(request.prompt || ''), attachments: request.attachments || [], relay: null };
   }
@@ -2447,7 +3280,7 @@ async function relayImagesForTextModel(cfg, selection, request, runId, emitEvent
   }
   const attempts = getVisionRelayModels(cfg);
   if (!attempts.length) {
-    throw new Error('主模型不支持图片输入，且未配置可用的 GLM 或 Agnes 视觉中继模型。');
+    throw new Error('主模型不支持图片输入，且未配置可用的 GLM、SenseNova、Agnes 或硅基流动视觉中继模型。');
   }
   let lastError = null;
   for (const [index, model] of attempts.entries()) {
@@ -2464,7 +3297,7 @@ async function relayImagesForTextModel(cfg, selection, request, runId, emitEvent
         modelId: model.modelId,
         attachments,
         userPrompt: request.prompt,
-        maxTokens: model.providerId === 'glm' ? 1024 : 3000,
+        maxTokens: model.preset === 'glm' ? 1024 : 3000,
         signal
       });
       emitEvent('yan.vision.relay.completed', {
@@ -2497,15 +3330,89 @@ async function relayImagesForTextModel(cfg, selection, request, runId, emitEvent
 
 function getOpenCodeSidecar() {
   if (!openCodeSidecar) {
-    openCodeSidecar = new OpenCodeSidecar({ appRoot, dataDir, log: console });
+    openCodeSidecar = new OpenCodeSidecar({
+      appRoot,
+      dataDir,
+      log: console,
+      maxKernels: MAX_CONCURRENT_AGENT_RUNS
+    });
+    openCodeProviderAdapter = null;
   }
   return openCodeSidecar;
 }
 
+function getOpenCodeProviderAdapter(sidecar = getOpenCodeSidecar()) {
+  if (!openCodeProviderAdapter || openCodeProviderAdapter.sidecar !== sidecar) {
+    openCodeProviderAdapter = registerAdapter(new OpenCodeProviderAdapter(sidecar));
+  }
+  return openCodeProviderAdapter;
+}
+
 async function ensureOpenCodeSidecar(initialConfig = {}) {
+  if (openCodeIdleReleaseTimer) {
+    clearTimeout(openCodeIdleReleaseTimer);
+    openCodeIdleReleaseTimer = null;
+  }
   const sidecar = getOpenCodeSidecar();
   await sidecar.start(initialConfig);
   return sidecar;
+}
+
+function setMainRendererBackgroundThrottling(enabled) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try { mainWindow.webContents.setBackgroundThrottling?.(enabled); } catch {}
+}
+
+function scheduleOpenCodeIdleRelease() {
+  if (openCodeIdleReleaseTimer) clearTimeout(openCodeIdleReleaseTimer);
+  openCodeIdleReleaseTimer = null;
+  if (isQuiting || openCodeActiveRuns.size || openCodeBackgroundLeases || !openCodeSidecar) return;
+  openCodeIdleReleaseTimer = setTimeout(() => {
+    openCodeIdleReleaseTimer = null;
+    if (isQuiting || openCodeActiveRuns.size || openCodeBackgroundLeases || !openCodeSidecar) return;
+    const idleSidecar = openCodeSidecar;
+    openCodeSidecar = null;
+    openCodeProviderAdapter = null;
+    idleSidecar.close();
+    console.log(`[opencode] released idle kernel and MCP runtimes after ${OPENCODE_IDLE_RELEASE_MS}ms`);
+  }, OPENCODE_IDLE_RELEASE_MS);
+  openCodeIdleReleaseTimer.unref?.();
+}
+
+function refreshAgentRuntimeActivity() {
+  const busy = openCodeActiveRuns.size > 0;
+  setMainRendererBackgroundThrottling(!busy);
+  if (busy) {
+    if (openCodeIdleReleaseTimer) clearTimeout(openCodeIdleReleaseTimer);
+    openCodeIdleReleaseTimer = null;
+  } else {
+    scheduleOpenCodeIdleRelease();
+  }
+}
+
+async function prewarmOpenCodeSidecar() {
+  if (isQuiting) return { ok: false, error: 'Yan Agent is closing' };
+  if (openCodePrewarmPromise) return openCodePrewarmPromise;
+  openCodePrewarmPromise = (async () => {
+    const cfg = loadConfig();
+    const servers = getOpenCodeMcpServers(cfg);
+    const sidecar = await ensureOpenCodeSidecar(getOpenCodeRuntimeConfig(cfg, { mcpServers: servers }));
+    scheduleOpenCodeIdleRelease();
+    return sidecar.status();
+  })().finally(() => { openCodePrewarmPromise = null; });
+  return openCodePrewarmPromise;
+}
+
+async function withOpenCodeBackgroundLease(operation) {
+  openCodeBackgroundLeases += 1;
+  if (openCodeIdleReleaseTimer) clearTimeout(openCodeIdleReleaseTimer);
+  openCodeIdleReleaseTimer = null;
+  try {
+    return await operation();
+  } finally {
+    openCodeBackgroundLeases = Math.max(0, openCodeBackgroundLeases - 1);
+    scheduleOpenCodeIdleRelease();
+  }
 }
 
 function getFirstTextModel(providerId, models) {
@@ -2531,7 +3438,8 @@ function normalizeMediaConfig(cfg) {
     const model = providerId && modelId
       ? getProviderModels(cfg, providerId, supplierId).find(item => item.id === modelId && getModelType(providerId, item) === role)
       : null;
-    const configured = providerId && !!String(getProviderConnectionForSupplier(cfg, providerId, supplierId).apiKey || '').trim();
+    const supplier = providerId ? getProviderSupplier(cfg, providerId, supplierId) : null;
+    const configured = providerId && isConfiguredSupplier(cfg, providerId, supplier);
     next[providerKey] = model && configured ? providerId : '';
     next[modelKey] = model && configured ? model.id : '';
     next[supplierKey] = model && configured ? supplierId : '';
@@ -2583,41 +3491,66 @@ function resolveRequestedGenerationConfig(cfg, type, providerId = '', modelId = 
 }
 
 function normalizeAgentModelSelection(cfg) {
-  const fallback = {
-    providerId: cfg.api?.provider || DEFAULT_MODEL_ROLES.text.providerId,
-    modelId: cfg.api?.model || DEFAULT_MODEL_ROLES.text.model,
-    modelType: 'text'
+  ensureProviderConfigs(cfg);
+  const empty = {
+    providerId: '',
+    supplierId: '',
+    modelId: '',
+    modelType: 'text',
+    name: '',
+    capabilities: {}
   };
-  const stored = cfg.agentModel && typeof cfg.agentModel === 'object' ? cfg.agentModel : fallback;
-  const providerId = MODEL_PROVIDERS[stored.providerId] ? stored.providerId : fallback.providerId;
-  const storedSupplierId = String(stored.supplierId || '').trim();
-  const supplier = getProviderSupplier(cfg, providerId, storedSupplierId);
-  const supplierId = supplier?.id || storedSupplierId || getRoleSupplierId(cfg, 'text', providerId);
+  const configured = getConfiguredSupplierEntries(cfg);
+  if (!configured.length) {
+    cfg.api.provider = '';
+    cfg.api.baseUrl = '';
+    cfg.api.apiKey = '';
+    cfg.api.model = '';
+    cfg.models = [];
+    cfg.agentModel = empty;
+    return empty;
+  }
+
+  const stored = cfg.agentModel && typeof cfg.agentModel === 'object' ? cfg.agentModel : {};
+  const preferred = configured.find(entry =>
+    entry.providerId === String(stored.providerId || '')
+      && entry.supplierId === String(stored.supplierId || '')
+  ) || configured.find(entry =>
+    entry.providerId === String(cfg.api?.provider || '')
+      && entry.supplierId === String(cfg.api?.providerActiveSupplierIds?.[entry.providerId] || '')
+  ) || configured[0];
+  const providerId = preferred.providerId;
+  const supplierId = preferred.supplierId;
   const models = getProviderModels(cfg, providerId, supplierId);
-  const modelId = String(stored.modelId || stored.model || '').trim();
-  const model = models.find(item => item.id === modelId);
-  const fallbackSupplier = getProviderSupplier(cfg, fallback.providerId, String(fallback.supplierId || '').trim());
-  const fallbackSupplierId = fallbackSupplier?.id || getRoleSupplierId(cfg, 'text', fallback.providerId);
-  const fallbackModels = getProviderModels(cfg, fallback.providerId, fallbackSupplierId);
-  const fallbackModel = fallbackModels.find(item => item.id === fallback.modelId && getModelType(fallback.providerId, item) === 'text')
-    || fallbackModels.find(item => getModelType(fallback.providerId, item) === 'text');
-  const selected = model && getModelType(providerId, model) === 'text'
-    ? {
-        providerId,
-        supplierId,
-        modelId: model.id,
-        modelType: getModelType(providerId, model),
-        name: model.name || model.id,
-        capabilities: model.capabilities || {}
-      }
-    : {
-        providerId: fallback.providerId,
-        supplierId: fallbackSupplierId,
-        modelId: fallbackModel?.id || fallback.modelId,
-        modelType: 'text',
-        name: fallbackModel?.name || fallback.modelId,
-        capabilities: fallbackModel?.capabilities || {}
-      };
+  const storedModelId = String(stored.modelId || stored.model || '').trim();
+  const storedModel = models.find(item => item.id === storedModelId && getModelType(providerId, item) === 'text');
+  const currentModel = storedModel
+    || models.find(item => item.id === String(cfg.api?.model || '') && getModelType(providerId, item) === 'text')
+    || getFirstTextModel(providerId, models);
+  if (!currentModel) {
+    cfg.api.provider = providerId;
+    cfg.api.providerActiveSupplierIds[providerId] = supplierId;
+    cfg.api.baseUrl = preferred.supplier.baseUrl || '';
+    cfg.api.apiKey = preferred.supplier.apiKey || '';
+    cfg.api.model = '';
+    cfg.models = models;
+    cfg.agentModel = { ...empty, providerId, supplierId };
+    return cfg.agentModel;
+  }
+  const selected = {
+    providerId,
+    supplierId,
+    modelId: currentModel.id,
+    modelType: 'text',
+    name: currentModel.name || currentModel.id,
+    capabilities: currentModel.capabilities || {}
+  };
+  cfg.api.provider = providerId;
+  cfg.api.providerActiveSupplierIds[providerId] = supplierId;
+  cfg.api.baseUrl = preferred.supplier.baseUrl || '';
+  cfg.api.apiKey = preferred.supplier.apiKey || '';
+  cfg.api.model = selected.modelId;
+  cfg.models = models;
   cfg.agentModel = selected;
   return selected;
 }
@@ -2647,7 +3580,6 @@ function publishModelState(cfg) {
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send('model:changed', detail);
   }
-  remoteServer?.broadcast('model-changed', detail);
   return detail;
 }
 
@@ -2677,7 +3609,9 @@ function setActiveModelRole(providerId, modelId, expectedType = '', supplierId =
   const role = expectedType === 'image' || expectedType === 'video' ? expectedType : 'text';
   const selectedSupplier = getProviderSupplier(cfg, providerId, requestedSupplierId || getRoleSupplierId(cfg, role, providerId));
   if (!selectedSupplier) return { error: '供应商不存在' };
-  if (requestedSupplierId && !selectedSupplier.apiKey) return { error: '供应商尚未配置' };
+  if (!isConfiguredSupplier(cfg, providerId, selectedSupplier)) {
+    return { error: '供应商尚未配置或未启用' };
+  }
   const selectedSupplierId = selectedSupplier.id;
   // Keep the text picker cursor aligned with the text role. Media choices must
   // not move that cursor: image/video suppliers are independent roles.
@@ -2746,9 +3680,11 @@ function applyProviderSelection(cfg, providerId, apiKey, supplierId = '') {
 
 function loadConfig() {
   let cfg = null;
+  let shouldPersistNormalizedState = false;
   try {
     if (fs.existsSync(configPath)) {
       cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (cfg && typeof cfg === 'object') transformConfigSecrets(cfg, decryptConfigSecret);
     }
   } catch (e) {
     console.error('loadConfig error:', e);
@@ -2765,7 +3701,11 @@ function loadConfig() {
       providerActiveSupplierIds: {},
       model: DEFAULT_MODEL_ROLES.text.model,
       thinking: false,
-      reasoningSpeed: 'balanced'
+      reasoningSpeed: 'medium',
+      visionRelayEnabled: true,
+      inputTokensPerSecond: DEFAULT_INPUT_TOKENS_PER_SECOND,
+      connections: [],
+      connectionsMigrated: false
     },
     agentModel: {
       providerId: DEFAULT_MODEL_ROLES.text.providerId,
@@ -2778,20 +3718,44 @@ function loadConfig() {
     agent: {
       workMode: 'normal',
       accessMode: 'request',
-      tone: {
-        activeProfileId: '',
-        profiles: []
-      }
+      // Fast write path is the default: the kernel no longer pays a formatter
+      // process after every edit; finalization normalizes authored files once.
+      disableAutoFormatter: true,
+      enableSubagents: true,
+      subagentRoles: {
+        explorer: true,
+        reviewer: true,
+        researcher: true,
+        tester: true,
+        builder: true
+      },
+      subagentMaxChildren: 4
     },
     workspace: path.join(app.getPath('home'), 'YanWorkspace'),
     userName: 'Yanxi',
     theme: 'dark',
+    readingFont: 'serif',
+    wallpaper: {
+      id: '',
+      path: '',
+      name: '',
+      custom: [],
+      removed: [],
+      opacity: 1
+    },
+    themeCompat: {
+      autoAdapt: true,
+      materialStrength: 0.45,
+      accentFollow: true
+    },
+    language: 'zh-CN',
     permissions: {
       allowFileRead: true,
       allowFileWrite: true,
       allowShell: false,
       allowNetwork: true
     },
+    context: { ...DEFAULT_CONTEXT_SETTINGS },
     models: DEFAULT_MODELS,
     providerModels: { openai: [], grok: [], agnes: [], glm: [], siliconflow: [], 'custom-model': [] },
     media: {
@@ -2815,17 +3779,17 @@ function loadConfig() {
       providerId: '',
       model: ''
     },
-    yanxiCode: {
-      executable: ''
-    },
-    remoteControl: {
-      enabled: true,
-      port: 0,
-      password: ''
-    },
     quickLaunch: {
       enabled: true,
       shortcut: DEFAULT_QUICK_INPUT_SHORTCUT
+    },
+    pet: {
+      enabled: false,
+      selected: 'orb'
+    },
+    tts: {
+      voice: 'zh-CN-XiaoxiaoNeural',
+      rate: 0
     },
     mcpServers: ensureDefaultMcp([]),
     skills: DEFAULT_SKILLS,
@@ -2850,7 +3814,6 @@ function loadConfig() {
       apiFormat: 'openai',
       models: []
     }],
-    automations: [],
     executionKernel: {
       id: 'yan-kernel',
       name: 'Yan Kernel',
@@ -2861,8 +3824,11 @@ function loadConfig() {
   };
 
   if (!cfg) {
-    syncCustomProviders(defaults);
+    migrateLegacyConnections(defaults);
+    syncConnectionProviders(defaults);
     ensureProviderConfigs(defaults);
+    normalizeAgentModelSelection(defaults);
+    updateImageGenerationConfig(defaults);
     return defaults;
   }
   const storedProviderId = String(cfg.api?.provider || defaults.api.provider);
@@ -2872,17 +3838,34 @@ function loadConfig() {
   const hasStoredProviderBaseUrl = !!storedProviderConfig
     && Object.prototype.hasOwnProperty.call(storedProviderConfig, 'baseUrl');
   const legacyBaseUrl = String(cfg.api?.baseUrl || '').trim().replace(/\/$/, '');
-  const storedReasoningSpeed = ['fast', 'balanced', 'smart'].includes(String(cfg.api?.reasoningSpeed || ''))
-    ? cfg.api.reasoningSpeed
-    : (cfg.api?.thinking ? 'smart' : 'balanced');
+  const storedReasoningSpeed = normalizeReasoningSpeed(cfg.api?.reasoningSpeed, {
+    thinking: cfg.api?.thinking === true
+  });
   const merged = deepMerge(defaults, cfg);
   delete merged.codeMap;
-  syncCustomProviders(merged);
+  migrateLegacyConnections(merged);
+  syncConnectionProviders(merged);
   merged.api.reasoningSpeed = storedReasoningSpeed;
-  merged.api.thinking = storedReasoningSpeed === 'smart';
+  shouldPersistNormalizedState = migrateVisionRelaySwitch(merged.api) || shouldPersistNormalizedState;
+  merged.api.visionRelayEnabled = merged.api.visionRelayEnabled !== false;
+  merged.api.inputTokensPerSecond = Math.max(DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond(
+    merged.api.inputTokensPerSecond || merged.agent?.inputTokensPerSecond
+  ));
+  merged.api.inputThroughput = normalizeMeasurementStore(merged.api.inputThroughput);
+  merged.api.thinking = reasoningSpeedEnablesThinking(storedReasoningSpeed);
   merged.agent = normalizeAgentConfig(merged.agent);
+  if (cfg.agent?.workMode != null && cfg.agent.workMode !== merged.agent.workMode) {
+    shouldPersistNormalizedState = true;
+  }
+  merged.context = normalizeContextSettings(merged.context);
   merged.quickLaunch = normalizeQuickLaunchConfig(merged.quickLaunch);
+  merged.pet = normalizePetConfig(merged.pet);
+  merged.tts = normalizeTtsConfig(merged.tts);
+  merged.wallpaper = normalizeWallpaperConfig(merged.wallpaper);
+  merged.themeCompat = normalizeThemeCompatConfig(merged.themeCompat);
   merged.userName = normalizeUserName(merged.userName);
+  merged.language = normalizeLanguage(merged.language);
+  merged.readingFont = normalizeReadingFont(merged.readingFont);
 
   // Migrate the former one-connection-per-provider layout into a supplier
   // registry. Existing credentials, endpoints, and cached models become the
@@ -2918,6 +3901,15 @@ function loadConfig() {
     if (merged.api.apiKeys[id] === undefined) merged.api.apiKeys[id] = '';
   }
   ensureProviderConfigs(merged);
+  // Normalize the connection store and drop entries whose origin supplier
+  // disappeared (deleted via an older build or an external edit).
+  if (Array.isArray(merged.api.connections)) {
+    merged.api.connections = normalizeConnectionStore(merged.api.connections).filter(connection => {
+      const suppliers = merged.api.providerSuppliers?.[connection.providerId];
+      return Array.isArray(suppliers) && suppliers.some(item => item.id === connection.supplierId);
+    });
+  }
+  shouldPersistNormalizedState = pruneUnlistedSupplierState(merged) || shouldPersistNormalizedState;
   const legacySharedGateway = 'https://ai8.my/v1';
   for (const providerId of ['openai', 'grok']) {
     if (String(merged.api.providerConfigs?.[providerId]?.baseUrl || '').trim() === legacySharedGateway) {
@@ -2948,10 +3940,13 @@ function loadConfig() {
   updateImageGenerationConfig(merged);
   normalizeAgentModelSelection(merged);
 
-  ensureBundledAgentSkills(merged);
+  shouldPersistNormalizedState = ensureBundledAgentSkills(merged) || shouldPersistNormalizedState;
   merged.skills = getMergedSkills(merged);
   merged.mcpServers = ensureDefaultMcp(merged.mcpServers || []);
-  merged.remoteControl = normalizeRemoteControlConfig(merged.remoteControl);
+  // Strip legacy mobile-remote config (may contain a plaintext password).
+  delete merged.remoteControl;
+  // Legacy scheduled-automation feature was removed; drop stale config.
+  delete merged.automations;
   delete merged.computerUseV3;
   merged.executionKernel = {
     id: 'yan-kernel',
@@ -2960,30 +3955,111 @@ function loadConfig() {
     engine: 'opencode',
     engineVersion: OPENCODE_VERSION
   };
+  if (shouldPersistNormalizedState) saveConfig(merged);
   return merged;
-}
-
-function normalizeRemoteControlConfig(remoteControl = {}) {
-  const next = { ...(remoteControl || {}) };
-  if (next.enabled === undefined) next.enabled = true;
-  const port = Number(next.port);
-  next.port = Number.isFinite(port) && port >= 0 ? Math.floor(port) : 0;
-  if (!next.password && next.token) next.password = String(next.token);
-  delete next.token;
-  next.password = String(next.password || '');
-  return next;
 }
 
 function normalizeAgentConfig(agent = {}) {
   const next = { ...(agent || {}) };
-  next.workMode = ['normal', 'plan', 'goal'].includes(String(next.workMode || ''))
+  next.workMode = ['normal', 'plan', 'goal', 'evolution', 'agi'].includes(String(next.workMode || ''))
     ? next.workMode
     : 'normal';
   next.accessMode = ['request', 'delegate', 'full'].includes(String(next.accessMode || ''))
     ? next.accessMode
     : 'request';
-  next.tone = normalizeAgentTone(next.tone);
+  // Default on: fast writes with one finalization formatting pass. Only an
+  // explicit false restores the kernel's per-edit auto-format.
+  next.disableAutoFormatter = next.disableAutoFormatter !== false;
+  // Role switches are the source of truth. Existing configurations without
+  // the new map migrate to all built-in roles enabled.
+  const hasRoleMap = next.subagentRoles && typeof next.subagentRoles === 'object';
+  next.subagentRoles = normalizeSubagentRoles(hasRoleMap ? next.subagentRoles : {});
+  next.enableSubagents = true;
+  const maxChildren = Number(next.subagentMaxChildren);
+  next.subagentMaxChildren = Number.isFinite(maxChildren)
+    ? Math.max(1, Math.min(4, Math.floor(maxChildren)))
+    : 2;
   return next;
+}
+
+function normalizePetConfig(pet = {}) {
+  const next = pet && typeof pet === 'object' ? { ...pet } : {};
+  const selected = String(next.selected || '').trim().toLowerCase();
+  return {
+    enabled: next.enabled === true,
+    selected: PET_IDS.includes(selected) ? selected : 'orb'
+  };
+}
+
+function normalizeTtsConfig(tts = {}) {
+  const next = tts && typeof tts === 'object' ? { ...tts } : {};
+  return {
+    voice: normalizeVoice(next.voice),
+    rate: normalizeRate(next.rate)
+  };
+}
+
+const BUILTIN_WALLPAPER_IDS = new Set([
+  'sword-and-sakura',
+  'chinese-garden',
+  'dark-side-of-moon',
+  'side-glance',
+  'deep-cave'
+]);
+
+function normalizeWallpaperConfig(wallpaper = {}) {
+  const next = wallpaper && typeof wallpaper === 'object' ? wallpaper : {};
+  const id = String(next.id || '').trim();
+  const removed = [...new Set((Array.isArray(next.removed) ? next.removed : [])
+    .map(value => String(value || '').trim())
+    .filter(value => BUILTIN_WALLPAPER_IDS.has(value)))].slice(0, BUILTIN_WALLPAPER_IDS.size);
+  const removedIds = new Set(removed);
+  const custom = [];
+  const seenIds = new Set();
+  const sourceCustom = Array.isArray(next.custom) ? next.custom : [];
+  for (const entry of sourceCustom) {
+    if (!entry || typeof entry !== 'object') continue;
+    const entryId = String(entry.id || '').trim().slice(0, 96);
+    const entryPath = String(entry.path || '').trim().slice(0, 1024);
+    const entryName = String(entry.name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+    if (!entryId || !entryPath || !entryName || seenIds.has(entryId)) continue;
+    seenIds.add(entryId);
+    custom.push({ id: entryId, path: entryPath, name: entryName });
+    if (custom.length >= 48) break;
+  }
+  const validId = !id || id === 'custom' || (BUILTIN_WALLPAPER_IDS.has(id) && !removedIds.has(id)) || seenIds.has(id) ? id : '';
+  // Preserve a legacy one-off custom wallpaper while migrating it into the
+  // persistent library used by the settings market.
+  const legacyPath = String(next.path || '').trim().slice(0, 1024);
+  const legacyName = String(next.name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+  if (validId === 'custom' && legacyPath && legacyName && !custom.some(entry => entry.path === legacyPath)) {
+    const legacyId = 'custom-legacy';
+    if (!seenIds.has(legacyId)) custom.unshift({ id: legacyId, path: legacyPath, name: legacyName });
+  }
+  const selectedCustom = custom.find(entry => entry.id === validId);
+  // Wallpaper opacity is locked at 100%; the field stays for config
+  // compatibility and always normalizes back to 1.
+  const opacity = 1;
+  return {
+    id: selectedCustom ? selectedCustom.id : (validId === 'custom' ? 'custom' : validId),
+    path: selectedCustom?.path || (validId === 'custom' ? legacyPath : ''),
+    name: selectedCustom?.name || (validId === 'custom' ? legacyName : ''),
+    custom,
+    removed,
+    opacity
+  };
+}
+
+function normalizeThemeCompatConfig(value = {}) {
+  const next = value && typeof value === 'object' ? value : {};
+  const strengthValue = Number(next.materialStrength);
+  return {
+    autoAdapt: true,
+    materialStrength: Number.isFinite(strengthValue)
+      ? Math.max(0, Math.min(1, Math.round(strengthValue * 20) / 20))
+      : 0.45,
+    accentFollow: true
+  };
 }
 
 function normalizeUserName(value) {
@@ -2991,25 +4067,181 @@ function normalizeUserName(value) {
   return name.slice(0, 32) || 'Yanxi';
 }
 
-function isRemotePasswordSet(cfg) {
-  const pwd = String(cfg?.remoteControl?.password || '');
-  return pwd.length >= 4;
+function normalizeLanguage(value) {
+  return String(value || '').trim().toLowerCase() === 'en' ? 'en' : 'zh-CN';
 }
 
-function verifyRemotePassword(input) {
-  const expected = String(loadConfig().remoteControl?.password || '');
-  if (expected.length < 4) return false;
-  const given = String(input || '');
-  if (given.length < 4) return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
+function normalizeReadingFont(value) {
+  return String(value || '').trim().toLowerCase() === 'sans' ? 'sans' : 'serif';
 }
 
 function saveConfig(cfg) {
   ensureDirs();
-  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+  // Shallow spread shares the nested secret containers with the live config;
+  // clone them so at-rest encryption never leaks cipher text into memory.
+  const persisted = cloneConfigForPersist(cfg);
+  transformConfigSecrets(persisted, encryptConfigSecret);
+  writeAtomic(configPath, persisted);
+}
+
+const SECRET_CIPHER_PREFIX = 'enc:v1:';
+
+function encryptConfigSecret(value) {
+  const text = String(value ?? '');
+  if (!text || text.startsWith(SECRET_CIPHER_PREFIX)) return text;
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return text;
+    return SECRET_CIPHER_PREFIX + safeStorage.encryptString(text).toString('base64');
+  } catch {
+    // Before the ready event (or on unsupported platforms) secrets stay
+    // plaintext, matching the historical behavior.
+    return text;
+  }
+}
+
+function decryptConfigSecret(value) {
+  const text = String(value ?? '');
+  if (!text.startsWith(SECRET_CIPHER_PREFIX)) return text;
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return text;
+    return safeStorage.decryptString(Buffer.from(text.slice(SECRET_CIPHER_PREFIX.length), 'base64'));
+  } catch (error) {
+    console.warn('[config] stored secret could not be decrypted (system user changed?); re-enter the connection key.', error?.message || error);
+    return '';
+  }
+}
+
+// Encrypt-on-save / decrypt-on-load for every credential field in the config.
+// In memory the config is always plaintext; only the file on disk is ciphered.
+function transformConfigSecrets(source, transform) {
+  const api = source?.api && typeof source.api === 'object' ? source.api : null;
+  if (api) {
+    if (typeof api.apiKey === 'string') api.apiKey = transform(api.apiKey);
+    if (api.apiKeys && typeof api.apiKeys === 'object') {
+      for (const id of Object.keys(api.apiKeys)) {
+        if (typeof api.apiKeys[id] === 'string') api.apiKeys[id] = transform(api.apiKeys[id]);
+      }
+    }
+    if (api.providerConfigs && typeof api.providerConfigs === 'object') {
+      for (const config of Object.values(api.providerConfigs)) {
+        if (config && typeof config === 'object' && typeof config.apiKey === 'string') {
+          config.apiKey = transform(config.apiKey);
+        }
+      }
+    }
+    if (api.providerSuppliers && typeof api.providerSuppliers === 'object') {
+      for (const suppliers of Object.values(api.providerSuppliers)) {
+        for (const supplier of Array.isArray(suppliers) ? suppliers : []) {
+          if (supplier && typeof supplier === 'object' && typeof supplier.apiKey === 'string') {
+            supplier.apiKey = transform(supplier.apiKey);
+          }
+        }
+      }
+    }
+    for (const connection of Array.isArray(api.connections) ? api.connections : []) {
+      if (connection && typeof connection === 'object' && typeof connection.apiKey === 'string') {
+        connection.apiKey = transform(connection.apiKey);
+      }
+    }
+  }
+  if (source?.customModel && typeof source.customModel === 'object' && typeof source.customModel.apiKey === 'string') {
+    source.customModel.apiKey = transform(source.customModel.apiKey);
+  }
+  for (const provider of Array.isArray(source?.customProviders) ? source.customProviders : []) {
+    if (provider && typeof provider === 'object' && typeof provider.apiKey === 'string') {
+      provider.apiKey = transform(provider.apiKey);
+    }
+  }
+  return source;
+}
+
+// A blanked secret (as returned by publicConfig) means "unchanged". deepMerge
+// overwrites scalars unconditionally, so blank fields must never reach it —
+// otherwise a config round-trip would erase the stored credentials.
+function stripBlankConfigSecrets(source) {
+  const api = source?.api && typeof source.api === 'object' ? source.api : null;
+  if (api) {
+    if (api.apiKey === '') delete api.apiKey;
+    if (api.apiKeys && typeof api.apiKeys === 'object') {
+      for (const id of Object.keys(api.apiKeys)) {
+        if (api.apiKeys[id] === '') delete api.apiKeys[id];
+      }
+    }
+    if (api.providerConfigs && typeof api.providerConfigs === 'object') {
+      for (const config of Object.values(api.providerConfigs)) {
+        if (config && typeof config === 'object' && config.apiKey === '') delete config.apiKey;
+      }
+    }
+    if (api.providerSuppliers && typeof api.providerSuppliers === 'object') {
+      for (const suppliers of Object.values(api.providerSuppliers)) {
+        for (const supplier of Array.isArray(suppliers) ? suppliers : []) {
+          if (supplier && typeof supplier === 'object' && supplier.apiKey === '') delete supplier.apiKey;
+        }
+      }
+    }
+    for (const connection of Array.isArray(api.connections) ? api.connections : []) {
+      if (connection && typeof connection === 'object' && connection.apiKey === '') delete connection.apiKey;
+    }
+  }
+  if (source?.customModel && typeof source.customModel === 'object' && source.customModel.apiKey === '') {
+    delete source.customModel.apiKey;
+  }
+  for (const provider of Array.isArray(source?.customProviders) ? source.customProviders : []) {
+    if (provider && typeof provider === 'object' && provider.apiKey === '') delete provider.apiKey;
+  }
+  return source;
+}
+
+function cloneConfigForPersist(cfg) {
+  const persisted = { ...cfg };
+  delete persisted.skills;
+  persisted.customSkills = skillConfigMetadataList(cfg.customSkills);
+  if (persisted.api && typeof persisted.api === 'object') {
+    const api = { ...persisted.api };
+    if (api.apiKeys && typeof api.apiKeys === 'object') api.apiKeys = { ...api.apiKeys };
+    if (api.providerConfigs && typeof api.providerConfigs === 'object') {
+      api.providerConfigs = Object.fromEntries(Object.entries(api.providerConfigs)
+        .map(([id, value]) => [id, value && typeof value === 'object' ? { ...value } : value]));
+    }
+    if (api.providerSuppliers && typeof api.providerSuppliers === 'object') {
+      api.providerSuppliers = Object.fromEntries(Object.entries(api.providerSuppliers)
+        .map(([id, list]) => [id, Array.isArray(list)
+          ? list.map(item => item && typeof item === 'object' ? { ...item } : item)
+          : list]));
+    }
+    if (Array.isArray(api.connections)) {
+      api.connections = api.connections.map(item => item && typeof item === 'object' ? { ...item } : item);
+    }
+    persisted.api = api;
+  }
+  if (persisted.customModel && typeof persisted.customModel === 'object') {
+    persisted.customModel = { ...persisted.customModel };
+  }
+  if (Array.isArray(persisted.customProviders)) {
+    persisted.customProviders = persisted.customProviders.map(item => item && typeof item === 'object' ? { ...item } : item);
+  }
+  return persisted;
+}
+
+function skillConfigMetadata(skill = {}) {
+  const { prompt: _prompt, runtimeDirectory: _runtimeDirectory, storeDirectory: _storeDirectory, ...metadata } = skill;
+  return metadata;
+}
+
+function skillConfigMetadataList(skills) {
+  return (Array.isArray(skills) ? skills : []).map(skillConfigMetadata);
+}
+
+function publicConfig(cfg) {
+  // The renderer works against apiKeyConfigured flags plus explicit
+  // provider:get-secret calls; raw credentials never cross the IPC boundary.
+  const safe = cloneConfigForPersist(cfg);
+  transformConfigSecrets(safe, () => '');
+  return {
+    ...safe,
+    customSkills: skillConfigMetadataList(cfg?.customSkills),
+    skills: skillConfigMetadataList(cfg?.skills)
+  };
 }
 
 function notifySkillsChanged(detail = {}) {
@@ -3022,6 +4254,7 @@ let yanSkillWatcher = null;
 let yanSkillRefreshTimer = null;
 
 function refreshYanSkillRegistry(detail = {}) {
+  skillRegistry.invalidateInstalledSkillsCache(dataDir);
   const cfg = loadConfig();
   const storeResult = skillRegistry.syncSkillStore(cfg, appRoot, dataDir);
   if (!storeResult.ok) console.warn(`[SkillStore] ${storeResult.error}`);
@@ -3088,9 +4321,9 @@ function revealMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   applyLightWindowIcon(mainWindow);
   mainWindow.show();
-  if (pendingFocusMainFromYanxi) {
+  if (pendingFocusMain) {
     mainWindow.focus();
-    pendingFocusMainFromYanxi = false;
+    pendingFocusMain = false;
   }
 }
 
@@ -3144,7 +4377,7 @@ function createSplashWindow() {
     closable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    backgroundColor: '#14191d',
+    backgroundColor: '#120f17',
     show: false,
     webPreferences: {
       contextIsolation: true,
@@ -3191,8 +4424,8 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       webviewTag: true,
-      // 窗口隐藏到托盘时不节流定时器，保证自动化任务准时触发
-      backgroundThrottling: false
+      // Idle renderer work is throttled. Active Agent runs temporarily opt out.
+      backgroundThrottling: true
     }
   });
 
@@ -3221,7 +4454,6 @@ function createWindow() {
   });
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.log('[renderer gone]', JSON.stringify(details));
-    terminalManager.destroyOwner(mainWindow?.webContents?.id);
   });
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.log('[did-fail-load]', code, desc, url);
@@ -3323,7 +4555,9 @@ function createQuickInputWindow(display) {
   });
   quickInputWindow.setAlwaysOnTop(true, 'screen-saver');
   quickInputWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  quickInputWindow.loadFile(path.join(__dirname, 'renderer', 'quick-input', 'index.html'));
+  quickInputWindow.loadFile(path.join(__dirname, 'renderer', 'quick-input', 'index.html'), {
+    query: { lang: normalizeLanguage(loadConfig().language) }
+  });
   quickInputWindow.once('ready-to-show', () => {
     if (quickInputWindow && !quickInputWindow.isDestroyed()) {
       quickInputWindow.show();
@@ -3462,114 +4696,14 @@ function sendQuickInputPromptToMain(text) {
   else mainWindow.webContents.once('did-finish-load', deliver);
 }
 
-function createComputerUseOverlayWindow() {
-  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) return computerUseOverlayWindow;
-  const point = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(point);
-  computerUseOverlayDisplayId = display.id;
-  computerUseOverlayReady = false;
-  computerUseOverlayWindow = new BrowserWindow({
-    ...display.bounds,
-    show: false,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    focusable: false,
-    hasShadow: false,
-    title: 'Yan Computer Use Overlay',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      backgroundThrottling: false
-    }
-  });
-  computerUseOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
-  computerUseOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
-  computerUseOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  computerUseOverlayWindow.loadFile(path.join(__dirname, 'renderer', 'computer-use-overlay', 'index.html'));
-  computerUseOverlayWindow.webContents.once('did-finish-load', () => {
-    computerUseOverlayReady = true;
-    if (computerUseOverlayActive && computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) {
-      computerUseOverlayWindow.showInactive();
-    }
-  });
-  computerUseOverlayWindow.on('closed', () => {
-    computerUseOverlayWindow = null;
-    computerUseOverlayReady = false;
-    computerUseOverlayDisplayId = null;
-  });
-  return computerUseOverlayWindow;
-}
-
-function updateComputerUseOverlay() {
-  if (!computerUseOverlayActive) return;
-  const overlay = createComputerUseOverlayWindow();
-  if (!overlay || overlay.isDestroyed()) return;
-  const point = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(point);
-  if (computerUseOverlayDisplayId !== display.id) {
-    computerUseOverlayDisplayId = display.id;
-    overlay.setBounds(display.bounds, false);
-  }
-  if (!overlay.isVisible() && computerUseOverlayReady) overlay.showInactive();
-}
-
-function setComputerUseOverlayRun(runId, active) {
-  const key = String(runId || 'foreground');
-  if (active) computerUseOverlayRunIds.add(key);
-  else computerUseOverlayRunIds.delete(key);
-  computerUseOverlayActive = computerUseOverlayRunIds.size > 0;
-  if (computerUseOverlayActive) {
-    createComputerUseOverlayWindow();
-    updateComputerUseOverlay();
-    if (!computerUseOverlayTimer) computerUseOverlayTimer = setInterval(updateComputerUseOverlay, 80);
-    if (!computerUseEscapeRegistered) {
-      computerUseEscapeRegistered = globalShortcut.register('Esc', () => {
-        for (const activeRunId of computerUseOverlayRunIds) void cancelOpenCodeRun(activeRunId);
-      });
-      if (!computerUseEscapeRegistered) console.warn('[computer-use] failed to register Esc');
-    }
-    return;
-  }
-  if (computerUseOverlayTimer) {
-    clearInterval(computerUseOverlayTimer);
-    computerUseOverlayTimer = null;
-  }
-  if (computerUseEscapeRegistered) {
-    globalShortcut.unregister('Esc');
-    computerUseEscapeRegistered = false;
-  }
-  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) computerUseOverlayWindow.hide();
-}
-
-function destroyComputerUseOverlay() {
-  computerUseOverlayRunIds.clear();
-  setComputerUseOverlayRun('foreground', false);
-  if (computerUseOverlayWindow && !computerUseOverlayWindow.isDestroyed()) computerUseOverlayWindow.destroy();
-  computerUseOverlayWindow = null;
-  computerUseOverlayReady = false;
-  computerUseOverlayDisplayId = null;
-}
-
-function openGeneratedImageViewer(assetId) {
-  const asset = getGeneratedImageAsset(assetId);
-  if (!asset) return { error: '会话图片已失效，请重新生成' };
-  const existing = generatedImageViewers.get(asset.assetId);
+function showImageViewerWindow(key, query) {
+  const existing = generatedImageViewers.get(key);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
     existing.show();
     existing.focus();
     return { ok: true };
   }
-
   const viewer = new BrowserWindow({
     width: 1080,
     height: 760,
@@ -3587,25 +4721,62 @@ function openGeneratedImageViewer(assetId) {
       sandbox: true
     }
   });
-  generatedImageViewers.set(asset.assetId, viewer);
+  generatedImageViewers.set(key, viewer);
   viewer.on('page-title-updated', event => {
     event.preventDefault();
     viewer.setTitle('图片预览');
   });
   viewer.loadFile(path.join(__dirname, 'renderer', 'image-viewer', 'index.html'), {
-    query: { assetId: asset.assetId }
+    query
   });
   viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   viewer.once('ready-to-show', () => {
     applyLightWindowIcon(viewer);
     viewer.show();
   });
-  viewer.on('closed', () => generatedImageViewers.delete(asset.assetId));
+  viewer.on('closed', () => generatedImageViewers.delete(key));
   return { ok: true };
 }
 
-const PET_COLLAPSED_SIZE = { width: 176, height: 190 };
-const PET_EXPANDED_SIZE = { width: 324, height: 300 };
+function openGeneratedImageViewer(assetId) {
+  const asset = getGeneratedImageAsset(assetId);
+  if (!asset) return { error: '会话图片已失效，请重新生成' };
+  return showImageViewerWindow(asset.assetId, {
+    assetId: asset.assetId,
+    lang: normalizeLanguage(loadConfig().language)
+  });
+}
+
+// User-uploaded attachments preview through the same viewer window. Resolve a
+// local image path with an extension allow-list plus a real-file check, and key
+// the window by path so repeat clicks reuse the already-open viewer.
+async function resolveLocalImageFile(filePath) {
+  const target = path.resolve(String(filePath || ''));
+  const extension = path.extname(target).slice(1).toLowerCase();
+  const mimeType = GENERATED_IMAGE_MIME_BY_EXTENSION[extension];
+  if (!mimeType) return null;
+  try {
+    const stat = await fsp.stat(target);
+    if (!stat.isFile() || !stat.size) return null;
+    return { path: target, name: path.basename(target), mimeType, size: stat.size };
+  } catch {
+    return null;
+  }
+}
+
+async function openImageFileViewer(filePath) {
+  const file = await resolveLocalImageFile(filePath);
+  if (!file) return { error: '图片不可用或格式不支持预览' };
+  const key = process.platform === 'win32' ? `file:${file.path.toLowerCase()}` : `file:${file.path}`;
+  return showImageViewerWindow(key, {
+    file: file.path,
+    lang: normalizeLanguage(loadConfig().language)
+  });
+}
+
+const PET_COLLAPSED_SIZE = { width: 248, height: 238 };
+let petDragState = null;
+let petDragTimer = null;
 
 function getInitialPetBounds() {
   const { workArea } = screen.getPrimaryDisplay();
@@ -3617,28 +4788,50 @@ function getInitialPetBounds() {
   };
 }
 
-function resizePetWindow(expanded) {
-  if (!petWindow || petWindow.isDestroyed()) return;
+function updatePetDrag() {
+  if (!petDragState || !petWindow || petWindow.isDestroyed()) {
+    stopPetDrag();
+    return;
+  }
+  const cursor = screen.getCursorScreenPoint();
+  const nextX = Math.round(petDragState.windowX + cursor.x - petDragState.cursorX);
+  const nextY = Math.round(petDragState.windowY + cursor.y - petDragState.cursorY);
   const current = petWindow.getBounds();
-  const nextSize = expanded ? PET_EXPANDED_SIZE : PET_COLLAPSED_SIZE;
-  const display = screen.getDisplayMatching(current);
-  const area = display.workArea;
-  const right = current.x + current.width;
-  const bottom = current.y + current.height;
-  const next = {
-    width: nextSize.width,
-    height: nextSize.height,
-    x: right - nextSize.width,
-    y: bottom - nextSize.height
+  if (current.x !== nextX || current.y !== nextY) petWindow.setPosition(nextX, nextY, false);
+}
+
+function startPetDrag() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  stopPetDrag();
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = petWindow.getBounds();
+  petDragState = {
+    cursorX: cursor.x,
+    cursorY: cursor.y,
+    windowX: bounds.x,
+    windowY: bounds.y
   };
-  next.x = Math.max(area.x, Math.min(next.x, area.x + area.width - next.width));
-  next.y = Math.max(area.y, Math.min(next.y, area.y + area.height - next.height));
-  petWindow.setBounds(next, true);
+  petDragTimer = setInterval(updatePetDrag, 16);
+}
+
+function stopPetDrag() {
+  if (petDragTimer) clearInterval(petDragTimer);
+  petDragTimer = null;
+  petDragState = null;
 }
 
 function sendPetState() {
-  if (!petWindow || petWindow.isDestroyed() || petWindow.webContents.isDestroyed()) return;
+  if (activePetId !== 'orb' || !petWindow || petWindow.isDestroyed() || petWindow.webContents.isDestroyed()) return;
   petWindow.webContents.send('pet:state', petState);
+}
+
+function sendPetConfig() {
+  if (!petWindow || petWindow.isDestroyed() || petWindow.webContents.isDestroyed()) return;
+  petWindow.webContents.send('pet:config', {
+    selected: activePetId,
+    label: PET_LABELS[activePetId],
+    entertainment: activePetId !== 'orb'
+  });
 }
 
 function notifyPetVisibility() {
@@ -3649,6 +4842,7 @@ function notifyPetVisibility() {
 }
 
 function destroyPetWindow() {
+  stopPetDrag();
   if (!petWindow || petWindow.isDestroyed()) {
     petWindow = null;
     notifyPetVisibility();
@@ -3658,12 +4852,32 @@ function destroyPetWindow() {
 }
 
 function togglePetWindow() {
-  if (petWindow && !petWindow.isDestroyed()) {
+  const cfg = loadConfig();
+  cfg.pet = normalizePetConfig(cfg.pet);
+  cfg.pet.enabled = !(petWindow && !petWindow.isDestroyed() && petWindow.isVisible());
+  activePetId = cfg.pet.selected;
+  saveConfig(cfg);
+  if (!cfg.pet.enabled) {
     destroyPetWindow();
     return false;
   }
   createPetWindow();
   return true;
+}
+
+function applyPetConfigRuntime(pet = {}) {
+  const next = normalizePetConfig(pet);
+  activePetId = next.selected;
+  if (!next.enabled) {
+    destroyPetWindow();
+    return;
+  }
+  if (!petWindow || petWindow.isDestroyed()) {
+    createPetWindow();
+    return;
+  }
+  sendPetConfig();
+  sendPetState();
 }
 
 function createPetWindow() {
@@ -3697,20 +4911,25 @@ function createPetWindow() {
 
   petWindow.setAlwaysOnTop(true, 'floating');
   petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
-  petWindow.loadFile(path.join(__dirname, 'renderer', 'pet', 'index.html'));
+  petWindow.loadFile(path.join(__dirname, 'renderer', 'pet', 'index.html'), {
+    query: { lang: normalizeLanguage(loadConfig().language) }
+  });
   petWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   petWindow.once('ready-to-show', () => {
     petWindow.showInactive();
+    sendPetConfig();
     sendPetState();
     notifyPetVisibility();
   });
   petWindow.on('close', (event) => {
+    stopPetDrag();
     if (!isQuiting) {
       event.preventDefault();
       petWindow.hide();
     }
   });
   petWindow.on('closed', () => {
+    stopPetDrag();
     petWindow = null;
     notifyPetVisibility();
   });
@@ -3803,23 +5022,67 @@ function createTray() {
 // ---------------------------------------------------------------------------
 // IPC: Config / API / Models
 // ---------------------------------------------------------------------------
-ipcMain.handle('config:get', () => loadConfig());
-ipcMain.handle('yanxi:consume-pending-workspace', () => yanxiReceiver.consumePendingWorkspaceForRenderer());
+ipcMain.handle('config:get', () => publicConfig(loadConfig()));
+ipcMain.handle('wallpaper:analyze', (_e, { source } = {}) => {
+  try {
+    return analyzeWallpaperSource(source, {
+      rendererRoot: path.join(appRoot, 'renderer'),
+      roots: [
+        path.join(appRoot, 'renderer', 'assets', 'wallpapers'),
+        path.join(dataDir, 'uploads')
+      ]
+    });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+ipcMain.handle('vision-relay:status', () => getVisionRelayStatus(loadConfig()));
+ipcMain.handle('vision-relay:open-guide-url', async (_e, { url = '' } = {}) => {
+  let target;
+  try {
+    target = new URL(String(url || '').trim());
+  } catch {
+    throw new Error('教学网站地址无效。');
+  }
+  const allowedGuideUrls = new Set([
+    'https://bigmodel.cn/glm-coding',
+    'https://www.sensenova.cn/',
+    'https://agnes-ai.com/',
+    'https://www.siliconflow.cn/'
+  ]);
+  const normalized = `${target.origin}${target.pathname}`;
+  if (target.protocol !== 'https:'
+      || target.username
+      || target.password
+      || !allowedGuideUrls.has(normalized)) {
+    throw new Error('仅允许打开视觉中继教学文档中的官方网站。');
+  }
+  if (process.env.YAN_E2E_MODE !== '1') await shell.openExternal(target.toString());
+  return { url: target.toString() };
+});
 ipcMain.handle('config:set', (_e, partial) => {
   const cfg = loadConfig();
+  stripBlankConfigSecrets(partial);
   const merged = deepMerge(cfg, partial);
   if (partial?.api
       && Object.prototype.hasOwnProperty.call(partial.api, 'thinking')
       && !Object.prototype.hasOwnProperty.call(partial.api, 'reasoningSpeed')) {
-    merged.api.reasoningSpeed = partial.api.thinking ? 'smart' : 'balanced';
+    merged.api.reasoningSpeed = partial.api.thinking ? 'high' : 'medium';
   }
-  merged.api.reasoningSpeed = ['fast', 'balanced', 'smart'].includes(String(merged.api.reasoningSpeed || ''))
-    ? merged.api.reasoningSpeed
-    : (merged.api.thinking ? 'smart' : 'balanced');
-  merged.api.thinking = merged.api.reasoningSpeed === 'smart';
+  merged.api.reasoningSpeed = normalizeReasoningSpeed(merged.api.reasoningSpeed, {
+    thinking: merged.api.thinking === true
+  });
+  merged.api.thinking = reasoningSpeedEnablesThinking(merged.api.reasoningSpeed);
   merged.agent = normalizeAgentConfig(merged.agent);
+  merged.context = normalizeContextSettings(merged.context);
   merged.quickLaunch = normalizeQuickLaunchConfig(merged.quickLaunch);
+  merged.pet = normalizePetConfig(merged.pet);
+  merged.tts = normalizeTtsConfig(merged.tts);
+  merged.wallpaper = normalizeWallpaperConfig(merged.wallpaper);
+  merged.themeCompat = normalizeThemeCompatConfig(merged.themeCompat);
   merged.userName = normalizeUserName(merged.userName);
+  merged.language = normalizeLanguage(merged.language);
+  merged.readingFont = normalizeReadingFont(merged.readingFont);
   delete merged.codeMap;
 
   // 确保 apiKeys 结构完整
@@ -3847,19 +5110,16 @@ ipcMain.handle('config:set', (_e, partial) => {
 
   merged.skills = getMergedSkills(merged);
   merged.mcpServers = ensureDefaultMcp(merged.mcpServers || []);
-  merged.remoteControl = normalizeRemoteControlConfig(merged.remoteControl);
   delete merged.computerUseV3;
   if (partial && Object.prototype.hasOwnProperty.call(partial, 'workspace')) {
     startWorkspaceWatcher(merged.workspace);
   }
   saveConfig(merged);
+  if (partial?.pet) applyPetConfigRuntime(merged.pet);
   if (partial && Object.prototype.hasOwnProperty.call(partial, 'disabledModels')) {
     publishModelState(merged);
   }
-  if (partial?.remoteControl) {
-    restartRemoteServer().catch((e) => console.error('[remote] restart failed:', e.message));
-  }
-  return merged;
+  return publicConfig(merged);
 });
 
 ipcMain.handle('quick-launch:get', () => quickLaunchRuntimeState());
@@ -3886,14 +5146,113 @@ ipcMain.handle('quick-launch:update', (_e, payload = {}) => {
   return quickLaunchRuntimeState(cfg);
 });
 
+// ---------------------------------------------------------------------------
+// IPC: Text-to-speech (Edge neural voices for reading replies aloud)
+// ---------------------------------------------------------------------------
+let textToSpeechService = null;
+function getTextToSpeechService() {
+  if (!textToSpeechService) {
+    textToSpeechService = createTextToSpeech({
+      cacheDir: path.join(dataDir, 'tts-cache')
+    });
+  }
+  return textToSpeechService;
+}
+
+ipcMain.handle('tts:synth', async (_e, payload = {}) => {
+  try {
+    const result = await getTextToSpeechService().synthesize({
+      text: payload?.text,
+      voice: payload?.voice,
+      rate: payload?.rate,
+      requestId: payload?.requestId
+    });
+    const audio = await fsp.readFile(result.path);
+    return {
+      ok: true,
+      audio,
+      mime: 'audio/mpeg',
+      cached: !!result.cached,
+      voice: result.voice,
+      rate: result.rate
+    };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('tts:voices', async () => {
+  try {
+    return { ok: true, voices: await getTextToSpeechService().listVoices() };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('tts:cancel', (_e, requestId) => {
+  try {
+    return { ok: true, cancelled: getTextToSpeechService().cancel(requestId) };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+let pendingUpdatePackage = null;
+
+ipcMain.handle('update:check', async () => {
+  try {
+    return await updateChecker.checkForUpdates({ currentVersion: app.getVersion() });
+  } catch (error) {
+    return { ok: false, error: 'check-failed', message: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('update:download', async (event) => {
+  try {
+    const info = await updateChecker.checkForUpdates({ currentVersion: app.getVersion() });
+    if (!info.ok) return info;
+    if (!info.hasUpdate) return { ok: false, error: 'no-update', currentVersion: info.currentVersion };
+    const targetDir = path.join(app.getPath('temp'), 'yan-agent-update');
+    await fsp.mkdir(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, info.fileName);
+    const result = await updateChecker.downloadUpdate({
+      url: info.fileUrl,
+      targetPath,
+      expectedSha512: info.sha512,
+      expectedSize: info.size,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('update:progress', { ...progress, version: info.latestVersion });
+        }
+      }
+    });
+    pendingUpdatePackage = { path: result.path, version: info.latestVersion };
+    return { ok: true, path: result.path, version: info.latestVersion, size: result.size };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('update:install', async () => {
+  if (!pendingUpdatePackage) return { ok: false, error: 'no-package' };
+  const error = await shell.openPath(pendingUpdatePackage.path);
+  if (error) return { ok: false, error };
+  setTimeout(() => app.quit(), 1200);
+  return { ok: true };
+});
+
 ipcMain.handle('providers:list', () => {
   const cfg = loadConfig();
   const list = [];
   for (const id of Object.keys(MODEL_PROVIDERS)) {
     const p = MODEL_PROVIDERS[id];
-    const models = getProviderModels(cfg, p.id);
-    const officialMediaCapabilities = PROVIDER_MEDIA_CAPABILITIES[p.id] || EMPTY_MEDIA_CAPABILITIES;
-    const mediaAdapter = PROVIDER_MEDIA_ADAPTERS[p.id] || EMPTY_MEDIA_CAPABILITIES;
+    const configuredSuppliers = getProviderSuppliers(cfg, p.id)
+      .filter(supplier => isConfiguredSupplier(cfg, p.id, supplier));
+    const models = mergeProviderModelCatalog(
+      ...configuredSuppliers.map(supplier => getProviderSupplierCatalog(p.id, supplier))
+    );
+    const officialMediaCapabilities = PROVIDER_MEDIA_CAPABILITIES[providerMediaPresetId(p)] || EMPTY_MEDIA_CAPABILITIES;
+    const mediaAdapter = PROVIDER_MEDIA_ADAPTERS[providerMediaPresetId(p)] || EMPTY_MEDIA_CAPABILITIES;
     const hasImageModel = models.some(model => getModelType(p.id, model) === 'image');
     const hasVideoModel = models.some(model => getModelType(p.id, model) === 'video');
     const mediaCapabilities = {
@@ -3909,7 +5268,8 @@ ipcMain.handle('providers:list', () => {
       // current supplier can use. Expose it as available only after the
       // supplier has credentials; dynamic providers still use their fetched
       // catalog after configuration.
-      const supplierModels = configuredSupplierModels(catalogModels, !!supplier.apiKey);
+      const supplierConfigured = isConfiguredSupplier(cfg, id, supplier);
+      const supplierModels = configuredSupplierModels(catalogModels, supplierConfigured);
       const supplierHasImage = supplierModels.some(model => getModelType(id, model) === 'image');
       const supplierHasVideo = supplierModels.some(model => getModelType(id, model) === 'video');
       return {
@@ -3922,7 +5282,7 @@ ipcMain.handle('providers:list', () => {
         videoGenerationUrl: supplier.videoGenerationUrl,
         workspaceId: supplier.workspaceId,
         apiKeyPlaceholder: p.apiKeyPlaceholder,
-        apiKeyConfigured: !!supplier.apiKey,
+        apiKeyConfigured: supplierConfigured,
         modelCount: supplierModels.length,
         models: supplierModels.map(model => ({
           id: model.id,
@@ -3975,7 +5335,7 @@ async function refreshConfiguredProviderModelCache(providerId) {
   const models = await fetchRemoteModelCatalog({
     baseUrl: connection.baseUrl,
     apiKey: connection.apiKey,
-    apiFormat: provider.apiFormat || 'openai'
+    apiFormat: provider.apiFormat === 'anthropic' ? 'anthropic' : 'openai'
   });
   const cfg = loadConfig();
   const current = getProviderConnection(cfg, providerId);
@@ -4077,7 +5437,7 @@ ipcMain.handle('provider:add-supplier', (_e, { providerId, name } = {}) => {
   suppliers.push(supplier);
   cfg.api.providerSuppliers[providerId] = suppliers;
   saveConfig(cfg);
-  return { ok: true, providerId, supplierId: id, config: cfg };
+  return { ok: true, providerId, supplierId: id, config: publicConfig(cfg) };
 });
 
 ipcMain.handle('provider:set-supplier', (_e, { providerId, supplierId } = {}) => {
@@ -4087,21 +5447,35 @@ ipcMain.handle('provider:set-supplier', (_e, { providerId, supplierId } = {}) =>
   ensureProviderConfigs(cfg);
   const supplier = getProviderSuppliers(cfg, providerId).find(item => item.id === String(supplierId || ''));
   if (!supplier) return { error: '供应商不存在' };
+  if (!String(supplier.apiKey || '').trim()) return { error: '请先配置 API Key，再启用此连接' };
   syncActiveProviderSupplier(cfg, providerId, supplier);
   cfg.api.provider = providerId;
   cfg.api.baseUrl = supplier.baseUrl;
   cfg.api.apiKey = supplier.apiKey;
-  // Changing the supplier in the quick picker changes the browsing cursor,
-  // not the already selected text/image/video roles.  The role is committed
-  // only when the user chooses a model and passes its supplierId.
   cfg.models = getProviderModels(cfg, providerId, supplier.id);
-  if (!cfg.models.some(model => model.id === cfg.api.model && getModelType(providerId, model) === 'text')) {
-    cfg.api.model = getFirstTextModel(providerId, cfg.models)?.id || cfg.api.model || '';
-  }
+  const selectedModel = getFirstTextModel(providerId, cfg.models);
+  cfg.api.model = selectedModel?.id || '';
+  cfg.agentModel = selectedModel
+    ? {
+        providerId,
+        supplierId: supplier.id,
+        modelId: selectedModel.id,
+        modelType: 'text',
+        name: selectedModel.name || selectedModel.id,
+        capabilities: selectedModel.capabilities || {}
+      }
+    : {
+        providerId,
+        supplierId: supplier.id,
+        modelId: '',
+        modelType: 'text',
+        name: '',
+        capabilities: {}
+      };
   updateImageGenerationConfig(cfg);
   saveConfig(cfg);
   publishModelState(cfg);
-  return { ok: true, config: cfg };
+  return { ok: true, config: publicConfig(cfg) };
 });
 
 ipcMain.handle('provider:delete-supplier', (_e, { providerId, supplierId } = {}) => {
@@ -4129,10 +5503,10 @@ ipcMain.handle('provider:delete-supplier', (_e, { providerId, supplierId } = {})
   }
   saveConfig(cfg);
   publishModelState(cfg);
-  return { ok: true, config: cfg };
+  return { ok: true, config: publicConfig(cfg) };
 });
 
-ipcMain.handle('provider:configure', async (_e, {
+async function applyProviderConfiguration({
   providerId,
   supplierId,
   supplierName,
@@ -4146,7 +5520,7 @@ ipcMain.handle('provider:configure', async (_e, {
   modelId,
   modelName,
   apiFormat
-} = {}) => {
+} = {}) {
   const provider = MODEL_PROVIDERS[providerId];
   if (!provider) return { error: '未知厂商: ' + providerId };
   let key = String(apiKey || '').trim();
@@ -4176,9 +5550,8 @@ ipcMain.handle('provider:configure', async (_e, {
   // An empty key therefore means "keep the existing key" while the explicit
   // clear action remains available through provider:remove-config.
   if (!key && supplier.apiKey) key = supplier.apiKey;
-  const effectiveApiFormat = String(apiFormat || provider.apiFormat || 'openai').trim().toLowerCase() === 'anthropic'
-    ? 'anthropic'
-    : 'openai';
+  const effectiveApiFormat = normalizeApiFormat(apiFormat || provider.apiFormat || 'openai');
+  const catalogApiFormat = effectiveApiFormat === 'anthropic' ? 'anthropic' : 'openai';
   let models = provider.models;
   if (provider.custom) {
     const customModelId = String(modelId || '').trim();
@@ -4190,7 +5563,7 @@ ipcMain.handle('provider:configure', async (_e, {
       models = [];
     } else {
       try {
-        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key, apiFormat: effectiveApiFormat });
+        models = await fetchRemoteModelCatalog({ baseUrl: nextBaseUrl, apiKey: key, apiFormat: catalogApiFormat });
       } catch (error) {
         return { error: `模型列表同步失败：${error.message}` };
       }
@@ -4199,7 +5572,7 @@ ipcMain.handle('provider:configure', async (_e, {
   supplier = normalizeProviderSupplier({
     ...supplier,
     id: selectedSupplierId,
-    name: String(provider.custom ? '自定义模型' : (supplierName || supplier.name || (selectedSupplierId === 'official' ? '官方' : '新供应商'))).trim(),
+    name: String(supplierName || supplier.name || (selectedSupplierId === 'official' ? '官方' : '新供应商')).trim(),
     baseUrl: nextBaseUrl,
     apiKey: key,
     imageGenerationUrl: nextImageGenerationUrl,
@@ -4211,19 +5584,14 @@ ipcMain.handle('provider:configure', async (_e, {
   cfg.api.providerSuppliers[providerId] = suppliers.map(item => item.id === selectedSupplierId ? supplier : item);
   cfg.api.providerActiveSupplierIds[providerId] = selectedSupplierId;
   syncActiveProviderSupplier(cfg, providerId, supplier);
-  if (provider.custom) {
-    const entry = cfg.customModel || (Array.isArray(cfg.customProviders) ? cfg.customProviders : []).find(item => item.id === providerId);
-    if (entry) {
-      const nextName = String(modelName || providerName || entry.modelName || modelId || '').trim();
-      entry.name = '自定义模型';
-      entry.modelName = nextName || String(modelId || '').trim();
-      entry.modelId = String(modelId || '').trim();
-      entry.apiFormat = effectiveApiFormat;
-      entry.baseUrl = nextBaseUrl;
-      entry.apiKey = key;
-      entry.models = models;
+  if (providerId.startsWith('conn-')) {
+    // Keep the dynamic registry entry (name/preset/manual model) in sync with
+    // the supplier the connection just wrote.
+    const connection = (cfg.api.connections || []).find(item => item.providerId === providerId);
+    if (connection) {
+      connection.manualModelId = provider.custom ? String(modelId || '').trim() : '';
     }
-    syncCustomProviders(cfg);
+    syncConnectionProviders(cfg);
   }
   if (!cfg.providerModels) cfg.providerModels = {};
   if (provider.dynamicModels) cfg.providerModels[providerId] = models;
@@ -4255,12 +5623,14 @@ ipcMain.handle('provider:configure', async (_e, {
   publishModelState(cfg);
   return {
     ok: true,
-    config: cfg,
+    config: publicConfig(cfg),
     providerId,
     supplierId: selectedSupplierId,
     modelCount: getProviderModels(cfg, providerId, selectedSupplierId).length
   };
-});
+}
+
+ipcMain.handle('provider:configure', (_e, payload = {}) => applyProviderConfiguration(payload));
 
 ipcMain.handle('provider:remove-config', (_e, payload) => {
   const providerId = typeof payload === 'string' ? payload : String(payload?.providerId || '');
@@ -4316,87 +5686,277 @@ ipcMain.handle('provider:remove-config', (_e, payload) => {
   updateImageGenerationConfig(cfg);
   saveConfig(cfg);
   publishModelState(cfg);
-  return { ok: true, config: cfg };
+  return { ok: true, config: publicConfig(cfg) };
 });
 
-ipcMain.handle('provider:delete-custom', (_e, providerId) => {
-  const id = String(providerId || '');
-  if (id !== 'custom-model') return { error: '只能清空自定义模型' };
+// ---------------------------------------------------------------------------
+// IPC: user-defined connections (the flat API configuration surface)
+// ---------------------------------------------------------------------------
+function connectionSummary(cfg, connection) {
+  const supplier = getProviderSupplier(cfg, connection.providerId, connection.supplierId);
+  if (!supplier) return null;
+  const name = String(supplier.name || '连接').trim() || '连接';
+  const preset = connection.providerId.startsWith('conn-')
+    ? resolveConnectionPreset(connection, name, supplier.baseUrl)
+    : connection.providerId;
+  const provider = MODEL_PROVIDERS[connection.providerId];
+  const catalog = summarizeModelCatalog(
+    getProviderSupplierApiCatalog(connection.providerId, supplier),
+    STATIC_PROVIDER_SUPPLEMENTAL_MODELS[providerMediaPresetId(provider)] || []
+  );
+  return {
+    id: connection.id,
+    providerId: connection.providerId,
+    supplierId: supplier.id,
+    name,
+    baseUrl: supplier.baseUrl || '',
+    apiKeyConfigured: !!String(supplier.apiKey || '').trim(),
+    imageGenerationUrl: supplier.imageGenerationUrl || '',
+    imageEditUrl: supplier.imageEditUrl || '',
+    videoGenerationUrl: supplier.videoGenerationUrl || '',
+    preset,
+    presetManual: connection.preset && connection.preset !== 'auto',
+    apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl),
+    manualModelId: String(connection.manualModelId || '').trim(),
+    modelCount: catalog.modelCount,
+    supplementalModelCount: catalog.supplementalModelCount,
+    supplementalModelLabel: preset === 'glm' ? 'GLM 官方补充' : '官方补充',
+    totalModelCount: catalog.totalModelCount,
+    models: catalog.apiModels.map(model => ({
+      id: model.id,
+      name: model.name || model.id,
+      modelType: getModelType(connection.providerId, model)
+    })),
+    isCurrentText: cfg.agentModel?.providerId === connection.providerId
+      && cfg.agentModel?.supplierId === supplier.id,
+    isEnabled: !!String(supplier.apiKey || '').trim()
+      && cfg.api?.provider === connection.providerId
+      && cfg.api?.providerActiveSupplierIds?.[connection.providerId] === supplier.id,
+    logoProviderId: connection.providerId.startsWith('conn-') ? '' : connection.providerId,
+    createdAt: Number(connection.createdAt) || 0
+  };
+}
+
+ipcMain.handle('connections:list', () => {
   const cfg = loadConfig();
-  syncCustomProviders(cfg);
-  const entry = cfg.customModel;
-  entry.baseUrl = '';
-  entry.apiKey = '';
-  entry.modelId = '';
-  entry.modelName = '';
-  entry.models = [];
-  cfg.customModel = entry;
-  cfg.customProviders = [entry];
-  cfg.api.providerConfigs[id] = normalizeProviderConfig(entry, MODEL_PROVIDERS[id]);
-  cfg.api.apiKeys[id] = '';
-  cfg.api.providerSuppliers[id] = [normalizeProviderSupplier({
-    id: 'official',
-    name: '自定义模型',
-    kind: 'official',
-    baseUrl: '',
-    apiKey: '',
-    models: []
-  }, MODEL_PROVIDERS[id])];
-  cfg.api.providerActiveSupplierIds[id] = 'official';
-  if (cfg.providerModels) cfg.providerModels[id] = [];
-  rebindRolesAfterSupplierRemoval(cfg, id, 'official');
+  return (cfg.api.connections || [])
+    .map(connection => connectionSummary(cfg, connection))
+    .filter(Boolean)
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
+});
+
+ipcMain.handle('connections:test', async (_e, { baseUrl, apiKey, preset, apiFormat: requestedFormat } = {}) => {
+  const url = String(baseUrl || '').trim().replace(/\/$/, '');
+  if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'Base URL 必须以 http:// 或 https:// 开头' };
+  const key = String(apiKey || '').trim();
+  if (!key) return { ok: false, error: '请填写 API Key 后再测试' };
+  const requestedPreset = String(preset || 'auto').trim().toLowerCase();
+  const capabilityPreset = requestedPreset === 'auto'
+    ? inferConnectionPreset('', url)
+    : (CONNECTION_PRESETS.includes(requestedPreset) ? requestedPreset : 'openai');
+  const explicitFormat = normalizeApiFormat(requestedFormat);
+  const apiFormat = resolveConnectionApiFormat({ preset: capabilityPreset, apiFormat: explicitFormat }, '', url);
+  const catalogApiFormat = apiFormat === 'anthropic' ? 'anthropic' : 'openai';
+  try {
+    const catalog = await fetchRemoteModelCatalog({ baseUrl: url, apiKey: key, apiFormat: catalogApiFormat });
+    const models = normalizeRemoteModels(catalog);
+    return {
+      ok: true,
+      modelCount: models.length,
+      models: models.map(model => ({
+        id: model.id,
+        name: model.name || model.id,
+        modelType: getModelType(capabilityPreset, model)
+      }))
+    };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('connections:save', async (_e, payload = {}) => {
+  const name = String(payload.name || '').trim() || '新连接';
+  const preset = CONNECTION_PRESETS.includes(String(payload.preset || 'auto'))
+    ? String(payload.preset)
+    : 'auto';
+  const manualModelId = String(payload.manualModelId || '').trim();
+  const apiFormat = normalizeApiFormat(payload.apiFormat);
+  const existingId = String(payload.id || '').trim();
+  let cfg = loadConfig();
+  if (!Array.isArray(cfg.api.connections)) cfg.api.connections = [];
+  let connection = findConnection(cfg, existingId);
+  let created = false;
+  if (!connection) {
+    const providerId = newConnectionId();
+    connection = {
+      id: providerId,
+      providerId,
+      supplierId: 'official',
+      preset,
+      apiFormat,
+      manualModelId,
+      createdAt: Date.now()
+    };
+    cfg.api.connections.push(connection);
+    cfg.api.providerSuppliers[providerId] = [{
+      id: 'official',
+      name,
+      kind: 'official',
+      baseUrl: '',
+      apiKey: '',
+      imageGenerationUrl: '',
+      imageEditUrl: '',
+      videoGenerationUrl: '',
+      workspaceId: '',
+      models: []
+    }];
+    cfg.api.providerActiveSupplierIds[providerId] = 'official';
+    created = true;
+  }
+  connection.preset = preset;
+  connection.apiFormat = apiFormat;
+  connection.manualModelId = manualModelId;
+  const supplier = cfg.api.providerSuppliers[connection.providerId]?.find(item => item.id === connection.supplierId);
+  if (supplier) supplier.name = name;
+  syncConnectionProviders(cfg);
+  saveConfig(cfg);
+
+  const result = await applyProviderConfiguration({
+    providerId: connection.providerId,
+    supplierId: connection.supplierId,
+    supplierName: name,
+    apiKey: payload.apiKey,
+    baseUrl: payload.baseUrl,
+    imageGenerationUrl: payload.imageGenerationUrl,
+    imageEditUrl: payload.imageEditUrl,
+    videoGenerationUrl: payload.videoGenerationUrl,
+    providerName: name,
+    modelId: manualModelId || undefined,
+    modelName: manualModelId || undefined,
+    apiFormat: resolveConnectionApiFormat(connection, name, String(payload.baseUrl || ''))
+  });
+  if (!result?.ok && created) {
+    // A brand-new connection that cannot be validated is rolled back so the
+    // list never shows a half-configured ghost entry.
+    const rollback = loadConfig();
+    rollback.api.connections = (rollback.api.connections || []).filter(item => item.id !== connection.id);
+    delete rollback.api.providerSuppliers[connection.providerId];
+    delete rollback.api.providerActiveSupplierIds?.[connection.providerId];
+    delete rollback.api.providerConfigs?.[connection.providerId];
+    delete rollback.api.apiKeys?.[connection.providerId];
+    delete rollback.providerModels?.[connection.providerId];
+    delete MODEL_PROVIDERS[connection.providerId];
+    saveConfig(rollback);
+    return result;
+  }
+  if (!result?.ok) return result;
+  const finalConfig = result.config;
+  const summary = connectionSummary(finalConfig, connection);
+  return {
+    ok: true,
+    modelCount: summary?.modelCount || 0,
+    supplementalModelCount: summary?.supplementalModelCount || 0,
+    totalModelCount: summary?.totalModelCount || 0,
+    connection: summary
+  };
+});
+
+ipcMain.handle('connections:delete', (_e, { id } = {}) => {
+  const cfg = loadConfig();
+  const connection = findConnection(cfg, id);
+  if (!connection) return { error: '连接不存在' };
+  const { providerId, supplierId } = connection;
+  cfg.api.connections = cfg.api.connections.filter(item => item.id !== connection.id);
+  if (providerId.startsWith('conn-')) {
+    delete cfg.api.providerSuppliers[providerId];
+    delete cfg.api.providerActiveSupplierIds?.[providerId];
+    delete cfg.api.providerConfigs?.[providerId];
+    delete cfg.api.apiKeys?.[providerId];
+    delete cfg.providerModels?.[providerId];
+    delete MODEL_PROVIDERS[providerId];
+    if (cfg.agentModel?.providerId === providerId) {
+      cfg.agentModel = { ...cfg.agentModel, providerId: '', supplierId: '', modelId: '', name: '' };
+    }
+    for (const role of ['image', 'video']) {
+      if (cfg.media?.[`${role}Provider`] === providerId) {
+        cfg.media[`${role}Provider`] = '';
+        cfg.media[`${role}SupplierId`] = '';
+        cfg.media[`${role}Model`] = '';
+        cfg.media[`${role}Name`] = '';
+      }
+    }
+  } else if (supplierId === 'official') {
+    const supplier = getProviderSupplier(cfg, providerId, supplierId);
+    if (supplier) {
+      supplier.apiKey = '';
+      supplier.models = [];
+      supplier.imageGenerationUrl = '';
+      supplier.imageEditUrl = '';
+      supplier.videoGenerationUrl = '';
+      syncActiveProviderSupplier(cfg, providerId, supplier);
+      rebindRolesAfterSupplierRemoval(cfg, providerId, supplierId);
+    }
+  } else {
+    cfg.api.providerSuppliers[providerId] = (cfg.api.providerSuppliers[providerId] || [])
+      .filter(item => item.id !== supplierId);
+    if (cfg.api.providerActiveSupplierIds?.[providerId] === supplierId) {
+      cfg.api.providerActiveSupplierIds[providerId] = 'official';
+    }
+    rebindRolesAfterSupplierRemoval(cfg, providerId, supplierId);
+  }
   if (cfg.agentModel?.providerId && cfg.agentModel?.modelId) {
-    const connection = getProviderConnectionForSupplier(cfg, cfg.agentModel.providerId, cfg.agentModel.supplierId);
+    const agentConnection = getProviderConnectionForSupplier(cfg, cfg.agentModel.providerId, cfg.agentModel.supplierId);
     cfg.api.provider = cfg.agentModel.providerId;
-    cfg.api.baseUrl = connection.baseUrl;
-    cfg.api.apiKey = connection.apiKey;
+    cfg.api.baseUrl = agentConnection.baseUrl;
+    cfg.api.apiKey = agentConnection.apiKey;
     cfg.api.model = cfg.agentModel.modelId;
     cfg.models = getProviderModels(cfg, cfg.agentModel.providerId, cfg.agentModel.supplierId);
-  } else {
-    cfg.api.model = '';
-    cfg.models = [];
   }
-
+  normalizeAgentModelSelection(cfg);
   updateImageGenerationConfig(cfg);
   saveConfig(cfg);
   publishModelState(cfg);
-  return { ok: true, config: cfg };
+  return { ok: true };
 });
 
 ipcMain.handle('models:quick-list', () => {
   const cfg = loadConfig();
   const activeSelection = normalizeAgentModelSelection(cfg);
   const pickerProviderId = String(cfg.api.provider || activeSelection.providerId || '');
-  const activeSupplierId = String(cfg.api.providerActiveSupplierIds?.[pickerProviderId] || '');
-  const pickerSelection = pickerProviderId === activeSelection.providerId
-    ? activeSelection
-    : { providerId: pickerProviderId, modelId: '', modelType: 'text' };
-  const providerInputs = Object.values(MODEL_PROVIDERS).map(provider => {
-    const providerActiveSupplierId = String(cfg.api.providerActiveSupplierIds?.[provider.id] || '');
-    return {
-      providerId: provider.id,
-      providerName: provider.name,
-      suppliers: getProviderSuppliers(cfg, provider.id).map(supplier => ({
-        supplierId: supplier.id,
-        supplierName: supplier.name,
-        configured: !!supplier.apiKey,
-        active: supplier.id === providerActiveSupplierId,
-        models: configuredSupplierModels(
-          getProviderSupplierCatalog(provider.id, supplier),
-          !!supplier.apiKey
-        )
-      }))
-    };
-  });
-  const providers = buildQuickSupplierGroups({
-    providers: providerInputs,
-    activeSelection: pickerSelection,
-    activeProviderId: pickerProviderId,
-    activeSupplierId
-  });
-  const models = providers.flatMap(provider => (
-    provider.suppliers.filter(supplier => supplier.active).flatMap(supplier => supplier.models)
-  ));
+  const activeSupplierId = String(cfg.api.providerActiveSupplierIds?.[pickerProviderId] || activeSelection.supplierId || '');
+  const activeSupplier = pickerProviderId && activeSupplierId
+    ? getProviderSuppliers(cfg, pickerProviderId).find(item => item.id === activeSupplierId)
+    : null;
+  const activeConfigured = isConfiguredSupplier(cfg, pickerProviderId, activeSupplier);
+  const activeModels = activeConfigured
+    ? configuredSupplierModels(getProviderSupplierCatalog(pickerProviderId, activeSupplier), true)
+        .map(model => ({
+          ...model,
+          providerId: pickerProviderId,
+          providerName: MODEL_PROVIDERS[pickerProviderId]?.name || pickerProviderId,
+          supplierId: activeSupplier.id,
+          supplierName: activeSupplier.name || activeSupplier.id,
+          // The renderer groups quick-picker entries by the public top-level
+          // modelType. Dynamic connection catalogs also keep the richer
+          // capability object, but must expose this field explicitly.
+          modelType: getModelType(pickerProviderId, model)
+        }))
+    : [];
+  const providers = activeConfigured
+    ? [{
+        providerId: pickerProviderId,
+        providerName: MODEL_PROVIDERS[pickerProviderId]?.name || pickerProviderId,
+        suppliers: [{
+          supplierId: activeSupplier.id,
+          supplierName: activeSupplier.name || activeSupplier.id,
+          configured: true,
+          active: true,
+          selected: true,
+          models: activeModels
+        }]
+      }]
+    : [];
+  const models = activeModels.slice();
   // Keep role-specific media selections visible even when their supplier is
   // different from the text-model browsing cursor. This prevents the image
   // and video sections in settings from appearing to lose a configured model.
@@ -4414,23 +5974,24 @@ ipcMain.handle('models:quick-list', () => {
     }
   }
   const providerCount = new Set(models.map(model => model.providerId)).size;
+  const hasTextModel = models.some(model => model.modelType === 'text');
   return {
     models,
     providers,
     activeProviderId: pickerProviderId,
     activeSupplierId,
     providerCount,
-    providerName: providers.length ? `已配置 ${providers.length} 家厂商` : '尚未配置 API',
-    notice: providers.length ? '' : '请先在模型设置中配置至少一家包含文本模型的 API。'
+    providerName: hasTextModel ? `已启用 ${providers.length} 家厂商` : '尚未启用文本模型',
+    notice: hasTextModel ? '' : '请先在设置 → API 中启用一个包含文本模型的连接。'
   };
 });
 ipcMain.handle('models:media-list', () => {
   const cfg = loadConfig();
   const providers = Object.values(MODEL_PROVIDERS).flatMap(provider => {
-    const adapter = PROVIDER_MEDIA_ADAPTERS[provider.id] || EMPTY_MEDIA_CAPABILITIES;
+    const adapter = PROVIDER_MEDIA_ADAPTERS[providerMediaPresetId(provider)] || EMPTY_MEDIA_CAPABILITIES;
     if (!Object.values(adapter).some(Boolean)) return [];
     return getProviderSuppliers(cfg, provider.id).flatMap(supplier => {
-      if (!supplier.apiKey) return [];
+      if (!isConfiguredSupplier(cfg, provider.id, supplier)) return [];
       return [{
         providerId: provider.id,
         providerName: provider.name,
@@ -4441,11 +6002,36 @@ ipcMain.handle('models:media-list', () => {
       }];
     });
   });
-  return {
-    models: buildMediaModelList({
+  const models = buildMediaModelList({
       providers,
       media: cfg.media
-    }),
+    });
+  // Clear media selections that no longer belong to any configured supplier.
+  // This prevents a deleted connection from remaining active in yan-media or
+  // being shown by a renderer that was already open when the deletion happened.
+  let mediaChanged = false;
+  for (const role of ['image', 'video']) {
+    const providerId = String(cfg.media?.[`${role}Provider`] || '');
+    const supplierId = String(cfg.media?.[`${role}SupplierId`] || '');
+    const modelId = String(cfg.media?.[`${role}Model`] || '');
+    if (!providerId || !modelId) continue;
+    const stillAvailable = models.some(model => model.modelType === role
+      && model.providerId === providerId
+      && model.id === modelId
+      && (!supplierId || String(model.supplierId || '') === supplierId));
+    if (stillAvailable) continue;
+    cfg.media[`${role}Provider`] = '';
+    cfg.media[`${role}SupplierId`] = '';
+    cfg.media[`${role}Model`] = '';
+    cfg.media[`${role}Name`] = '';
+    mediaChanged = true;
+  }
+  if (mediaChanged) {
+    updateImageGenerationConfig(cfg);
+    saveConfig(cfg);
+  }
+  return {
+    models,
     notice: providers.length ? '' : '请先配置至少一家已适配媒体能力的厂商 API。'
   };
 });
@@ -4454,6 +6040,26 @@ ipcMain.handle('model:role-set', (_e, payload = {}) => (
 ));
 
 ipcMain.handle('skills:list', () => getMergedSkills(loadConfig()));
+ipcMain.handle('skills:catalog', () => skillRegistry.getAllSkillsForCatalog(loadConfig(), appRoot, dataDir));
+ipcMain.handle('skills:open-directory', async (_e, skillId) => {
+  const id = String(skillId || '').trim().toLowerCase();
+  if (!id) return { ok: false, error: 'Skill ID 为空。' };
+  const skill = skillRegistry.getInstalledSkills(loadConfig(), appRoot, dataDir)
+    .find(item => String(item?.id || '').trim().toLowerCase() === id);
+  if (!skill?.runtimeDirectory) return { ok: false, error: '这个 Skill 没有可打开的用户目录。' };
+  if (['builtin', 'bundled', 'Yan Agent'].includes(String(skill.source || ''))) {
+    return { ok: false, error: '内置 Skill 不提供用户资源目录。' };
+  }
+  const directory = path.resolve(String(skill.runtimeDirectory));
+  try {
+    const stat = await fsp.stat(directory);
+    if (!stat.isDirectory()) return { ok: false, error: 'Skill 目录不可用。' };
+    const error = await shell.openPath(directory);
+    return error ? { ok: false, error } : { ok: true, path: directory };
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
+  }
+});
 
 function upsertCustomSkill(skill = {}) {
   const cfg = loadConfig();
@@ -4483,12 +6089,13 @@ function upsertCustomSkill(skill = {}) {
   if (DEFAULT_SKILLS.find(s => s.id === item.id)) return { error: '与内置 Skill 冲突' };
   const installResult = skillRegistry.installYanUserSkill(dataDir, item);
   if (!installResult.ok) return { error: installResult.error };
-  if (idx >= 0) cfg.customSkills[idx] = item;
-  else cfg.customSkills.push(item);
+  const storedItem = skillConfigMetadata(item);
+  if (idx >= 0) cfg.customSkills[idx] = storedItem;
+  else cfg.customSkills.push(storedItem);
   saveConfig(cfg);
   const storeResult = refreshYanSkillRegistry({ reason: 'install', id: item.id });
   if (!storeResult.ok) return { error: storeResult.error };
-  return { ...item, runtimeDirectory: installResult.directory };
+  return { ...storedItem, runtimeDirectory: installResult.directory };
 }
 
 ipcMain.handle('skills:add-custom', (_e, skill) => upsertCustomSkill(skill));
@@ -4504,7 +6111,7 @@ ipcMain.handle('skills:remove-custom', (_e, id) => {
   return true;
 });
 
-function recordLearningReview(payload = {}) {
+async function recordLearningReview(payload = {}) {
   if (!payload.skillCandidate) return { ok: true, candidate: null, promotedSkill: null };
   const recorded = skillEvolution.record(payload.skillCandidate, {
     verified: !!payload.verified,
@@ -4537,7 +6144,7 @@ function recordLearningReview(payload = {}) {
     },
     reason: candidate.evidence
   };
-  const harnessResult = continualHarness.apply({
+  const harnessResult = await continualHarness.apply({
     trigger: `Learn reusable Skill ${candidate.name}`,
     evidence: candidate.evidence,
     expectedOutcome: recorded.ready
@@ -4557,16 +6164,55 @@ function recordLearningReview(payload = {}) {
     return { ...recorded, harnessResult, promotedSkill: null };
   }
   if (!recorded.ready) {
-    continualHarness.recordOutcome(harnessResult.refinement.id, {
+    await continualHarness.recordOutcome(harnessResult.refinement.id, {
       status: 'partial',
       evidence: 'Candidate retained in observing state pending independent reinforcement.'
     }, { scope, workspace: payload.workspace });
     return { ...recorded, harnessResult, promotedSkill: null };
   }
 
+  // P0-1 promotion gate: workflow-mined candidates (and everything under the
+  // strict env flag) must carry a passing Yan Eval validation before the
+  // candidate may be projected into a real Skill. The validation is now real:
+  // static checks plus one headless judge session, whose evidence record is
+  // attached to the candidate and persisted for the topology gate.
+  const requiresValidation = Boolean(candidate.verification?.postconditions?.length)
+    || process.env.YAN_AGI_STRICT_SKILL_PROMOTION === '1';
+  if (requiresValidation && !candidate.validation) {
+    const evidence = await validateSkillCandidate(candidate, payload.sidecar || null);
+    if (evidence.ok) {
+      const attached = skillEvolution.attachValidation(candidate.id, evidence);
+      if (attached.ok) candidate.validation = attached.validation;
+    } else {
+      console.warn(`[agi] skill candidate ${candidate.id} failed validation: ${evidence.failed}/${evidence.passed + evidence.failed} checks passed`);
+    }
+  }
+  const promotionGate = skillEvolution.canPromote(candidate.id, { requireValidation: requiresValidation });
+  if (!promotionGate.ok) {
+    await continualHarness.rollback(harnessResult.refinement.id, {
+      scope,
+      workspace: payload.workspace,
+      source: 'validation_gate',
+      evidence: promotionGate.reason
+    });
+    return { ...recorded, harnessResult, error: promotionGate.reason, promotedSkill: null };
+  }
+  // P1-5 guard visibility: consistency issues never block a legacy promotion
+  // path, but they must surface instead of disappearing into the projection.
+  try {
+    const consistency = checkConsistency({
+      name: candidate.name,
+      description: candidate.description,
+      prompt: candidate.prompt
+    });
+    if (!consistency.ok) {
+      console.warn(`[agi] skill candidate ${candidate.id} consistency issues: ${consistency.issues.map(issue => issue.code).join(', ')}`);
+    }
+  } catch {}
+
   const existingSkill = (loadConfig().customSkills || []).find(skill => skill.id === learnedId);
   if (existingSkill && existingSkill.createdBy !== 'yan-skill-creator') {
-    continualHarness.rollback(harnessResult.refinement.id, {
+    await continualHarness.rollback(harnessResult.refinement.id, {
       scope,
       workspace: payload.workspace,
       source: 'projection_failed',
@@ -4594,7 +6240,7 @@ function recordLearningReview(payload = {}) {
     updatedAt: Date.now()
   });
   if (promotedSkill?.error) {
-    continualHarness.rollback(harnessResult.refinement.id, {
+    await continualHarness.rollback(harnessResult.refinement.id, {
       scope,
       workspace: payload.workspace,
       source: 'projection_failed',
@@ -4603,7 +6249,7 @@ function recordLearningReview(payload = {}) {
     return { ...recorded, error: promotedSkill.error, harnessResult, promotedSkill: null };
   }
   skillEvolution.markPromoted(candidate.id, promotedSkill.id, { refinementId: harnessResult.refinement.id });
-  continualHarness.recordOutcome(harnessResult.refinement.id, {
+  await continualHarness.recordOutcome(harnessResult.refinement.id, {
     status: 'verified',
     evidence: `${candidate.successfulRuns.length} distinct verified runs reinforced this procedure and the Skill projection succeeded.`
   }, { scope, workspace: payload.workspace });
@@ -4628,13 +6274,67 @@ let workspaceWatcher = null;
 let workspaceNotifyTimer = null;
 const pendingWorkspaceChanges = new Map();
 
+const WORKSPACE_WATCH_IGNORED_ROOTS = new Set([
+  YANAGENT_DIR,
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  '.cache',
+  '.next',
+  '.turbo'
+]);
+
 function shouldIgnoreWorkspaceWatch(filename) {
   if (!filename) return false;
   const norm = String(filename).replace(/\\/g, '/');
-  return norm === YANAGENT_DIR || norm.startsWith(YANAGENT_DIR + '/');
+  return norm.split('/').some(segment => WORKSPACE_WATCH_IGNORED_ROOTS.has(segment));
+}
+
+// Per-workspace repo map cache. Built once, refreshed on workspace file
+// changes (watcher) or after a TTL, and frozen into each run's request so the
+// kernel's cached system prefix stays stable for the whole run.
+const REPO_MAP_TTL_MS = 5 * 60_000;
+const REPO_MAP_BUDGET_TOKENS = 1200;
+const repoMapCache = new Map();
+const repoMapInflight = new Map();
+
+function invalidateRepoMap(workspace) {
+  const key = String(workspace || '').trim();
+  if (!key) return;
+  repoMapCache.delete(path.resolve(key).toLowerCase());
+  repoMapInflight.get(path.resolve(key).toLowerCase())?.cancel?.();
+  repoMapInflight.delete(path.resolve(key).toLowerCase());
+}
+
+async function getCachedRepoMap(workspace) {
+  const normalized = workspaceSandbox.normalizeWorkspace(workspace);
+  if (!normalized) return '';
+  const key = normalized.toLowerCase();
+  const cached = repoMapCache.get(key);
+  if (cached && Date.now() - cached.builtAt < REPO_MAP_TTL_MS) return cached.text;
+  const inflight = repoMapInflight.get(key);
+  if (inflight) return inflight;
+  const controller = new AbortController();
+  const building = (async () => {
+    try {
+      const text = await buildRepoMapBackground(normalized, { budgetTokens: REPO_MAP_BUDGET_TOKENS, signal: controller.signal });
+      if (repoMapInflight.get(key) === building) repoMapCache.set(key, { text, builtAt: Date.now() });
+      return text;
+    } catch {
+      return '';
+    } finally {
+      if (repoMapInflight.get(key) === building) repoMapInflight.delete(key);
+    }
+  })();
+  building.cancel = () => controller.abort();
+  repoMapInflight.set(key, building);
+  return building;
 }
 
 function notifyWorkspaceChanged(detail = {}) {
+  if (detail.workspace) invalidateRepoMap(detail.workspace);
   if (detail.path) {
     pendingWorkspaceChanges.set(detail.path, {
       path: detail.path,
@@ -4683,29 +6383,17 @@ function startWorkspaceWatcher(workspace) {
   }
 }
 
-const pendingYanxiWorkspace = parseOpenWorkspaceArg();
-const pendingYanxiRequestId = parseYanxiRequestIdArg();
-let pendingFocusMainFromYanxi = process.argv.includes('--show-main') || pendingYanxiWorkspace !== undefined;
+let pendingFocusMain = process.argv.includes('--show-main');
 
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    pendingFocusMainFromYanxi = true;
+    pendingFocusMain = true;
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
 }
-
-const yanxiReceiver = createYanxiCodeReceiver({
-  dataDir,
-  loadConfig,
-  saveConfig,
-  startWorkspaceWatcher,
-  getMainWindow: () => mainWindow,
-  isRendererReady: () => mainRendererReady,
-  focusMainWindow,
-});
 
 ipcMain.handle('workspace:get', () => loadConfig().workspace);
 function activateWorkspace(workspace) {
@@ -4753,29 +6441,6 @@ ipcMain.handle('workspace:open-explorer', async (_e, workspace) => {
   }
 });
 
-ipcMain.handle('workspace:list', async (_e, dirPathOrOpts) => {
-  const opts = dirPathOrOpts && typeof dirPathOrOpts === 'object' && !Array.isArray(dirPathOrOpts)
-    ? dirPathOrOpts
-    : { dirPath: dirPathOrOpts };
-  const resolved = resolveAgentDir(opts.dirPath || opts.path || '', opts.workspace);
-  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
-  const root = resolved.path;
-  if (!fs.existsSync(root)) return [];
-  try {
-    const entries = await fsp.readdir(root, { withFileTypes: true });
-    return entries.map(e => ({
-      name: e.name,
-      path: path.join(root, e.name),
-      isDirectory: e.isDirectory()
-    })).filter(e => e.name !== YANAGENT_DIR).sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  } catch (e) {
-    return { error: e.message, code: 'LIST_FAILED' };
-  }
-});
-
 // ---------------------------------------------------------------------------
 // IPC: Git
 // ---------------------------------------------------------------------------
@@ -4804,6 +6469,9 @@ ipcMain.handle('git:stage', (_e, { workspace = '', paths = [], all = false } = {
 })));
 ipcMain.handle('git:unstage', (_e, { workspace = '', paths = [], all = false } = {}) => gitIpc(async () => ({
   status: await gitService.unstageFiles(workspace, paths, all)
+})));
+ipcMain.handle('git:discard', (_e, { workspace = '', paths = [] } = {}) => gitIpc(async () => ({
+  status: await gitService.discardFiles(workspace, paths)
 })));
 ipcMain.handle('git:commit', (_e, { workspace = '', message = '', amend = false } = {}) => gitIpc(() => (
   gitService.commit(workspace, message, { amend })
@@ -4841,6 +6509,12 @@ ipcMain.handle('git:history', (_e, { workspace = '', limit = 40 } = {}) => gitIp
 ipcMain.handle('git:diff', (_e, { workspace = '', path: filePath = '', staged = false } = {}) => gitIpc(async () => ({
   diff: await gitService.diff(workspace, filePath, staged)
 })));
+ipcMain.handle('git:review', (_e, { workspace = '', options = {} } = {}) => gitIpc(async () => ({
+  review: await runReviewTask('gitReview', workspace, options)
+})));
+ipcMain.handle('git:review-document', (_e, { workspace = '', path: filePath = '', options = {} } = {}) => gitIpc(async () => ({
+  document: await gitService.reviewDocument(workspace, filePath, options)
+})));
 ipcMain.handle('git:pick-clone-destination', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择空文件夹作为克隆目标',
@@ -4863,10 +6537,52 @@ ipcMain.handle('git:open-remote', (_e, { remoteUrl = '' } = {}) => gitIpc(async 
   return { url };
 }));
 
+// Task-scoped git worktrees (parallel builder isolation) and GitHub PR flows.
+// The agent reaches the same operations through yan_workspace MCP tools; the
+// channels exist so the Git panel and scripts can drive them too.
+ipcMain.handle('git:worktree-create', (_e, { workspace = '', taskId = '', base = '' } = {}) => gitIpc(async () => ({
+  worktree: await worktreeService.createTaskWorktree(workspace, { taskId, base })
+})));
+ipcMain.handle('git:worktree-list', (_e, { workspace = '' } = {}) => gitIpc(async () => ({
+  worktrees: await worktreeService.listTaskWorktrees(workspace)
+})));
+ipcMain.handle('git:worktree-status', (_e, { workspace = '', taskId = '' } = {}) => gitIpc(async () => ({
+  status: await worktreeService.taskWorktreeStatus(workspace, { taskId })
+})));
+ipcMain.handle('git:worktree-merge', (_e, { workspace = '', taskId = '', message = '', squash = false } = {}) => gitIpc(async () => (
+  worktreeService.mergeTaskWorktree(workspace, { taskId, message, squash })
+)));
+ipcMain.handle('git:worktree-remove', (_e, { workspace = '', taskId = '', force = false } = {}) => gitIpc(async () => (
+  worktreeService.removeTaskWorktree(workspace, { taskId, force })
+)));
+ipcMain.handle('gh:detect', () => gitIpc(async () => ({
+  ghPath: await ghService.detectGh()
+})));
+ipcMain.handle('gh:pr-list', (_e, { workspace = '', limit = 20, state = 'open', base = '' } = {}) => gitIpc(async () => ({
+  prs: await ghService.prList({ cwd: workspace, limit, state, base })
+})));
+ipcMain.handle('gh:pr-diff', (_e, { workspace = '', number = 0 } = {}) => gitIpc(async () => ({
+  diff: await ghService.prDiff({ cwd: workspace, number })
+})));
+ipcMain.handle('gh:pr-view', (_e, { workspace = '', number = 0 } = {}) => gitIpc(async () => ({
+  pr: await ghService.prView({ cwd: workspace, number })
+})));
+ipcMain.handle('gh:pr-create', (_e, { workspace = '', title = '', body = '', base = '', draft = false } = {}) => gitIpc(async () => (
+  ghService.prCreate({ cwd: workspace, title, body, base, draft })
+)));
+
 // ---------------------------------------------------------------------------
 // IPC: Sessions (CRUD)
 // ---------------------------------------------------------------------------
-function sessionPath(id) { return path.join(sessionsDir, `${id}.json`); }
+function isSafeSessionId(value) {
+  const id = String(value || '').trim();
+  return /^sess_[A-Za-z0-9_-]{4,160}$/.test(id);
+}
+
+function sessionPath(id) {
+  const normalized = String(id || '').trim();
+  return isSafeSessionId(normalized) ? path.join(sessionsDir, `${normalized}.json`) : null;
+}
 
 function sanitizeSessionReviewSummaries(session) {
   if (!session || typeof session !== 'object') return session;
@@ -4882,30 +6598,193 @@ function sanitizeSessionReviewSummaries(session) {
   return session;
 }
 
-async function readSessionRecord(id) {
-  const file = sessionPath(String(id || ''));
-  if (!fs.existsSync(file)) return null;
-  return sanitizeSessionReviewSummaries(JSON.parse(await fsp.readFile(file, 'utf8')));
+// Subagent records keep live de-duplication bookkeeping: every observed event
+// id, milestone copies of tool output, and streaming buffers. Once a record is
+// terminal none of it is read again, but serializing it on every save made
+// long tasks with many subagents produce tens of megabytes of session JSON,
+// which then stalled the main process on every read, save and list refresh.
+const TERMINAL_SUBAGENT_STATUSES = new Set(['completed', 'error', 'interrupted', 'incomplete']);
+const SUBAGENT_RUNTIME_BOOKKEEPING_FIELDS = ['seenEvents', 'milestones', 'pendingDeltas', 'nextStreams', 'partKinds', 'messages'];
+
+// Long tasks often hold a few multi-megabyte messages (subagent records with
+// full tool output). Count-based paging alone still ships those whole, so IPC
+// payloads are bounded by accumulated character size as well.
+const MESSAGE_TAIL_COUNT = 40;
+const MESSAGE_TAIL_CHAR_BUDGET = 3_000_000;
+const MESSAGE_PAGE_CHAR_BUDGET = 6_000_000;
+const messageSizeEstimateCache = new WeakMap();
+
+function estimateMessageSize(value, depth = 0) {
+  if (value == null) return 0;
+  const type = typeof value;
+  if (type === 'string') return value.length;
+  if (type !== 'object') return 8;
+  if (depth > 8) return 8;
+  if (depth === 0) {
+    const cached = messageSizeEstimateCache.get(value);
+    if (cached !== undefined) return cached;
+    let total = 0;
+    for (const key in value) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        total += key.length + 2 + estimateMessageSize(value[key], depth + 1);
+      }
+      if (total > 64_000_000) break;
+    }
+    messageSizeEstimateCache.set(value, total);
+    return total;
+  }
+  let total = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) total += estimateMessageSize(item, depth + 1);
+    return total;
+  }
+  for (const key in value) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      total += key.length + 2 + estimateMessageSize(value[key], depth + 1);
+    }
+    if (total > 64_000_000) break;
+  }
+  return total;
 }
 
-function sortSessionRecords(list) {
-  return list.sort((a, b) => {
+function selectTailMessages(messages, countLimit = MESSAGE_TAIL_COUNT, sizeBudget = MESSAGE_TAIL_CHAR_BUDGET) {
+  let start = messages.length;
+  let count = 0;
+  let size = 0;
+  while (start > 0) {
+    const estimated = estimateMessageSize(messages[start - 1]);
+    // Always keep at least the newest message so a single oversized message
+    // cannot produce an empty conversation.
+    if (start < messages.length && (count >= countLimit || size + estimated > sizeBudget)) break;
+    start -= 1;
+    count += 1;
+    size += estimated;
+  }
+  return { tail: messages.slice(start), messagesStart: start };
+}
+
+function pruneSessionRuntimeBookkeeping(session) {
+  if (!session || typeof session !== 'object') return session;
+  for (const message of Array.isArray(session.messages) ? session.messages : []) {
+    const run = message?.agentRun;
+    if (!run || typeof run !== 'object' || !Array.isArray(run.subagents)) continue;
+    for (const record of run.subagents) {
+      if (!record || typeof record !== 'object' || !TERMINAL_SUBAGENT_STATUSES.has(record.status)) continue;
+      for (const field of SUBAGENT_RUNTIME_BOOKKEEPING_FIELDS) {
+        if (record[field] !== undefined) delete record[field];
+      }
+    }
+  }
+  return session;
+}
+
+// session:get fires on every task switch, and re-reading plus re-parsing a
+// multi-megabyte session file each time stalled the main process for hundreds
+// of milliseconds while the window sat on the loading spinner. Cache parsed
+// records keyed by file mtime+size, exactly like the summary cache below.
+const sessionRecordCache = new Map();
+const SESSION_RECORD_CACHE_MAX = 6;
+
+function touchSessionRecordCache(id, session, stat) {
+  const key = String(id || '');
+  if (!key || !session || !stat) return;
+  sessionRecordCache.delete(key);
+  sessionRecordCache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, session });
+  while (sessionRecordCache.size > SESSION_RECORD_CACHE_MAX) {
+    sessionRecordCache.delete(sessionRecordCache.keys().next().value);
+  }
+}
+
+function invalidateSessionRecordCache(id) {
+  sessionRecordCache.delete(String(id || ''));
+}
+
+async function readSessionRecord(id, options = {}) {
+  const key = String(id || '');
+  const file = sessionPath(key);
+  if (!file || !fs.existsSync(file)) return null;
+  const stat = await fsp.stat(file);
+  const cached = sessionRecordCache.get(key);
+  let data;
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    data = cached.session;
+  } else {
+    data = pruneSessionRuntimeBookkeeping(sanitizeSessionReviewSummaries(JSON.parse(await fsp.readFile(file, 'utf8'))));
+    touchSessionRecordCache(key, data, stat);
+  }
+  // Task switching only needs the newest messages to paint the conversation;
+  // the full history stays cached here and is served page by page through
+  // session:messages, so a multi-megabyte session no longer crosses IPC whole.
+  const messageLimit = Number(options.messageLimit) || 0;
+  if (messageLimit > 0 && Array.isArray(data.messages) && data.messages.length > 1) {
+    const { tail, messagesStart } = selectTailMessages(data.messages, messageLimit);
+    if (messagesStart > 0) {
+      return {
+        ...data,
+        messages: tail,
+        totalMessages: data.messages.length,
+        messagesStart,
+        messagesTruncated: true
+      };
+    }
+  }
+  return data;
+}
+
+// session:list fires after every run completion and session save. Parsing
+// every session file (with full message history) each time made the app
+// progressively slower as usage accumulated. Summaries are tiny immutable
+// objects, so cache them keyed by file mtime+size and re-parse only files
+// that actually changed.
+const sessionSummaryCache = new Map();
+
+async function listSessionSummaries() {
+  ensureDirs();
+  const files = await fsp.readdir(sessionsDir);
+  const summaries = [];
+  // Disk state can change while the app runs, so workspace existence is
+  // re-checked (one stat per unique workspace) on every list call.
+  const workspaceExists = new Map();
+  const workspaceMissing = workspace => {
+    const value = String(workspace || '').trim();
+    if (!value) return false;
+    if (!workspaceExists.has(value)) {
+      try { workspaceExists.set(value, fs.existsSync(value)); }
+      catch { workspaceExists.set(value, false); }
+    }
+    return !workspaceExists.get(value);
+  };
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const filePath = path.join(sessionsDir, file);
+    try {
+      const stat = await fsp.stat(filePath);
+      const cached = sessionSummaryCache.get(filePath);
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        summaries.push({ ...cached.summary, workspaceMissing: workspaceMissing(cached.summary.workspace) });
+        continue;
+      }
+      // session:save refreshes the parsed-record cache; reuse it so a large
+      // session changed by a running task is not parsed a second time here.
+      const key = file.slice(0, -'.json'.length);
+      const cachedRecord = sessionRecordCache.get(key);
+      let data = null;
+      if (cachedRecord && cachedRecord.mtimeMs === stat.mtimeMs && cachedRecord.size === stat.size) {
+        data = cachedRecord.session;
+      } else {
+        data = JSON.parse(await fsp.readFile(filePath, 'utf8'));
+      }
+      if (!isSafeSessionId(data?.id)) continue;
+      sanitizeSessionReviewSummaries(data);
+      const summary = toSessionSummary(data);
+      sessionSummaryCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, summary });
+      summaries.push({ ...summary, workspaceMissing: workspaceMissing(summary.workspace) });
+    } catch { /* skip invalid session files */ }
+  }
+  return summaries.sort((a, b) => {
     if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
     return (b.updatedAt || 0) - (a.updatedAt || 0);
   });
-}
-
-async function readSessionRecords() {
-  ensureDirs();
-  const files = await fsp.readdir(sessionsDir);
-  const list = [];
-  for (const file of files) {
-    if (!file.endsWith('.json')) continue;
-    try {
-      list.push(sanitizeSessionReviewSummaries(JSON.parse(await fsp.readFile(path.join(sessionsDir, file), 'utf8'))));
-    } catch { /* skip invalid session files */ }
-  }
-  return sortSessionRecords(list);
 }
 
 function toSessionSummary(data) {
@@ -4922,14 +6801,6 @@ function toSessionSummary(data) {
   };
 }
 
-async function listSessionSummaries() {
-  return (await readSessionRecords()).map(toSessionSummary);
-}
-
-function broadcastSessionUpdate(detail) {
-  remoteServer?.broadcast('session-updated', detail || {});
-}
-
 function notifyDesktopSessionUpdate(detail) {
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
   mainWindow.webContents.send('session:changed', detail || {});
@@ -4937,6 +6808,13 @@ function notifyDesktopSessionUpdate(detail) {
 
 let createSessionPromise = null;
 let sessionDeleteQueue = Promise.resolve();
+
+function isSessionRunActive(sessionId) {
+  const target = String(sessionId || '');
+  if (!target) return false;
+  if ([...openCodeActiveRuns.values()].some(run => String(run?.yanSessionId || '') === target)) return true;
+  return [...openCodeRunAdmissions.values()].some(admittedSessionId => String(admittedSessionId || '') === target);
+}
 
 async function createFreshSessionRecord(options = {}) {
   ensureDirs();
@@ -4983,11 +6861,13 @@ async function resolveWorkspaceSessionForHandoff(sourceSessionId, targetWorkspac
   if (!source) return { ok: false, error: '来源任务不存在。', code: 'SESSION_SOURCE_NOT_FOUND' };
   const validation = await validateHandoffTarget(source.workspace, targetWorkspace);
   if (!validation.ok) return validation;
-  const existing = findLatestWorkspaceSession(await readSessionRecords(), validation.target, {
+  // 只用摘要定位目标会话,命中后再读完整记录,避免把所有会话全文解析一遍
+  const summary = findLatestWorkspaceSession(await listSessionSummaries(), validation.target, {
     excludeSessionIds: [source.id]
   });
-  if (existing) {
-    return { ok: true, session: existing, handoffId: '', reused: true };
+  if (summary) {
+    const existing = await readSessionRecord(summary.id);
+    if (existing) return { ok: true, session: existing, handoffId: '', reused: true };
   }
   const handoffId = `handoff_${Date.now().toString(36)}${crypto.randomBytes(4).toString('hex')}`;
   const handoff = createHandoffPackage(source, validation.target, { id: handoffId });
@@ -5002,7 +6882,6 @@ async function resolveWorkspaceSessionForHandoff(sourceSessionId, targetWorkspac
   });
   migrateMemoryToWorkspace(session.workspace);
   ensureYanagent(session.workspace);
-  broadcastSessionUpdate({ type: 'created-handoff', id: session.id, sourceSessionId: source.id, handoffId });
   return { ok: true, session, handoffId, reused: false };
 }
 
@@ -5043,9 +6922,14 @@ async function readBoundSourceContext(sessionId, startValue, limitValue) {
 async function createOrReuseSessionRecord() {
   if (createSessionPromise) return createSessionPromise;
   createSessionPromise = (async () => {
-    const sessions = await readSessionRecords();
-    const existing = findReusableBlankSession(sessions);
-    if (existing) return { session: existing, reused: true };
+    // 找可复用空会话只需要标题/条数/工作区,用摘要缓存即可,
+    // 不必把磁盘上每个会话(可达 45MB)全部解析一遍
+    const summaries = await listSessionSummaries();
+    const reusable = findReusableBlankSession(summaries);
+    if (reusable) {
+      const existing = await readSessionRecord(reusable.id);
+      if (existing) return { session: existing, reused: true };
+    }
     return { session: await createFreshSessionRecord(), reused: false };
   })();
   try {
@@ -5057,41 +6941,69 @@ async function createOrReuseSessionRecord() {
 
 async function renameSessionRecord(id, title) {
   const p = sessionPath(id);
-  if (!fs.existsSync(p)) return null;
-  const data = JSON.parse(await fsp.readFile(p, 'utf8'));
+  if (!p || !fs.existsSync(p)) return null;
+  // 走带缓存读取,命中时免去一次整会话 JSON.parse
+  const data = await readSessionRecord(id);
+  if (!data) return null;
   const nextTitle = String(title || '').trim().slice(0, 80);
   if (!nextTitle) return null;
   data.title = nextTitle;
   data.updatedAt = Date.now();
-  await fsp.writeFile(p, JSON.stringify(data, null, 2));
+  await writeSessionFileAtomic(p, JSON.stringify(data, null, 2));
+  await refreshSessionSummaryCache(id, data);
   return data;
 }
 
 async function setSessionPinnedRecord(id, pinned) {
   const p = sessionPath(id);
-  if (!fs.existsSync(p)) return null;
-  const data = JSON.parse(await fsp.readFile(p, 'utf8'));
+  if (!p || !fs.existsSync(p)) return null;
+  const data = await readSessionRecord(id);
+  if (!data) return null;
   data.pinned = !!pinned;
   data.updatedAt = Date.now();
-  await fsp.writeFile(p, JSON.stringify(data, null, 2));
+  await writeSessionFileAtomic(p, JSON.stringify(data, null, 2));
+  await refreshSessionSummaryCache(id, data);
   return data;
 }
 
 function deleteSessionRecord(id, options = {}) {
   const operation = sessionDeleteQueue.then(async () => {
-    const sessions = await readSessionRecords();
+    if (!isSafeSessionId(id)) return { ok: false, code: 'invalid-session-id', error: '会话 ID 无效' };
+    // 删除判定只需要标题与消息条数,读摘要即可,避免全量解析所有会话文件
+    const sessions = await listSessionSummaries();
     const session = sessions.find(item => item.id === id);
-    const decision = evaluateSessionDeletion(session, sessions.length, options);
+    const running = isSessionRunActive(id);
+    const decision = evaluateSessionDeletion(session, sessions.length, { ...options, running });
     if (!decision.ok) return decision;
     const replacedLast = sessions.length <= 1;
     const replacementSession = replacedLast ? await createFreshSessionRecord() : null;
+    // The replacement write above yields to the event loop. Re-check before
+    // unlinking so a run that started during that window cannot resurrect the
+    // session through its completion save.
+    const becameRunning = isSessionRunActive(id);
+    if (becameRunning) {
+      if (replacementSession) await fsp.unlink(sessionPath(replacementSession.id)).catch(() => {});
+      return { ok: false, code: 'running', error: '任务运行中，无法删除' };
+    }
     try {
-      await fsp.unlink(sessionPath(id));
+      // Keep the final existence check and unlink in one synchronous turn of
+      // the main process. An async unlink would yield between the check and
+      // deletion, allowing a newly-started run to save the session again.
+      fs.unlinkSync(sessionPath(id));
+      invalidateSessionRecordCache(id);
     } catch (error) {
       if (replacementSession) {
         await fsp.unlink(sessionPath(replacementSession.id)).catch(() => {});
       }
       throw error;
+    }
+    try {
+      const coreDeletion = yanCore?.deleteThread(id);
+      if (coreDeletion && coreDeletion.ok === false && coreDeletion.code !== 'YAN_THREAD_NOT_FOUND') {
+        console.warn('[yan-core] session deleted but Core Thread cleanup was rejected:', coreDeletion.error || coreDeletion.code);
+      }
+    } catch (error) {
+      console.warn('[yan-core] session deleted but Core Thread cleanup failed:', error?.message || error);
     }
     return { ok: true, id, replacedLast, replacementSession };
   });
@@ -5101,96 +7013,141 @@ function deleteSessionRecord(id, options = {}) {
 
 ipcMain.handle('session:list', () => listSessionSummaries());
 
-ipcMain.handle('session:get', async (_e, id) => {
-  return readSessionRecord(id);
+ipcMain.handle('session:get', async (_e, id, options = {}) => {
+  return readSessionRecord(id, { messageLimit: options?.messageLimit });
+});
+
+ipcMain.handle('session:messages', async (_e, { id, offset, limit } = {}) => {
+  const session = await readSessionRecord(id);
+  if (!session) return { ok: false, error: '会话不存在' };
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const total = messages.length;
+  const requestedStart = Math.max(0, Math.min(total, Number(offset) || 0));
+  const requestedCount = Math.max(1, Math.min(200, Number(limit) || 40));
+  // Cap each page by accumulated size too, so paging back through a session
+  // full of multi-megabyte messages never materializes them all at once.
+  let end = requestedStart;
+  let size = 0;
+  let count = 0;
+  while (end < total && count < requestedCount) {
+    const estimated = estimateMessageSize(messages[end]);
+    if (count > 0 && size + estimated > MESSAGE_PAGE_CHAR_BUDGET) break;
+    end += 1;
+    count += 1;
+    size += estimated;
+  }
+  return { ok: true, messages: messages.slice(requestedStart, end), total, offset: requestedStart };
 });
 
 ipcMain.handle('session:create', async (_e, options = {}) => {
-  const result = options.forceNew
-    ? { session: await createFreshSessionRecord(), reused: false }
+  const workspace = normalizeWorkspacePath(options.workspace);
+  const result = (options.forceNew || workspace)
+    ? { session: await createFreshSessionRecord({ workspace }), reused: false }
     : await createOrReuseSessionRecord();
-  if (!result.reused) broadcastSessionUpdate({ type: 'created', id: result.session.id });
   return result.session;
 });
 
+// Session JSON is the only durable copy of the conversation. Write to a
+// temporary file and rename so a crash mid-write cannot truncate it.
+// 保存/改名/置顶等写操作后,顺手刷新摘要缓存,
+// 下一次 session:list 就不必为这个(可能 45MB 的)文件重新做整包 JSON.parse
+async function refreshSessionSummaryCache(id, data) {
+  try {
+    const file = sessionPath(id);
+    const stat = await fsp.stat(file);
+    sessionSummaryCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, summary: toSessionSummary(data) });
+  } catch { /* 缓存留在失效状态,下次 list 自动重建 */ }
+}
+
+async function writeSessionFileAtomic(filePath, content) {
+  const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  await fsp.writeFile(temporary, content);
+  try {
+    await fsp.rename(temporary, filePath);
+  } catch {
+    await fsp.copyFile(temporary, filePath);
+    await fsp.rm(temporary, { force: true });
+  }
+}
+
 ipcMain.handle('session:save', async (_e, session) => {
+  if (!session || !isSafeSessionId(session.id)) {
+    return { ok: false, error: '会话 ID 无效', code: 'invalid-session-id' };
+  }
   ensureDirs();
-  sanitizeSessionReviewSummaries(session);
-  session.updatedAt = Date.now();
-  await fsp.writeFile(sessionPath(session.id), JSON.stringify(session, null, 2));
-  broadcastSessionUpdate({ type: 'updated', id: session.id });
-  return session;
+  // The renderer may hold only the newest slice of the conversation (loaded
+  // through session:get with a message limit). Re-attach the older messages
+  // from the stored record so a tail save can never truncate the history.
+  let persisted = session;
+  if (session.messagesTruncated === true && Number.isInteger(session.messagesStart) && session.messagesStart > 0) {
+    const stored = await readSessionRecord(session.id);
+    if (stored && Array.isArray(stored.messages)) {
+      const head = stored.messages.slice(0, session.messagesStart);
+      persisted = {
+        ...session,
+        messages: [...head, ...(Array.isArray(session.messages) ? session.messages : [])]
+      };
+      delete persisted.messagesTruncated;
+      delete persisted.messagesStart;
+      delete persisted.totalMessages;
+    }
+  }
+  sanitizeSessionReviewSummaries(persisted);
+  pruneSessionRuntimeBookkeeping(persisted);
+  persisted.updatedAt = Date.now();
+  const file = sessionPath(persisted.id);
+  await writeSessionFileAtomic(file, JSON.stringify(persisted, null, 2));
+  try {
+    const stat = await fsp.stat(file);
+    touchSessionRecordCache(persisted.id, persisted, stat);
+    await refreshSessionSummaryCache(persisted.id, persisted);
+  } catch { invalidateSessionRecordCache(persisted.id); }
+  return persisted;
 });
 
 // 会话级工作区：存储在 session 对象中，而非全局 config，实现会话隔离
+
 ipcMain.handle('session:set-workspace', async (_e, { id, workspace, activate = true }) => {
   const p = sessionPath(id);
-  if (!fs.existsSync(p)) return null;
-  const data = JSON.parse(await fsp.readFile(p, 'utf8'));
+  if (!p || !fs.existsSync(p)) return null;
+  // 走缓存读取,避免为改一个字段而整包解析 45MB 会话
+  const data = await readSessionRecord(id);
+  if (!data) return null;
   data.workspace = workspace || '';
   data.updatedAt = Date.now();
-  await fsp.writeFile(p, JSON.stringify(data, null, 2));
+  await writeSessionFileAtomic(p, JSON.stringify(data, null, 2));
+  await refreshSessionSummaryCache(id, data);
   if (activate !== false) {
     activateWorkspace(workspace || '');
   } else if (workspace) {
     migrateMemoryToWorkspace(workspace);
     ensureYanagent(workspace);
   }
-  broadcastSessionUpdate({ type: 'workspace', id });
   return data;
 });
 
 ipcMain.handle('session:rename', async (_e, { id, title }) => {
-  const data = await renameSessionRecord(id, title);
-  if (data) broadcastSessionUpdate({ type: 'renamed', id });
-  return data;
+  return renameSessionRecord(id, title);
 });
 
 ipcMain.handle('session:set-pinned', async (_e, { id, pinned }) => {
-  const data = await setSessionPinnedRecord(id, pinned);
-  if (data) broadcastSessionUpdate({ type: 'pinned', id, pinned: !!pinned });
-  return data;
+  return setSessionPinnedRecord(id, pinned);
 });
 
 ipcMain.handle('session:delete', async (_e, payload) => {
   const id = typeof payload === 'string' ? payload : payload?.id;
   const confirmed = typeof payload === 'object' && !!payload?.confirmed;
   const result = await deleteSessionRecord(id, { confirmed });
-  if (result.ok) {
-    broadcastSessionUpdate({
-      type: 'deleted',
-      id,
-      replacementSessionId: result.replacementSession?.id || ''
-    });
-    if (result.replacementSession) {
-      broadcastSessionUpdate({ type: 'created', id: result.replacementSession.id });
-    }
-  }
   return result;
 });
 
 // ---------------------------------------------------------------------------
 // IPC: Long-term memory (global/machine/workspace, selectively retrieved)
 // ---------------------------------------------------------------------------
-function loadMemory(workspace = loadConfig().workspace || '') {
-  try {
-    const memories = longTermMemory.list({ workspace, includeSuperseded: true });
-    return {
-      version: 2,
-      memories,
-      facts: memories
-        .filter(memory => memory.status !== 'superseded')
-        .map(memory => ({ content: memory.content, ts: memory.createdAt, ...memory })),
-      updatedAt: memories.reduce((latest, memory) => Math.max(latest, Number(memory.updatedAt) || 0), 0)
-    };
-  } catch (e) { console.error('loadMemory error:', e); }
-  return { version: 2, memories: [], facts: [], updatedAt: 0 };
-}
-
 function addMemoryRecord(record = {}, options = {}) {
   const workspace = String(options.workspace || record.workspace || '').trim();
   const defaultScope = record.scope || (workspace ? 'workspace' : 'global');
-  return longTermMemory.upsert(record, {
+  const result = longTermMemory.upsert(record, {
     workspace,
     defaultScope,
     sourceKind: options.sourceKind || record.sourceKind,
@@ -5198,6 +7155,18 @@ function addMemoryRecord(record = {}, options = {}) {
     runId: options.runId || record.runId,
     refinementId: options.refinementId || record.refinementId
   });
+  // P0-5 simplified forgetting runs at write time (throttled): it only reduces
+  // confidence on stale low-frequency entries and never deletes or touches
+  // preference/work_state memories.
+  if (result?.ok && Date.now() - lastAgiMemoryMaintenanceAt > AGI_MEMORY_MAINTENANCE_INTERVAL_MS) {
+    lastAgiMemoryMaintenanceAt = Date.now();
+    try {
+      maintainMemoryStore({ longTermMemory, memoryPath, workspace });
+    } catch (error) {
+      console.warn(`[agi] memory maintenance failed: ${error?.message || error}`);
+    }
+  }
+  return result;
 }
 
 async function reviewCompletedRunMemory({
@@ -5209,14 +7178,15 @@ async function reviewCompletedRunMemory({
   workspace,
   yanSessionId,
   runId,
-  harnessBaselines
+  harnessBaselines,
+  evolutionMode = false
 }) {
   try {
-    const refineRequest = consumeHarnessRefinementRequest(runId);
+    const refineRequest = evolutionMode ? consumeHarnessRefinementRequest(runId) : null;
     if (refineRequest?.action === 'rollback') {
       const targetState = continualHarness.load({ scope: refineRequest.scope, workspace });
       const target = targetState.refinements.find(item => item.id === refineRequest.rollbackId);
-      const rollback = continualHarness.rollback(refineRequest.rollbackId, {
+      const rollback = await continualHarness.rollback(refineRequest.rollbackId, {
         scope: refineRequest.scope,
         workspace,
         source: 'explicit_user_rollback',
@@ -5226,9 +7196,36 @@ async function reviewCompletedRunMemory({
       if (!rollback.ok) console.warn(`[harness] rollback ${refineRequest.rollbackId} failed: ${rollback.error}`);
       return;
     }
+    // Persist an explicit user policy before consulting the isolated reviewer.
+    // Reviewer output is enrichment only; a provider/schema failure must never
+    // be able to erase or postpone a rule the user explicitly requested.
+    const explicitPolicy = evolutionMode
+      ? (refineRequest?.action === 'refine'
+        ? { text: refineRequest.instructions, source: 'scheduled_refinement' }
+        : extractExplicitPolicyInstruction({ prompt, history: request.history }))
+      : null;
+    let directPolicyResult = null;
+    if (evolutionMode && explicitPolicy?.text) {
+      const policyScope = refineRequest?.scope === 'workspace' && workspace ? 'workspace' : 'global';
+      directPolicyResult = await persistExplicitUserPolicy({
+        instructions: explicitPolicy.text,
+        scope: policyScope,
+        workspace,
+        runId,
+        sessionId: yanSessionId,
+        source: refineRequest ? 'agent_refine' : 'explicit_user_policy'
+      });
+      if (!directPolicyResult.ok) {
+        console.warn(`[harness] explicit policy was not activated for run ${runId}: ${directPolicyResult.error}`);
+      }
+    }
+    const cfg = loadConfig();
     const review = await sidecar.reviewMemory({
       providerId: selection.providerId,
       modelId: selection.modelId,
+      inputTokensPerSecond: Math.max(DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond(
+        cfg.api?.inputTokensPerSecond || cfg.agent?.inputTokensPerSecond
+      )),
       workspace,
       sessionId: yanSessionId,
       runId,
@@ -5236,49 +7233,64 @@ async function reviewCompletedRunMemory({
       history: request.history,
       result,
       refineInstructions: refineRequest?.instructions || '',
-      harnessOverview: continualHarness.overview({ workspace, query: prompt }),
+      harnessOverview: evolutionMode ? continualHarness.overview({ workspace, query: prompt }) : '',
       userRequestedFinish: result?.userRequestedFinish === true
     });
-    const harnessResults = applyReviewedHarnessState(review, {
-      workspace,
-      sessionId: yanSessionId,
-      runId,
-      harnessBaselines,
-      refineInstructions: refineRequest?.instructions || '',
-      verifiedSuccess: result?.status === 'done'
-        && (Array.isArray(result?.todos) ? result.todos : []).every(todo => todo?.done === true)
-    });
-    if (refineRequest?.action === 'refine' && !harnessResults.length && !review?.skillCandidate) {
-      const scope = refineRequest.scope === 'workspace' && workspace ? 'workspace' : 'global';
-      const noOp = continualHarness.apply({
-        trigger: `Agent-requested refinement: ${refineRequest.instructions}`,
-        evidence: review?.error || 'The isolated reviewer found no durable evidence that justified a reusable edit.',
-        expectedOutcome: 'Keep the current harness unchanged.',
-        edits: []
-      }, {
-        scope,
+    // The direct policy above is the authoritative representation of an
+    // explicit user instruction. Do not create a second competing candidate
+    // from the reviewer for the same request.
+    const reviewForHarness = explicitPolicy?.text
+      ? { ...review, harnessCandidates: [] }
+      : review;
+    const harnessResults = evolutionMode
+      ? await applyReviewedHarnessState(reviewForHarness, {
         workspace,
-        expectedRevision: harnessBaselines?.[scope]?.revision,
-        baselineState: harnessBaselines?.[scope],
-        runId,
         sessionId: yanSessionId,
-        source: 'agent_refine'
-      });
-      if (noOp.ok) continualHarness.recordOutcome(noOp.refinement.id, {
-        status: 'rejected',
-        evidence: 'No reusable edit passed the evidence and safety gates.'
-      }, { scope, workspace });
+        runId,
+        harnessBaselines,
+        refineInstructions: refineRequest?.instructions || '',
+        verifiedSuccess: result?.status === 'done'
+          && (Array.isArray(result?.todos) ? result.todos : []).every(todo => todo?.done === true)
+      })
+      : [];
+    if (evolutionMode) await recordReviewedRefinementOutcomes(review, workspace);
+    const memoryResults = evolutionMode
+      ? harnessResults.flatMap(item => item.memories.map(({ record }) => addMemoryRecord(record, {
+        workspace,
+        sourceKind: refineRequest ? 'agent_refine' : 'background_review',
+        sessionId: yanSessionId,
+        runId,
+        refinementId: item.result?.refinement?.id
+      })))
+      : (Array.isArray(review?.memories) ? review.memories.map(memory => addMemoryRecord(memory, {
+        workspace,
+        sourceKind: 'background_review',
+        sessionId: yanSessionId,
+        runId
+      })) : []);
+    // Continuity card: one superseding record per workspace so a new task in
+    // the same workspace starts from where this run stopped.
+    if (review?.workState && workspace) {
+      const workStateResult = addMemoryRecord({
+        key: 'work.state.current',
+        type: 'work_state',
+        scope: 'workspace',
+        content: review.workState.content,
+        confidence: 0.9,
+        evidence: review.workState.evidence,
+        basis: 'project_artifact',
+        verified: true,
+        durable: true,
+        sensitive: false,
+        transient: false
+      }, { workspace, sourceKind: 'work_state', sessionId: yanSessionId, runId });
+      if (!workStateResult?.ok) {
+        console.warn(`[memory] work state was not stored for run ${runId}: ${workStateResult?.error || 'unknown error'}`);
+      }
     }
-    recordReviewedRefinementOutcomes(review, workspace);
-    const memoryResults = harnessResults.flatMap(item => item.memories.map(record => addMemoryRecord(record, {
-      workspace,
-      sourceKind: refineRequest ? 'agent_refine' : 'background_review',
-      sessionId: yanSessionId,
-      runId,
-      refinementId: item.result?.refinement?.id
-    })));
-    if (review?.skillCandidate) {
-      recordLearningReview({
+    if (evolutionMode && review?.skillCandidate) {
+      await recordLearningReview({
+        sidecar,
         skillCandidate: review.skillCandidate,
         verified: result?.status === 'done'
           && (Array.isArray(result?.todos) ? result.todos : []).every(todo => todo?.done === true),
@@ -5288,6 +7300,18 @@ async function reviewCompletedRunMemory({
         runId,
         harnessBaseline: harnessBaselines?.[workspace ? 'workspace' : 'global']
       });
+    }
+    // Result attribution runs after the reviewer's edits on purpose: usage
+    // bookkeeping changes the entry fingerprint, and doing it first would trip
+    // the revision-conflict check for any entry the same review is updating.
+    // Attribution itself only needs the run's verified outcome, not the
+    // reviewer, so its own failure never blocks the rest of the pipeline.
+    if (evolutionMode) {
+      try {
+        await attributeHarnessUsage({ runId, workspace, sessionId: yanSessionId, result });
+      } catch (error) {
+        console.warn(`[harness] usage attribution failed for run ${runId}:`, error?.message || error);
+      }
     }
     const stored = memoryResults.filter(item => item?.ok).length;
     if (stored > 0) console.log(`[memory] stored ${stored} durable record(s) from run ${runId}`);
@@ -5307,13 +7331,14 @@ ipcMain.handle('yanagent:ensure', async (_e, workspace) => {
   return { ok: true, path: root };
 });
 
-ipcMain.handle('yanagent:run-changes', async (_e, { sessionId, runId, workspace, includeDiff = false, allRuns = false }) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws || !sessionId || (!allRuns && !runId)) return { count: 0, additions: 0, deletions: 0, files: [] };
+ipcMain.handle('yanagent:run-changes', async (_e, { sessionId, runId, workspace, includeDiff = false, documentPath = '', allRuns = false, paths = null }) => {
+  const session = await readSessionRecord(sessionId);
+  const ws = workspaceSandbox.normalizeWorkspace(session?.workspace);
+  if (!ws || !session || (!allRuns && !isSafePathSegment(runId))) return { count: 0, additions: 0, deletions: 0, files: [] };
   if (allRuns) {
     try {
       const changes = await loadSessionChangeHistory(ws, sessionId);
-      return summarizeRunChanges(ws, changes, { includeDiff: !!includeDiff });
+      return await runReviewTask('legacyChanges', ws, changes, { includeDiff: !!includeDiff, documentPath, paths });
     } catch {
       return { count: 0, additions: 0, deletions: 0, files: [] };
     }
@@ -5322,15 +7347,19 @@ ipcMain.handle('yanagent:run-changes', async (_e, { sessionId, runId, workspace,
   if (!fs.existsSync(snapPath)) return { count: 0, additions: 0, deletions: 0, files: [] };
   try {
     const data = JSON.parse(await fsp.readFile(snapPath, 'utf8'));
-    return summarizeRunChanges(ws, data.changes || [], { includeDiff: !!includeDiff });
+    return await runReviewTask('legacyChanges', ws, data.changes || [], { includeDiff: !!includeDiff, documentPath, paths });
   } catch {
     return { count: 0, additions: 0, deletions: 0, files: [] };
   }
 });
 
 ipcMain.handle('yanagent:rollback-run', async (_e, { sessionId, runId, workspace }) => {
-  const ws = workspace || loadConfig().workspace;
-  if (!ws || !sessionId || !runId) return { ok: false, error: '未设置工作区、会话或 runId' };
+  const session = await readSessionRecord(sessionId);
+  const ws = workspaceSandbox.normalizeWorkspace(session?.workspace);
+  if (!session || !ws || !isSafeSessionId(sessionId) || !isSafePathSegment(runId)) {
+    return { ok: false, error: '会话、工作区或 runId 无效' };
+  }
+  if (workspace && !sameWorkspace(ws, workspace)) return { ok: false, error: '工作区与会话不匹配' };
   const snapPath = runSnapshotPath(ws, sessionId, runId);
   if (!fs.existsSync(snapPath)) return { ok: false, error: '该轮对话没有可撤销的文件改动' };
   let data;
@@ -5339,55 +7368,72 @@ ipcMain.handle('yanagent:rollback-run', async (_e, { sessionId, runId, workspace
   } catch (e) {
     return { ok: false, error: e.message };
   }
+  if (String(data.sessionId || '') !== String(sessionId) || String(data.runId || '') !== String(runId)) {
+    return { ok: false, error: '回滚快照归属不匹配' };
+  }
   const changes = data.changes || [];
-  const results = await applySnapshotRollback(changes);
+  const results = await applySnapshotRollback(changes, ws);
   try { await fsp.unlink(snapPath); } catch {}
   appendYanagentLog(ws, `[rollback] run ${runId} (session ${sessionId}): ${results.length} file(s)`);
   return { ok: true, results, count: changes.length, runId };
 });
 
 // ---------------------------------------------------------------------------
-// IPC: File operations (read/write/list/upload)
+// IPC: File uploads and generated media
 // ---------------------------------------------------------------------------
-ipcMain.handle('file:read', async (_e, payload) => {
-  const cfg = loadConfig();
-  if (!cfg.permissions.allowFileRead) {
-    return { error: 'File read is disabled in permissions.', code: 'PERMISSION_DENIED' };
-  }
-  const parsed = workspaceSandbox.parsePathPayload(payload, 'filePath');
-  const resolved = resolveAgentPath(parsed.filePath, parsed.workspace);
-  if (!resolved.ok) return { error: resolved.error, code: resolved.code };
-  const filePath = resolved.path;
-  try {
-    const stat = await fsp.stat(filePath);
-    // Detect binary: read first 4KB as buffer and check for null bytes
-    const handle = await fsp.open(filePath, 'r');
-    const buf = Buffer.alloc(Math.min(4096, stat.size));
-    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-    await handle.close();
-    const sample = buf.subarray(0, bytesRead);
-    const isBinary = sample.includes(0);
-    if (isBinary) {
-      return { path: filePath, isBinary: true, size: stat.size, mtime: stat.mtimeMs };
-    }
-    // 小文件直接复用已读 buffer，避免重复 I/O；大文件再完整读取
-    let content;
-    if (stat.size <= bytesRead) {
-      content = sample.toString('utf8');
-    } else {
-      content = await fsp.readFile(filePath, 'utf8');
-    }
-    return { path: filePath, content, isBinary: false, size: stat.size, mtime: stat.mtimeMs };
-  } catch (e) {
-    return { error: e.message, code: e.code === 'ENOENT' ? 'NOT_FOUND' : 'READ_FAILED' };
-  }
-});
-
 ipcMain.handle('file:choose-directory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   });
   return !result.canceled && result.filePaths.length ? result.filePaths[0] : null;
+});
+
+ipcMain.handle('file:inspect-attachment-path', async (event, filePath) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+    return { ok: false, error: '无权检查该附件路径', code: 'UNAUTHORIZED' };
+  }
+  const rawPath = String(filePath || '').trim();
+  if (!rawPath) return { ok: false, error: '附件路径为空', code: 'PATH_EMPTY' };
+  if (rawPath.includes('\0')) return { ok: false, error: '附件路径无效', code: 'PATH_INVALID' };
+
+  let resolvedPath;
+  try {
+    resolvedPath = path.resolve(rawPath);
+  } catch (error) {
+    return {
+      ok: false,
+      error: `附件路径无效：${error?.message || String(error || '未知错误')}`,
+      code: 'PATH_INVALID'
+    };
+  }
+
+  try {
+    const stat = await fsp.stat(resolvedPath);
+    const isDirectory = stat.isDirectory();
+    const isFile = stat.isFile();
+    if (!isDirectory && !isFile) {
+      return { ok: false, error: '暂不支持该附件类型', code: 'ATTACHMENT_TYPE_UNSUPPORTED' };
+    }
+    return {
+      ok: true,
+      path: resolvedPath,
+      name: path.basename(resolvedPath) || resolvedPath,
+      isDirectory,
+      isFile,
+      size: isFile ? stat.size : 0
+    };
+  } catch (error) {
+    const reason = error?.code === 'ENOENT'
+      ? '路径不存在'
+      : (error?.code === 'EACCES' || error?.code === 'EPERM')
+        ? '没有权限访问该路径'
+        : (error?.message || String(error || '未知错误'));
+    return {
+      ok: false,
+      error: `无法读取附件：${reason}`,
+      code: error?.code || 'ATTACHMENT_PATH_UNREADABLE'
+    };
+  }
 });
 
 function resolveStoredUploadPath(filePath) {
@@ -5400,60 +7446,6 @@ function resolveStoredUploadPath(filePath) {
 function sanitizeUploadName(name) {
   const base = path.basename(String(name || 'attachment'));
   return base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || 'attachment';
-}
-
-function findRemoteUploadedImage(uploadId) {
-  const id = String(uploadId || '').trim().toLowerCase();
-  if (!/^[a-f0-9]{32}$/.test(id)) return null;
-  for (const extension of ['png', 'jpg', 'webp', 'gif']) {
-    const filePath = path.join(filesDir, `${id}.${extension}`);
-    if (fs.existsSync(filePath)) return filePath;
-  }
-  return null;
-}
-
-async function storeRemoteUploadedImage({ name, data, mimeType }) {
-  const raw = String(data || '');
-  if (!raw || !/^[A-Za-z0-9+/]*={0,2}$/.test(raw)) return { error: '图片数据格式无效' };
-  const buffer = Buffer.from(raw, 'base64');
-  if (!buffer.length) return { error: '图片内容为空' };
-  if (buffer.length > 20 * 1024 * 1024) return { error: '图片不能超过 20MB' };
-  let type;
-  try { type = detectImageType(buffer, String(mimeType || '')); }
-  catch { return { error: '仅支持 PNG、JPEG、WebP 或 GIF 图片' }; }
-  ensureDirs();
-  const uploadId = crypto.randomBytes(16).toString('hex');
-  const filePath = path.join(filesDir, `${uploadId}.${type.extension}`);
-  await fsp.writeFile(filePath, buffer);
-  const originalBase = path.parse(sanitizeUploadName(name || '手机图片')).name.slice(0, 80) || '手机图片';
-  return {
-    uploadId,
-    name: `${originalBase}.${type.extension}`,
-    size: buffer.length,
-    mimeType: type.mimeType,
-    kind: 'image'
-  };
-}
-
-async function resolveRemoteUploadedImages(items) {
-  const attachments = [];
-  for (const item of (Array.isArray(items) ? items : []).slice(0, 4)) {
-    const filePath = findRemoteUploadedImage(item?.uploadId);
-    if (!filePath) continue;
-    try {
-      const buffer = await fsp.readFile(filePath);
-      const type = detectImageType(buffer);
-      attachments.push({
-        uploadId: String(item.uploadId).toLowerCase(),
-        name: sanitizeUploadName(item.name || path.basename(filePath)),
-        path: filePath,
-        size: buffer.length,
-        mimeType: type.mimeType,
-        kind: 'image'
-      });
-    } catch {}
-  }
-  return attachments;
 }
 
 // Upload: copy a file into the uploads dir & return metadata
@@ -5515,7 +7507,8 @@ ipcMain.handle('image:generate', async (_e, payload = {}) => {
         edits: imageConnection.imageEditUrl
       },
       providerOptions: {
-        workspaceId: imageConnection.workspaceId
+        workspaceId: imageConnection.workspaceId,
+        adapterKind: providerAdapterPreset(cfg, imageConfig.providerId)
       },
       prompt,
       aspectRatio: payload.aspectRatio || '1:1',
@@ -5586,7 +7579,8 @@ ipcMain.handle('video:generate', async (_e, payload = {}) => {
       providerId: videoConfig.providerId,
       providerOptions: {
         workspaceId: connection.workspaceId,
-        videoGenerationUrl: connection.videoGenerationUrl
+        videoGenerationUrl: connection.videoGenerationUrl,
+        adapterKind: providerAdapterPreset(cfg, videoConfig.providerId)
       },
       model: videoConfig.model,
       prompt,
@@ -5654,15 +7648,51 @@ ipcMain.handle('image:generated-download', async (_e, assetId) => {
   }
 });
 
+ipcMain.handle('image:file-open', (_e, filePath) => openImageFileViewer(filePath));
+
+ipcMain.handle('image:file-read', async (_e, filePath) => {
+  const file = await resolveLocalImageFile(filePath);
+  if (!file) return { error: '图片不可用或格式不支持预览' };
+  try {
+    const buffer = await fsp.readFile(file.path);
+    let mimeType = file.mimeType;
+    try {
+      mimeType = detectImageType(buffer, file.mimeType).mimeType || mimeType;
+    } catch {}
+    return {
+      name: file.name,
+      size: file.size,
+      mimeType,
+      dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('image:file-download', async (_e, filePath) => {
+  const file = await resolveLocalImageFile(filePath);
+  if (!file) return { error: '图片不可用或格式不支持预览' };
+  const owner = BrowserWindow.fromWebContents(_e.sender);
+  const extension = path.extname(file.name).slice(1).toLowerCase() || 'png';
+  const result = await dialog.showSaveDialog(owner && !owner.isDestroyed() ? owner : mainWindow, {
+    title: '下载图片',
+    buttonLabel: '下载',
+    defaultPath: path.join(app.getPath('downloads'), file.name),
+    filters: [{ name: '图片', extensions: [extension] }]
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  try {
+    await fsp.copyFile(file.path, result.filePath);
+    return { ok: true, path: result.filePath };
+  } catch (error) {
+    return { error: `下载失败：${error.message}` };
+  }
+});
+
 ipcMain.handle('file:reveal', async (_e, filePath) => {
   shell.showItemInFolder(filePath);
   return true;
-});
-
-ipcMain.handle('yanxi:launch', async (_e, { workspace, mode = 'workspace' } = {}) => {
-  const cfg = loadConfig();
-  const ws = workspace || cfg.workspace;
-  return launchYanxiCode(appRoot, cfg, ws, mode);
 });
 
 ipcMain.handle('vscode:status', async () => {
@@ -5687,8 +7717,8 @@ ipcMain.handle('powershell:open-external', async (_e, { workspace = '' } = {}) =
   try {
     if (requested && fs.statSync(requested).isDirectory()) cwd = path.resolve(requested);
   } catch { /* fall back to the user's home directory */ }
-  const shellInfo = resolveWindowsPowerShell();
   try {
+    const shellInfo = resolveWindowsPowerShell();
     if (process.platform === 'win32') {
       const command = `Set-Location -LiteralPath ${JSON.stringify(cwd)}`;
       const encoded = Buffer.from(command, 'utf16le').toString('base64');
@@ -5706,6 +7736,9 @@ ipcMain.handle('powershell:open-external', async (_e, { workspace = '' } = {}) =
         execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', scriptEncoded], {
           cwd,
           windowsHide: true,
+          // 无超时的话,PowerShell 首次加载 .NET 程序集被杀软/OneDrive 卡住时,这个 IPC 永远不返回
+          timeout: 15000,
+          killSignal: 'SIGKILL',
           env: { ...process.env, YAN_EXTERNAL_PS: shellInfo.command, YAN_EXTERNAL_CWD: cwd, YAN_EXTERNAL_COMMAND: encoded }
         }, (error, stdout, stderr) => {
           if (error) resolve({ error: String(stderr || error.message || '打开 PowerShell 失败').trim() });
@@ -5724,31 +7757,34 @@ ipcMain.handle('powershell:open-external', async (_e, { workspace = '' } = {}) =
 });
 
 // ---------------------------------------------------------------------------
-// IPC: Built-in terminal (real PTY / ConPTY, independent from Agent workspaces)
-// ---------------------------------------------------------------------------
-ipcMain.handle('terminal:create', (event, options = {}) => (
-  terminalManager.create(event.sender.id, options || {})
-));
-
-ipcMain.handle('terminal:write', (event, { sessionId, data } = {}) => (
-  terminalManager.write(event.sender.id, sessionId, data)
-));
-
-ipcMain.handle('terminal:resize', (event, { sessionId, cols, rows } = {}) => (
-  terminalManager.resize(event.sender.id, sessionId, cols, rows)
-));
-
-ipcMain.handle('terminal:destroy', (event, sessionId) => (
-  terminalManager.destroy(event.sender.id, sessionId)
-));
-
-// ---------------------------------------------------------------------------
 // MCP (Model Context Protocol) — manage external tool servers via stdio
 // ---------------------------------------------------------------------------
 const mcpServers = new Map(); // id -> { process, tools, pending, buffer, nextId }
 
 function mcpSend(proc, msg) {
-  proc.stdin.write(JSON.stringify(msg) + '\n');
+  // 子进程崩溃后 stdin 在 close 之前写入会触发 EPIPE;这里守卫 + 静默失败,
+  // 由 mcpStart 里挂的 stdin error 监听兜底,绝不能让主进程因未捕获异常退出
+  const stdin = proc && proc.stdin;
+  if (!stdin || stdin.destroyed || !stdin.writable) return false;
+  try {
+    stdin.write(JSON.stringify(msg) + '\n');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function killProcessTree(proc) {
+  // Windows 上 cmd /c 包装的子进程必须杀整棵树,只 kill 直接子进程会留下孤儿
+  if (!proc || typeof proc.pid !== 'number') return;
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } else {
+      proc.kill('SIGKILL');
+    }
+  } catch {}
 }
 
 function mcpRequest(server, method, params = {}) {
@@ -5761,7 +7797,11 @@ function mcpRequest(server, method, params = {}) {
       }
     }, server.requestTimeoutMs || 30000);
     server.pending.set(id, { resolve, reject, timer });
-    mcpSend(server.process, { jsonrpc: '2.0', id, method, params });
+    if (!mcpSend(server.process, { jsonrpc: '2.0', id, method, params })) {
+      server.pending.delete(id);
+      clearTimeout(timer);
+      reject(new Error('MCP 服务器进程不可用: ' + method));
+    }
   });
 }
 
@@ -5788,8 +7828,44 @@ function rollbackHarnessProjection(target, workspace) {
   return { removedMemories: memoryRemoval.removed, removedSkills };
 }
 
+function harnessRunContextPath(runId) {
+  const key = crypto.createHash('sha256').update(String(runId || '')).digest('hex');
+  return path.join(dataDir, 'harness', 'runtime', `${key}.json`);
+}
+
+function registerHarnessRunContext({ runId, sessionId = '', workspace = '', allowFileRead = true, allowNetwork = true, allowFileWrite = true } = {}) {
+  const id = String(runId || '').trim();
+  if (!id) return '';
+  const contextPath = harnessRunContextPath(id);
+  const normalizedWorkspace = workspaceSandbox.normalizeWorkspace(workspace);
+  const context = {
+    schema: 1,
+    runId: id,
+    sessionId: String(sessionId || ''),
+    workspace: normalizedWorkspace || '',
+    allowFileRead,
+    allowNetwork,
+    allowFileWrite,
+    requestPath: pendingHarnessRequestPath(id),
+    workspaceStatePath: normalizedWorkspace
+      ? continualHarness.statePath({ scope: 'workspace', workspace: normalizedWorkspace })
+      : '',
+    createdAt: Date.now()
+  };
+  fs.mkdirSync(path.dirname(contextPath), { recursive: true });
+  const temporary = `${contextPath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(context)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporary, contextPath);
+  return contextPath;
+}
+
+function removeHarnessRunContext(runId) {
+  try { fs.rmSync(harnessRunContextPath(runId), { force: true }); } catch {}
+}
+
 function pendingHarnessRequestPath(runId) {
-  return path.join(dataDir, 'harness', 'pending', `${String(runId || '')}.json`);
+  const key = crypto.createHash('sha256').update(String(runId || '')).digest('hex');
+  return path.join(dataDir, 'harness', 'pending', `${key}.json`);
 }
 
 function consumeHarnessRefinementRequest(runId) {
@@ -5806,10 +7882,334 @@ function consumeHarnessRefinementRequest(runId) {
   }
 }
 
+// Result attribution bookkeeping: remember which harness entries this run
+// actually injected, so the post-turn review can credit or blame them with
+// the run's verified outcome. The review runs outside the Harness MCP context
+// lifecycle, so this state lives in its own file and is consumed exactly once.
+function harnessUsagePath(runId) {
+  const key = crypto.createHash('sha256').update(String(runId || '')).digest('hex');
+  return path.join(dataDir, 'harness', 'usage', `${key}.json`);
+}
+
+function pruneHarnessUsageFiles(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+  try {
+    const dir = path.dirname(harnessUsagePath('probe'));
+    const cutoff = Date.now() - Math.max(60_000, Number(maxAgeMs) || 0);
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const file = path.join(dir, name);
+      try {
+        if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file, { force: true });
+      } catch {}
+    }
+  } catch {}
+}
+
+function registerHarnessUsage({ runId, workspace = '', sessionId = '', entries = [] } = {}) {
+  const id = String(runId || '').trim();
+  const items = (Array.isArray(entries) ? entries : []).map(entry => ({
+    kind: String(entry?.kind || '').trim(),
+    id: String(entry?.id || '').trim(),
+    scope: entry?.scope === 'workspace' ? 'workspace' : 'global'
+  })).filter(item => item.kind && item.id).slice(0, 32);
+  if (!id || !items.length) return '';
+  pruneHarnessUsageFiles();
+  const filePath = harnessUsagePath(id);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify({
+    schema: 1,
+    runId: id,
+    workspace: String(workspace || ''),
+    sessionId: String(sessionId || ''),
+    injectedAt: Date.now(),
+    entries: items
+  })}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporary, filePath);
+  return filePath;
+}
+
+function consumeHarnessUsage(runId) {
+  const filePath = harnessUsagePath(runId);
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const usage = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    fs.rmSync(filePath, { force: true });
+    if (!usage || String(usage.runId || '') !== String(runId || '')) return null;
+    return usage;
+  } catch {
+    try { fs.rmSync(filePath, { force: true }); } catch {}
+    return null;
+  }
+}
+
+// Only outcomes the run itself can prove count: a completed run with every
+// todo done is a success, a provider-level error is a failure. Runs that
+// stopped early (cancelled, user-requested finish, open todos) stay neutral
+// so attribution never guesses.
+function harnessRunOutcome(result) {
+  if (result?.status === 'error') return 'failure';
+  const todos = Array.isArray(result?.todos) ? result.todos : [];
+  if (result?.status === 'done' && todos.every(todo => todo?.done === true)) return 'success';
+  return '';
+}
+
+async function attributeHarnessUsage({ runId, workspace = '', sessionId = '', result } = {}) {
+  const usage = consumeHarnessUsage(runId);
+  if (!usage?.entries?.length) return null;
+  const outcome = harnessRunOutcome(result);
+  if (!outcome) return null;
+  const attribution = await continualHarness.recordUsage({
+    entries: usage.entries,
+    outcome,
+    runId,
+    sessionId,
+    injectedAt: usage.injectedAt
+  }, { workspace });
+  if (attribution?.demoted?.length) {
+    console.warn(`[harness] usage attribution returned ${attribution.demoted.length} repeated-failure entr(ies) to observing for run ${runId}`);
+  } else if (attribution && attribution.ok === false) {
+    console.warn(`[harness] usage attribution failed for run ${runId}: ${attribution.error || 'unknown error'}`);
+  }
+  // P0-2: additive utility ledger keyed by entry, fed by the delivery verdict.
+  // The existing recordUsage demotion above stays the only state change.
+  const verificationVerdict = result?.delivery?.review?.verdict
+    || (result?.delivery?.verified === true ? 'pass' : '');
+  try {
+    agiUtilityLedger.attribute({
+      runId,
+      entries: usage.entries,
+      outcome,
+      verification: verificationVerdict ? { verdict: verificationVerdict } : null
+    });
+  } catch (error) {
+    console.warn(`[agi] utility attribution failed for run ${runId}:`, error?.message || error);
+  }
+  return attribution;
+}
+
+// P2-3: bounded, redacted trajectory accumulation for every finished run.
+function recordAgiTrajectory({ runId, workspace = '', result } = {}) {
+  if (!runId || !result) return null;
+  const verdict = result?.delivery?.review?.verdict
+    || (result?.delivery?.verified === true ? 'pass' : '');
+  const outcome = result?.status === 'error'
+    ? 'failure'
+    : result?.status === 'done' ? 'success' : '';
+  return agiTrajectoryStore.record({
+    runId,
+    workspace,
+    outcome,
+    verification: verdict ? { verdict } : null,
+    steps: (Array.isArray(result?.toolCalls) ? result.toolCalls : []).slice(-60).map(call => ({
+      tool: String(call?.tool || call?.name || ''),
+      ok: call?.ok === true || call?.status === 'completed',
+      target: String(call?.file || call?.path || call?.target || '')
+    })),
+    summary: String(result?.text || '').slice(0, 200)
+  });
+}
+
+// Only verified outcomes may become experience: a run that merely finished
+// (no review) distills nothing — the pelican audit showed self-claimed passes
+// without a surviving review record cannot be trusted as experience.
+function runAgiOutcome(result) {
+  const verdict = result?.delivery?.review?.verdict;
+  if (result?.status === 'error' || verdict === 'fail') return 'failure';
+  if (verdict === 'pass' || result?.delivery?.verified === true) return 'success';
+  return '';
+}
+
+function failureTextFromResult(result) {
+  const criteria = result?.delivery?.review?.criteria;
+  const failed = criteria
+    ? Object.values(criteria).filter(item => item?.status === 'fail').map(item => String(item?.evidence || '')).filter(Boolean)
+    : [];
+  const text = failed.join('；')
+    || String(result?.goal?.failure || '')
+    || String(result?.delivery?.failure || '')
+    || String(result?.text || '');
+  return text.slice(0, 300);
+}
+
+// P0-5 distillation: after a finished run in evolution/AGI mode, persist a
+// rule (success) or failure_solution (failure) into long-term memory, and
+// record a failure→repair edge in the experience graph for later retrieval.
+function distillRunMemory({ runId, workspace = '', result } = {}) {
+  if (!result || !workspace || !runId) return null;
+  const outcome = runAgiOutcome(result);
+  if (!outcome) return null;
+  const summary = String(result?.text || '').slice(0, 300).trim();
+  if (!summary) return null;
+  const failure = outcome === 'failure' ? failureTextFromResult(result) : '';
+  const distilled = distillOutcome({
+    outcome,
+    summary,
+    failure,
+    workspace,
+    runId,
+    scope: 'workspace'
+  });
+  if (!distilled.ok) return null;
+  if (outcome === 'failure') {
+    agiExperienceGraph.record({
+      runId,
+      action: summary,
+      failure: failure || summary
+    });
+  }
+  return addMemoryRecord({ ...distilled.record, runId }, { workspace, runId, sourceKind: 'agi_memory_consolidation' });
+}
+
+function persistAgiEvalEvidence(evidence) {
+  if (!evidence || typeof evidence !== 'object') return;
+  try {
+    fs.mkdirSync(path.dirname(AGI_EVAL_EVIDENCE_PATH), { recursive: true });
+    fs.writeFileSync(AGI_EVAL_EVIDENCE_PATH, `${JSON.stringify({ version: 1, latest: evidence }, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    console.warn(`[agi] eval evidence persist failed: ${error?.message || error}`);
+  }
+}
+
+// Real promotion validation for skill candidates: deterministic static checks
+// plus one headless judge session. The evidence record this returns is what
+// attachValidation stores, so the promotion gate finally consumes something
+// that was actually produced — not a hand-written placeholder.
+async function validateSkillCandidate(candidate, sidecar = null) {
+  if (!candidate?.id || !candidate?.prompt) {
+    return { ok: false, failed: 1, passed: 0, suiteId: SKILL_VALIDATION_SUITE_ID, rubricVersion: 1, taskIds: [], digest: '', error: '候选不完整，无法验证' };
+  }
+  let judge = null;
+  if (sidecar) {
+    try {
+      const cfg = loadConfig();
+      const selection = normalizeAgentModelSelection(cfg);
+      const judged = await sidecar.judgeSkillCandidate({
+        providerId: selection.providerId,
+        modelId: selection.modelId,
+        candidate
+      });
+      if (judged.ok) judge = judged.judge;
+      else console.warn(`[agi] skill judge unavailable: ${judged.error}`);
+    } catch (error) {
+      console.warn(`[agi] skill judge failed: ${error?.message || error}`);
+    }
+  }
+  const evidence = evaluateSkillCandidate({ candidate, judge });
+  persistAgiEvalEvidence(evidence);
+  return evidence;
+}
+
+// P1-1: turn recurring tool sequences of verified runs into structured Skill
+// candidates. Drafts stay unvalidated until Yan Eval evidence is attached, so
+// nothing reaches promotion through mining alone.
+function mineAndRecordWorkflowCandidates({ runId, workspace = '', result } = {}) {
+  if (!workspace || !runId) return null;
+  if (result?.status !== 'done' || result?.delivery?.review?.verdict === 'fail') return null;
+  // "已验证运行" now means what it says: only runs whose delivery review
+  // passed enter the mining corpus. A run that merely finished (no review, or
+  // a review the runtime dropped) used to be counted as verified here.
+  const runs = verifiedRunsFromTrajectories(agiTrajectoryStore.list({ limit: 200 }), workspace);
+  if (runs.length < 2) return null;
+  const proposals = collectWorkflowProposals({ runs });
+  if (!proposals.length) return null;
+  const known = new Set(skillEvolution.list().map(item => item.id));
+  const recorded = [];
+  const toolCallCount = Math.max(4, Array.isArray(result?.toolCalls) ? result.toolCalls.length : 4);
+  for (const candidate of proposals) {
+    if (known.has(candidate.id)) continue;
+    const stored = skillEvolution.record(candidate, {
+      verified: true,
+      toolCallCount,
+      runId,
+      workspace
+    });
+    if (stored.ok) recorded.push(candidate.id);
+  }
+  if (recorded.length) {
+    console.log(`[agi] mined ${recorded.length} workflow candidate(s) from run ${runId}`);
+  }
+  return recorded;
+}
+
+// P0-3: inject the workspace's active long-horizon protocol into the turn
+// context so a new session restores state before the first business action.
+function readLongHorizonContext(workspace) {
+  try {
+    const latest = loadProtocol({ workspace });
+    if (!latest?.protocol?.taskId) return '';
+    const full = readProtocol({ workspace, taskId: latest.protocol.taskId });
+    if (!full?.ok) return '';
+    return renderProtocolPrompt(full);
+  } catch {
+    return '';
+  }
+}
+
 function harnessEntryId(prefix, value) {
   const normalized = String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(0, 90);
   if (normalized) return `${prefix}-${normalized}`.slice(0, 100);
   return `${prefix}-${crypto.createHash('sha256').update(String(value || '')).digest('hex').slice(0, 16)}`;
+}
+
+async function persistExplicitUserPolicy({ instructions, scope = 'global', workspace = '', runId = '', sessionId = '', source = 'agent_refine', recoveredFrom = '' } = {}) {
+  const content = String(instructions || '').replace(/\r\n?/g, '\n').trim().slice(0, 6_000);
+  if (!content) return { ok: false, error: 'Explicit policy is empty.' };
+  const normalizedScope = scope === 'workspace' && workspace ? 'workspace' : 'global';
+  const state = continualHarness.load({ scope: normalizedScope, workspace });
+  const id = harnessEntryId('prompt', policyId(content).replace(/^user-policy-/u, ''));
+  const existing = state.entries.prompt[id];
+  if (existing?.metadata?.status === 'active' && existing.content === content) {
+    return { ok: true, skipped: true, refinement: null, revision: state.revision };
+  }
+  const result = await continualHarness.apply({
+    id: `policy-${crypto.createHash('sha256').update(`${normalizedScope}:${content}`).digest('hex').slice(0, 16)}`,
+    trigger: `Explicit user policy: ${content}`,
+    evidence: 'The user explicitly requested this durable behavior policy.',
+    expectedOutcome: 'Make the explicit user policy active for every relevant future task.',
+    edits: [{
+      action: existing ? 'update' : 'create',
+      kind: 'prompt',
+      id,
+      title: 'Explicit user policy',
+      content,
+      path: 'user-policy',
+      scope: normalizedScope,
+      metadata: {
+        status: 'active',
+        enforcement: 'mandatory',
+        basis: 'explicit_user_statement',
+        controls: derivePolicyControls(content),
+        ...(recoveredFrom ? { recoveredFrom } : {})
+      },
+      reason: 'Explicit user instruction is the evidence for this active policy.'
+    }]
+  }, {
+    scope: normalizedScope,
+    workspace,
+    expectedRevision: state.revision,
+    baselineState: state,
+    runId,
+    sessionId,
+    source
+  });
+  const applied = result.ok && (result.refinement?.appliedEdits || [])
+    .some(edit => edit.applied === true && edit.kind === 'prompt' && edit.id === id);
+  if (applied) {
+    await continualHarness.recordOutcome(result.refinement.id, {
+      status: 'partial',
+      evidence: 'The explicit user policy was persisted and activated before reviewer output was considered.'
+    }, { scope: normalizedScope, workspace });
+  }
+  if (applied) return result;
+  // Another task or the stable Harness MCP may have activated the same rule
+  // while this task waited for the state lock. Treat the durable end state as
+  // success instead of reporting a stale-revision failure.
+  const concurrent = continualHarness.get('prompt', id, { scope: normalizedScope, workspace });
+  if (concurrent?.metadata?.status === 'active' && concurrent.content === content) {
+    return { ok: true, skipped: true, concurrent: true, refinement: null, revision: result.revision };
+  }
+  return { ...result, ok: false, error: result.error || 'Explicit policy failed the Harness safety validation.' };
 }
 
 function harnessCandidateSimilarity(left, right) {
@@ -5823,7 +8223,7 @@ function harnessCandidateSimilarity(left, right) {
   return shared / Math.max(leftTokens.size, rightTokens.size);
 }
 
-function applyReviewedHarnessState(review, payload = {}) {
+async function applyReviewedHarnessState(review, payload = {}) {
   const byScope = new Map();
   const add = (scope, item) => {
     const normalizedScope = scope === 'workspace' && payload.workspace ? 'workspace' : 'global';
@@ -5854,7 +8254,10 @@ function applyReviewedHarnessState(review, payload = {}) {
           type: memory.type,
           confidence: memory.confidence,
           basis: memory.basis,
-          verified: memory.verified === true
+          verified: memory.verified === true,
+          ...(memory.type === 'preference' && memory.basis === 'explicit_user_statement'
+            ? { enforcement: 'mandatory', controls: derivePolicyControls(memory.content) }
+            : {})
         },
         reason: memory.evidence
       }
@@ -5868,6 +8271,13 @@ function applyReviewedHarnessState(review, payload = {}) {
     const existing = state.entries[candidate.kind]?.[id];
     const compatible = !existing || harnessCandidateSimilarity(existing.content, candidate.content) >= 0.55;
     if (existing?.metadata?.status === 'active' && !compatible) continue;
+    // Agent-requested refinements (the model relaying an explicit user
+    // instruction such as "prefer AnySearch from now on") activate
+    // immediately: the user is the evidence. Background-mined candidates
+    // keep the two-independent-verified-runs gate, which would otherwise
+    // deadlock - an observing entry is invisible to promptContext, so it can
+    // never gather the second run's evidence on its own.
+    const agentRequested = !!payload.refineInstructions;
     const evidenceRuns = [...new Set([
       ...(compatible && Array.isArray(existing?.metadata?.evidenceRuns) ? existing.metadata.evidenceRuns : []),
       String(payload.runId || '')
@@ -5876,7 +8286,7 @@ function applyReviewedHarnessState(review, payload = {}) {
       ...(compatible && Array.isArray(existing?.metadata?.successfulRuns) ? existing.metadata.successfulRuns : []),
       ...(payload.verifiedSuccess ? [String(payload.runId || '')] : [])
     ].filter(Boolean))].slice(-20);
-    const active = successfulRuns.length >= 2;
+    const active = agentRequested || successfulRuns.length >= 2;
     add(scope, {
       observing: !active,
       edit: {
@@ -5889,6 +8299,8 @@ function applyReviewedHarnessState(review, payload = {}) {
         scope,
         metadata: {
           status: active ? 'active' : 'observing',
+          enforcement: agentRequested ? 'mandatory' : 'advisory',
+          controls: derivePolicyControls(candidate.content),
           evidenceRuns,
           successfulRuns,
           evidenceCount: evidenceRuns.length,
@@ -5903,7 +8315,7 @@ function applyReviewedHarnessState(review, payload = {}) {
   for (const [scope, group] of byScope) {
     if (!group.edits.length) continue;
     const baselineState = payload.harnessBaselines?.[scope];
-    const result = continualHarness.apply({
+    const result = await continualHarness.apply({
       trigger: payload.refineInstructions
         ? `Agent-requested refinement: ${payload.refineInstructions}`
         : 'Background review found durable reusable evidence.',
@@ -5922,7 +8334,7 @@ function applyReviewedHarnessState(review, payload = {}) {
       source: payload.refineInstructions ? 'agent_refine' : 'background_review'
     });
     if (result.ok) {
-      continualHarness.recordOutcome(result.refinement.id, {
+      await continualHarness.recordOutcome(result.refinement.id, {
         status: 'partial',
         evidence: group.observing
           ? 'Candidate is isolated in observing state pending a second distinct evidence run.'
@@ -5943,14 +8355,14 @@ function applyReviewedHarnessState(review, payload = {}) {
   return results;
 }
 
-function recordReviewedRefinementOutcomes(review, workspace) {
+async function recordReviewedRefinementOutcomes(review, workspace) {
   const outcomes = [];
   for (const outcome of Array.isArray(review?.refinementOutcomes) ? review.refinementOutcomes : []) {
     const scopes = workspace ? ['workspace', 'global'] : ['global'];
     for (const scope of scopes) {
       const state = continualHarness.load({ scope, workspace });
       if (!state.refinements.some(item => item.id === outcome.refinementId)) continue;
-      outcomes.push(continualHarness.recordOutcome(outcome.refinementId, outcome, { scope, workspace }));
+      outcomes.push(await continualHarness.recordOutcome(outcome.refinementId, outcome, { scope, workspace }));
       break;
     }
   }
@@ -6001,6 +8413,12 @@ async function mcpStart(serverCfg) {
       proc.on('error', errHandler);
     });
 
+    // stdin 的 EPIPE 等 IO 错误只会在 socket 上发 error 事件,没有监听器会直接抛
+    // 未捕获异常击穿主进程,这里挂常驻兜底
+    proc.stdin.on('error', (err) => {
+      console.error(`[MCP ${id}] stdin 错误:`, err.message);
+    });
+
     const server = {
       process: proc,
       stopping: false,
@@ -6016,6 +8434,11 @@ async function mcpStart(serverCfg) {
     proc.stdout.on('data', (data) => {
       // 使用 TextDecoder 流式解码，避免多字节 UTF-8 字符在 data 边界被截断
       server.buffer += server.decoder.decode(data, { stream: true });
+      // 防御无换行的超大输出:残留缓冲超过 32MB 时截断,避免字符串无上限增长拖垮主进程
+      if (server.buffer.length > 32 * 1024 * 1024) {
+        console.warn(`[MCP ${id}] stdout 缓冲超过 32MB,已截断`);
+        server.buffer = server.buffer.slice(-1024 * 1024);
+      }
       let idx;
       while ((idx = server.buffer.indexOf('\n')) >= 0) {
         const line = server.buffer.slice(0, idx).trim();
@@ -6068,8 +8491,13 @@ async function mcpStart(serverCfg) {
     });
 
     await Promise.race([initPromise, spawnError]);
-    // race 结束后移除 error 监听器，避免内存泄漏
+    // race 结束后把一次性 spawn 监听器换成常驻兜底监听器:
+    // 直接 off 会让后续 error 事件无监听器而抛异常;保留 errHandler 又会让
+    // spawnError 在 race 之后 reject 形成未处理 rejection,两种都会击穿主进程
     proc.off('error', errHandler);
+    proc.on('error', (err) => {
+      console.error(`[MCP ${id}] 进程错误:`, err.message);
+    });
 
     // 发送 initialized 通知
     mcpSend(proc, { jsonrpc: '2.0', method: 'notifications/initialized' });
@@ -6080,7 +8508,10 @@ async function mcpStart(serverCfg) {
 
     return { ok: true, tools: server.tools };
   } catch (e) {
+    // 握手/列工具失败时子进程可能仍在运行,必须杀掉整棵树,否则每次重试都泄漏一个孤儿
+    const failed = mcpServers.get(id);
     mcpServers.delete(id);
+    killProcessTree(failed && failed.process);
     return { error: e.message };
   }
 }
@@ -6089,7 +8520,7 @@ function mcpStop(id) {
   const server = mcpServers.get(id);
   if (!server) return;
   server.stopping = true;
-  try { server.process.kill(); } catch {}
+  killProcessTree(server.process);
   // 拒绝所有 pending 请求，清理 timer
   for (const [pid, { reject, timer }] of server.pending) {
     if (timer) clearTimeout(timer);
@@ -6100,6 +8531,40 @@ function mcpStop(id) {
 }
 
 // MCP 配置管理
+// DSH code-review 审阅页宿主：把上游生成的自包含审阅页写入轮换的临时
+// 文件并返回 file: URL。应用 CSP 禁止 blob:/srcdoc 的内联脚本，而审阅页
+// 的行内评论与复制按钮都依赖内联脚本，因此 iframe 必须加载真实文档。
+let dshReviewWriteSequence = 0;
+const dshReviewDocuments = new Map();
+ipcMain.handle('dsh-review:write-html', async (_event, html) => {
+  if (typeof html !== 'string' || html.length === 0 || html.length > 32 * 1024 * 1024) {
+    return { ok: false, error: '无效的审阅页面内容' };
+  }
+  try {
+    const dir = path.join(app.getPath('temp'), 'yan-dsh-code-review', String(process.pid));
+    await fs.promises.mkdir(dir, { recursive: true });
+    const owner = _event.sender.id;
+    const file = path.join(dir, `review-${owner}-${++dshReviewWriteSequence}.html`);
+    await fs.promises.writeFile(file, html, 'utf8');
+    let documents = dshReviewDocuments.get(owner);
+    if (!documents) {
+      documents = [];
+      dshReviewDocuments.set(owner, documents);
+      _event.sender.once('destroyed', () => {
+        dshReviewDocuments.delete(owner);
+        for (const document of documents.splice(0)) void fs.promises.unlink(document).catch(() => {});
+      });
+    }
+    documents.push(file);
+    for (const obsolete of documents.splice(0, Math.max(0, documents.length - 8))) {
+      void fs.promises.unlink(obsolete).catch(() => {});
+    }
+    return { ok: true, url: require('url').pathToFileURL(file).href };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
 ipcMain.handle('mcp:list', () => getMcpManagementServers(loadConfig()));
 ipcMain.handle('understand-anything:open', async (_e, workspace) => {
   const normalized = workspaceSandbox.normalizeWorkspace(workspace);
@@ -6118,10 +8583,38 @@ ipcMain.handle('understand-anything:refresh', async (_e, workspace) => {
     useElectron: true
   });
 });
-ipcMain.handle('mcp:add', (_e, { name, command, args }) => {
+function buildUserMcpServer(input = {}) {
+  const name = String(input.name || '').trim();
+  if (!name) return { error: '请输入 MCP 名称。' };
+  if (String(input.type || '').trim().toLowerCase() === 'remote') {
+    const url = String(input.url || '').trim();
+    if (!/^https?:\/\//i.test(url)) return { error: '远程 MCP 地址必须以 http:// 或 https:// 开头。' };
+    const headers = normalizeRemoteHeaders(input.headers);
+    return {
+      id: 'mcp_' + Date.now(),
+      name,
+      type: 'remote',
+      url,
+      ...(Object.keys(headers).length ? { headers } : {}),
+      enabled: true
+    };
+  }
+  const command = String(input.command || '').trim();
+  if (!command) return { error: '请输入启动命令。' };
+  return {
+    id: 'mcp_' + Date.now(),
+    name,
+    command,
+    args: Array.isArray(input.args) ? input.args.map(String) : [],
+    enabled: true
+  };
+}
+
+ipcMain.handle('mcp:add', (_e, input = {}) => {
   const cfg = loadConfig();
   if (!cfg.mcpServers) cfg.mcpServers = [];
-  const server = { id: 'mcp_' + Date.now(), name, command, args: args || [], enabled: true };
+  const server = buildUserMcpServer(input);
+  if (server.error) return { error: server.error };
   cfg.mcpServers.push(server);
   saveConfig(cfg);
   return server;
@@ -6147,14 +8640,17 @@ ipcMain.handle('mcp:update', (_e, { id, ...changes }) => {
   return null;
 });
 
-ipcMain.handle('mcp:test', async (_e, { name, command, args }) => {
+ipcMain.handle('mcp:test', async (_e, form = {}) => {
+  if (isRemoteMcpServer(form)) {
+    return probeRemoteServer(form, { clientVersion: app.getVersion() });
+  }
   const id = `mcp_test_${crypto.randomUUID()}`;
   try {
     return await mcpStart({
       id,
-      name: String(name || ''),
-      command: String(command || ''),
-      args: Array.isArray(args) ? args : [],
+      name: String(form?.name || ''),
+      command: String(form?.command || ''),
+      args: Array.isArray(form?.args) ? form.args : [],
       enabled: true
     });
   } finally {
@@ -6167,54 +8663,26 @@ ipcMain.handle('mcp:start', async (_e, id) => {
   const cfg = loadConfig();
   const serverCfg = getMcpServerConfig(cfg, id);
   if (!serverCfg) return { error: '未找到服务器配置' };
+  if (isRemoteMcpServer(serverCfg)) {
+    return probeRemoteServer(serverCfg, { clientVersion: app.getVersion() });
+  }
+  return mcpStart(serverCfg);
+});
+ipcMain.handle('mcp:tools', async (_e, id) => {
+  const running = mcpServers.get(id);
+  if (running) return { ok: true, tools: running.tools || [] };
+  const cfg = loadConfig();
+  const serverCfg = getMcpServerConfig(cfg, id);
+  if (!serverCfg) return { error: '未找到服务器配置' };
+  if (isRemoteMcpServer(serverCfg)) {
+    return probeRemoteServer(serverCfg, { clientVersion: app.getVersion() });
+  }
   return mcpStart(serverCfg);
 });
 ipcMain.handle('mcp:stop', (_e, id) => {
   mcpStop(id);
   return { ok: true };
 });
-// ---------------------------------------------------------------------------
-// IPC: Automations (定时自动任务)
-// ---------------------------------------------------------------------------
-ipcMain.handle('auto:list', () => loadConfig().automations || []);
-
-ipcMain.handle('auto:add', (_e, { name, prompt, schedule }) => {
-  const cfg = loadConfig();
-  if (!cfg.automations) cfg.automations = [];
-  const auto = {
-    id: 'auto_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    name: String(name || '未命名任务'),
-    prompt: String(prompt || ''),
-    schedule: schedule || { type: 'interval', everyMinutes: 60 },
-    enabled: true,
-    createdAt: Date.now(),
-    lastRun: 0,
-    lastStatus: ''
-  };
-  cfg.automations.push(auto);
-  saveConfig(cfg);
-  return auto;
-});
-
-ipcMain.handle('auto:update', (_e, { id, ...changes }) => {
-  const cfg = loadConfig();
-  const list = cfg.automations || [];
-  const idx = list.findIndex(a => a.id === id);
-  if (idx < 0) return null;
-  list[idx] = { ...list[idx], ...changes };
-  saveConfig(cfg);
-  return list[idx];
-});
-
-ipcMain.handle('auto:remove', (_e, id) => {
-  const cfg = loadConfig();
-  cfg.automations = (cfg.automations || []).filter(a => a.id !== id);
-  saveConfig(cfg);
-  return true;
-});
-
-// ---------------------------------------------------------------------------
-// IPC: Permissions
 // ---------------------------------------------------------------------------
 ipcMain.handle('permissions:get', () => loadConfig().permissions);
 ipcMain.handle('permissions:set', (_e, perms) => {
@@ -6235,13 +8703,8 @@ ipcMain.on('pet:update', (event, payload = {}) => {
 
 ipcMain.on('pet:ready', (event) => {
   if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  sendPetConfig();
   sendPetState();
-});
-
-ipcMain.handle('pet:set-expanded', (event, expanded) => {
-  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return false;
-  resizePetWindow(!!expanded);
-  return true;
 });
 
 ipcMain.handle('pet:get-visible', (event) => {
@@ -6254,17 +8717,20 @@ ipcMain.handle('pet:toggle-window', (event) => {
   return togglePetWindow();
 });
 
-ipcMain.on('pet:move-by', (event, payload = {}) => {
+ipcMain.on('pet:drag-start', (event) => {
   if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
-  const dx = Math.max(-120, Math.min(120, Number(payload.dx) || 0));
-  const dy = Math.max(-120, Math.min(120, Number(payload.dy) || 0));
-  if (!dx && !dy) return;
-  const bounds = petWindow.getBounds();
-  petWindow.setPosition(Math.round(bounds.x + dx), Math.round(bounds.y + dy), false);
+  startPetDrag();
+});
+
+ipcMain.on('pet:drag-end', (event) => {
+  if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  updatePetDrag();
+  stopPetDrag();
 });
 
 ipcMain.on('pet:open-task', (event, sessionId) => {
   if (!petWindow || petWindow.isDestroyed() || event.sender.id !== petWindow.webContents.id) return;
+  if (activePetId !== 'orb') return;
   showMainWindowForPet(sessionId);
 });
 
@@ -6300,10 +8766,7 @@ ipcMain.on('quick-input:close', (event) => {
   if (!quickInputWindow || quickInputWindow.isDestroyed() || event.sender.id !== quickInputWindow.webContents.id) return;
   destroyQuickInputWindows();
 });
-ipcMain.on('computer-use:visual-state', (event, payload = {}) => {
-  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return;
-  setComputerUseOverlayRun(payload.runId, payload.active === true);
-});
+
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
@@ -6324,7 +8787,10 @@ function deepMerge(target, source) {
 // ---------------------------------------------------------------------------
 // Bundled agent skills (OfficeCLI and Yan-local integrations)
 // ---------------------------------------------------------------------------
+let bundledAgentSkillsReady = false;
+
 function ensureBundledAgentSkills(cfg) {
+  if (bundledAgentSkillsReady) return false;
   const bundledDir = path.join(appRoot, 'lib', 'skills', 'bundled');
   if (!fs.existsSync(bundledDir)) return false;
   if (!cfg.customSkills) cfg.customSkills = [];
@@ -6337,6 +8803,7 @@ function ensureBundledAgentSkills(cfg) {
     }
   });
   const availableAppManagedIds = new Set(manifests.map(meta => String(meta?.id || '')).filter(Boolean));
+  const migratedShadows = skillRegistry.migrateBundledSkillShadows(dataDir, appRoot, availableAppManagedIds);
   const retiredSkillIds = skillRegistry.getRetiredSkillIds(appRoot);
   const retiredResult = skillRegistry.pruneRetiredSkills(cfg, appRoot, dataDir);
   const beforePrune = cfg.customSkills.length;
@@ -6344,14 +8811,7 @@ function ensureBundledAgentSkills(cfg) {
     !retiredSkillIds.has(String(skill?.id || '').trim().toLowerCase())
     && (!['Yan Agent', 'bundled'].includes(skill?.source) || availableAppManagedIds.has(String(skill.id || '')))
   ));
-  let changed = retiredResult.changed || cfg.customSkills.length !== beforePrune;
-  const appManagedIds = new Set(manifests.map(meta => String(meta?.id || '').trim().toLowerCase()).filter(Boolean));
-  for (const installed of skillRegistry.scanYanUserSkills(dataDir)) {
-    const id = String(installed?.id || '').trim().toLowerCase();
-    if (!id || !appManagedIds.has(id)) continue;
-    const result = skillRegistry.removeYanUserSkill(dataDir, id);
-    if (result.ok && result.removed) changed = true;
-  }
+  let changed = migratedShadows.changed || retiredResult.changed || cfg.customSkills.length !== beforePrune;
   for (const meta of manifests) {
     if (!meta?.id) continue;
     let prompt = String(meta.prompt || '').trim();
@@ -6362,6 +8822,8 @@ function ensureBundledAgentSkills(cfg) {
       }
     }
     if (!prompt) continue;
+    const existing = cfg.customSkills.find(skill => skill.id === meta.id);
+    const installedAt = Number(existing?.installedAt || meta.installedAt) || Date.now();
     const item = {
       id: meta.id,
       name: meta.name || meta.id,
@@ -6378,244 +8840,38 @@ function ensureBundledAgentSkills(cfg) {
       userOnly: meta.userOnly === true,
       parentSkillId: meta.parentSkillId || '',
       logo: skillRegistry.resolveSkillLogo(meta),
-      installedAt: Date.now(),
-      updatedAt: Date.now()
+      installedAt,
+      updatedAt: Number(meta.updatedAt || existing?.updatedAt) || installedAt
     };
-    const idx = cfg.customSkills.findIndex(s => s.id === item.id);
-    if (idx < 0) {
-      cfg.customSkills.push(item);
-      changed = true;
-    } else if (!cfg.customSkills[idx].prompt) {
-      cfg.customSkills[idx] = { ...cfg.customSkills[idx], ...item };
-      changed = true;
-    } else if (Number(cfg.customSkills[idx].version || 1) < item.version) {
-      cfg.customSkills[idx] = {
-        ...cfg.customSkills[idx],
-        ...item,
-        installedAt: cfg.customSkills[idx].installedAt || item.installedAt
-      };
-      changed = true;
-    } else if (item.source === 'bundled'
-      && (cfg.customSkills[idx].source !== item.source
-        || cfg.customSkills[idx].repo !== item.repo
-        || cfg.customSkills[idx].name !== item.name
-        || cfg.customSkills[idx].desc !== item.desc
-        || cfg.customSkills[idx].prompt !== item.prompt)) {
-      cfg.customSkills[idx] = {
-        ...cfg.customSkills[idx],
-        ...item,
-        installedAt: cfg.customSkills[idx].installedAt || item.installedAt
-      };
-      changed = true;
+    if (!skillRegistry.resolveBundledSkillPackage(appRoot, item.id)) {
+      const installResult = skillRegistry.installYanUserSkill(dataDir, item);
+      if (!installResult.ok) console.warn(`[skills] bundled prompt install failed (${item.id}): ${installResult.error}`);
     }
+    const idx = cfg.customSkills.findIndex(s => s.id === item.id);
+    const metadata = skillConfigMetadata(item);
+    if (idx < 0) {
+      cfg.customSkills.push(metadata);
+      changed = true;
+    } else {
+      const next = { ...cfg.customSkills[idx], ...metadata, installedAt };
+      delete next.prompt;
+      if (JSON.stringify(next) !== JSON.stringify(cfg.customSkills[idx])) {
+        cfg.customSkills[idx] = next;
+        changed = true;
+      }
+    }
+  }
+  const compact = skillConfigMetadataList(cfg.customSkills);
+  if (JSON.stringify(compact) !== JSON.stringify(cfg.customSkills)) {
+    cfg.customSkills = compact;
+    changed = true;
+  }
+  bundledAgentSkillsReady = true;
+  if (changed) {
+    skillRegistry.invalidateInstalledSkillsCache(dataDir);
   }
   return changed;
 }
-
-// ---------------------------------------------------------------------------
-// Mobile remote control (HTTP + Web UI)
-// ---------------------------------------------------------------------------
-function invokeRendererRemote(payload, timeoutMs = 30000) {
-  return new Promise((resolve, reject) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      reject(new Error('app not ready'));
-      return;
-    }
-    const requestId = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const timer = setTimeout(() => {
-      remotePending.delete(requestId);
-      reject(new Error('renderer timeout'));
-    }, timeoutMs);
-    remotePending.set(requestId, { resolve, reject, timer });
-    mainWindow.webContents.send('remote:invoke', { ...payload, requestId });
-  });
-}
-
-async function listSessionsBrief() {
-  return listSessionSummaries();
-}
-
-function buildRemoteDeps() {
-  return {
-    listSessions: () => listSessionsBrief(),
-    getSession: async (id) => {
-      const p = sessionPath(id);
-      if (!fs.existsSync(p)) return null;
-      return JSON.parse(await fsp.readFile(p, 'utf8'));
-    },
-    createSession: () => createOrReuseSessionRecord(),
-    deleteSession: async (id, options = {}) => {
-      const status = await buildRemoteDeps().getSessionStatus(id);
-      return deleteSessionRecord(id, { ...options, running: !!status.running });
-    },
-    renameSession: (id, title) => renameSessionRecord(id, title),
-    setSessionPinned: (id, pinned) => setSessionPinnedRecord(id, pinned),
-    onSessionChanged: (detail) => notifyDesktopSessionUpdate(detail),
-    uploadImage: (payload) => storeRemoteUploadedImage(payload),
-    resolveUploadedImages: (items) => resolveRemoteUploadedImages(items),
-    readUploadedImage: async (uploadId) => {
-      const filePath = findRemoteUploadedImage(uploadId);
-      if (!filePath) return null;
-      try {
-        const buffer = await fsp.readFile(filePath);
-        const type = detectImageType(buffer);
-        return {
-          buffer,
-          mimeType: type.mimeType,
-          name: path.basename(filePath),
-          size: buffer.length
-        };
-      } catch {
-        return null;
-      }
-    },
-    sendMessage: async (sessionId, text, attachments = []) => {
-      const session = await buildRemoteDeps().getSession(sessionId);
-      if (!session) return { ok: false, error: 'not found' };
-      try {
-        const result = await invokeRendererRemote({ type: 'send-message', sessionId, text, attachments });
-        return result || { ok: true };
-      } catch (e) {
-        return { ok: false, error: e.message || 'invoke failed' };
-      }
-    },
-    abortSession: async (sessionId) => {
-      try {
-        return await invokeRendererRemote({ type: 'abort', sessionId }, 10000);
-      } catch (e) {
-        return { ok: false, error: e.message || 'invoke failed' };
-      }
-    },
-    getSessionStatus: async (sessionId) => {
-      try {
-        return await invokeRendererRemote({ type: 'get-status', sessionId }, 5000);
-      } catch {
-        return { running: false };
-      }
-    },
-    getRunningSessions: async () => {
-      try {
-        const result = await invokeRendererRemote({ type: 'get-running' }, 5000);
-        return result?.ids || [];
-      } catch {
-        return [];
-      }
-    },
-    readGeneratedImage: async (assetId) => {
-      const asset = getGeneratedImageAsset(assetId);
-      if (!asset) return null;
-      try {
-        return {
-          buffer: await fsp.readFile(asset.filePath),
-          mimeType: asset.mimeType,
-          name: asset.name,
-          size: asset.size,
-        };
-      } catch {
-        generatedImages.delete(asset.assetId);
-        return null;
-      }
-    },
-    getModelState: () => buildPublicModelState(),
-    setModel: (modelId) => setActiveModel(modelId),
-    getPublicConfig: () => {
-      const cfg = loadConfig();
-      const selection = normalizeAgentModelSelection(cfg);
-      return {
-        model: selection.modelId || '',
-        provider: selection.providerId || '',
-        hasWorkspace: !!cfg.workspace,
-      };
-    },
-    getAuthState: () => ({
-      passwordSet: isRemotePasswordSet(loadConfig()),
-    }),
-  };
-}
-
-async function stopRemoteServer() {
-  if (!remoteServer) return;
-  const srv = remoteServer;
-  remoteServer = null;
-  await srv.stop();
-}
-
-async function startRemoteServer() {
-  const cfg = loadConfig();
-  const rc = normalizeRemoteControlConfig(cfg.remoteControl);
-  if (!rc.enabled) {
-    await stopRemoteServer();
-    return null;
-  }
-  if (remoteServer) return remoteServer.getInfo();
-
-  remoteServer = new RemoteServer({
-    rootDir: appRoot,
-    uiDir: path.join(appRoot, 'renderer', 'remote'),
-    getToken: () => loadConfig().remoteControl?.password || '',
-    verifyPassword: (value) => verifyRemotePassword(value),
-    deps: buildRemoteDeps(),
-  });
-
-  const info = await remoteServer.start(rc.port || 0);
-  if (!rc.port && info.port) {
-    const next = loadConfig();
-    next.remoteControl = { ...normalizeRemoteControlConfig(next.remoteControl), port: info.port };
-    saveConfig(next);
-  }
-  return info;
-}
-
-async function restartRemoteServer() {
-  await stopRemoteServer();
-  return startRemoteServer();
-}
-
-ipcMain.on('remote:result', (_e, payload = {}) => {
-  const { requestId, result, error } = payload;
-  const pending = remotePending.get(requestId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  remotePending.delete(requestId);
-  if (error) pending.reject(new Error(error));
-  else pending.resolve(result);
-});
-
-ipcMain.on('remote:notify', (_e, payload = {}) => {
-  if (!payload?.event || !remoteServer) return;
-  remoteServer.broadcast(payload.event, payload.data || {});
-});
-
-ipcMain.handle('remote:get-info', async () => {
-  const cfg = loadConfig();
-  const rc = normalizeRemoteControlConfig(cfg.remoteControl);
-  const info = remoteServer?.getInfo() || { running: false, port: rc.port || null, urls: [], addresses: [] };
-  return {
-    ...info,
-    enabled: !!rc.enabled,
-    passwordSet: isRemotePasswordSet(cfg),
-  };
-});
-
-ipcMain.handle('remote:restart', async () => {
-  const info = await restartRemoteServer();
-  const cfg = loadConfig();
-  return {
-    ...(info || remoteServer?.getInfo() || {}),
-    enabled: !!cfg.remoteControl?.enabled,
-    passwordSet: isRemotePasswordSet(cfg),
-  };
-});
-
-ipcMain.handle('remote:set-password', async (_e, { password }) => {
-  const pwd = String(password || '');
-  if (pwd.length < 4) return { ok: false, error: '密码至少 4 位' };
-  const cfg = loadConfig();
-  cfg.remoteControl = normalizeRemoteControlConfig(cfg.remoteControl);
-  cfg.remoteControl.password = pwd;
-  saveConfig(cfg);
-  return { ok: true, passwordSet: true };
-});
 
 // ---------------------------------------------------------------------------
 // IPC: OpenCode runtime (the only Agent execution authority)
@@ -6687,13 +8943,74 @@ async function selectedRunSkills(requestedSkills, cfg, { workspace, workMode } =
   return { skills, skippedSkills };
 }
 
-ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
+ipcMain.handle('opencode:prewarm', async () => {
   try {
+    return await prewarmOpenCodeSidecar();
+  } catch (error) {
+    console.warn('[opencode] prewarm failed:', error?.message || error);
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+const manualContextCompressions = new Set();
+ipcMain.handle('opencode:compress-session', async (_e, { yanSessionId } = {}) => {
+  const id = String(yanSessionId || '');
+  if (!isSafeSessionId(id)) return { ok: false, error: '会话 ID 无效' };
+  if (isSessionRunActive(id) || manualContextCompressions.has(id)) {
+    return { ok: false, error: '任务工作中或正在压缩，请稍后再试' };
+  }
+  // Reserve before the first await; start-run checks the same reservation.
+  manualContextCompressions.add(id);
+  console.info('[context] manual compression started:', id);
+  try {
+    return await withOpenCodeBackgroundLease(async () => {
+      const session = await readSessionRecord(id);
+      if (!session?.openCodeSessionId) return { ok: false, error: '还没有可压缩的上下文' };
+      const cfg = loadConfig();
+      const selection = normalizeAgentModelSelection(cfg);
+      if (selection.modelType !== 'text') return { ok: false, error: '请选择文本模型进行压缩' };
+      const workspace = workspaceSandbox.normalizeWorkspace(session.workspace) || getNoWorkspaceAgentDirectory(id);
+      const sidecar = await ensureOpenCodeSidecar(getOpenCodeRuntimeConfig(cfg));
+      const result = await sidecar.compressSession({
+        openCodeSessionId: session.openCodeSessionId, workspace,
+        providerId: selection.providerId, modelId: selection.modelId,
+        openCodeConfig: getOpenCodeRuntimeConfig(cfg)
+      });
+      if (result.compacted) {
+        console.info('[context] manual compression completed:', id, result.beforeTokens, '->', result.afterTokens);
+      } else {
+        console.warn('[context] manual compression failed:', id, result.error || '内核未完成压缩');
+      }
+      return { ...result, ok: result.compacted === true, completedAt: Date.now() };
+    });
+  } catch (error) {
+    console.error('[context] manual compression failed:', id, error?.message || error);
+    return { ok: false, error: error?.message || String(error) };
+  } finally {
+    manualContextCompressions.delete(id);
+  }
+});
+
+ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
+  const admittedRunId = String(request.runId || crypto.randomUUID());
+  let admissionPending = false;
+  let coreTurnStarted = false;
+  let coreTurn = null;
+  try {
+    if (manualContextCompressions.has(String(request.yanSessionId || ''))) {
+      return { ok: false, error: '上下文正在压缩，请完成后再开始工作' };
+    }
     const cfg = loadConfig();
     const selection = normalizeAgentModelSelection(cfg);
     if (selection.modelType !== 'text') {
       return { ok: false, error: 'Yan Kernel 只能启动文本/工具模型。' };
     }
+    if (openCodeActiveRuns.size + openCodeRunAdmissions.size >= MAX_CONCURRENT_AGENT_RUNS) {
+      return { ok: false, error: `并发任务已达上限（${MAX_CONCURRENT_AGENT_RUNS}个），请稍后再试。` };
+    }
+    request = { ...request, runId: admittedRunId };
+    openCodeRunAdmissions.set(admittedRunId, String(request.yanSessionId || ''));
+    admissionPending = true;
     const workspaceInput = Object.prototype.hasOwnProperty.call(request, 'workspace')
       ? request.workspace
       : cfg.workspace;
@@ -6704,6 +9021,25 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       || (Array.isArray(request.selectedSkills) && request.selectedSkills.length
         ? 'Apply the explicitly selected Skills to the current task.'
         : 'Continue the current task.');
+    // Activate an explicit durable user rule before this run snapshots
+    // Harness state. This removes the A->B race where background memory
+    // review had not finished by the time the next task was constructed.
+    if (!request.utility) {
+      const startingPolicy = extractExplicitPolicyInstruction({ prompt, history: request.history });
+      if (startingPolicy?.text) {
+        const persisted = await persistExplicitUserPolicy({
+          instructions: startingPolicy.text,
+          scope: 'global',
+          workspace,
+          runId: admittedRunId,
+          sessionId: String(request.yanSessionId || ''),
+          source: 'explicit_user_policy_start'
+        });
+        if (!persisted.ok) {
+          console.warn(`[harness] start-of-run policy activation failed for ${admittedRunId}: ${persisted.error}`);
+        }
+      }
+    }
     const memoryQuery = [
       prompt,
       ...(Array.isArray(request.history) ? request.history : [])
@@ -6711,22 +9047,115 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
         .filter(message => message?.role === 'user')
         .map(message => String(message?.content || '').slice(0, 1_500))
     ].filter(Boolean).join('\n').slice(0, 10_000);
+    const runWorkMode = ['normal', 'plan', 'goal', 'evolution', 'agi'].includes(String(request.workMode || ''))
+      ? String(request.workMode)
+      : (cfg.agent?.workMode || 'normal');
+    request.workMode = runWorkMode;
+    const isolated = isolateWorkMode(request);
+    for (const key of Object.keys(request)) if (!(key in isolated)) delete request[key];
+    Object.assign(request, isolated);
+    const agiMode = agiEnabled(request);
     const retrievedMemory = request.utility
       ? { context: '' }
-      : longTermMemory.query({ query: memoryQuery, workspace, maxChars: 3_600, limit: 12 });
-    const runId = String(request.runId || crypto.randomUUID());
+      : longTermMemory.query({
+        query: memoryQuery,
+        workspace,
+        maxChars: 3_600,
+        limit: 12,
+        boostRunIds: agiMode ? agiVerifiedRunIndex.ids() : null,
+        excludeSourceKinds: agiMode ? [] : ['agi_memory_consolidation']
+      });
+    const runId = admittedRunId;
     const yanSessionId = String(request.yanSessionId || '');
-    const harnessBaselines = request.utility ? {} : {
+    const runStartedAt = Date.now();
+    // Self-evolution runs on its own mode and inside AGI mode (the dual chain
+    // the user selected): only these modes create and promote new experience.
+    const evolutionMode = evolutionEnabled(request);
+    // P0-4: consume the one-shot escalation hint here (not at runtime-config
+    // build) so it can raise the side-path ceiling of THIS run — best-of-N now
+    // maps to real extra compute instead of being written and dropped.
+    const escalationHint = !agiMode
+      ? null
+      : agiEscalationMemo.consume({ workspace });
+    if (escalationHint) {
+      console.log(`[agi] escalation active for run ${runId}: effort +${escalationHint.steps}, best-of-${escalationHint.bestOfN} ceiling (${escalationHint.reason})`);
+      request.escalation = {
+        steps: escalationHint.steps,
+        bestOfN: escalationHint.bestOfN,
+        reason: escalationHint.reason
+      };
+    }
+    // P1-2 topology evolution: only evolution/AGI runs participate. Selection
+    // requires a passing eval evidence record plus paired history; roles are
+    // advisory preferences merged into the subagent system prompt.
+    if (agiMode) {
+      try {
+        const topology = selectTopologyForRun({
+          historyFile: AGI_TOPOLOGY_HISTORY_PATH,
+          evidenceFile: AGI_EVAL_EVIDENCE_PATH
+        });
+        if (topology?.active && Array.isArray(topology.roles) && topology.roles.length) {
+          if (!Array.isArray(request.subagentRoles) || request.subagentRoles.length === 0) {
+            request.subagentRoles = topology.roles;
+          }
+          request.topologyVariantId = topology.variantId;
+          console.log(`[agi] topology ${topology.variantId} selected for run ${runId}: ${topology.reason}`);
+        }
+      } catch (error) {
+        console.warn(`[agi] topology selection failed for run ${runId}:`, error?.message || error);
+      }
+    }
+    // The experimental reasoning gate belongs exclusively to AGI mode.
+    if (agiMode && !request.reasoningSidepath) {
+      request.reasoningSidepath = {
+        required: true,
+        followupRound: Array.isArray(request.history)
+          && request.history.some(message => message?.role === 'assistant'),
+        ceiling: sidepathCeiling({ workMode: runWorkMode, escalated: Boolean(escalationHint) })
+      };
+    }
+    try { fs.rmSync(pendingHarnessRequestPath(runId), { force: true }); } catch {}
+    if (evolutionMode && workspace) {
+      try { await continualHarness.recoverRejectedAgentRefinements({ scope: 'workspace', workspace }); } catch (error) {
+        console.warn(`[harness] workspace policy recovery failed for ${workspace}:`, error?.message || error);
+      }
+    }
+    // Every workspace run gets a per-run context file: it authorizes the
+    // yan_workspace (worktree/impact) and yan_analysis tools per call. The
+    // Harness refinement tools stay separately task-gated to evolution mode,
+    // so registering the file here exposes nothing extra.
+    if (evolutionMode || (workspace && !request.utility)) {
+      registerHarnessRunContext({
+        runId,
+        sessionId: yanSessionId,
+        workspace,
+        allowFileRead: cfg.permissions?.allowFileRead !== false,
+        allowNetwork: cfg.permissions?.allowNetwork !== false,
+        allowFileWrite: cfg.permissions?.allowFileWrite !== false
+      });
+    }
+    const harnessBaselines = evolutionMode ? {
       global: continualHarness.load({ scope: 'global' }),
       ...(workspace ? { workspace: continualHarness.load({ scope: 'workspace', workspace }) } : {})
-    };
-    const harnessContext = request.utility
-      ? ''
-      : continualHarness.promptContext({ workspace, query: memoryQuery, maxChars: 3_000 });
+    } : {};
+    const evolutionSelection = evolutionMode
+      ? continualHarness.evolutionContext({ workspace, query: memoryQuery, maxChars: 6_000, maxEntries: 6 })
+      : { entries: [], policies: [], text: '' };
+    const behaviorPolicies = evolutionSelection.policies;
+    const harnessContext = evolutionSelection.text;
+    if (evolutionMode) {
+      registerHarnessUsage({
+        runId,
+        workspace,
+        sessionId: yanSessionId,
+        entries: evolutionSelection.entries || []
+      });
+    }
     const authoritativeSession = yanSessionId ? await readSessionRecord(yanSessionId) : null;
     const visionAbortController = new AbortController();
     openCodeActiveRuns.set(runId, {
       task: null,
+      startedAt: runStartedAt,
       yanSessionId,
       workspace,
       executionDirectory,
@@ -6734,21 +9163,86 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       selection,
       prompt
     });
-    const requestedWorkMode = ['normal', 'plan', 'goal'].includes(String(request.workMode || ''))
-      ? String(request.workMode)
-      : (cfg.agent?.workMode || 'normal');
+    openCodeRunAdmissions.delete(runId);
+    admissionPending = false;
+    refreshAgentRuntimeActivity();
+    ensureOpenCodeReconcileRun(runId, { yanSessionId, workspace, startedAt: runStartedAt });
+    registerMediaWorkspace(runId, workspace);
+    // Repo map is frozen into this run's request: the sidecar embeds it in
+    // the system prompt, which must stay stable for kernel prompt caching.
+    if (workspace && !request.utility && !request.skillOnly) {
+      request.repoMap = await getCachedRepoMap(workspace);
+    }
+    if (workspace && agiMode) {
+      request.longHorizonContext = readLongHorizonContext(workspace);
+      // P2-2 experience graph: matched failure→repair edges for this prompt,
+      // rendered as bounded data-only context.
+      try {
+        request.experienceEdgeContext = collectExperienceEdgeContext(agiExperienceGraph, request.prompt);
+      } catch (error) {
+        console.warn(`[agi] experience edge context failed:`, error?.message || error);
+      }
+    }
+    const requestedWorkMode = runWorkMode;
     const workMode = request.utility ? 'normal' : requestedWorkMode;
+    try {
+      coreTurn = yanCore.startTurn({
+        threadId: yanSessionId || `thread_${runId}`,
+        turnId: runId,
+        workspace,
+        title: authoritativeSession?.title || '',
+        configSnapshot: {
+          providerId: selection.providerId,
+          supplierId: selection.supplierId,
+          modelId: selection.modelId,
+          modelType: selection.modelType,
+          workMode,
+          accessMode: cfg.agent?.accessMode || 'request',
+          inputTokensPerSecond: Math.max(DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond(
+            cfg.api?.inputTokensPerSecond || cfg.agent?.inputTokensPerSecond
+          )),
+          visionRelayEnabled: cfg.api?.visionRelayEnabled !== false,
+          enableSubagents: true,
+        },
+        intent: {
+          prompt,
+          attachments: request.attachments,
+          selectedSkills: request.selectedSkills,
+          subagentRoles: Array.isArray(request.subagentRoles) ? request.subagentRoles : [],
+          workMode,
+        }
+      });
+      coreTurnStarted = true;
+    } catch (error) {
+      const detail = error?.message || String(error);
+      console.error('[yan-core] failed to start Turn; refusing to start an untracked provider run:', detail);
+      try { fs.rmSync(pendingHarnessRequestPath(runId), { force: true }); } catch {}
+      removeHarnessRunContext(runId);
+      releaseMediaWorkspace(runId);
+      openCodeActiveRuns.delete(runId);
+      openCodeRunReconcile.delete(runId);
+      refreshAgentRuntimeActivity();
+      return { ok: false, code: error?.code || 'YAN_CORE_START_FAILED', error: `Yan Core 无法启动本轮任务：${detail}` };
+    }
     const resolvedSkills = await selectedRunSkills(request.selectedSkills, cfg, { workspace, workMode });
     if (resolvedSkills.error) {
+      if (coreTurnStarted) yanCore.completeTurn(runId, { status: 'error', error: resolvedSkills.error });
+      removeHarnessRunContext(runId);
+      releaseMediaWorkspace(runId);
       openCodeActiveRuns.delete(runId);
+      refreshAgentRuntimeActivity();
+      openCodeRunReconcile.delete(runId);
       return { ok: false, error: resolvedSkills.error };
     }
     const runSelectedSkills = resolvedSkills.skills;
     const skippedSkills = resolvedSkills.skippedSkills || [];
+    const desktopTask = isDesktopTaskRequest({ prompt, selectedSkills: runSelectedSkills });
+    const skillOnly = isSelectedSkillReadOnlyRequest({
+      prompt,
+      selectedSkills: runSelectedSkills
+    });
     const emitVisionEvent = (type, data = {}) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('opencode:event', { runId, event: { type, data } });
-      }
+      sendOpenCodeRendererEvent(runId, { type, data });
     };
     const relayed = await relayImagesForTextModel(
       cfg,
@@ -6758,41 +9252,68 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       emitVisionEvent,
       visionAbortController.signal
     );
+    if (visionAbortController.signal.aborted) {
+      const error = new Error('Aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
     const sidecar = getOpenCodeSidecar();
+    const providerAdapter = getOpenCodeProviderAdapter(sidecar);
     const mediaModels = getConfiguredMediaModels(cfg);
     const openCodeMcpServers = getOpenCodeMcpServers(cfg, {
       workspace,
       workMode,
+      evolutionMode,
+      prompt,
+      attachments: request.attachments,
       selectedSkills: runSelectedSkills,
+      desktopTask,
       runId,
-      yanSessionId
+      yanSessionId,
+      skillOnly
     });
     const capabilityContext = getOpenCodeCapabilityContext(cfg, openCodeMcpServers, { skippedSkills });
-    const openCodeConfig = getOpenCodeRuntimeConfig(cfg, { mcpServers: openCodeMcpServers });
+    // P0-4: a run that showed uncertainty raises the effort of exactly the next
+    // run in this workspace, then the one-shot hint is cleared. escalationHint
+    // was consumed at request-build time so it could raise the side-path
+    // ceiling of this run as well.
+    const openCodeConfig = getOpenCodeRuntimeConfig(cfg, {
+      mcpServers: openCodeMcpServers,
+      taskId: runId,
+      skillOnly,
+      ...(escalationHint
+        ? { reasoningSpeed: raiseReasoningSpeed(cfg.api?.reasoningSpeed, escalationHint.steps) }
+        : {})
+    });
     const emitOpenCodeEvent = event => {
+      if (event?.type === 'yan.delivery.contract.updated') {
+        const activeRun = openCodeActiveRuns.get(runId);
+        if (activeRun) activeRun.deliveryContract = event.data?.contract || null;
+      }
       trackBrowserAgentToolClaim(runId, event);
       trackSessionAgentToolClaim(runId, event);
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send('opencode:event', { runId, event });
+      sendOpenCodeRendererEvent(runId, event);
       const eventData = event?.data || event?.properties || {};
       if (event?.type === 'session.diff' && Array.isArray(eventData.diff)) {
-        mainWindow.webContents.send('opencode:event', {
-          runId,
-          event: {
-            type: 'yan.review.updated',
-            data: summarizeOpenCodeDiffs(workspace, eventData.diff, { includeDiff: true })
-          }
+        sendOpenCodeRendererEvent(runId, {
+          type: 'yan.review.updated',
+          data: summarizeOpenCodeDiffs(workspace, eventData.diff, {
+            includeDiff: true,
+            startTime: openCodeActiveRuns.get(runId)?.startedAt || runStartedAt
+          })
         });
       } else if (event?.type === 'file.edited') {
-        mainWindow.webContents.send('opencode:event', {
-          runId,
-          event: { type: 'yan.review.invalidated', data: { file: String(eventData.file || '') } }
+        sendOpenCodeRendererEvent(runId, {
+          type: 'yan.review.invalidated',
+          data: { file: String(eventData.file || '') }
         });
       }
     };
-    const task = sidecar.run({
+    const task = providerAdapter.startTurn({
       ...request,
       runId,
+      yanConfigSnapshotId: coreTurn?.configSnapshotId || '',
+      language: cfg.language,
       prompt: relayed.prompt || prompt,
       attachments: relayed.attachments,
       workspace: executionDirectory,
@@ -6800,26 +9321,40 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       hasUserWorkspace: !!workspace,
       providerId: selection.providerId,
       modelId: selection.modelId,
+      inputTokensPerSecond: Math.max(DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond(
+        cfg.api?.inputTokensPerSecond || cfg.agent?.inputTokensPerSecond
+      )),
       workMode,
+      measuredInputTokensPerSecond: Number(
+        cfg.api?.inputThroughput?.[measurementKey(selection.providerId, selection.modelId)]?.tokensPerSecond
+      ) || 0,
       accessMode: cfg.agent?.accessMode || 'request',
+      desktopTask,
       permissions: cfg.permissions,
+      enableSubagents: true,
+      subagentRoles: Array.isArray(request.subagentRoles) ? request.subagentRoles : [],
+      subagentMaxChildren: cfg.agent?.subagentMaxChildren,
       mediaModels,
       yanSkillDirectory: skillsDir,
       mcpServers: openCodeMcpServers,
+      skillOnly,
       selectedSkills: runSelectedSkills,
       skippedSkills,
       availableSkills: capabilityContext.skills,
       availableMcpServers: capabilityContext.mcpServers,
       yanBrowserAvailable: capabilityContext.yanBrowserAvailable,
       openCodeConfig,
+      behaviorPolicies,
       visionRelay: relayed.relay,
-      toneProfile: getActiveToneProfile(cfg.agent?.tone),
+      visionRelayEnabled: cfg.api?.visionRelayEnabled !== false,
       handoff: authoritativeSession?.handoff || null,
       memoryContext: retrievedMemory.context || '',
       harnessContext
     }, emitOpenCodeEvent);
     openCodeActiveRuns.set(runId, {
+      ...openCodeActiveRuns.get(runId),
       task,
+      startedAt: runStartedAt,
       yanSessionId,
       workspace,
       executionDirectory,
@@ -6827,13 +9362,137 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
       selection,
       prompt: relayed.prompt || prompt
     });
-    task.then(result => {
+    task.then(async result => {
+      if (coreTurnStarted) yanCore.completeTurn(runId, result);
+      try {
+        if (evolutionMode) recordAgiTrajectory({ runId, workspace, result });
+      } catch (error) {
+        console.warn(`[agi] trajectory record failed for run ${runId}:`, error?.message || error);
+      }
+      if (agiMode) {
+        try {
+          const distilled = distillRunMemory({ runId, workspace, result });
+          if (distilled?.ok) console.log(`[agi] distilled ${distilled.record?.type || 'memory'} from run ${runId}`);
+        } catch (error) {
+          console.warn(`[agi] memory distillation failed for run ${runId}:`, error?.message || error);
+        }
+        try {
+          recordTopologyOutcome({
+            historyFile: AGI_TOPOLOGY_HISTORY_PATH,
+            variantId: request.topologyVariantId,
+            runId,
+            ok: runAgiOutcome(result) === 'success',
+            cost: 1
+          });
+        } catch (error) {
+          console.warn(`[agi] topology record failed for run ${runId}:`, error?.message || error);
+        }
+      }
+      try {
+        const escalation = agiMode ? agiEscalationMemo.noteRun({ workspace, result }) : null;
+        if (escalation?.escalated) {
+          console.warn(`[agi] escalation scheduled for the next run (${escalation.steps} step(s)): ${escalation.reason}`);
+        }
+      } catch (error) {
+        console.warn(`[agi] escalation memo failed for run ${runId}:`, error?.message || error);
+      }
+      try {
+        if (evolutionMode) mineAndRecordWorkflowCandidates({ runId, workspace, result });
+      } catch (error) {
+        console.warn(`[agi] workflow mining failed for run ${runId}:`, error?.message || error);
+      }
+      try {
+        const sidepathSummary = summarizeSidepath(result?.sidepath);
+        if (sidepathSummary) console.log(`[agi] reasoning side-path run=${runId} ${sidepathSummary}`);
+      } catch {}
+      const performance = result?.performance;
+      if (performance) {
+        const outputTps = performance.outputTokensPerSecond
+          ?? performance.visibleOutputTokensPerSecond
+          ?? performance.providerOutputTokensPerSecond;
+        const visibleOutputTps = performance.visibleOutputTokensPerSecond;
+        const providerOutputTps = performance.providerOutputTokensPerSecond;
+        const inputTps = performance.effectiveInputTokensPerSecond;
+        const inputP50 = performance.medianInputTokensPerSecond;
+        const inputP10 = performance.p10InputTokensPerSecond;
+        const cacheHit = performance.cacheHitRate;
+        console.log([
+          `[opencode perf] run=${runId}`,
+          `ttft=${performance.firstTtftMs ?? 'n/a'}ms`,
+          `input_tps=${Number.isFinite(inputTps) ? inputTps.toFixed(1) : 'n/a'}`,
+          `input_p50=${Number.isFinite(inputP50) ? inputP50.toFixed(1) : 'n/a'}`,
+          `input_p10=${Number.isFinite(inputP10) ? inputP10.toFixed(1) : 'n/a'}`,
+          `slow_steps=${Number(performance.requestsBelow2000TokensPerSecond) || 0}/${Number(performance.requestCount) || 0}`,
+          `decode=${performance.decodeMs ?? 'n/a'}ms`,
+          `output_tps=${Number.isFinite(outputTps) ? outputTps.toFixed(1) : 'n/a'}`,
+          `visible_output_tps=${Number.isFinite(visibleOutputTps) ? visibleOutputTps.toFixed(1) : 'n/a'}`,
+          `provider_output_tps=${Number.isFinite(providerOutputTps) ? providerOutputTps.toFixed(1) : 'n/a'}`,
+          `cache_hit=${Number.isFinite(cacheHit) ? `${(cacheHit * 100).toFixed(1)}%` : 'n/a'}`,
+          `events=${Number(performance.streamEvents) || 0}`,
+          `first_desktop_action=${performance.firstDesktopActionMs ?? 'n/a'}ms`,
+          `first_desktop_progress=${performance.firstDesktopProgressMs ?? 'n/a'}ms`,
+          `desktop_recoveries=${Number(performance.desktopActionRecoveryCount) || 0}`
+        ].join(' '));
+      }
+      // Close the throughput loop: learn the real prefill rate for this
+      // (provider, model) pair and feed it to the next run. Works for any
+      // vendor — nothing is model-specific here.
+      try {
+        if (isTrustworthyMeasurement(result?.performance)) {
+          const measuredCfg = loadConfig();
+          const key = measurementKey(selection?.providerId, selection?.modelId);
+          if (key !== ':') {
+            const store = measuredCfg.api.inputThroughput || {};
+            const previousEntry = store[key] || {};
+            const metric = result.performance.inputThroughputMetric;
+            const sameMetric = previousEntry.metric === metric;
+            store[key] = {
+              tokensPerSecond: smoothMeasurement(
+                sameMetric ? previousEntry.tokensPerSecond : 0,
+                result.performance.effectiveInputTokensPerSecond
+              ),
+              samples: (sameMetric ? Number(previousEntry.samples) || 0 : 0) + 1,
+              updatedAt: Date.now(),
+              metric
+            };
+            measuredCfg.api.inputThroughput = normalizeMeasurementStore(store);
+            saveConfig(measuredCfg);
+          }
+        }
+      } catch (measurementError) {
+        console.warn('[opencode] Input throughput measurement update failed:', measurementError?.message || measurementError);
+      }
+      await writeRunRollbackSnapshot({
+        workspace,
+        sessionId: yanSessionId,
+        runId,
+        rollbackChanges: result?.rollbackChanges
+      });
+      flushOpenCodeRendererEvents(runId);
+      const reviewSummary = summarizeOpenCodeDiffs(workspace, result?.changes, {
+        includeDiff: true,
+        startTime: runStartedAt
+      });
+      const { rollbackChanges: _rollbackChanges, ...rendererResult } = result || {};
+      const completedResult = { ...rendererResult, reviewSummary };
+      if (request.workMode === 'plan' && result?.status === 'done' && String(result.text || '').trim()) {
+        try {
+          const planFile = writePlanDocument({
+            dataDir: STABLE_DATA_DIR,
+            text: result.text,
+            reasoning: result.reasoning
+          });
+          if (planFile) completedResult.planFile = planFile;
+        } catch (planError) {
+          console.warn('[plan] Failed to write plan document:', planError?.message || planError);
+        }
+      }
+      completeOpenCodeReconcileRun(runId, completedResult);
       if (mainWindow && !mainWindow.isDestroyed()) {
-        const reviewSummary = summarizeOpenCodeDiffs(workspace, result?.changes, { includeDiff: true });
-        mainWindow.webContents.send('opencode:completed', { runId, result: { ...result, reviewSummary } });
+        mainWindow.webContents.send('opencode:completed', { runId, result: completedResult });
       }
       if (!request.utility && ['done', 'error'].includes(result?.status) && result?.userRequestedFinish !== true) {
-        void reviewCompletedRunMemory({
+        void withOpenCodeBackgroundLease(() => reviewCompletedRunMemory({
           sidecar,
           selection,
           request,
@@ -6842,41 +9501,163 @@ ipcMain.handle('opencode:start-run', async (_e, request = {}) => {
           workspace,
           yanSessionId,
           runId,
-          harnessBaselines
-        });
+          harnessBaselines,
+          evolutionMode
+        }));
       }
     }).catch(error => {
       console.error(`[opencode] Run ${runId} failed:`, error);
+      flushOpenCodeRendererEvents(runId);
+      const failedResult = {
+        openCodeVersion: OPENCODE_VERSION,
+        status: 'error',
+        text: '',
+        reasoning: '',
+        toolCalls: [],
+        todos: [],
+        changes: [],
+        usage: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+        contextTokens: 0,
+        error: openCodeErrorDetail(error)
+      };
+      if (coreTurnStarted) yanCore.completeTurn(runId, failedResult);
+      completeOpenCodeReconcileRun(runId, failedResult);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('opencode:completed', {
           runId,
-          result: {
-            openCodeVersion: OPENCODE_VERSION,
-            status: 'error',
-            text: '',
-            reasoning: '',
-            toolCalls: [],
-            todos: [],
-            changes: [],
-            usage: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
-            contextTokens: 0,
-            error: error?.message || String(error)
-          }
+          result: failedResult
         });
       }
     }).finally(() => {
       try { fs.rmSync(pendingHarnessRequestPath(runId), { force: true }); } catch {}
+      removeHarnessRunContext(runId);
+      releaseMediaWorkspace(runId);
       notifyBrowserAgentRelease(runId);
       clearBrowserAgentToolClaims(runId);
       clearSessionAgentToolClaims(runId);
       openCodeActiveRuns.delete(runId);
+      refreshAgentRuntimeActivity();
     });
     return { ok: true, runId, version: OPENCODE_VERSION };
   } catch (error) {
     const runId = String(request.runId || '');
+    if (coreTurnStarted) yanCore.completeTurn(runId, { status: 'error', error: openCodeErrorDetail(error) });
+    if (admissionPending) openCodeRunAdmissions.delete(admittedRunId);
+    removeHarnessRunContext(runId);
+    releaseMediaWorkspace(runId);
     clearSessionAgentToolClaims(runId);
     openCodeActiveRuns.delete(runId);
+    refreshAgentRuntimeActivity();
     console.error('[opencode] start-run failed:', error);
+    return { ok: false, error: error instanceof Error && error.message ? error.message : openCodeErrorDetail(error) };
+  }
+});
+
+ipcMain.handle('opencode:sync-active-runs', () => {
+  const runs = [];
+  for (const [runId, entry] of openCodeRunReconcile) {
+    const active = openCodeActiveRuns.get(runId);
+    if (!active && !entry.completed) continue; // stale entry without a run
+    runs.push({
+      runId,
+      yanSessionId: String(active?.yanSessionId || entry.meta.yanSessionId || ''),
+      workspace: String(active?.workspace || entry.meta.workspace || ''),
+      startedAt: Number(active?.startedAt || entry.meta.startedAt) || 0,
+      running: !!active,
+      events: entry.events,
+      completed: entry.completed || null,
+      coreTurn: yanCore.getTurn(runId)
+    });
+  }
+  return runs;
+});
+
+ipcMain.handle('opencode:recover-runs', (_e, payload = {}) => {
+  try {
+    return buildRecoveredRunDescriptors(payload?.runIds);
+  } catch (error) {
+    console.warn('[opencode] recovery descriptor build failed:', error?.message || error);
+    return [];
+  }
+});
+
+// The renderer confirms a recovered run only after its replayed content is
+// persisted into the session. Settling the Core Turn afterwards keeps the next
+// startup from re-running recovery for the same Turn.
+ipcMain.handle('yan:core-settle-recovered-run', (_e, payload = {}) => {
+  const runId = String(payload?.runId || '');
+  if (!runId) return { ok: false, error: '缺少要结算的 Turn。' };
+  try {
+    if (!yanCore) return { ok: false, error: 'Yan Core 尚未初始化。' };
+    const text = String(payload?.text || '');
+    const turn = yanCore.completeTurn(runId, {
+      status: 'interrupted',
+      text,
+      emptyFinalText: !text.trim()
+    });
+    return turn ? { ok: true, turn } : { ok: false, error: 'Yan Turn 不存在。' };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('work-gui:snapshot', async () => {
+  if (!workGuiFeed) return { generatedAt: Date.now(), seq: 0, sessions: [], runs: [], agents: [], recentEvents: [], home: null };
+  try {
+    return await workGuiFeed.snapshot();
+  } catch (error) {
+    console.warn('[work-gui] snapshot failed:', error?.message || error);
+    return { generatedAt: Date.now(), seq: 0, sessions: [], runs: [], agents: [], recentEvents: [], home: null, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('yan:core-state', (_e, payload = {}) => {
+  try {
+    return yanCore.getState(payload && typeof payload === 'object' ? payload : {});
+  } catch (error) {
+    return { version: 1, threads: {}, turns: {}, intents: {}, events: [], error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('yan:core-enqueue-intent', (_e, payload = {}) => {
+  try {
+    return { ok: true, intent: yanCore.enqueueIntent(payload) };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('yan:core-consume-intent', (_e, intentId) => {
+  try {
+    const intent = yanCore.consumeIntent(intentId);
+    return intent ? { ok: true, intent } : { ok: false, error: 'Yan Intent 不存在或已处理。' };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('yan:core-requeue-intent', (_e, intentId) => {
+  try {
+    const intent = yanCore.requeueIntent(intentId);
+    return intent ? { ok: true, intent } : { ok: false, error: 'Yan Intent 不存在。' };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('yan:core-ack-intent', (_e, intentId) => {
+  try {
+    const intent = yanCore.ackIntent(intentId);
+    return intent ? { ok: true, intent } : { ok: false, error: 'Yan Intent 不存在或无法确认。' };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('yan:core-delete-intent', (_e, payload = {}) => {
+  try {
+    return yanCore.deleteIntent(payload?.intentId || payload?.id, payload?.reason);
+  } catch (error) {
     return { ok: false, error: error?.message || String(error) };
   }
 });
@@ -6888,8 +9669,13 @@ ipcMain.handle('opencode:run-changes', async (_e, payload = {}) => {
     return { count: 0, additions: 0, deletions: 0, files: [] };
   }
   try {
-    const diffs = await openCodeSidecar.runChanges(runId);
-    return summarizeOpenCodeDiffs(active.workspace, diffs, { includeDiff: payload.includeDiff !== false });
+    const diffs = await openCodeSidecar.runChanges(runId, { includeDiff: payload.includeDiff, paths: payload.paths });
+    return await runReviewTask('openCodeDiffs', active.workspace, diffs, {
+      includeDiff: payload.includeDiff !== false,
+      documentPath: payload.documentPath,
+      paths: payload.paths,
+      startTime: active.startedAt
+    });
   } catch (error) {
     return { count: 0, additions: 0, deletions: 0, files: [], error: error?.message || String(error) };
   }
@@ -6907,44 +9693,70 @@ ipcMain.handle('opencode:session-changes', async (_e, payload = {}) => {
     const agentRun = (session?.messages || [])
       .find(message => message?.role === 'assistant' && message?.agentRun?.runId === runId)
       ?.agentRun;
+    if (workspace && agentRun && payload.includeDiff === false && !payload.documentPath && payload.fresh !== true) {
+      const manifest = projectReviewSummary(agentRun.changeSummary, { paths: payload.paths });
+      if (manifest) return manifest;
+    }
     if (!workspace || !agentRun?.openCodeSessionId) {
       return { count: 0, additions: 0, deletions: 0, files: [] };
     }
-    const sidecar = await ensureOpenCodeSidecar(getOpenCodeRuntimeConfig(loadConfig()));
-    const diffs = await sidecar.sessionChanges({
-      sessionId: agentRun.openCodeSessionId,
-      directory: workspace,
-      startTime: agentRun.startedAt,
-      endTime: agentRun.completedAt
+    return await withOpenCodeBackgroundLease(async () => {
+      const sidecar = await ensureOpenCodeSidecar(getOpenCodeRuntimeConfig(loadConfig()));
+      const diffs = await sidecar.sessionChanges({
+        sessionId: agentRun.openCodeSessionId,
+        directory: workspace,
+        startTime: agentRun.startedAt,
+        endTime: agentRun.completedAt || undefined,
+        includeDiff: payload.includeDiff,
+        paths: payload.paths
+      });
+      return runReviewTask('openCodeDiffs', workspace, diffs, {
+        includeDiff: payload.includeDiff !== false,
+        documentPath: payload.documentPath,
+        paths: payload.paths,
+        startTime: agentRun.startedAt
+      });
     });
-    return summarizeOpenCodeDiffs(workspace, diffs, { includeDiff: payload.includeDiff !== false });
   } catch (error) {
     return { count: 0, additions: 0, deletions: 0, files: [], error: error?.message || String(error) };
   }
 });
 
 async function cancelOpenCodeRun(runId) {
-  const active = openCodeActiveRuns.get(String(runId || ''));
+  const key = String(runId || '');
+  const coreResult = yanCore.requestCancel(key, 'user_cancelled');
+  const active = openCodeActiveRuns.get(key);
   const visionCancelled = !!active?.visionAbortController;
   active?.visionAbortController?.abort();
   let sidecarResult = { ok: false, error: '' };
   if (openCodeSidecar) {
     try {
-      const result = await openCodeSidecar.cancel(runId);
+      const result = await getOpenCodeProviderAdapter(openCodeSidecar).cancel(key);
       sidecarResult = {
         ok: result?.ok === true,
-        error: result?.error ? String(result.error) : ''
+        error: result?.error ? String(result.error) : '',
+        pending: result?.pending === true
       };
     } catch (error) {
       sidecarResult = { ok: false, error: error?.message || String(error) };
     }
   }
-  const cancelled = visionCancelled || sidecarResult.ok;
-  if (cancelled) notifyBrowserAgentRelease(runId, 'run_cancelled');
+  const cancelRequested = visionCancelled || sidecarResult.ok || coreResult.cancelled === true;
+  const sidecarLive = !!openCodeSidecar?.hasRun?.(key)
+    || !!openCodeSidecar?.hasPendingRun?.(key);
+  const mainRunLive = openCodeActiveRuns.has(key) || openCodeRunAdmissions.has(key);
+  const settled = !mainRunLive && !sidecarLive && (
+    !active || coreResult.alreadySettled === true || coreResult.cancelled === false
+  );
+  const cancelled = settled;
+  if (cancelRequested) notifyBrowserAgentRelease(key, 'run_cancelled');
   return {
-    ok: cancelled,
+    ok: cancelRequested,
+    cancelRequested,
     cancelled,
-    error: cancelled ? '' : (sidecarResult.error || 'Yan Kernel 任务不存在')
+    settled,
+    error: cancelRequested ? '' : (sidecarResult.error || coreResult.error || 'Yan Kernel 任务不存在'),
+    coreTurn: coreResult.turn || yanCore.getTurn(key)
   };
 }
 
@@ -6971,7 +9783,7 @@ ipcMain.handle('opencode:interject', async (event, payload = {}) => {
       history: Array.isArray(payload.history) ? payload.history : [],
       snapshot: payload.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot : {}
     }, emitAuxiliaryEvent);
-    if (openCodeActiveRuns.get(runId) !== active || !openCodeSidecar.activeRuns.has(runId)) {
+    if (openCodeActiveRuns.get(runId) !== active || !openCodeSidecar.hasRun(runId)) {
       return { ok: false, stale: true, error: '判断完成前任务已经结束，辅助对话消息未送达。' };
     }
     if (analysis.kind === 'check') {
@@ -7010,6 +9822,40 @@ ipcMain.handle('opencode:cancel-interjection', async (_e, payload = {}) => {
   }
 });
 
+ipcMain.handle('plan:read-file', async (_e, payload = {}) => {
+  try {
+    const root = plansRoot(STABLE_DATA_DIR);
+    const target = path.resolve(String(payload?.path || ''));
+    if (!target.startsWith(root + path.sep)) return { ok: false, error: '计划文件不在 Yan 计划目录内。' };
+    const content = fs.readFileSync(target, 'utf8');
+    return { ok: true, name: path.basename(target), content };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('plan:download-file', async (_e, payload = {}) => {
+  try {
+    const root = plansRoot(STABLE_DATA_DIR);
+    const target = path.resolve(String(payload?.path || ''));
+    if (!target.startsWith(root + path.sep)) return { error: '计划文件不在 Yan 计划目录内。' };
+    const stat = await fsp.stat(target);
+    if (!stat.isFile() || !stat.size) return { error: '计划文件不存在或为空。' };
+    const owner = BrowserWindow.fromWebContents(_e.sender);
+    const result = await dialog.showSaveDialog(owner && !owner.isDestroyed() ? owner : mainWindow, {
+      title: '下载计划文件',
+      buttonLabel: '下载',
+      defaultPath: path.join(app.getPath('downloads'), path.basename(target)),
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    await fsp.copyFile(target, result.filePath);
+    return { ok: true, path: result.filePath };
+  } catch (error) {
+    return { error: error?.message || String(error) };
+  }
+});
+
 ipcMain.handle('opencode:cancel-run', async (_e, runId) => {
   return cancelOpenCodeRun(runId);
 });
@@ -7045,31 +9891,47 @@ const gotSingleInstanceLock = process.env.YAN_E2E_MODE === '1'
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', (_event, argv) => {
-    const ws = parseOpenWorkspaceArg(argv);
-    const requestId = parseYanxiRequestIdArg(argv);
-    if (ws !== undefined) {
-      yanxiReceiver.applyWorkspaceFromYanxiCode(ws, { requestId }).catch((e) => {
-        console.error('[yanxi-sync]', e.message);
-      });
+  app.on('second-instance', () => {
+    // A normal second launch must always surface the existing app. The
+    // process survives window close (tray/pet keep-alive), so the main window
+    // may not exist anymore — recreate it instead of only focusing, otherwise
+    // the second launch looks exactly like a failed npm start.
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      return;
     }
-    // A normal second launch must always surface the existing app. Otherwise
-    // Electron exits immediately on the single-instance lock while a tray-only
-    // process remains invisible, which looks exactly like a failed npm start.
     focusMainWindow();
   });
 }
 
+// Software WebGL fallback: Chromium blocks the software rasterizer by default
+// on machines without a usable GPU (RDP/VM), which would leave the 3D
+// work-island view blank. Hardware rendering is still preferred when present.
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+
 app.whenReady().then(async () => {
+  if (e2eOrphanShutdownStarted) return;
   app.setAppUserModelId('com.yan.agent');
+  // The Chromium spellchecker re-segments a contenteditable on every edit and
+  // is a constant per-keystroke cost under CJK IME input — the composer's
+  // typing lag. The app is Chinese-first; disable it at the session level.
+  try { session.defaultSession.setSpellCheckerEnabled(false); } catch {}
   createSplashWindow();
-  migrateLegacyDataDir();
+  await migrateLegacyDataDir();
   ensureDirs();
+  initializeYanCore();
+  try {
+    const recoveredTurns = yanCore.recoverInterruptedTurns();
+    if (recoveredTurns.length) {
+      console.warn(`[yan-core] recovered ${recoveredTurns.length} interrupted Turn(s) from the previous process.`);
+    }
+  } catch (error) {
+    console.warn('[yan-core] startup recovery failed:', error?.message || error);
+  }
   await refreshBrowserNetworkSession('https://example.com', { resetConnections: false })
     .catch(error => console.warn(`[browser network] setup failed: ${error.message}`));
   loadGeneratedImageStore();
-  const preferredLanguages = app.getPreferredSystemLanguages?.() || [];
-  terminalManager.setLocale(preferredLanguages[0] || app.getLocale());
   const cfg = loadConfig();
   skillRegistry.hydrateInstalledSkillMetadata(cfg, appRoot, dataDir);
   skillRegistry.syncYanUserSkills(cfg, appRoot, dataDir);
@@ -7078,9 +9940,11 @@ app.whenReady().then(async () => {
   saveConfig(cfg);
   try {
     await startBrowserAgentBridge();
+    if (e2eOrphanShutdownStarted) return;
     await startSessionAgentBridge();
-    await ensureOpenCodeSidecar(getOpenCodeRuntimeConfig(cfg));
+    if (e2eOrphanShutdownStarted) return;
   } catch (error) {
+    if (e2eOrphanShutdownStarted) return;
     const message = error && error.message ? error.message : String(error);
     destroySplashWindow();
     dialog.showErrorBox('Yan Kernel 启动失败', `Yan Kernel 无法启动。\n\n${message}`);
@@ -7089,26 +9953,19 @@ app.whenReady().then(async () => {
   }
   startYanSkillWatcher();
   startWorkspaceWatcher(cfg.workspace);
-  yanxiReceiver.watchYanxiSyncFile();
-  // 仅响应 Yanxi Code 显式传入的 --open-workspace；不在每次冷启动时重放 yanxi-sync.json
-  if (pendingYanxiWorkspace !== undefined) {
-    await yanxiReceiver.applyWorkspaceFromYanxiCode(pendingYanxiWorkspace, { requestId: pendingYanxiRequestId });
-  }
   createWindow();
   applyLightWindowIcon(mainWindow);
   refreshConfiguredProviderModelCache('agnes')
     .catch(error => console.warn(`[Agnes models] background refresh failed: ${error.message}`));
   if (process.env.YAN_E2E_MODE !== '1') {
-    createPetWindow();
+    activePetId = cfg.pet.selected;
+    if (cfg.pet.enabled) createPetWindow();
     createTray();
     const quickLaunchRegistration = registerQuickInputShortcut(cfg.quickLaunch);
     if (!quickLaunchRegistration.ok) {
       console.warn(`[quick-input] startup registration failed: ${quickLaunchRegistration.error}`);
     }
   }
-  mainWindow.webContents.once('did-finish-load', () => {
-    startRemoteServer().catch((e) => console.error('[remote] start failed:', e.message));
-  });
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) createWindow();
     else applyLightWindowIcon(mainWindow);
@@ -7123,6 +9980,21 @@ app.on('window-all-closed', (e) => {
 // 真正退出时清理托盘和 MCP 服务器
 app.on('before-quit', () => {
   isQuiting = true;
+  if (e2eParentWatchdog) {
+    clearInterval(e2eParentWatchdog);
+    e2eParentWatchdog = null;
+  }
+  openCodeEventBatcher.close();
+  workGuiFeed?.dispose();
+  workGuiFeed = null;
+  // Flush a debounced Core snapshot before the process exits.
+  try { yanCore?.persist?.(); } catch {}
+  // Give a pending event-log compaction a chance to finish during shutdown.
+  // Best effort: the process may exit before the promise resolves, in which
+  // case the bounded log is simply compacted on the next launch.
+  try { yanCore?.store?.flushCompaction?.()?.catch?.(() => {}); } catch {}
+  if (openCodeIdleReleaseTimer) clearTimeout(openCodeIdleReleaseTimer);
+  openCodeIdleReleaseTimer = null;
   destroySplashWindow();
   unregisterQuickInputShortcut();
   destroyQuickInputWindows();
@@ -7133,14 +10005,39 @@ app.on('before-quit', () => {
   stopYanSkillWatcher();
   stopBrowserAgentBridge();
   stopSessionAgentBridge();
-  destroyComputerUseOverlay();
-  terminalManager.dispose();
-  stopRemoteServer().catch(() => {});
   understandAnythingRuntime.stopAllUnderstandAnything();
   openCodeSidecar?.close();
   openCodeSidecar = null;
+  openCodeProviderAdapter = null;
   if (petWindow && !petWindow.isDestroyed()) petWindow.destroy();
   if (tray) tray.destroy();
   // 停止所有 MCP 服务器
   for (const id of mcpServers.keys()) mcpStop(id);
 });
+
+// Test-only exports: loaded under a stubbed Electron (see
+// test/opencode-config-signature.test.cjs) to verify that per-run values
+// never leak into the OpenCode config signature.
+if (process.env.YAN_MAIN_TEST_EXPORTS === '1') {
+  module.exports = {
+    __test: {
+      getOpenCodeMcpServers,
+      getOpenCodeRuntimeConfig,
+      buildYanMediaMcpServer,
+      buildYanWebMcpServer,
+      inferMcpTaskCapabilities,
+      applyReviewedHarnessState,
+      persistExplicitUserPolicy,
+      reviewCompletedRunMemory,
+      attributeHarnessUsage,
+      consumeHarnessUsage,
+      harnessRunOutcome,
+      registerHarnessUsage,
+      continualHarness,
+      buildRecoveredRunDescriptors,
+      recoveryRendererEvent,
+      recoveringCoreTurns,
+      migrateVisionRelaySwitch
+    }
+  };
+}

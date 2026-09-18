@@ -46,3 +46,22 @@
   --radius-control: var(--r-md);
   --radius-surface: var(--r-lg);
 }
+
+/* Yan Work GUI — scoped riverside world palette */
+.work-gui-page {
+  --wgu-paper: oklch(98% 0.015 90);
+  --wgu-paper-soft: oklch(95% 0.02 105);
+  --wgu-ink: oklch(32% 0.035 175);
+  --wgu-muted: oklch(49% 0.03 165);
+  --wgu-rule: oklch(85% 0.025 120);
+  --wgu-accent: oklch(42% 0.055 175);
+  --wgu-success: oklch(43% 0.10 150);
+  --wgu-warning: oklch(48% 0.09 65);
+  --wgu-water: oklch(76% 0.055 184);
+  --wgu-shadow: oklch(31% 0.045 165 / 0.12);
+  --wgu-clear: oklch(100% 0 0 / 0);
+  --wgu-font-display: var(--font-reading);
+  --wgu-font-body: var(--font-sans);
+  --wgu-font-code: var(--font-mono);
+  --wgu-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}

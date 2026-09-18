@@ -20,3 +20,12 @@ backup/
 output/
 /example-com-*.png
 /switch-page-test.png
+
+# Local analysis and generated caches
+.perf-audit/
+.ua/
+__pycache__/
+*.pyc
+/tmp-subagent-config.json
+.zcode/
+/tmp-update-renderer*.mjs
