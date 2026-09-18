@@ -6,9 +6,13 @@
   min-width: 0;
   min-height: 0;
   background: var(--bg, #101114);
+  pointer-events: auto;
 }
 
-.understand-anything-layer.hidden { display: none; }
+.understand-anything-layer.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
 
 .understand-anything-frame {
   display: block;
@@ -19,4 +23,29 @@
   min-height: 0;
   border: 0;
   background: #111318;
+  pointer-events: auto;
+}
+
+.understand-anything-status {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: var(--text-dim, #c6c8cc);
+  background: var(--bg, #101114);
+  font: 13px/1.6 var(--font-sans, sans-serif);
+  text-align: center;
+  white-space: pre-wrap;
+  pointer-events: auto;
+}
+
+.understand-anything-status[hidden] {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.understand-anything-status.is-error {
+  color: var(--danger, #ef6666);
 }

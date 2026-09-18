@@ -11,6 +11,11 @@ const {
   sessionHasCurrentPermissions,
   startsVisibleModelResponse,
   collectRunResult,
+  assistantFinishedByLength,
+  assistantCompletedWithoutVisibleOutput,
+  turnNeedsEmptyOutputContinuation,
+  truncatedOutputError,
+  emptyCompletedOutputError,
   openCodeErrorDetail,
   lastToolOutputIndicatesFailure,
   combineSystem,
@@ -424,6 +429,84 @@ test('does not treat a thinking-only GPT text part as a final answer', () => {
   assert.equal(result.text, '');
   assert.equal(result.reasoning, 'Still working');
   assert.match(result.error, /without a final user-facing answer/);
+});
+
+test('reports max_output_tokens truncation instead of a generic empty-answer error', () => {
+  const truncated = assistant('length-truncated', [{ type: 'text', text: ' ' }]);
+  truncated.info.finish = { unified: 'length', raw: 'max_output_tokens' };
+  truncated.info.tokens = { input: 0, output: 1, reasoning: 0, cache: { read: 29964, write: 0 } };
+  const result = collectRunResult([truncated], new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.equal(assistantFinishedByLength(truncated), true);
+  assert.equal(result.status, 'error');
+  assert.equal(result.text, '');
+  assert.match(result.error, /truncated by max_output_tokens/);
+  assert.match(truncatedOutputError(truncated), /output 1/);
+  assert.doesNotMatch(result.error, /without a final user-facing answer/);
+});
+
+test('does not fail a truncated turn that still produced a user-facing answer', () => {
+  const truncated = assistant('length-with-text', [{ type: 'text', text: '已写入介绍文件。' }]);
+  truncated.info.finish = 'length';
+  const result = collectRunResult([truncated], new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.equal(result.status, 'done');
+  assert.equal(result.text, '已写入介绍文件。');
+  assert.equal(result.error, '');
+});
+
+test('names a stop+whitespace empty completion instead of a generic empty-answer error', () => {
+  const emptyStop = assistant('terra-stop-empty', [{ type: 'text', text: ' ' }]);
+  emptyStop.info.finish = 'stop';
+  emptyStop.info.tokens = { input: 62418, output: 2, reasoning: 0, cache: { read: 0, write: 0 } };
+  const result = collectRunResult([emptyStop], new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.equal(assistantCompletedWithoutVisibleOutput(emptyStop), true);
+  assert.equal(assistantFinishedByLength(emptyStop), false);
+  assert.equal(result.status, 'error');
+  assert.equal(result.text, '');
+  assert.match(result.error, /without a final user-facing answer \(finish stop, output 2\)/);
+  assert.match(emptyCompletedOutputError(emptyStop), /finish stop/);
+});
+
+test('treats Responses finish=other empty completions as missing user-facing text', () => {
+  const emptyOther = assistant('terra-other-empty', [{ type: 'text', text: ' ' }]);
+  emptyOther.info.finish = { unified: 'other', raw: 'completed' };
+  emptyOther.info.tokens = { input: 12, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+  assert.equal(assistantCompletedWithoutVisibleOutput(emptyOther), true);
+  const result = collectRunResult([emptyOther], new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /without a final user-facing answer \(finish other, output 1\)/);
+});
+
+test('treats a completed turn with no finish reason and only whitespace as empty output', () => {
+  const empty = assistant('no-finish-empty', [{ type: 'text', text: '\n' }]);
+  assert.equal(assistantCompletedWithoutVisibleOutput(empty), true);
+  const result = collectRunResult([empty], new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.match(result.error, /without a final user-facing answer \(finish none, output 1\)/);
+});
+
+test('reads max_output_tokens from finish.raw even when unified is other', () => {
+  const truncated = assistant('raw-length', [{ type: 'text', text: ' ' }]);
+  truncated.info.finish = { unified: 'other', raw: 'max_output_tokens' };
+  truncated.info.tokens = { input: 0, output: 1, reasoning: 0, cache: { read: 0, write: 0 } };
+  assert.equal(assistantFinishedByLength(truncated), true);
+  const result = collectRunResult([truncated], new Set(), [[]], [], { workMode: 'normal' }, 'session');
+  assert.match(result.error, /truncated by max_output_tokens/);
+});
+
+test('does not auto-continue a content-filter empty completion', () => {
+  const filtered = assistant('filtered', [{ type: 'text', text: ' ' }]);
+  filtered.info.finish = 'content-filter';
+  assert.equal(assistantCompletedWithoutVisibleOutput(filtered), false);
+  assert.equal(turnNeedsEmptyOutputContinuation([filtered], Date.now() - 10, new Set(), filtered), false);
+});
+
+test('does not treat a trailing empty wrapper after a real answer as an empty turn', () => {
+  const now = Date.now();
+  const answer = assistant('answer', [{ type: 'text', text: '已写好介绍。' }]);
+  const trailing = assistant('trailing-empty', [{ type: 'text', text: ' ' }]);
+  trailing.info.finish = 'stop';
+  answer.info.time.created = now;
+  trailing.info.time.created = now + 1;
+  assert.equal(turnNeedsEmptyOutputContinuation([answer, trailing], now, new Set(), trailing), false);
 });
 
 test('discloses skipped Skills without failing an otherwise successful run', () => {
@@ -1469,6 +1552,270 @@ test('retries a transiently interrupted prompt when nothing executed', async () 
   assert.equal(result.text, '重试后完成。');
   assert.equal(result.error, '');
   assert.ok(events.some(event => event.type === 'yan.model.retrying'), 'emits a retry event');
+});
+
+test('continues once when a reasoning model hits max_output_tokens with no visible answer', async () => {
+  const directory = path.resolve('truncated-continue-workspace');
+  const events = [];
+  const fixture = fakeClient(directory, (payload, call) => {
+    if (call === 1) {
+      const truncated = assistant('terra-truncated', [{ type: 'text', text: ' ' }]);
+      truncated.info.finish = { unified: 'length', raw: 'max_output_tokens' };
+      truncated.info.tokens = { input: 0, output: 1, reasoning: 0, cache: { read: 29964, write: 0 } };
+      return truncated;
+    }
+    if (call === 2) {
+      assert.match(String(payload?.parts?.[0]?.text || ''), /YAN OUTPUT CONTINUATION/);
+      return assistant('terra-continued', [{ type: 'text', text: 'Yan Agent，桌面工作区助手。' }]);
+    }
+    return null;
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'truncated-continue',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '介绍你自己',
+    providerId: 'conn-mu7c5rfa-cd72',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  }, event => events.push(event));
+
+  assert.equal(fixture.calls.promptAsync.length, 2);
+  assert.equal(result.status, 'done');
+  assert.equal(result.text, 'Yan Agent，桌面工作区助手。');
+  assert.equal(result.error, '');
+  assert.ok(events.some(event => event.type === 'yan.model.truncated'));
+});
+
+test('continues once when a stop turn has only whitespace and no tool calls', async () => {
+  const directory = path.resolve('empty-stop-continue-workspace');
+  const events = [];
+  const fixture = fakeClient(directory, (payload, call) => {
+    if (call === 1) {
+      const emptyStop = assistant('terra-stop-empty', [{ type: 'text', text: ' ' }]);
+      emptyStop.info.finish = 'stop';
+      emptyStop.info.tokens = { input: 62418, output: 2, reasoning: 0, cache: { read: 0, write: 0 } };
+      return emptyStop;
+    }
+    if (call === 2) {
+      assert.match(String(payload?.parts?.[0]?.text || ''), /YAN OUTPUT CONTINUATION/);
+      assert.match(String(payload?.parts?.[0]?.text || ''), /empty or whitespace-only/);
+      return assistant('terra-stop-continued', [{ type: 'text', text: 'Yan Agent，桌面工作区助手。' }]);
+    }
+    return null;
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'empty-stop-continue',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '继续',
+    providerId: 'conn-mu7c5rfa-cd72',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  }, event => events.push(event));
+
+  assert.equal(fixture.calls.promptAsync.length, 2);
+  assert.equal(result.status, 'done');
+  assert.equal(result.text, 'Yan Agent，桌面工作区助手。');
+  assert.equal(result.error, '');
+  assert.ok(events.some(event => event.type === 'yan.model.empty-output'));
+  assert.equal(events.some(event => event.type === 'yan.model.truncated'), false);
+});
+
+test('continues once when Responses maps an empty completion to finish=other', async () => {
+  const directory = path.resolve('empty-other-continue-workspace');
+  const events = [];
+  const fixture = fakeClient(directory, (payload, call) => {
+    if (call === 1) {
+      const emptyOther = assistant('terra-other-empty', [{ type: 'text', text: ' ' }]);
+      emptyOther.info.finish = { unified: 'other', raw: 'completed' };
+      emptyOther.info.tokens = { input: 62418, output: 2, reasoning: 0, cache: { read: 0, write: 0 } };
+      return emptyOther;
+    }
+    if (call === 2) {
+      assert.match(String(payload?.parts?.[0]?.text || ''), /YAN OUTPUT CONTINUATION/);
+      return assistant('terra-other-continued', [{ type: 'text', text: 'Yan Agent，桌面工作区助手。' }]);
+    }
+    return null;
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'empty-other-continue',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '继续',
+    providerId: 'conn-mu7c5rfa-cd72',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  }, event => events.push(event));
+
+  assert.equal(fixture.calls.promptAsync.length, 2);
+  assert.equal(result.status, 'done');
+  assert.equal(result.text, 'Yan Agent，桌面工作区助手。');
+  assert.ok(events.some(event => event.type === 'yan.model.empty-output'));
+});
+
+test('continues once when a completed turn has only thinking tags', async () => {
+  const directory = path.resolve('thinking-only-continue-workspace');
+  const fixture = fakeClient(directory, (_payload, call) => {
+    if (call === 1) {
+      const thinkingOnly = assistant('thinking-only', [{
+        type: 'text',
+        text: '<thinking>Need to write the intro file.</thinking>'
+      }]);
+      thinkingOnly.info.finish = 'stop';
+      return thinkingOnly;
+    }
+    return assistant('thinking-continued', [{ type: 'text', text: '介绍已写好。' }]);
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'thinking-only-continue',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '介绍你自己',
+    providerId: 'openai',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  });
+
+  assert.equal(fixture.calls.promptAsync.length, 2);
+  assert.equal(result.status, 'done');
+  assert.equal(result.text, '介绍已写好。');
+});
+
+test('does not continue a trailing empty wrapper after a real answer', async () => {
+  const directory = path.resolve('trailing-empty-no-continue-workspace');
+  const fixture = fakeClient(directory, (_payload, call, messages) => {
+    if (call !== 1) return null;
+    const answer = assistant('final-answer', [{ type: 'text', text: '介绍已写好。' }]);
+    answer.info.finish = 'stop';
+    const trailing = assistant('trailing-empty', [{ type: 'text', text: ' ' }]);
+    trailing.info.finish = 'stop';
+    messages.push(answer, trailing);
+    return null;
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'trailing-empty-no-continue',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '介绍你自己',
+    providerId: 'openai',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  });
+
+  assert.equal(fixture.calls.promptAsync.length, 1);
+  assert.equal(result.status, 'done');
+  assert.equal(result.text, '介绍已写好。');
+});
+
+test('reports truncation when the continuation is still empty', async () => {
+  const directory = path.resolve('truncated-empty-workspace');
+  const fixture = fakeClient(directory, (_payload, call) => {
+    const truncated = assistant(`terra-empty-${call}`, [{ type: 'text', text: ' ' }]);
+    truncated.info.finish = { unified: 'length', raw: 'max_output_tokens' };
+    truncated.info.tokens = { input: 0, output: 1, reasoning: 0, cache: { read: 12, write: 0 } };
+    return truncated;
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'truncated-empty',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '介绍你自己',
+    providerId: 'openai',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  });
+
+  assert.equal(fixture.calls.promptAsync.length, 2);
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /truncated by max_output_tokens/);
+  assert.doesNotMatch(result.error, /without a final user-facing answer/);
+});
+
+test('reports a named empty-completion error when stop continuation is still empty', async () => {
+  const directory = path.resolve('empty-stop-still-empty-workspace');
+  const fixture = fakeClient(directory, (_payload, call) => {
+    const emptyStop = assistant(`terra-stop-empty-${call}`, [{ type: 'text', text: ' ' }]);
+    emptyStop.info.finish = 'stop';
+    emptyStop.info.tokens = { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } };
+    return emptyStop;
+  }, { id: 'workspace-session', directory }, {
+    status: () => ({ type: 'idle' })
+  });
+  const sidecar = new OpenCodeSidecar({
+    appRoot: process.cwd(),
+    dataDir: process.cwd()
+  });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+
+  const result = await sidecar.run({
+    runId: 'empty-stop-still-empty',
+    workspace: directory,
+    hasUserWorkspace: true,
+    prompt: '继续',
+    providerId: 'openai',
+    modelId: 'gpt-5.6-terra',
+    workMode: 'normal'
+  });
+
+  assert.equal(fixture.calls.promptAsync.length, 2);
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /without a final user-facing answer \(finish stop, output 2\)/);
 });
 
 test('does not retry a prompt whose failed attempt executed a tool', async () => {
