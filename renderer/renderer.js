@@ -8807,6 +8807,12 @@ function mapOpenCodeEventToPet(event, runCtx) {
   if (event.type === 'yan.model.request.started') {
     return { type: 'phase', message: Number(data.requestIndex) > 1 ? '起飞中' : '回包中' };
   }
+  if (event.type === 'yan.model.truncated') {
+    return { type: 'phase', message: '输出被截断，正在续写' };
+  }
+  if (event.type === 'yan.model.empty-output') {
+    return { type: 'phase', message: '空回复，正在续写' };
+  }
   if (event.type === 'yan.opencode.reconnecting') {
     const attempt = Math.max(1, Number(data.attempt) || 1);
     const maxAttempts = Math.max(attempt, Number(data.maxAttempts) || 5);
@@ -9403,6 +9409,16 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
   } else if (event.type === 'yan.model.retrying') {
     upsertOpenCodeTimeline(runCtx, `retry:${data.attempt}`, {
       type: 'progress', content: `上游流中断，正在自动重试（第 ${data.attempt} 次）：${stringifyOpenCodeValue(data.error)}`
+    });
+  } else if (event.type === 'yan.model.truncated') {
+    upsertOpenCodeTimeline(runCtx, `truncated:${data.attempt || 1}`, {
+      type: 'progress',
+      content: '模型输出在上限处被截断，正在自动续写最终回复'
+    });
+  } else if (event.type === 'yan.model.empty-output') {
+    upsertOpenCodeTimeline(runCtx, `empty-output:${data.attempt || 1}`, {
+      type: 'progress',
+      content: '模型正常结束但可见正文为空，正在自动续写最终回复'
     });
   } else if (event.type === 'yan.opencode.reconnecting') {
     const attempt = Math.max(1, Number(data.attempt) || 1);
@@ -18443,8 +18459,13 @@ const ABOUT_ERROR_PAGES = Object.freeze([
   },
   {
     title: 'OpenCode completed without a final user-facing answer.',
-    description: '有 assistant 消息，但没有可展示的最终文本',
-    answer: 'A：此为偶发性问题，请尝试重新发送prompt'
+    description: '有 assistant 消息，但没有可展示的最终文本（finish=stop/other/缺 finish，正文空白或只有 thinking）',
+    answer: 'A：Yan 会自动续写一次。仍失败时换模型或降低推理强度；中转可能把推理吞掉只回一个空格'
+  },
+  {
+    title: 'Model output was truncated by max_output_tokens before a user-facing answer.',
+    description: '推理模型在输出上限处结束，可见正文为空（常见于 GPT-5.6 Terra / Responses）',
+    answer: 'A：Yan 会自动续写一次。仍失败时降低推理强度，或检查中转是否丢了 reasoning/正文'
   },
   {
     title: 'Unknown certificate verification error.',
