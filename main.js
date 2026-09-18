@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, webContents, screen, session, clipboard, globalShortcut, safeStorage, net: electronNet } = require('electron');
 const path = require('path');
+const os = require('os');
 const { agiEnabled, evolutionEnabled, isolateWorkMode } = require('./lib/work-mode-isolation');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -2210,7 +2211,8 @@ function registerConnectionProvider(cfg, connection) {
     connection: true,
     custom: !!manualModelId,
     preset,
-    apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl)
+    apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl),
+    streamEnabled: connection.streamEnabled !== false
   };
 }
 
@@ -3070,6 +3072,7 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
   const selection = normalizeAgentModelSelection(cfg);
   const providerId = selection.providerId || cfg.api?.provider;
   const provider = MODEL_PROVIDERS[providerId] || { id: providerId, name: providerId };
+  const connectionRecord = (cfg.api?.connections || []).find(item => item.providerId === providerId) || {};
   const connection = getProviderConnectionForSupplier(cfg, providerId, selection.supplierId);
   const model = getProviderModels(cfg, providerId, selection.supplierId).find(item => item.id === selection.modelId) || selection;
   return buildOpenCodeConfig({
@@ -3083,6 +3086,7 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
     apiKey: connection.apiKey,
     baseUrl: connection.baseUrl,
     apiFormat: provider.apiFormat || 'openai',
+    streamEnabled: (connectionRecord.streamEnabled ?? provider.streamEnabled) !== false,
     // Explicit DSML signal for user connections whose preset resolved to
     // deepseek; the sidecar keeps its own name/model inference as fallback.
     dsml: providerAdapterPreset(cfg, providerId) === 'deepseek' ? true : undefined,
@@ -4407,16 +4411,18 @@ function createSplashWindow() {
 function createWindow() {
   mainRendererReady = false;
   mainWindowReadyForSplash = false;
+  const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1280,
-    height: 820,
+    height: isMac ? 740 : 820,
     minWidth: 880,
-    minHeight: 600,
+    minHeight: isMac ? 560 : 600,
     backgroundColor: '#1a1a1a',
     show: false,
-    titleBarStyle: 'hidden',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     frame: false,
     autoHideMenuBar: true,
+    ...(isMac ? { trafficLightPosition: { x: 16, y: 18 } } : {}),
     icon: lightWindowIconPngPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -4424,8 +4430,8 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       webviewTag: true,
-      // Idle renderer work is throttled. Active Agent runs temporarily opt out.
-      backgroundThrottling: true
+      // macOS Dock 拉回时不要被渲染节流卡住；Windows 仍节流空闲渲染。
+      backgroundThrottling: !isMac
     }
   });
 
@@ -5717,6 +5723,7 @@ function connectionSummary(cfg, connection) {
     preset,
     presetManual: connection.preset && connection.preset !== 'auto',
     apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl),
+    streamEnabled: connection.streamEnabled !== false,
     manualModelId: String(connection.manualModelId || '').trim(),
     modelCount: catalog.modelCount,
     supplementalModelCount: catalog.supplementalModelCount,
@@ -5794,6 +5801,7 @@ ipcMain.handle('connections:save', async (_e, payload = {}) => {
       supplierId: 'official',
       preset,
       apiFormat,
+      streamEnabled: payload.streamEnabled !== false,
       manualModelId,
       createdAt: Date.now()
     };
@@ -5815,6 +5823,7 @@ ipcMain.handle('connections:save', async (_e, payload = {}) => {
   }
   connection.preset = preset;
   connection.apiFormat = apiFormat;
+  connection.streamEnabled = payload.streamEnabled !== false;
   connection.manualModelId = manualModelId;
   const supplier = cfg.api.providerSuppliers[connection.providerId]?.find(item => item.id === connection.supplierId);
   if (supplier) supplier.name = name;
@@ -7691,8 +7700,111 @@ ipcMain.handle('image:file-download', async (_e, filePath) => {
 });
 
 ipcMain.handle('file:reveal', async (_e, filePath) => {
-  shell.showItemInFolder(filePath);
-  return true;
+  const target = String(filePath || '').trim();
+  if (!target) return { ok: false, error: '路径为空' };
+  try {
+    if (!fs.existsSync(target)) return { ok: false, error: '文件不存在' };
+    shell.showItemInFolder(target);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message || '无法在访达中显示' };
+  }
+});
+
+ipcMain.handle('file:preview-local', async (_e, filePath) => {
+  const target = path.resolve(String(filePath || '').trim());
+  if (!target) return { ok: false, error: '路径为空' };
+  let stat;
+  try {
+    stat = fs.statSync(target);
+  } catch {
+    return { ok: false, error: '文件不存在' };
+  }
+  const ext = path.extname(target).toLowerCase();
+  const lastExt = ext || `.${path.basename(target).split('.').pop() || ''}`.toLowerCase();
+  const REVEAL_EXTS = new Set([
+    '.dmg', '.pkg', '.app', '.ipa', '.apk', '.aab',
+    '.exe', '.msi', '.msix', '.appx', '.appxbundle',
+    '.deb', '.rpm', '.snap',
+    '.zip', '.rar', '.7z', '.tar', '.gz', '.tgz', '.bz2', '.xz', '.zst',
+    '.iso', '.img', '.bin',
+    '.dll', '.so', '.dylib',
+    '.crx', '.xpi'
+  ]);
+  const OFFICE_EXTS = new Set(['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', '.rtf']);
+  const IN_APP_PREVIEW_EXTS = new Set([
+    '.html', '.htm', '.xhtml', '.shtml',
+    '.md', '.markdown', '.mdx', '.rst', '.adoc', '.org',
+    '.txt', '.text', '.log', '.out', '.err', '.nfo', '.asc', '.utf8',
+    '.csv', '.tsv', '.tab',
+    '.json', '.jsonc', '.jsonl', '.ndjson', '.geojson',
+    '.xml', '.svg', '.plist',
+    '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.cnf', '.properties', '.env', '.editorconfig',
+    '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.vue', '.svelte',
+    '.css', '.scss', '.less', '.sass', '.styl',
+    '.py', '.rb', '.go', '.rs', '.java', '.kt', '.kts', '.swift', '.scala', '.groovy',
+    '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh', '.m', '.mm', '.cs', '.fs', '.php', '.sql', '.lua', '.r', '.pl', '.pm',
+    '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
+    '.lock', '.gitignore', '.gitattributes', '.dockerignore', '.npmrc', '.nvmrc',
+    '.png', '.jpg', '.jpeg', '.jfif', '.gif', '.webp', '.bmp', '.ico', '.icns', '.avif', '.tif', '.tiff', '.heic', '.heif',
+    '.pdf',
+    '.mp3', '.wav', '.ogg', '.oga', '.flac', '.aac', '.m4a', '.opus',
+    '.mp4', '.m4v', '.webm', '.mov', '.ogv',
+    '.wasm', '.map', '.graphql', '.gql', '.proto', '.diff', '.patch'
+  ]);
+  const revealInFinder = () => {
+    try {
+      shell.showItemInFolder(target);
+      return { ok: true, action: 'reveal', path: target };
+    } catch (error) {
+      return { ok: false, error: error.message || '无法打开路径' };
+    }
+  };
+  // Bundles and installers: always reveal, including .app directories.
+  if (REVEAL_EXTS.has(ext) || REVEAL_EXTS.has(lastExt) || target.toLowerCase().endsWith('.app')) {
+    return revealInFinder();
+  }
+  if (stat.isDirectory()) return revealInFinder();
+  if (!stat.isFile()) return { ok: false, error: '不是文件' };
+  if (IN_APP_PREVIEW_EXTS.has(ext) || (!ext && stat.size <= 2 * 1024 * 1024)) {
+    return { ok: true, action: 'browser', url: pathToFileURL(target).href, path: target };
+  }
+  if (OFFICE_EXTS.has(ext)) {
+    const officecli = require('./lib/officecli-runtime');
+    try {
+      const executable = await officecli.ensureOfficeCli({ appRoot });
+      const outDir = path.join(os.tmpdir(), 'yan-office-preview');
+      fs.mkdirSync(outDir, { recursive: true });
+      const outFile = path.join(outDir, `${path.basename(target, ext)}.html`);
+      await new Promise((resolve, reject) => {
+        const child = spawn(executable, ['view', target, 'html', '-o', outFile], {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let stderr = '';
+        const timer = setTimeout(() => {
+          try { child.kill(); } catch {}
+          reject(new Error('Office 预览超时'));
+        }, 25000);
+        child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString('utf8')).slice(-8000); });
+        child.once('error', error => { clearTimeout(timer); reject(error); });
+        child.once('exit', code => {
+          clearTimeout(timer);
+          if (code === 0 && fs.existsSync(outFile)) resolve();
+          else reject(new Error(String(stderr || `OfficeCLI 退出 ${code}`).trim()));
+        });
+      });
+      return { ok: true, action: 'browser', url: pathToFileURL(outFile).href, path: target };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Office 内置预览失败' };
+    }
+  }
+  try {
+    shell.showItemInFolder(target);
+    return { ok: true, action: 'reveal', path: target };
+  } catch (error) {
+    return { ok: false, error: error.message || '无法打开路径' };
+  }
 });
 
 ipcMain.handle('vscode:status', async () => {
@@ -7713,12 +7825,17 @@ ipcMain.handle('vscode:launch', async (_e, { workspace = '' } = {}) => {
 
 ipcMain.handle('powershell:open-external', async (_e, { workspace = '' } = {}) => {
   const requested = String(workspace || '').trim();
-  let cwd = process.env.USERPROFILE || process.cwd();
+  let cwd = process.env.HOME || process.env.USERPROFILE || os.homedir() || process.cwd();
   try {
     if (requested && fs.statSync(requested).isDirectory()) cwd = path.resolve(requested);
   } catch { /* fall back to the user's home directory */ }
   try {
     const shellInfo = resolveWindowsPowerShell();
+    if (process.platform === 'darwin') {
+      const child = spawn('open', ['-a', 'Terminal', cwd], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return { ok: true, cwd, shell: 'Terminal', pid: child.pid };
+    }
     if (process.platform === 'win32') {
       const command = `Set-Location -LiteralPath ${JSON.stringify(cwd)}`;
       const encoded = Buffer.from(command, 'utf16le').toString('base64');
@@ -9968,7 +10085,7 @@ app.whenReady().then(async () => {
   }
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-    else applyLightWindowIcon(mainWindow);
+    else focusMainWindow();
   });
 });
 

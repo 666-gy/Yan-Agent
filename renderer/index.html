@@ -396,6 +396,7 @@
                 <i class="context-ring-marker" aria-hidden="true"></i>
               </div>
               <p id="contextRingHint" class="context-ring-hint">距离自动压缩还有 —</p>
+              <p id="contextRingCompressCount" class="context-ring-hint">已压缩 0 次</p>
                   <div class="context-ring-footer">
                     <p id="contextRingMeta" class="context-ring-meta">—</p>
                     <button id="contextCompressBtn" class="context-compress-btn" type="button" disabled>我来压缩</button>
@@ -688,8 +689,9 @@
 
         </div>
 
-          <section id="understandAnythingLayer" class="understand-anything-layer hidden" aria-label="Understand Anything">
+          <section id="understandAnythingLayer" class="understand-anything-layer hidden" aria-label="Understand Anything" aria-hidden="true">
             <iframe id="understandAnythingFrame" class="understand-anything-frame" title="Understand Anything 本地图谱" loading="eager"></iframe>
+            <div id="understandAnythingStatus" class="understand-anything-status" hidden></div>
           </section>
         </main>
 
@@ -1456,6 +1458,19 @@
                             <span class="conn-format-label">Responses</span>
                             <span class="conn-format-endpoint">/responses</span>
                           </button>
+                        </div>
+                        <div class="conn-stream-row">
+                          <p class="conn-page-sub">供应商流式。关闭后按非流式取完整回复，界面仍按一次回包显示。</p>
+                          <div id="connStreamGrid" class="conn-format-grid">
+                            <button type="button" class="conn-format-pill" data-stream="on">
+                              <span class="conn-format-label">开启流式</span>
+                              <span class="conn-format-endpoint">SSE / 边生成边显示</span>
+                            </button>
+                            <button type="button" class="conn-format-pill" data-stream="off">
+                              <span class="conn-format-label">关闭流式</span>
+                              <span class="conn-format-endpoint">一次返回完整正文</span>
+                            </button>
+                          </div>
                         </div>
                       </section>
                       <section class="conn-page" data-conn-page="4">

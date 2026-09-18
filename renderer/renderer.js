@@ -369,7 +369,8 @@ function syncInterjectionUi(options = {}) {
   }
   const input = $('#interjectionInput');
   if (input) {
-    input.disabled = !active || !!thread?.pending;
+    input.disabled = false;
+    input.readOnly = !active || !!thread?.pending;
     input.placeholder = active ? '询问状态，或引导 Agent 接下来的工作…' : '当前任务未在工作';
   }
   syncInterjectionSendButton(runCtx, thread);
@@ -3046,7 +3047,7 @@ function showMainPage(page) {
   $('#pagePhotoVideo')?.classList.toggle('hidden', page !== 'photo-video');
   if (page !== 'chat') closeTaskActionsMenu();
   closeBrowserPanel();
-  if (page !== 'chat') window.YanUnderstandAnything?.close();
+  if (page !== 'chat') window.YanUnderstandAnything?.close?.({ silent: true });
 
   if (page !== 'chat') closeRightSidebar();
 
@@ -3362,7 +3363,10 @@ async function showWindowView(view) {
     setLeftSidebarOpen(false);
     showMainPage('chat');
     await window.YanUnderstandAnything?.open?.(workspace);
-    if (currentWindowView !== 'project-map') return;
+    if (currentWindowView !== 'project-map') {
+      window.YanUnderstandAnything?.close?.({ silent: true });
+      return;
+    }
     if (!window.YanUnderstandAnything?.isOpen?.()) {
       currentWindowView = 'main';
       showMainPage('chat');
@@ -3374,6 +3378,7 @@ async function showWindowView(view) {
 
   if (currentWindowView === 'main') mainSidebarWasOpen = !$('#app').classList.contains('sidebar-hidden');
   currentWindowView = next;
+  window.YanUnderstandAnything?.close?.({ silent: true });
   if (next === 'work-gui') {
     syncSidebarAccessibility();
     setLeftSidebarOpen(false);
@@ -3383,7 +3388,6 @@ async function showWindowView(view) {
   }
 
   currentWindowView = 'main';
-  window.YanUnderstandAnything?.close?.();
   showMainPage('chat');
   setLeftSidebarOpen(mainSidebarWasOpen);
   syncSidebarAccessibility();
@@ -5659,6 +5663,8 @@ function measureComposerContentHeight() {
   const chrome = Math.max(0, editor.offsetHeight - input.clientHeight);
   const inner = composer.querySelector('.composer-inner');
   const innerChrome = inner ? Math.max(0, inner.offsetHeight - editor.offsetHeight) : 0;
+  const toolbar = composer.querySelector('.composer-toolbar-controls');
+  const toolbarChrome = toolbar ? toolbar.offsetHeight + 10 : 44;
   if (previous) composer.style.setProperty('--composer-height', previous);
   else composer.style.removeProperty('--composer-height');
   // Apply the restored height while the transition is still suspended. Without
@@ -5667,7 +5673,7 @@ function measureComposerContentHeight() {
   // (the composer "twitches" once it has grown).
   void composer.offsetHeight;
   composer.classList.remove('composer-measuring');
-  return content + chrome + innerChrome;
+  return content + chrome + innerChrome + toolbarChrome;
 }
 
 function autoGrow() {
@@ -5988,6 +5994,7 @@ function updateSendState(composerText = getComposerText()) {
   syncQueuedTurnUi();
   updatePromptOptimizerButton(composerText, hasText);
   syncBrowserFocusPromptStatus();
+  $('#app')?.classList.toggle('agent-busy', state.activeRuns.size > 0);
 }
 
 sendBtn.addEventListener('click', () => {
@@ -8428,7 +8435,7 @@ function applyOpenCodeNextReasoningDelta(runCtx, reasoningID, delta) {
 // Let the browser choose its native display cadence. Stream updates are
 // coalesced by requestAnimationFrame, while the incremental path below avoids
 // rebuilding the entire work drawer for every reasoning delta.
-const OPEN_CODE_RENDER_MIN_INTERVAL_MS = 0;
+const OPEN_CODE_RENDER_MIN_INTERVAL_MS = 50;
 
 function scheduleOpenCodeRender(runCtx, delay = 0) {
   if (runCtx.openCodeRenderTimer || runCtx.openCodeRenderFrame) return;
@@ -8799,6 +8806,12 @@ function mapOpenCodeEventToPet(event, runCtx) {
   if (event.type === 'yan.opencode.started') return { type: 'phase', message: '回包中' };
   if (event.type === 'yan.model.request.started') {
     return { type: 'phase', message: Number(data.requestIndex) > 1 ? '起飞中' : '回包中' };
+  }
+  if (event.type === 'yan.model.truncated') {
+    return { type: 'phase', message: '输出被截断，正在续写' };
+  }
+  if (event.type === 'yan.model.empty-output') {
+    return { type: 'phase', message: '空回复，正在续写' };
   }
   if (event.type === 'yan.opencode.reconnecting') {
     const attempt = Math.max(1, Number(data.attempt) || 1);
@@ -9396,6 +9409,16 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
   } else if (event.type === 'yan.model.retrying') {
     upsertOpenCodeTimeline(runCtx, `retry:${data.attempt}`, {
       type: 'progress', content: `上游流中断，正在自动重试（第 ${data.attempt} 次）：${stringifyOpenCodeValue(data.error)}`
+    });
+  } else if (event.type === 'yan.model.truncated') {
+    upsertOpenCodeTimeline(runCtx, `truncated:${data.attempt || 1}`, {
+      type: 'progress',
+      content: '模型输出在上限处被截断，正在自动续写最终回复'
+    });
+  } else if (event.type === 'yan.model.empty-output') {
+    upsertOpenCodeTimeline(runCtx, `empty-output:${data.attempt || 1}`, {
+      type: 'progress',
+      content: '模型正常结束但可见正文为空，正在自动续写最终回复'
     });
   } else if (event.type === 'yan.opencode.reconnecting') {
     const attempt = Math.max(1, Number(data.attempt) || 1);
@@ -12352,18 +12375,31 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
   if (item.type === 'thinking_group') {
     const items = Array.isArray(item.items) ? item.items : [];
     const placeholder = String(item.placeholder || '');
-    const signature = JSON.stringify({
-      items: items.map(entry => ({ content: String(entry?.content || ''), streaming: !!entry?.streaming })),
-      placeholder,
-      shine: item.shine !== false
-    });
-    if (previousState.signature !== signature || previousState.presentationMode !== presentationMode) {
+    const lines = gptThinkingLines(items);
+    const signature = `${lines.length}:${lines.map(line => line.text.length).join(',')}:${placeholder}:${item.shine !== false}`;
+    const lastText = lines.length ? lines[lines.length - 1].text : placeholder;
+    const body = element.querySelector('.gpt-thinking-chain-body');
+    if (previousState.signature === signature && body && previousState.lastText !== lastText) {
+      const rows = body.querySelectorAll('.gpt-thinking-line');
+      const lastRow = rows[rows.length - 1];
+      if (lastRow) lastRow.textContent = lastText;
+      agentElementRenderState.set(element, { signature, presentationMode, lastText });
+      return;
+    }
+    if (previousState.signature !== signature || previousState.presentationMode !== presentationMode || !body) {
       element.className = 'gpt-thinking-chain';
       element.setAttribute('role', 'status');
       element.setAttribute('aria-live', 'polite');
-      element.replaceChildren(...Array.from(buildGptThinkingElement(items, placeholder, item.shine !== false).children));
+      const next = buildGptThinkingElement(items, placeholder, item.shine !== false);
+      const orb = element.querySelector('.thinking-orb');
+      const nextBody = next.querySelector('.gpt-thinking-chain-body');
+      if (orb && nextBody) {
+        element.querySelector('.gpt-thinking-chain-body')?.replaceWith(nextBody);
+      } else {
+        element.replaceChildren(...Array.from(next.children));
+      }
     }
-    agentElementRenderState.set(element, { signature, presentationMode });
+    agentElementRenderState.set(element, { signature, presentationMode, lastText });
     return;
   }
 
@@ -14768,6 +14804,11 @@ function updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, m
   }
   const metaEl = $('#contextRingMeta');
   if (metaEl) metaEl.textContent = [meta.modelName, meta.statusLabel].filter(Boolean).join(' · ') || '—';
+  const countEl = $('#contextRingCompressCount');
+  if (countEl) {
+    const count = Math.max(0, Number(meta.compressionCount) || 0);
+    countEl.textContent = `已压缩 ${count} 次`;
+  }
   updateContextCompressButton();
 }
 
@@ -14863,7 +14904,11 @@ function updateContextInfo(as, session = state.currentSession) {
   );
   const hardAt = positiveContextTokens(resolvedBudget.compressHardThreshold) || maxTokens;
   const budgetState = tokens >= hardAt ? 'critical' : (tokens >= compressAt ? 'warn' : 'normal');
-  updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, { modelName, statusLabel });
+  const compressionCount = Math.max(
+    Number(session?.contextCompressionCount) || 0,
+    Number(activeRunCtx?.contextCompressionCount) || 0
+  );
+  updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, { modelName, statusLabel, compressionCount });
 }
 
 let rsRefreshTimer = null;
@@ -18122,6 +18167,20 @@ document.addEventListener('click', event => {
       openAttachmentPreview({ path: imagePath, name: '' });
       return;
     }
+    const localPath = filePathFromAgentUrl(targetUrl);
+    if (localPath && api.previewLocalFile) {
+      event.preventDefault();
+      event.stopPropagation();
+      void api.previewLocalFile(localPath).then(result => {
+        if (!result?.ok) {
+          toast(result?.error || '无法打开路径');
+          return;
+        }
+        if (result.action === 'browser' && result.url && openBrowserUrlInNewTab(result.url)) return;
+        if (result.warning) toast(result.warning);
+      }).catch(error => toast(error.message || '无法打开路径'));
+      return;
+    }
     if (openBrowserUrlInNewTab(targetUrl)) {
       event.preventDefault();
       event.stopPropagation();
@@ -18414,8 +18473,13 @@ const ABOUT_ERROR_PAGES = Object.freeze([
   },
   {
     title: 'OpenCode completed without a final user-facing answer.',
-    description: '有 assistant 消息，但没有可展示的最终文本',
-    answer: 'A：此为偶发性问题，请尝试重新发送prompt'
+    description: '有 assistant 消息，但没有可展示的最终文本（finish=stop/other/缺 finish，正文空白或只有 thinking）',
+    answer: 'A：Yan 会自动续写一次。仍失败时换模型或降低推理强度；中转可能把推理吞掉只回一个空格'
+  },
+  {
+    title: 'Model output was truncated by max_output_tokens before a user-facing answer.',
+    description: '推理模型在输出上限处结束，可见正文为空（常见于 GPT-5.6 Terra / Responses）',
+    answer: 'A：Yan 会自动续写一次。仍失败时降低推理强度，或检查中转是否丢了 reasoning/正文'
   },
   {
     title: 'Unknown certificate verification error.',
@@ -20409,7 +20473,7 @@ function updateConnectionEyeButton(visible = false) {
 }
 
 const MASKED_API_KEY = '••••••';
-let connectionDraft = { preset: 'auto', apiFormat: 'auto', page: 0 };
+let connectionDraft = { preset: 'auto', apiFormat: 'auto', streamEnabled: true, page: 0 };
 let connectionDraftApiKey = '';
 let connectionDraftModelCount = 0;
 const CONN_PAGE_COUNT = 11;
@@ -20491,6 +20555,7 @@ function renderConnSummary() {
     ['名称', form.name || '（未填写）'],
     ['预设', presetLabel],
     ['格式', CONNECTION_FORMAT_LABELS[form.apiFormat] || CONNECTION_FORMAT_LABELS.auto],
+    ['流式', form.streamEnabled === false ? '关闭' : '开启'],
     ['BASE URL', form.baseUrl || '（未填写）'],
     ['API KEY', connectionEditing?.apiKeyConfigured && !form.apiKey ? '已保存（保留）' : (form.apiKey ? '已填写' : '（未填写）')],
     ['生图 POST', form.imageGenerationUrl || '自动推导'],
@@ -20528,8 +20593,10 @@ async function openConnectionDialog(connectionId = '') {
   $('#connManualModel').value = connectionEditing?.manualModelId || '';
   connectionDraft.preset = connectionEditing?.presetManual ? (connectionEditing.preset || 'auto') : 'auto';
   connectionDraft.apiFormat = connectionEditing?.apiFormat || 'auto';
+  connectionDraft.streamEnabled = connectionEditing?.streamEnabled !== false;
   syncConnPresetPills();
   syncConnFormatPills();
+  syncConnStreamPills();
   renderConnectionModels(connectionEditing?.models || [], connectionEditing?.modelCount || 0);
   setConnPage(0);
   if (!dialog.open) dialog.showModal();
@@ -20544,6 +20611,13 @@ function syncConnPresetPills() {
 function syncConnFormatPills() {
   document.querySelectorAll('#connFormatGrid .conn-format-pill').forEach(button => {
     button.classList.toggle('active', button.dataset.format === connectionDraft.apiFormat);
+  });
+}
+
+function syncConnStreamPills() {
+  const enabled = connectionDraft.streamEnabled !== false;
+  document.querySelectorAll('#connStreamGrid .conn-format-pill').forEach(button => {
+    button.classList.toggle('active', enabled ? button.dataset.stream === 'on' : button.dataset.stream === 'off');
   });
 }
 
@@ -20562,6 +20636,7 @@ function collectConnectionForm() {
     videoGenerationUrl: $('#connVideoPost')?.value?.trim() || '',
     preset: connectionDraft.preset || 'auto',
     apiFormat: connectionDraft.apiFormat || 'auto',
+    streamEnabled: connectionDraft.streamEnabled !== false,
     manualModelId: $('#connManualModel')?.value?.trim() || ''
   };
 }
@@ -20636,6 +20711,13 @@ $('#connFormatGrid')?.addEventListener('click', event => {
   if (!pill) return;
   connectionDraft.apiFormat = String(pill.dataset.format || 'auto');
   syncConnFormatPills();
+  if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
+});
+$('#connStreamGrid')?.addEventListener('click', event => {
+  const pill = event.target.closest('.conn-format-pill');
+  if (!pill) return;
+  connectionDraft.streamEnabled = pill.dataset.stream !== 'off';
+  syncConnStreamPills();
   if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
 });
 $('#connPrev')?.addEventListener('click', () => setConnPage(connectionDraft.page - 1));
@@ -22737,13 +22819,39 @@ function renderMarkdownTables(t) {
 }
 
 const AGENT_URL_PATTERN = /(?:https?:\/\/|file:\/\/|www\.)[^\s<>"'`]+/gi;
-const AGENT_MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+)\]\(\s*((?:https?:\/\/|file:\/\/|www\.)[^\s<>"')]+)\s*\)/gi;
+const AGENT_MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+)\]\(\s*((?:https?:\/\/|file:\/\/|www\.|(?:[A-Za-z]:)?[\\/])[^\s<>"')]+)\s*\)/gi;
 const AGENT_MARKDOWN_IMAGE_PATTERN = /!\[([^\]\r\n]*)\]\(\s*([^\s<>"')]+)\s*\)/gi;
+const AGENT_LOCAL_PATH_PATTERN = /(?:[A-Za-z]:[\\/]|\/Users\/|\/home\/|\/opt\/|\/tmp\/|\/var\/|\\\\)[^\s<>"'`)\]]+/g;
+
+function localPathToFileUrl(value) {
+  const source = trimAgentUrlCandidate(value);
+  if (!source) return '';
+  if (/^file:/i.test(source)) return source;
+  const normalized = source.replace(/\\/g, '/');
+  if (/^[A-Za-z]:\//.test(normalized)) return `file:///${normalized}`;
+  if (normalized.startsWith('//')) return `file:${normalized}`;
+  if (normalized.startsWith('/')) return `file://${normalized}`;
+  return '';
+}
+
+function filePathFromAgentUrl(value) {
+  const url = String(value || '').trim();
+  if (/^file:/i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      return decodeURIComponent(parsed.pathname).replace(/^\/([A-Za-z]:)/, '$1');
+    } catch { return ''; }
+  }
+  if (/^(?:[A-Za-z]:[\\/]|\/|\\\\)/.test(url)) return url;
+  return '';
+}
 
 function normalizeAgentUrl(value) {
   let url = trimAgentUrlCandidate(value);
   if (!url) return '';
   if (/^www\./i.test(url)) url = `https://${url}`;
+  const local = localPathToFileUrl(url);
+  if (local) url = local;
   if (!/^(?:https?|file):/i.test(url)) return '';
   try {
     const protocol = new URL(url).protocol.toLowerCase();
@@ -22878,6 +22986,11 @@ function renderMarkdown(text) {
   // Preserve explicit Markdown links before auto-linking bare URLs.
   t = t.replace(AGENT_MARKDOWN_LINK_PATTERN, (match, label, url) => saveAgentLink(label, url) || match);
   t = t.replace(AGENT_URL_PATTERN, match => {
+    const source = trimAgentUrlCandidate(match);
+    const token = saveAgentLink(source, source);
+    return token ? token + match.slice(source.length) : match;
+  });
+  t = t.replace(AGENT_LOCAL_PATH_PATTERN, match => {
     const source = trimAgentUrlCandidate(match);
     const token = saveAgentLink(source, source);
     return token ? token + match.slice(source.length) : match;
@@ -24380,17 +24493,35 @@ function createBrowserTabController(tab) {
     }
   };
 
-  root.querySelector('[data-browser-action="go"]')?.addEventListener('click', () => {
-    const target = controller.addressDraft || urlInput.value;
+  const goFromAddressBar = () => {
+    const displayed = String(urlInput.value || '').trim();
+    const fullUrl = getBrowserDisplayUrl(controller.currentUrl);
+    // Compact address (filename / host only) must not be treated as a new
+    // navigation target. Local files reveal in Finder; otherwise keep the tab.
+    const looksCompact = displayed
+      && displayed !== fullUrl
+      && !/^https?:\/\//i.test(displayed)
+      && !/^file:\/\//i.test(displayed)
+      && !displayed.startsWith('/');
+    const target = looksCompact ? fullUrl : (controller.addressDraft || displayed || fullUrl);
     controller.addressEditing = false;
+    if (/^file:/i.test(target) || /^(?:[A-Za-z]:[\\/]|\/)/.test(target)) {
+      const localPath = filePathFromAgentUrl(target) || target;
+      if (localPath && api.previewLocalFile) {
+        void api.previewLocalFile(localPath).then(result => {
+          if (!result?.ok) toast(result?.error || '无法打开路径');
+        }).catch(error => toast(error.message || '无法打开路径'));
+        return;
+      }
+    }
     controller.navigate(target, { waitForLoad: true }).catch(error => toast(`网页加载失败：${error.message}`));
-  });
+  };
+  root.querySelector('[data-browser-action="go"]')?.addEventListener('click', goFromAddressBar);
   urlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      const target = controller.addressDraft || urlInput.value;
-      controller.addressEditing = false;
+      e.preventDefault();
       urlInput.blur();
-      controller.navigate(target, { waitForLoad: true }).catch(error => toast(`网页加载失败：${error.message}`));
+      goFromAddressBar();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       urlInput.blur();
@@ -24607,4 +24738,5 @@ window.YanPalaceSubmit = async function ({ prompt, workspace = '', model } = {})
     return { ok: false, error: error.message };
   } finally { palaceSubmissionPending = false; }
 };
+if (navigator.userAgent.includes('Mac')) document.body.classList.add('is-mac');
 window.addEventListener('DOMContentLoaded', init);
