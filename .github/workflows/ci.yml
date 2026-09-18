@@ -7,14 +7,15 @@ on:
 
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # Native builds (node-pty, Electron binaries) are not needed for the
-      # unit suite; skip lifecycle scripts to keep CI fast and hermetic.
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      # The application includes Windows-only runtime dependencies. Test on
+      # the supported OS and install the exact committed dependency graph.
+      # Unit tests do not need Electron downloads or native lifecycle builds.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
