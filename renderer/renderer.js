@@ -369,7 +369,8 @@ function syncInterjectionUi(options = {}) {
   }
   const input = $('#interjectionInput');
   if (input) {
-    input.disabled = !active || !!thread?.pending;
+    input.disabled = false;
+    input.readOnly = !active || !!thread?.pending;
     input.placeholder = active ? '询问状态，或引导 Agent 接下来的工作…' : '当前任务未在工作';
   }
   syncInterjectionSendButton(runCtx, thread);
@@ -3046,7 +3047,7 @@ function showMainPage(page) {
   $('#pagePhotoVideo')?.classList.toggle('hidden', page !== 'photo-video');
   if (page !== 'chat') closeTaskActionsMenu();
   closeBrowserPanel();
-  if (page !== 'chat') window.YanUnderstandAnything?.close();
+  if (page !== 'chat') window.YanUnderstandAnything?.close?.({ silent: true });
 
   if (page !== 'chat') closeRightSidebar();
 
@@ -3362,7 +3363,10 @@ async function showWindowView(view) {
     setLeftSidebarOpen(false);
     showMainPage('chat');
     await window.YanUnderstandAnything?.open?.(workspace);
-    if (currentWindowView !== 'project-map') return;
+    if (currentWindowView !== 'project-map') {
+      window.YanUnderstandAnything?.close?.({ silent: true });
+      return;
+    }
     if (!window.YanUnderstandAnything?.isOpen?.()) {
       currentWindowView = 'main';
       showMainPage('chat');
@@ -3374,6 +3378,7 @@ async function showWindowView(view) {
 
   if (currentWindowView === 'main') mainSidebarWasOpen = !$('#app').classList.contains('sidebar-hidden');
   currentWindowView = next;
+  window.YanUnderstandAnything?.close?.({ silent: true });
   if (next === 'work-gui') {
     syncSidebarAccessibility();
     setLeftSidebarOpen(false);
@@ -3383,7 +3388,6 @@ async function showWindowView(view) {
   }
 
   currentWindowView = 'main';
-  window.YanUnderstandAnything?.close?.();
   showMainPage('chat');
   setLeftSidebarOpen(mainSidebarWasOpen);
   syncSidebarAccessibility();
@@ -5659,6 +5663,8 @@ function measureComposerContentHeight() {
   const chrome = Math.max(0, editor.offsetHeight - input.clientHeight);
   const inner = composer.querySelector('.composer-inner');
   const innerChrome = inner ? Math.max(0, inner.offsetHeight - editor.offsetHeight) : 0;
+  const toolbar = composer.querySelector('.composer-toolbar-controls');
+  const toolbarChrome = toolbar ? toolbar.offsetHeight + 10 : 44;
   if (previous) composer.style.setProperty('--composer-height', previous);
   else composer.style.removeProperty('--composer-height');
   // Apply the restored height while the transition is still suspended. Without
@@ -5667,7 +5673,7 @@ function measureComposerContentHeight() {
   // (the composer "twitches" once it has grown).
   void composer.offsetHeight;
   composer.classList.remove('composer-measuring');
-  return content + chrome + innerChrome;
+  return content + chrome + innerChrome + toolbarChrome;
 }
 
 function autoGrow() {
@@ -5988,6 +5994,7 @@ function updateSendState(composerText = getComposerText()) {
   syncQueuedTurnUi();
   updatePromptOptimizerButton(composerText, hasText);
   syncBrowserFocusPromptStatus();
+  $('#app')?.classList.toggle('agent-busy', state.activeRuns.size > 0);
 }
 
 sendBtn.addEventListener('click', () => {
@@ -8428,7 +8435,7 @@ function applyOpenCodeNextReasoningDelta(runCtx, reasoningID, delta) {
 // Let the browser choose its native display cadence. Stream updates are
 // coalesced by requestAnimationFrame, while the incremental path below avoids
 // rebuilding the entire work drawer for every reasoning delta.
-const OPEN_CODE_RENDER_MIN_INTERVAL_MS = 0;
+const OPEN_CODE_RENDER_MIN_INTERVAL_MS = 50;
 
 function scheduleOpenCodeRender(runCtx, delay = 0) {
   if (runCtx.openCodeRenderTimer || runCtx.openCodeRenderFrame) return;
@@ -12352,18 +12359,31 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
   if (item.type === 'thinking_group') {
     const items = Array.isArray(item.items) ? item.items : [];
     const placeholder = String(item.placeholder || '');
-    const signature = JSON.stringify({
-      items: items.map(entry => ({ content: String(entry?.content || ''), streaming: !!entry?.streaming })),
-      placeholder,
-      shine: item.shine !== false
-    });
-    if (previousState.signature !== signature || previousState.presentationMode !== presentationMode) {
+    const lines = gptThinkingLines(items);
+    const signature = `${lines.length}:${lines.map(line => line.text.length).join(',')}:${placeholder}:${item.shine !== false}`;
+    const lastText = lines.length ? lines[lines.length - 1].text : placeholder;
+    const body = element.querySelector('.gpt-thinking-chain-body');
+    if (previousState.signature === signature && body && previousState.lastText !== lastText) {
+      const rows = body.querySelectorAll('.gpt-thinking-line');
+      const lastRow = rows[rows.length - 1];
+      if (lastRow) lastRow.textContent = lastText;
+      agentElementRenderState.set(element, { signature, presentationMode, lastText });
+      return;
+    }
+    if (previousState.signature !== signature || previousState.presentationMode !== presentationMode || !body) {
       element.className = 'gpt-thinking-chain';
       element.setAttribute('role', 'status');
       element.setAttribute('aria-live', 'polite');
-      element.replaceChildren(...Array.from(buildGptThinkingElement(items, placeholder, item.shine !== false).children));
+      const next = buildGptThinkingElement(items, placeholder, item.shine !== false);
+      const orb = element.querySelector('.thinking-orb');
+      const nextBody = next.querySelector('.gpt-thinking-chain-body');
+      if (orb && nextBody) {
+        element.querySelector('.gpt-thinking-chain-body')?.replaceWith(nextBody);
+      } else {
+        element.replaceChildren(...Array.from(next.children));
+      }
     }
-    agentElementRenderState.set(element, { signature, presentationMode });
+    agentElementRenderState.set(element, { signature, presentationMode, lastText });
     return;
   }
 
@@ -14768,6 +14788,11 @@ function updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, m
   }
   const metaEl = $('#contextRingMeta');
   if (metaEl) metaEl.textContent = [meta.modelName, meta.statusLabel].filter(Boolean).join(' · ') || '—';
+  const countEl = $('#contextRingCompressCount');
+  if (countEl) {
+    const count = Math.max(0, Number(meta.compressionCount) || 0);
+    countEl.textContent = `已压缩 ${count} 次`;
+  }
   updateContextCompressButton();
 }
 
@@ -14863,7 +14888,11 @@ function updateContextInfo(as, session = state.currentSession) {
   );
   const hardAt = positiveContextTokens(resolvedBudget.compressHardThreshold) || maxTokens;
   const budgetState = tokens >= hardAt ? 'critical' : (tokens >= compressAt ? 'warn' : 'normal');
-  updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, { modelName, statusLabel });
+  const compressionCount = Math.max(
+    Number(session?.contextCompressionCount) || 0,
+    Number(activeRunCtx?.contextCompressionCount) || 0
+  );
+  updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, { modelName, statusLabel, compressionCount });
 }
 
 let rsRefreshTimer = null;
@@ -24607,4 +24636,5 @@ window.YanPalaceSubmit = async function ({ prompt, workspace = '', model } = {})
     return { ok: false, error: error.message };
   } finally { palaceSubmissionPending = false; }
 };
+if (navigator.userAgent.includes('Mac')) document.body.classList.add('is-mac');
 window.addEventListener('DOMContentLoaded', init);
