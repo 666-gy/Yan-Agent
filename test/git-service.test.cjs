@@ -290,6 +290,8 @@ test('status derives branch facts from the porcelain header', async t => {
   const twin = path.join(root, 'twin');
   execFileSync('git', ['--git-dir', remote, 'symbolic-ref', 'HEAD', 'refs/heads/main'], { windowsHide: true });
   execFileSync('git', ['clone', '--quiet', remote, twin], { windowsHide: true });
+  execFileSync('git', ['-C', twin, 'config', 'user.name', 'Yan Test'], { windowsHide: true });
+  execFileSync('git', ['-C', twin, 'config', 'user.email', 'yan@example.com'], { windowsHide: true });
   execFileSync('git', ['-C', twin, 'commit', '--allow-empty', '-m', 'Twin side'], { windowsHide: true });
   execFileSync('git', ['-C', twin, 'push', '--quiet'], { windowsHide: true });
   status = await git.fetchRemote(repo);

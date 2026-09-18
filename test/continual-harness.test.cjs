@@ -181,8 +181,9 @@ test('evolution context stays inside its character budget', async t => {
   ] }, { scope: 'global' });
   const selection = item.store.evolutionContext({ query: '数据库迁移', maxChars: 1_000, maxEntries: 6 });
   assert.ok(selection.text.length <= 1_000);
-  assert.match(selection.text, /global:long-a/);
-  assert.doesNotMatch(selection.text, /global:long-b/);
+  // Equally relevant entries can differ in recency by a millisecond. This
+  // test checks the budget, not which tied entry happens to be newest.
+  assert.equal((selection.text.match(/global:long-[ab]/g) || []).length, 1);
 });
 
 function createMemory(id, content, metadata = {}) {
