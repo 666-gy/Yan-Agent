@@ -44,7 +44,7 @@ def main():
 
     passed, failed = 0, []
     for sample in samples:
-        command = shlex.split(args.command.format(sample=str(sample)))
+        command = shlex.split(args.command.format(sample=shlex.quote(str(sample))))
         try:
             result = subprocess.run(command, capture_output=True, timeout=args.timeout)
             ok = result.returncode == 0
