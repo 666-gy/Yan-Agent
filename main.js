@@ -2211,7 +2211,8 @@ function registerConnectionProvider(cfg, connection) {
     connection: true,
     custom: !!manualModelId,
     preset,
-    apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl)
+    apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl),
+    streamEnabled: connection.streamEnabled !== false
   };
 }
 
@@ -3071,6 +3072,7 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
   const selection = normalizeAgentModelSelection(cfg);
   const providerId = selection.providerId || cfg.api?.provider;
   const provider = MODEL_PROVIDERS[providerId] || { id: providerId, name: providerId };
+  const connectionRecord = (cfg.api?.connections || []).find(item => item.providerId === providerId) || {};
   const connection = getProviderConnectionForSupplier(cfg, providerId, selection.supplierId);
   const model = getProviderModels(cfg, providerId, selection.supplierId).find(item => item.id === selection.modelId) || selection;
   return buildOpenCodeConfig({
@@ -3084,6 +3086,7 @@ function getOpenCodeRuntimeConfig(cfg = loadConfig(), options = {}) {
     apiKey: connection.apiKey,
     baseUrl: connection.baseUrl,
     apiFormat: provider.apiFormat || 'openai',
+    streamEnabled: (connectionRecord.streamEnabled ?? provider.streamEnabled) !== false,
     // Explicit DSML signal for user connections whose preset resolved to
     // deepseek; the sidecar keeps its own name/model inference as fallback.
     dsml: providerAdapterPreset(cfg, providerId) === 'deepseek' ? true : undefined,
@@ -5720,6 +5723,7 @@ function connectionSummary(cfg, connection) {
     preset,
     presetManual: connection.preset && connection.preset !== 'auto',
     apiFormat: resolveConnectionApiFormat(connection, name, supplier.baseUrl),
+    streamEnabled: connection.streamEnabled !== false,
     manualModelId: String(connection.manualModelId || '').trim(),
     modelCount: catalog.modelCount,
     supplementalModelCount: catalog.supplementalModelCount,
@@ -5797,6 +5801,7 @@ ipcMain.handle('connections:save', async (_e, payload = {}) => {
       supplierId: 'official',
       preset,
       apiFormat,
+      streamEnabled: payload.streamEnabled !== false,
       manualModelId,
       createdAt: Date.now()
     };
@@ -5818,6 +5823,7 @@ ipcMain.handle('connections:save', async (_e, payload = {}) => {
   }
   connection.preset = preset;
   connection.apiFormat = apiFormat;
+  connection.streamEnabled = payload.streamEnabled !== false;
   connection.manualModelId = manualModelId;
   const supplier = cfg.api.providerSuppliers[connection.providerId]?.find(item => item.id === connection.supplierId);
   if (supplier) supplier.name = name;

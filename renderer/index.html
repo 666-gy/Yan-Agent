@@ -1459,6 +1459,19 @@
                             <span class="conn-format-endpoint">/responses</span>
                           </button>
                         </div>
+                        <div class="conn-stream-row">
+                          <p class="conn-page-sub">供应商流式。关闭后按非流式取完整回复，界面仍按一次回包显示。</p>
+                          <div id="connStreamGrid" class="conn-format-grid">
+                            <button type="button" class="conn-format-pill" data-stream="on">
+                              <span class="conn-format-label">开启流式</span>
+                              <span class="conn-format-endpoint">SSE / 边生成边显示</span>
+                            </button>
+                            <button type="button" class="conn-format-pill" data-stream="off">
+                              <span class="conn-format-label">关闭流式</span>
+                              <span class="conn-format-endpoint">一次返回完整正文</span>
+                            </button>
+                          </div>
+                        </div>
                       </section>
                       <section class="conn-page" data-conn-page="4">
                         <h4 class="conn-page-title">API Key</h4>

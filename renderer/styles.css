@@ -8682,6 +8682,7 @@ select.input { cursor: pointer; }
 .conn-format-label { font-size: 12.5px; font-weight: 650; }
 .conn-format-endpoint { font-size: 11px; opacity: .65; letter-spacing: .01em; }
 .conn-format-pill.active .conn-format-endpoint { opacity: .8; }
+.conn-stream-row { margin-top: 14px; }
 .conn-key-row { max-width: 100%; }
 .conn-pill-inline { margin-top: 4px; }
 .conn-models { margin-top: 6px; }

@@ -168,6 +168,7 @@ contextBridge.exposeInMainWorld('yan', {
   openGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-open', assetId),
   previewImageFile: (filePath) => ipcRenderer.invoke('image:file-open', filePath),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
+  previewLocalFile: (filePath) => ipcRenderer.invoke('file:preview-local', filePath),
 
   // Text-to-speech (Edge neural voices, read replies aloud)
   ttsSynthesize: (payload) => ipcRenderer.invoke('tts:synth', payload || {}),

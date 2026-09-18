@@ -18167,6 +18167,20 @@ document.addEventListener('click', event => {
       openAttachmentPreview({ path: imagePath, name: '' });
       return;
     }
+    const localPath = filePathFromAgentUrl(targetUrl);
+    if (localPath && api.previewLocalFile) {
+      event.preventDefault();
+      event.stopPropagation();
+      void api.previewLocalFile(localPath).then(result => {
+        if (!result?.ok) {
+          toast(result?.error || '无法打开路径');
+          return;
+        }
+        if (result.action === 'browser' && result.url && openBrowserUrlInNewTab(result.url)) return;
+        if (result.warning) toast(result.warning);
+      }).catch(error => toast(error.message || '无法打开路径'));
+      return;
+    }
     if (openBrowserUrlInNewTab(targetUrl)) {
       event.preventDefault();
       event.stopPropagation();
@@ -20459,7 +20473,7 @@ function updateConnectionEyeButton(visible = false) {
 }
 
 const MASKED_API_KEY = '••••••';
-let connectionDraft = { preset: 'auto', apiFormat: 'auto', page: 0 };
+let connectionDraft = { preset: 'auto', apiFormat: 'auto', streamEnabled: true, page: 0 };
 let connectionDraftApiKey = '';
 let connectionDraftModelCount = 0;
 const CONN_PAGE_COUNT = 11;
@@ -20541,6 +20555,7 @@ function renderConnSummary() {
     ['名称', form.name || '（未填写）'],
     ['预设', presetLabel],
     ['格式', CONNECTION_FORMAT_LABELS[form.apiFormat] || CONNECTION_FORMAT_LABELS.auto],
+    ['流式', form.streamEnabled === false ? '关闭' : '开启'],
     ['BASE URL', form.baseUrl || '（未填写）'],
     ['API KEY', connectionEditing?.apiKeyConfigured && !form.apiKey ? '已保存（保留）' : (form.apiKey ? '已填写' : '（未填写）')],
     ['生图 POST', form.imageGenerationUrl || '自动推导'],
@@ -20578,8 +20593,10 @@ async function openConnectionDialog(connectionId = '') {
   $('#connManualModel').value = connectionEditing?.manualModelId || '';
   connectionDraft.preset = connectionEditing?.presetManual ? (connectionEditing.preset || 'auto') : 'auto';
   connectionDraft.apiFormat = connectionEditing?.apiFormat || 'auto';
+  connectionDraft.streamEnabled = connectionEditing?.streamEnabled !== false;
   syncConnPresetPills();
   syncConnFormatPills();
+  syncConnStreamPills();
   renderConnectionModels(connectionEditing?.models || [], connectionEditing?.modelCount || 0);
   setConnPage(0);
   if (!dialog.open) dialog.showModal();
@@ -20594,6 +20611,13 @@ function syncConnPresetPills() {
 function syncConnFormatPills() {
   document.querySelectorAll('#connFormatGrid .conn-format-pill').forEach(button => {
     button.classList.toggle('active', button.dataset.format === connectionDraft.apiFormat);
+  });
+}
+
+function syncConnStreamPills() {
+  const enabled = connectionDraft.streamEnabled !== false;
+  document.querySelectorAll('#connStreamGrid .conn-format-pill').forEach(button => {
+    button.classList.toggle('active', enabled ? button.dataset.stream === 'on' : button.dataset.stream === 'off');
   });
 }
 
@@ -20612,6 +20636,7 @@ function collectConnectionForm() {
     videoGenerationUrl: $('#connVideoPost')?.value?.trim() || '',
     preset: connectionDraft.preset || 'auto',
     apiFormat: connectionDraft.apiFormat || 'auto',
+    streamEnabled: connectionDraft.streamEnabled !== false,
     manualModelId: $('#connManualModel')?.value?.trim() || ''
   };
 }
@@ -20686,6 +20711,13 @@ $('#connFormatGrid')?.addEventListener('click', event => {
   if (!pill) return;
   connectionDraft.apiFormat = String(pill.dataset.format || 'auto');
   syncConnFormatPills();
+  if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
+});
+$('#connStreamGrid')?.addEventListener('click', event => {
+  const pill = event.target.closest('.conn-format-pill');
+  if (!pill) return;
+  connectionDraft.streamEnabled = pill.dataset.stream !== 'off';
+  syncConnStreamPills();
   if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
 });
 $('#connPrev')?.addEventListener('click', () => setConnPage(connectionDraft.page - 1));
@@ -22787,13 +22819,39 @@ function renderMarkdownTables(t) {
 }
 
 const AGENT_URL_PATTERN = /(?:https?:\/\/|file:\/\/|www\.)[^\s<>"'`]+/gi;
-const AGENT_MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+)\]\(\s*((?:https?:\/\/|file:\/\/|www\.)[^\s<>"')]+)\s*\)/gi;
+const AGENT_MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+)\]\(\s*((?:https?:\/\/|file:\/\/|www\.|(?:[A-Za-z]:)?[\\/])[^\s<>"')]+)\s*\)/gi;
 const AGENT_MARKDOWN_IMAGE_PATTERN = /!\[([^\]\r\n]*)\]\(\s*([^\s<>"')]+)\s*\)/gi;
+const AGENT_LOCAL_PATH_PATTERN = /(?:[A-Za-z]:[\\/]|\/Users\/|\/home\/|\/opt\/|\/tmp\/|\/var\/|\\\\)[^\s<>"'`)\]]+/g;
+
+function localPathToFileUrl(value) {
+  const source = trimAgentUrlCandidate(value);
+  if (!source) return '';
+  if (/^file:/i.test(source)) return source;
+  const normalized = source.replace(/\\/g, '/');
+  if (/^[A-Za-z]:\//.test(normalized)) return `file:///${normalized}`;
+  if (normalized.startsWith('//')) return `file:${normalized}`;
+  if (normalized.startsWith('/')) return `file://${normalized}`;
+  return '';
+}
+
+function filePathFromAgentUrl(value) {
+  const url = String(value || '').trim();
+  if (/^file:/i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      return decodeURIComponent(parsed.pathname).replace(/^\/([A-Za-z]:)/, '$1');
+    } catch { return ''; }
+  }
+  if (/^(?:[A-Za-z]:[\\/]|\/|\\\\)/.test(url)) return url;
+  return '';
+}
 
 function normalizeAgentUrl(value) {
   let url = trimAgentUrlCandidate(value);
   if (!url) return '';
   if (/^www\./i.test(url)) url = `https://${url}`;
+  const local = localPathToFileUrl(url);
+  if (local) url = local;
   if (!/^(?:https?|file):/i.test(url)) return '';
   try {
     const protocol = new URL(url).protocol.toLowerCase();
@@ -22928,6 +22986,11 @@ function renderMarkdown(text) {
   // Preserve explicit Markdown links before auto-linking bare URLs.
   t = t.replace(AGENT_MARKDOWN_LINK_PATTERN, (match, label, url) => saveAgentLink(label, url) || match);
   t = t.replace(AGENT_URL_PATTERN, match => {
+    const source = trimAgentUrlCandidate(match);
+    const token = saveAgentLink(source, source);
+    return token ? token + match.slice(source.length) : match;
+  });
+  t = t.replace(AGENT_LOCAL_PATH_PATTERN, match => {
     const source = trimAgentUrlCandidate(match);
     const token = saveAgentLink(source, source);
     return token ? token + match.slice(source.length) : match;
@@ -24430,17 +24493,35 @@ function createBrowserTabController(tab) {
     }
   };
 
-  root.querySelector('[data-browser-action="go"]')?.addEventListener('click', () => {
-    const target = controller.addressDraft || urlInput.value;
+  const goFromAddressBar = () => {
+    const displayed = String(urlInput.value || '').trim();
+    const fullUrl = getBrowserDisplayUrl(controller.currentUrl);
+    // Compact address (filename / host only) must not be treated as a new
+    // navigation target. Local files reveal in Finder; otherwise keep the tab.
+    const looksCompact = displayed
+      && displayed !== fullUrl
+      && !/^https?:\/\//i.test(displayed)
+      && !/^file:\/\//i.test(displayed)
+      && !displayed.startsWith('/');
+    const target = looksCompact ? fullUrl : (controller.addressDraft || displayed || fullUrl);
     controller.addressEditing = false;
+    if (/^file:/i.test(target) || /^(?:[A-Za-z]:[\\/]|\/)/.test(target)) {
+      const localPath = filePathFromAgentUrl(target) || target;
+      if (localPath && api.previewLocalFile) {
+        void api.previewLocalFile(localPath).then(result => {
+          if (!result?.ok) toast(result?.error || '无法打开路径');
+        }).catch(error => toast(error.message || '无法打开路径'));
+        return;
+      }
+    }
     controller.navigate(target, { waitForLoad: true }).catch(error => toast(`网页加载失败：${error.message}`));
-  });
+  };
+  root.querySelector('[data-browser-action="go"]')?.addEventListener('click', goFromAddressBar);
   urlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      const target = controller.addressDraft || urlInput.value;
-      controller.addressEditing = false;
+      e.preventDefault();
       urlInput.blur();
-      controller.navigate(target, { waitForLoad: true }).catch(error => toast(`网页加载失败：${error.message}`));
+      goFromAddressBar();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       urlInput.blur();
