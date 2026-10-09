@@ -2,7 +2,7 @@
 
 [返回项目首页](https://github.com/ViaTumLab/YAgent)
 
-[ViaTum Lab 公司网站](https://viatumlab.inkmindspace.com) · [YAgent 产品介绍](https://viatumlab.inkmindspace.com/product-intro.html)
+[ViaTum Lab 公司网站](https://viatumlab.com) · [YAgent 产品介绍](https://viatumlab.com/product-intro.html)
 
 面向真实工作区的跨平台桌面 Agent。连接你选择的模型，让它读取项目、定位代码、使用工具、协作修改、操作内置浏览器，并把执行过程与文件变化交付给你审阅。
 
@@ -14,7 +14,7 @@
 
 **模型负责推理与生成，Yan 负责提供可用的工程环境。** 项目理解、精确编辑、状态持久化、权限、上下文、MCP、子代理与审阅是产品的一部分，不需要用户把每项能力重新拼装成独立工具。
 
-本文对应 `package.json` 的 **1.6.1**。1.6.0 的核心变化是专用模型适配、工程分析工具、长任务恢复、结构化子代理协作、审阅性能、网页注释，以及云顶天宫 Work GUI；1.6.1 更新 macOS 品牌、图标、欢迎页、启动页和等待状态。产品介绍见 [YAgent 产品页](https://viatumlab.inkmindspace.com/product-intro.html)。
+本文对应 `package.json` 的 **1.6.1**。1.6.0 的核心变化是专用模型适配、工程分析工具、长任务恢复、结构化子代理协作、审阅性能、网页注释，以及云顶天宫 Work GUI；1.6.1 更新 macOS 品牌、图标、欢迎页、启动页和等待状态。产品介绍见 [YAgent 产品页](https://viatumlab.com/product-intro.html)。
 
 > 当前源码版本为 v1.6.1。本文解释已经存在的代码及其边界，不把实验模块、工具可用性或测试文件数量等同于任务成功率。模型服务的可用性、价格、额度和参数支持以实际供应商为准。
 

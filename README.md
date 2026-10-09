@@ -5,7 +5,7 @@
   <p>面向真实工作区的开源桌面 Agent<br><sub>Built by ViaTum Lab</sub></p>
   <p>
     <a href="https://github.com/ViaTumLab/YAgent/releases"><img src="https://img.shields.io/badge/Download-2563EB?style=for-the-badge" height="28" alt="下载安装"></a>
-    <a href="https://viatumlab.inkmindspace.com/yagent/"><img src="https://img.shields.io/badge/Docs-334155?style=for-the-badge" height="28" alt="技术文档"></a>
+    <a href="https://viatumlab.com/yagent/"><img src="https://img.shields.io/badge/Docs-334155?style=for-the-badge" height="28" alt="技术文档"></a>
     <a href="https://github.com/ViaTumLab/YAgent"><img src="https://img.shields.io/badge/GitHub-334155?style=for-the-badge" height="28" alt="GitHub 源码"></a>
   </p>
   <p>
@@ -69,7 +69,7 @@ YAgent 可独立连接兼容的模型服务。协议、模型能力与额度以�
 
 </details>
 
-更多实现细节见 [YAgent 技术文档](https://viatumlab.inkmindspace.com/yagent/)，包括权限边界、模型协议、任务恢复与故障排查。
+更多实现细节见 [YAgent 技术文档](https://viatumlab.com/yagent/)，包括权限边界、模型协议、任务恢复与故障排查。
 
 <a id="viaharness"></a>
 ## 与 ViaHarness 配合
@@ -109,7 +109,7 @@ npm run build:portable    # Windows 便携包
 npm run build:mac         # macOS Apple Silicon DMG（需在 macOS 上运行）
 ```
 
-产物位于 `dist/`。macOS 输出为 `YAgent-arm64-v1.6.1.dmg`（版本号以 `package.json` 为准），当前未签名、未公证，Intel Mac 安装包尚未配置。Windows 构建包含运行时资源准备和打包校验；Electron E2E 与真实 API 测试需单独运行。修改模型适配器等源码后，需更新对应 bundle，详见 [YAgent 技术文档](https://viatumlab.inkmindspace.com/yagent/#development)。
+产物位于 `dist/`。macOS 输出为 `YAgent-arm64-v1.6.1.dmg`（版本号以 `package.json` 为准），当前未签名、未公证，Intel Mac 安装包尚未配置。Windows 构建包含运行时资源准备和打包校验；Electron E2E 与真实 API 测试需单独运行。修改模型适配器等源码后，需更新对应 bundle，详见 [YAgent 技术文档](https://viatumlab.com/yagent/#development)。
 
 <details>
 <summary>代码导航与贡献说明</summary>
@@ -128,11 +128,11 @@ npm run build:mac         # macOS Apple Silicon DMG（需在 macOS 上运行）
 
 </details>
 
-任务、配置与运行记录主要保存在本地应用数据目录，工作区 `.yanagent` 还可能包含快照和未合并的 worktree。模型请求会发送到你配置的服务，MCP 等工具也可能访问外部系统。数据位置与权限说明见 [YAgent 技术文档](https://viatumlab.inkmindspace.com/yagent/#data)。
+任务、配置与运行记录主要保存在本地应用数据目录，工作区 `.yanagent` 还可能包含快照和未合并的 worktree。模型请求会发送到你配置的服务，MCP 等工具也可能访问外部系统。数据位置与权限说明见 [YAgent 技术文档](https://viatumlab.com/yagent/#data)。
 
 ## 关于 ViaTum Lab
 
-[ViaTum Lab](https://viatumlab.inkmindspace.com) 是一家构建 Harness 中间层的前沿实验室，致力于构建跨场景智能基础设施。YAgent 是我们孵化出的一个开源客户端。
+[ViaTum Lab](https://viatumlab.com) 是一家构建 Harness 中间层的前沿实验室，致力于构建跨场景智能基础设施。YAgent 是我们孵化出的一个开源客户端。
 
 创始团队来自北京大学与清华大学，汇聚多名顶尖基础模型团队成员，团队孵化于国家重点实验室。
 

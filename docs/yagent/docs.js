@@ -17,7 +17,7 @@
   function resolveLink(url) {
     const clean = url.replaceAll("https://github.com/666-gy/Yan-Agent", REPO);
     if (/^(https?:|mailto:|#)/.test(clean)) return clean;
-    if (clean === "index.html") return "https://viatumlab.inkmindspace.com";
+    if (clean === "index.html") return "https://viatumlab.com";
     if (clean === "product-intro.html") return "../product-intro.html";
     const path = clean.replace(/^\.\.\//, "").replace(/^\.\//, "");
     const looksLikeDirectory = !/\.[a-z0-9]+(?:#.*)?$/i.test(path);

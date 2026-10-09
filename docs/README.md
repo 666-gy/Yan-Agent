@@ -30,7 +30,7 @@ ViaHarness 是 ViaTum Lab 的多场景统一 Harness 基础设施。产品区展
 
 ## 发布
 
-将本目录作为静态站点根目录发布即可，例如 GitHub Pages 选择分支的 `/docs` 目录。保留 `assets` 和 `product-intro.html` 的相对位置。当前线上地址为 `https://viatumlab.inkmindspace.com`。
+将本目录作为静态站点根目录发布即可，例如 GitHub Pages 选择分支的 `/docs` 目录。保留 `assets` 和 `product-intro.html` 的相对位置。当前线上地址为 `https://viatumlab.com`。
 
 ## 人工验证
 
