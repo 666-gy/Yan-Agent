@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="88" height="22" viewBox="0 0 88 22" role="img" aria-labelledby="title">
+  <title id="title">Version v1.6.1</title>
+  <rect width="88" height="22" rx="4" fill="#334155"/>
+  <path d="M8 6h6l6 6-6 6-6-6Z" fill="none" stroke="#93c5fd" stroke-width="1.2" stroke-linejoin="round"/>
+  <circle cx="11.5" cy="9.5" r="1" fill="#93c5fd"/>
+  <text x="30" y="15" fill="#fff" font-family="Verdana,Arial,sans-serif" font-size="11">v1.6.1</text>
+</svg>

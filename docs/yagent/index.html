@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="YAgent 技术文档：架构、模型适配、工程工具、多 Agent 协作、任务恢复与开发指南。">
+  <meta name="theme-color" content="#ffffff">
+  <title>YAgent Docs · 技术文档</title>
+  <link rel="icon" href="../assets/yagent-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="docs.css">
+  <script src="docs.js" defer></script>
+</head>
+<body>
+  <div class="reading-progress" aria-hidden="true"><span id="reading-progress"></span></div>
+  <a class="skip-link" href="#document">跳到正文</a>
+
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="YAgent 技术文档首页">
+      <img src="../assets/yagent-logo.svg" alt="" width="34" height="34">
+      <span><strong>YAgent</strong><small>DOCS</small></span>
+    </a>
+    <div class="topbar-center"><span class="version-dot"></span>v1.6.1 · Windows x64 + macOS arm64</div>
+    <nav class="top-actions" aria-label="外部链接">
+      <a href="../product-intro.html">产品介绍</a>
+      <a href="https://github.com/ViaTumLab/YAgent" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="download" href="https://github.com/ViaTumLab/YAgent/releases" target="_blank" rel="noopener noreferrer">下载</a>
+    </nav>
+    <button class="menu-button" id="menu-button" type="button" aria-label="打开文档目录" aria-expanded="false" aria-controls="sidebar">
+      <span></span><span></span>
+    </button>
+  </header>
+
+  <div class="site-grid">
+    <aside class="sidebar" id="sidebar" aria-label="技术文档目录">
+      <div class="sidebar-inner">
+        <label class="chapter-filter">
+          <span class="filter-icon" aria-hidden="true">⌕</span>
+          <span class="sr-only">筛选章节</span>
+          <input id="chapter-filter" type="search" placeholder="筛选章节" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <div class="toc-label">TECHNICAL REFERENCE</div>
+        <nav id="toc" class="toc" aria-label="章节导航">
+          <div class="toc-loading">正在载入文档…</div>
+        </nav>
+        <div class="sidebar-foot">
+          <span>OPEN SOURCE</span>
+          <a href="https://viatumlab.com">A ViaTum Lab project <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </aside>
+
+    <button class="sidebar-scrim" id="sidebar-scrim" type="button" aria-label="关闭文档目录" tabindex="-1"></button>
+
+    <main id="document" class="main">
+      <section class="doc-hero" aria-labelledby="doc-title">
+        <div class="hero-copy">
+          <span class="eyebrow">YAN AGENT / TECHNICAL REFERENCE</span>
+          <h1 id="doc-title">从任务到交付，<br><span>看清 YAgent 如何运行。</span></h1>
+          <p>面向真实工作区的架构、模型协议、工程工具、多 Agent 协作、长任务恢复与开发参考。</p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#start">开始阅读 <span aria-hidden="true">↓</span></a>
+            <a href="https://github.com/ViaTumLab/YAgent" target="_blank" rel="noopener noreferrer">查看源码 <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+        <div class="hero-system" aria-label="YAgent 系统分层示意">
+          <div class="system-top"><span>YOUR WORKSPACE</span><i></i><span>LOCAL</span></div>
+          <div class="system-core">
+            <img src="../assets/yagent-logo.svg" width="56" height="56" alt="">
+            <div><strong>Yan Core</strong><span>任务状态 · 上下文 · 执行记录</span></div>
+          </div>
+          <div class="system-rail" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="system-nodes"><span>EXPLORE</span><span>BUILD</span><span>REVIEW</span></div>
+          <div class="system-result"><span>→</span><strong>REVIEWABLE RESULT</strong><em>FILES + EVIDENCE</em></div>
+        </div>
+      </section>
+
+      <div class="document-meta">
+        <span>更新至 v1.6.1</span>
+        <span>18 个技术主题</span>
+        <a href="../technical-reference.md" target="_blank">查看 Markdown 原文 <span aria-hidden="true">↗</span></a>
+      </div>
+
+      <article id="doc-content" class="document-content" aria-live="polite">
+        <div class="loading-card"><span></span><p>正在组织技术文档…</p></div>
+      </article>
+
+      <footer class="doc-footer">
+        <div><img src="../assets/yagent-logo.svg" width="28" height="28" alt=""><strong>YAgent</strong><span>Open-source client by ViaTum Lab</span></div>
+        <nav aria-label="页脚链接"><a href="https://github.com/ViaTumLab/YAgent">源码</a><a href="https://github.com/ViaTumLab/YAgent/issues">Issues</a><a href="https://viatumlab.com">ViaTum Lab</a></nav>
+      </footer>
+    </main>
+  </div>
+
+  <noscript><div class="noscript">文档站需要 JavaScript 渲染 Markdown。你仍可以<a href="../technical-reference.md">直接阅读原文</a>。</div></noscript>
+</body>
+</html>

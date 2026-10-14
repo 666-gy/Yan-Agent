@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">YAgent</title>
+  <desc id="desc">A blue and silver Y: two paths converge into one continuous execution path. An open-source project by ViaTum Lab.</desc>
+  <defs>
+    <linearGradient id="silver" x1="30" y1="39" x2="131" y2="149" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B5C4D8"/>
+      <stop offset="1" stop-color="#638CBF"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="216" y1="36" x2="113" y2="222" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#55B5FF"/>
+      <stop offset=".52" stop-color="#257FF2"/>
+      <stop offset="1" stop-color="#2455C8"/>
+    </linearGradient>
+  </defs>
+  <path d="M30 38H69C73 38 76 40 78 43L130 111L104 146L25 49C21 44 24 38 30 38Z" fill="url(#silver)"/>
+  <path d="M188 38H226C232 38 235 44 231 49L151 153V210C151 216 147 220 141 220H115C109 220 105 216 105 210V157L180 43C182 40 185 38 188 38Z" fill="url(#blue)"/>
+</svg>
