@@ -40,6 +40,12 @@ let application;
   await page.screenshot({ path: path.join(root, `output/cross-platform/startup-${process.platform}-${process.arch}.png`) });
   console.log(`Verified ${packaged ? 'packaged' : 'source'} ${process.platform}/${process.arch}: application initialized, session created, browser settings opened`);
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
+  // Native child services may keep a CI Electron process alive during shutdown.
+  // Bound test cleanup after the normal quit handlers have had time to run.
+  await application?.evaluate(({ app }) => {
+    const timer = setTimeout(() => app.exit(0), 10000);
+    timer.unref();
+  }).catch(() => {});
   await application?.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
