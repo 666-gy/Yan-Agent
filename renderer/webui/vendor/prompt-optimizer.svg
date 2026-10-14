@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Yan Prompt Optimizer">
+  <defs>
+    <linearGradient id="wand" x1="12" y1="52" x2="48" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#39c6ff"/>
+      <stop offset="0.5" stop-color="#7667ff"/>
+      <stop offset="1" stop-color="#ef62d4"/>
+    </linearGradient>
+    <linearGradient id="star" x1="39" y1="7" x2="55" y2="27" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff16b"/>
+      <stop offset="0.55" stop-color="#ffad3d"/>
+      <stop offset="1" stop-color="#ff6f91"/>
+    </linearGradient>
+  </defs>
+  <path d="m13.8 45.8 27.4-27.4 6.4 6.4-27.4 27.4a4.5 4.5 0 0 1-6.4-6.4Z" fill="url(#wand)"/>
+  <path d="m17.1 43.2 3.7-3.7 6.4 6.4-3.7 3.7Z" fill="#202235" opacity=".78"/>
+  <path d="M46.5 6.5 49 13l6.5 2.5L49 18l-2.5 6.5L44 18l-6.5-2.5L44 13Z" fill="url(#star)"/>
+  <path d="m25.5 8 1.7 4.3 4.3 1.7-4.3 1.7-1.7 4.3-1.7-4.3-4.3-1.7 4.3-1.7Z" fill="#55dcff"/>
+  <path d="m53 34 1.4 3.6L58 39l-3.6 1.4L53 44l-1.4-3.6L48 39l3.6-1.4Z" fill="#ff70bd"/>
+  <circle cx="35" cy="31" r="2.3" fill="#fff" opacity=".92"/>
+</svg>

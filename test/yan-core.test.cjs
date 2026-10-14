@@ -132,7 +132,8 @@ test('queued intents persist across reloads and remain idempotent through consum
   const queued = first.core.enqueueIntent({
     threadId: 'thread-queue-a',
     intentId: 'intent-queue-a',
-    intent: { prompt: 'persist me', workMode: 'plan', selectedSkills: [{ id: 'yan-serena' }] }
+    intent: { prompt: 'persist me', workMode: 'plan', selectedSkills: [{ id: 'yan-serena' }],
+      selectedPlugins: [{ id: 'remotion', name: 'Remotion', logo: 'assets/skill-logos/remotion.png', logoDark: '' }] }
   });
   first.core.enqueueIntent({
     threadId: 'thread-queue-b',
@@ -149,6 +150,8 @@ test('queued intents persist across reloads and remain idempotent through consum
   });
   assert.deepEqual(second.listQueuedIntents('thread-queue-a').map(intent => intent.id), ['intent-queue-a']);
   assert.equal(second.listQueuedIntents('thread-queue-a')[0].intent.workMode, 'plan');
+  assert.deepEqual(second.listQueuedIntents('thread-queue-a')[0].intent.selectedPlugins,
+    [{ id: 'remotion', name: 'Remotion', logo: 'assets/skill-logos/remotion.png', logoDark: '' }]);
   assert.deepEqual(second.listQueuedIntents('thread-queue-b').map(intent => intent.id), ['intent-queue-b']);
 
   const duplicate = second.enqueueIntent({
@@ -316,7 +319,9 @@ test('delta events append to the log without rewriting state on every chunk', as
   };
   core.startTurn({ threadId: 'thread-a', turnId: 'turn-a' });
   const savesAfterStart = saves;
-  assert.ok(savesAfterStart >= 3);
+  // One snapshot per Turn start: thread.created and turn.created already carry
+  // the state, and the redundant trailing writes only add the debounce.
+  assert.equal(savesAfterStart, 1);
   for (let index = 0; index < 50; index += 1) {
     core.ingestProviderEvent('turn-a', { type: 'message.part.delta', data: { field: 'text', delta: 'x' } });
   }
@@ -638,18 +643,18 @@ test('late success after cancellation settles as aborted without a final message
   assert.equal(core.listItems('turn-late').some(item => item.type === 'message'), false);
 });
 
-test('backpressure and Thread deletion are persisted as authoritative Core state', () => {
+test('backpressure and Thread deletion are persisted as authoritative Core state', async () => {
   const { core, rootDir } = createUniqueTestCore();
   core.startTurn({ threadId: 'thread-delete', turnId: 'turn-delete' });
   core.recordBackpressure('turn-delete', { dropped: 3, pending: 4, cap: 5 });
   assert.equal(core.getTurn('turn-delete').telemetry.backpressureDrops, 3);
   core.completeTurn('turn-delete', { status: 'done', text: 'done' });
-  const deleted = core.deleteThread('thread-delete');
+  const deleted = await core.deleteThread('thread-delete');
   assert.equal(deleted.ok, true);
   assert.equal(core.getThread('thread-delete'), null);
   assert.equal(core.getTurn('turn-delete'), null);
   const events = new YanCoreStore({ rootDir }).readEvents();
-  assert.equal(events.at(-1).type, 'thread.deleted');
+  assert.equal(events.some(event => event.threadId === 'thread-delete'), false);
 });
 
 test('a stale Turn from a previous process settles instead of bricking the thread', () => {

@@ -1,0 +1,66 @@
+.image-editor .image-editor-annotations { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; touch-action: none; outline: none; }
+.image-editor-annotations[data-tool="pen"], .image-editor-annotations[data-tool="eraser"] { cursor: none; }
+.image-editor-annotations[data-tool="select"] { cursor: default; }
+.image-editor-annotations:not([data-tool="select"]):not([data-tool="pen"]):not([data-tool="eraser"]) { cursor: crosshair; }
+.image-annotation-art { pointer-events: none; }
+.image-annotation-handles { pointer-events: none; }
+.image-annotation-handle { pointer-events: all; }
+.image-annotation-handle.handle-start, .image-annotation-handle.handle-end { cursor: crosshair; }
+.image-annotation-handle.handle-nw, .image-annotation-handle.handle-se { cursor: nwse-resize; }
+.image-annotation-handle.handle-ne, .image-annotation-handle.handle-sw { cursor: nesw-resize; }
+.image-annotation-handle.handle-n, .image-annotation-handle.handle-s,
+.image-annotation-resize-edge.handle-n, .image-annotation-resize-edge.handle-s { cursor: ns-resize; }
+.image-annotation-handle.handle-e, .image-annotation-handle.handle-w,
+.image-annotation-resize-edge.handle-e, .image-annotation-resize-edge.handle-w { cursor: ew-resize; }
+.image-annotation-resize-edge { pointer-events: stroke; }
+.image-editor-annotations[data-tool="text"] { cursor: text; }
+.image-annotation-text-editor { overflow: visible; cursor: text; }
+.image-editor .image-annotation-text-input { display: block; box-sizing: border-box; width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; outline: none; box-shadow: none; background: transparent; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; font-weight: 400; font-style: normal; letter-spacing: normal; text-align: left; caret-color: currentColor; cursor: text; }
+.image-annotation-text-input::placeholder { color: var(--ie-muted); opacity: .6; }
+.image-annotation-tools { display: flex; align-items: center; gap: 2px; padding: 4px 5px; border: 1px solid var(--ie-line); border-radius: 28px; background: var(--ie-paper); color: var(--ie-muted); box-shadow: var(--ie-shadow); pointer-events: auto; }
+.image-annotation-tools button { width: 30px; height: 30px; padding: 6px; border-radius: 50%; flex: none; }
+.image-annotation-tools button[aria-pressed="true"] { background: var(--ie-hover); color: var(--ie-ink); }
+.image-annotation-tools button[data-annotation="colors"] { padding: 4px; }
+.image-annotation-color-dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #00000016; }
+.image-annotation-divider { width: 1px; height: 20px; margin: 0 4px; background: var(--ie-line); }
+.image-annotation-palette, .image-annotation-shapes { position: absolute; z-index: 6; display: grid; gap: 7px; padding: 9px; border: 1px solid var(--ie-line); border-radius: 16px; background: var(--ie-paper); box-shadow: var(--ie-shadow); }
+.image-annotation-palette { grid-template-columns: repeat(7, 22px); }
+.image-annotation-palette button { width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--swatch); border: 1px solid #00000020; box-shadow: 0 1px 2px #00000018; }
+.image-annotation-palette button:hover:not(:disabled), .image-annotation-palette button:active:not(:disabled) { background: var(--swatch); filter: brightness(1.1); }
+.image-annotation-palette button[aria-pressed="true"] { outline: 2px solid var(--ie-focus); outline-offset: 2px; }
+.image-annotation-custom { position: relative; width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(#28e19a, #18c4eb, #4963ed, #d128cf, #ff4545, #ffe15b, #28e19a); box-shadow: 0 1px 2px #00000020; overflow: hidden; }
+.image-annotation-custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; border: 0; }
+.image-annotation-custom:focus-within { outline: 2px solid var(--ie-focus); outline-offset: 2px; }
+.image-annotation-shapes { grid-template-columns: repeat(4, 28px); gap: 5px 6px; padding: 8px; }
+.image-annotation-shapes button { width: 28px; height: 28px; padding: 5px; border-radius: 8px; color: var(--ie-muted); }
+.image-annotation-shapes button[aria-checked="true"] { background: var(--ie-hover); color: var(--ie-ink); }
+.image-annotation-cursor { position: absolute; z-index: 2; border: 1px solid var(--annotation-color); background: color-mix(in srgb, var(--annotation-color) 18%, transparent); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.image-editor-discard { position: fixed; inset: 0; margin: auto; box-sizing: border-box; width: 420px; height: fit-content; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); overflow: auto; padding: 32px 35px 35px; border: 1px solid var(--ie-line); border-radius: 20px; background: var(--ie-paper); color: var(--ie-ink); box-shadow: 0 8px 24px #00000020; text-align: center; }
+.image-editor-discard::backdrop { background: #00000030; }
+.image-editor-discard h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.5; }
+.image-editor-discard p { margin: 18px 0 28px; color: var(--ie-muted); font-size: 15px; line-height: 1.5; }
+.image-editor .image-editor-discard button { display: flex; width: 100%; min-height: 44px; padding: 10px 16px; border-radius: 28px; font-size: 14px; font-weight: 600; }
+.image-editor .image-discard-continue, .image-editor .image-discard-continue:hover:not(:disabled) { color: #fff; background: #050b11; }
+.image-editor .image-discard-confirm, .image-editor .image-discard-confirm:hover:not(:disabled) { margin-top: 12px; color: #ef2929; background: #f4e1e1; }
+.image-editor .image-editor-discard button:hover:not(:disabled) { filter: brightness(.96); }
+[data-theme="dark"] .image-editor .image-discard-continue { color: #131518; background: #f0f0f0; }
+[data-theme="dark"] .image-editor .image-discard-confirm { color: #ff7979; background: #553637; }
+#app:not(.browser-focus-mode) .image-editor .image-editor-tools,
+#app:not(.browser-focus-mode) .image-editor .image-annotation-tools,
+#app:not(.browser-focus-mode) .image-editor .image-editor-erase-tools,
+#app:not(.browser-focus-mode) .image-editor .image-editor-brush-control,
+#app:not(.browser-focus-mode) .image-editor .image-annotation-palette,
+#app:not(.browser-focus-mode) .image-editor .image-annotation-shapes,
+#app:not(.browser-focus-mode) .image-editor .image-annotation-handles,
+#app:not(.browser-focus-mode) .image-editor .image-annotation-text-editor,
+#app:not(.browser-focus-mode) .image-editor .image-annotation-cursor,
+#app:not(.browser-focus-mode) .image-editor .image-editor-eraser-cursor { display: none !important; }
+#app:not(.browser-focus-mode) .image-editor .image-editor-toolbar { padding-right: 0; align-items: flex-end; justify-content: flex-end; }
+#app:not(.browser-focus-mode) .image-editor .image-editor-actions { position: static; }
+#app:not(.browser-focus-mode) .image-editor .image-editor-selection,
+#app:not(.browser-focus-mode) .image-editor .image-editor-annotations { pointer-events: none !important; }
+@container (max-width: 430px) {
+  .image-annotation-tools { gap: 0; padding: 3px; }
+  .image-annotation-tools button { width: 27px; height: 29px; padding: 5px; }
+  .image-annotation-divider { margin: 0 2px; }
+}

@@ -1,0 +1,26 @@
+{
+  "version": "0.34.0",
+  "platform": "win32",
+  "arch": "x64",
+  "license": "MIT",
+  "source": "https://github.com/trycua/cua",
+  "archiveUrl": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.34.0/cua-driver-rs-0.34.0-windows-x86_64-binary.zip",
+  "archiveSha256": "bcc520e50861c7092cf775846fec76ae386d7dcd6b5b408608b0ea4423a8b888",
+  "files": [
+    {
+      "path": "cua-driver.exe",
+      "bytes": 35312976,
+      "sha256": "77f5cac754b42b6a8bae126414fc8f7487432ace93466967965188e24e9e53fb"
+    },
+    {
+      "path": "cua-cursor-theme.exe",
+      "bytes": 2042704,
+      "sha256": "bc289b8cc0a4b6a088019115880c260bda2fedc67047c9df6309a3774cd59e25"
+    },
+    {
+      "path": "cua-driver-uia.exe",
+      "bytes": 22276432,
+      "sha256": "1c737385f3cf008240ca8ff2a58ffc6810ebd382c14bd3dccb87ccbdc4ced556"
+    }
+  ]
+}

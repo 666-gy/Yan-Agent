@@ -3,27 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self'; connect-src 'none'">
   <title>Yan Agent Pet</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="pet.css">
 </head>
 <body data-state="idle">
   <main class="pet-app">
+    <iframe id="petFrontend" title="宠物前端" sandbox="allow-scripts" hidden></iframe>
     <section class="pet-stage" aria-label="Yan 桌宠">
-      <button id="petToggle" class="pet-toggle" type="button" title="拖动桌宠，单击打开当前任务" aria-label="Yan Agent 当前状态">
+      <button id="petToggle" class="pet-toggle" type="button" title="单击聚焦 Yan Agent，拖动调整位置" aria-label="Yan Agent 当前状态">
         <canvas id="orbCanvas" aria-hidden="true"></canvas>
       </button>
-      <button id="entertainmentPet" class="entertainment-pet" type="button" title="拖动桌宠" aria-label="娱乐桌宠" hidden>
+      <button id="entertainmentPet" class="entertainment-pet" type="button" title="拖动桌宠" aria-label="桌宠" hidden>
         <span class="pet-sprite" aria-hidden="true"></span>
       </button>
-      <button id="statusStrip" class="status-strip" type="button" title="拖动桌宠，单击打开当前任务" aria-label="Yan Agent 当前工作">
+      <section id="petData" class="pet-data" hidden aria-live="polite">
+        <span id="petDataLabel" class="pet-data-label"></span>
+        <strong id="petDataValue" class="pet-data-value">—</strong>
+        <span id="petDataStatus" class="pet-data-status"></span>
+        <button id="petDataRefresh" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
+      </section>
+      <button id="statusStrip" class="status-strip" type="button" title="单击聚焦 Yan Agent，拖动调整位置" aria-label="Yan Agent 当前工作">
         <span id="compactStatus" class="shine-text">随时待命</span>
       </button>
     </section>
   </main>
   <script src="particles-orb.js"></script>
   <script src="../i18n.js"></script>
+  <script src="pet-web.js"></script>
   <script src="pet.js"></script>
 </body>
 </html>

@@ -4,13 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { decorateModels } = require('../lib/model-capabilities');
 const {
-  GLM_FREE_VISION_RELAY_MODELS,
-  SENSENOVA_VISION_RELAY_MODELS,
-  SILICONFLOW_VISION_RELAY_MODELS,
-  VISION_RELAY_PRESET_ORDER,
   buildQuickSupplierGroups,
   buildMediaModelList,
-  configuredSupplierModels
+  configuredSupplierModels,
+  filterDesignatedMediaModels
 } = require('../lib/model-roles');
 const {
   GLM_OFFICIAL_SUPPLEMENTAL_MODELS,
@@ -68,24 +65,6 @@ test('OpenAI-compatible connections do not inherit the GLM supplement', () => {
   assert.deepEqual(getOfficialSupplementalModels('agnes'), []);
 });
 
-test('vision relay keeps a free GLM to SenseNova to Agnes to SiliconFlow order', () => {
-  assert.deepEqual(VISION_RELAY_PRESET_ORDER, ['glm', 'sensenova', 'agnes', 'siliconflow']);
-  assert.deepEqual(GLM_FREE_VISION_RELAY_MODELS.map(model => model.id), [
-    'glm-4.6v-flash',
-    'glm-4.1v-thinking-flash',
-    'glm-4v-flash'
-  ]);
-  assert.equal(GLM_FREE_VISION_RELAY_MODELS.some(model => model.id === 'glm-5v-turbo'), false);
-  assert.deepEqual(SENSENOVA_VISION_RELAY_MODELS.map(model => model.id), [
-    'sensenova-6.8-flash-lite'
-  ]);
-  assert.deepEqual(SILICONFLOW_VISION_RELAY_MODELS.map(model => model.id), [
-    'Qwen/Qwen3.5-4B',
-    'deepseek-ai/DeepSeek-OCR',
-    'PaddlePaddle/PaddleOCR-VL-1.5'
-  ]);
-});
-
 test('SenseNova registers its multimodal chat and image-generation models separately', () => {
   const summary = summarizeModelCatalog([], getOfficialSupplementalModels('sensenova'));
   const relayModel = summary.selectableModels.find(model => model.id === 'sensenova-6.8-flash-lite');
@@ -95,7 +74,6 @@ test('SenseNova registers its multimodal chat and image-generation models separa
   assert.equal(relayModel.modelType, 'text');
   assert.equal(relayModel.capabilities.vision, true);
   assert.equal(imageModel.modelType, 'image');
-  assert.equal(SENSENOVA_VISION_RELAY_MODELS.some(model => model.id === imageModel.id), false);
 });
 
 test('quick supplier groups isolate configured supplier model catalogs', () => {
@@ -220,4 +198,52 @@ test('Agnes connection catalogs preserve text, image, and video roles', () => {
     }]
   });
   assert.deepEqual(media.map(model => model.modelType), ['image', 'image', 'video', 'video']);
+});
+
+test('a dynamic connection surfaces only user-designated media models', () => {
+  const catalog = [
+    { id: 'agnes-2.0-flash', modelType: 'text' },
+    { id: 'agnes-image-2.1-flash', modelType: 'image' },
+    { id: 'agnes-video-v2.0', modelType: 'video' },
+    { id: 'agnes-video-2.5', modelType: 'video' }
+  ];
+
+  // No marks and no active media selection: nothing is designated.
+  assert.deepEqual(
+    filterDesignatedMediaModels({}, {}, 'conn-agnes', 'official', catalog).map(model => model.id),
+    []
+  );
+  // A user mark promotes exactly that model.
+  assert.deepEqual(
+    filterDesignatedMediaModels(
+      { 'agnes-image-2.1-flash': { image: true } },
+      {},
+      'conn-agnes',
+      'official',
+      catalog
+    ).map(model => model.id),
+    ['agnes-image-2.1-flash']
+  );
+  // The active video model stays visible even without a mark.
+  assert.deepEqual(
+    filterDesignatedMediaModels(
+      {},
+      { videoProvider: 'conn-agnes', videoSupplierId: 'official', videoModel: 'agnes-video-v2.0' },
+      'conn-agnes',
+      'official',
+      catalog
+    ).map(model => model.id),
+    ['agnes-video-v2.0']
+  );
+  // Another provider's active model does not leak in.
+  assert.deepEqual(
+    filterDesignatedMediaModels(
+      {},
+      { videoProvider: 'conn-other', videoModel: 'agnes-video-v2.0' },
+      'conn-agnes',
+      'official',
+      catalog
+    ).map(model => model.id),
+    []
+  );
 });

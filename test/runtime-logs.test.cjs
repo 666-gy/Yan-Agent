@@ -1,0 +1,24 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { readRuntimeLogs } = require('../lib/runtime-logs');
+test('runtime log reader lists diagnostic logs, bounds tails and redacts credentials', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-runtime-logs-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, 'opencode-runtime', 'diagnostics'), { recursive: true });
+  await fs.writeFile(path.join(root, 'stability.log'), 'x'.repeat(100000) + '\nfirst\nAuthorization: Bearer sk-testsecret123\nlast\n');
+  await fs.writeFile(path.join(root, 'config.json'), '{"apiKey":"private"}');
+  await fs.writeFile(path.join(root, 'opencode-runtime', 'diagnostics', 'dsml-123.jsonl'), '{}\n');
+  const list = await readRuntimeLogs(root);
+  assert.equal(list.files.length, 2);
+  assert.ok(!list.files.some(f => f.file === 'config.json'));
+  const tail = await readRuntimeLogs(root, { file: 'stability.log', lines: 2 });
+  assert.equal(tail.truncated, true);
+  assert.match(tail.text, /last/);
+  assert.ok(!tail.text.includes('testsecret'));
+  assert.ok(tail.text.length < 1000);
+  assert.ok((await readRuntimeLogs(root, { file: '../config.json' })).error);
+});

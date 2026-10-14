@@ -1,0 +1,49 @@
+.voice-settings-page { font-size: var(--text-base); }
+.voice-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 74px; padding: 18px 0; border-bottom: 1px solid var(--border); }
+.voice-setting-row > div, .voice-setting-row > label { min-width: 0; }
+.voice-setting-row label { font-weight: 500; }
+.voice-setting-row .switch { flex: none; }
+.voice-settings-block { margin-bottom: 24px; padding: 0 24px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-elev); }
+.voice-settings-block > .voice-setting-row:last-child { border-bottom: 0; }
+.voice-block-heading { margin: 0 0 12px; font-family: var(--font-ui); font-size: var(--text-md); font-weight: 600; }
+.voice-model-section { margin: 0; padding: 18px 0; border-bottom: 1px solid var(--border); }
+.voice-model-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.voice-model-heading > div:first-child { min-width: 0; }
+.voice-model-heading h3 { min-width: 0; margin: 0; font-size: var(--text-base); font-weight: 500; line-height: 1.5; }
+.voice-setting-description { margin: 6px 0 0; font-size: var(--text-sm); line-height: 1.6; color: var(--text-dim); }
+.voice-shortcut { flex: none; min-height: 32px; white-space: nowrap; }
+.voice-shortcut[aria-pressed="true"] { border-color: var(--accent); }
+.voice-model-actions { display: flex; flex: none; align-items: center; gap: 12px; }
+.voice-model-size { color: var(--text-dim); font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.voice-model-action { position: relative; display: grid; place-items: center; flex: none; width: 40px; height: 40px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-elev); color: var(--text); cursor: pointer; transition: background 150ms, color 150ms; }
+.voice-model-action:hover:not(:disabled) { background: var(--bg-hover); }
+.voice-model-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.voice-model-action:disabled { opacity: .5; cursor: not-allowed; }
+.voice-model-action[data-state="remove"]:hover:not(:disabled) { color: var(--danger); }
+.voice-model-action[data-state="installing"] { border-color: transparent; color: var(--accent); }
+.voice-action-progress { position: absolute; inset: -1px; width: 40px; height: 40px; transform: rotate(-90deg); fill: none; stroke-width: 2.5; }
+.voice-progress-track { stroke: var(--border); }
+.voice-progress-value { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 1 1; stroke-dashoffset: var(--voice-progress-offset, 1); transition: stroke-dashoffset 180ms linear; }
+.voice-action-stop { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
+.voice-action-progress[data-indeterminate="true"] { animation: voice-progress-spin 1s linear infinite; }
+.voice-action-progress[data-indeterminate="true"] .voice-progress-value { stroke-dasharray: .22 .78; stroke-dashoffset: 0; }
+@keyframes voice-progress-spin { to { transform: rotate(270deg); } }
+@media (prefers-reduced-motion: reduce) { .voice-action-progress[data-indeterminate="true"] { animation: none; } .voice-progress-value { transition: none; } }
+.voice-error { color: var(--danger); font-size: var(--text-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.voice-recording-row { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); pointer-events: none; }
+.voice-recording-row [role="status"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.voice-recording-row canvas { display: none; }
+.voice-wave { display: inline-flex; align-items: center; justify-content: center; gap: 2px; height: 18px; width: 22px; }
+.voice-wave i { width: 2px; height: 5px; border-radius: 2px; background: currentColor; animation: voice-wave 800ms ease-in-out infinite alternate; }
+.voice-wave i:nth-child(2) { animation-delay: -150ms; } .voice-wave i:nth-child(3) { animation-delay: -300ms; } .voice-wave i:nth-child(4) { animation-delay: -450ms; } .voice-wave i:nth-child(5) { animation-delay: -600ms; } .voice-wave i:nth-child(6) { animation-delay: -450ms; } .voice-wave i:nth-child(7) { animation-delay: -300ms; } .voice-wave i:nth-child(8) { animation-delay: -150ms; }
+@keyframes voice-wave { to { height: 17px; opacity: .55; } }
+#voiceMicButton[aria-pressed="true"] { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+#voiceMicButton { order: 5; width: 36px; flex: none; padding: 0; }
+.voice-settings-page [hidden], .voice-recording-row [hidden], #voiceMicButton [hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .voice-wave i { animation: none; height: 9px; } }
+@media (max-width: 600px) {
+  .voice-settings-block { padding: 0 16px; }
+  .voice-setting-row { gap: 12px; flex-wrap: wrap; }
+  .voice-setting-row .appearance-picker, .voice-setting-row select { max-width: 100%; }
+  .voice-recording-row canvas { width: 64px; }
+}

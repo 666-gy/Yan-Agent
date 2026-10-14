@@ -2,16 +2,16 @@
 
 面向真实工作区的 Windows 桌面 Agent。连接你选择的模型，让它读取项目、定位代码、使用工具、协作修改、操作内置浏览器，并把执行过程与文件变化交付给你审阅。
 
-![Version](https://img.shields.io/badge/version-1.6.0-111111)
+![Version](https://img.shields.io/badge/version-1.7.0--Beta1-111111)
 ![Platform](https://img.shields.io/badge/platform-Windows_x64-2563eb)
-![Electron](https://img.shields.io/badge/Electron-31-47848f)
+![Electron](https://img.shields.io/badge/Electron-44.4.5-47848f)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 
 **模型负责推理与生成，Yan 负责提供可用的工程环境。** 项目理解、精确编辑、状态持久化、权限、上下文、MCP、子代理与审阅是产品的一部分，不需要用户把每项能力重新拼装成独立工具。
 
-本文对应 `package.json` 的 **1.6.0**。1.6.0 的核心变化是专用模型适配、工程分析工具、长任务恢复、结构化子代理协作、审阅性能、网页注释，以及云顶天宫 Work GUI。产品介绍见 [Yan Agent 产品页](docs/product-intro.html)。
+当前开发版本为 **Yan Agent v1.7.0 Beta1**（`package.json`: `1.7.0-beta.1`）。完整版本对比见 [1.7.0 Beta1 更新清单](docs/releases/v1.7.0-Beta1.md)，下文继续说明已有功能与实现边界。产品介绍见 [Yan Agent 产品页](docs/index.html)。
 
-> 当前为 v1.6.0 正式版。本文解释已经存在的代码及其边界，不把实验模块、工具可用性或测试文件数量等同于任务成功率。模型服务的可用性、价格、额度和参数支持以实际供应商为准。
+> 当前为 v1.7.0 Beta1。本文解释已经存在的代码及其边界，不把实验模块、工具可用性或测试文件数量等同于任务成功率。模型服务的可用性、价格、额度和参数支持以实际供应商为准。
 
 <a id="contents"></a>
 ## 阅读导航
@@ -26,9 +26,8 @@
 - [Git、worktree 与 PR](#git)
 - [审阅系统](#review)
 - [内置浏览器与网页注释](#browser)
-- [工作模式、自进化与 AGI](#modes)
+- [工作模式与自进化](#modes)
 - [Skills、MCP 与多模态](#extensions)
-- [云顶天宫 Work GUI](#palace)
 - [桌面交互与阅读体验](#desktop)
 - [权限、数据与凭据](#data)
 - [开发、构建与测试](#development)
@@ -40,13 +39,13 @@
 
 ### 安装与首次配置
 
-在 [Releases](https://github.com/666-gy/Yan-Agent/releases) 中选择实际已发布的 Windows x64 安装包或便携包。README 的开发版本号不代表对应发布资产一定已经上传。
+在 [Releases](https://github.com/ViaTumLab/Yan-Agent/releases) 中选择实际已发布的 Windows x64 安装包或便携包。README 的开发版本号不代表对应发布资产一定已经上传。
 
 1. 打开 API 配置，创建一个连接，填写名称、Base URL 和 API Key。
 2. 选择兼容预设和服务端实际支持的格式，测试连接；模型可从返回列表选择，也可以手填模型 ID。
 3. 选择主文本模型。图片理解、图片生成、视频生成等按需单独配置。
 4. 编码任务先选择项目工作区；普通问答、网页阅读等可以从 Blank 任务开始。
-5. 根据任务选择常规、计划、目标、自进化或 AGI；选择相应访问权限后发送请求。
+5. 根据任务选择常规、计划、目标、自进化；选择相应访问权限后发送请求。
 6. 工作过程中查看工具和子代理状态；涉及文件修改时，在审阅面板检查差异。
 
 **推荐的第一条编码请求：**“先定位这个项目的入口、主要模块和测试命令，说明证据，不修改文件。”这能检查模型连接、文件权限与项目工具是否正常，随后再提交具体修改。
@@ -72,7 +71,7 @@ Yan 使用 Electron 提供桌面壳，基于 OpenCode `1.18.11` 构建执行链�
 
 ```mermaid
 flowchart TD
-  UI[Electron 渲染层：任务 / 审阅 / 浏览器 / Work GUI]
+  UI[Electron 渲染层：任务 / 审阅 / 浏览器]
   IPC[preload：受控 IPC 接口]
   MAIN[主进程：配置 / 工作区 / 权限 / 服务管理]
   CORE[Yan Core：线程 / 回合 / 意图 / 状态 / 日志]
@@ -98,7 +97,7 @@ flowchart TD
 ### 一次任务如何运行
 
 1. **提交与准入。** 捕获当前模型、工作模式、访问策略、会话及工作区；检查任务是否已经运行、能否接收新任务。
-2. **构造上下文。** 加入本轮用户输入、已选 Skill、项目环境、相关规则和适用的模式上下文。非 AGI 请求移除 AGI 专用字段。
+2. **构造上下文。** 加入本轮用户输入、已选 Skill、项目环境、相关规则和适用的模式上下文。旧请求中的已退役实验字段会被清除。
 3. **准备运行环境。** Sidecar 根据模型连接和工作区配置复用或准备内核，绑定本次 run ID、session ID 与工具作用域。
 4. **模型与工具循环。** 模型可以读取、编辑、调用 MCP、提出问题或委派子代理；执行仍受权限和资源约束。
 5. **增量显示与记账。** 思考、正文、工具开始/完成、权限、压缩等事件进入 UI；高频文字增量与需要持久化的状态变化分开处理。
@@ -414,7 +413,7 @@ MCP 调用经主进程桥到达当前任务的浏览器控制器，再执行快�
 **外部网站改动仅为当前页面的本地预览，刷新可能丢失。** 如果要求永久修改本地项目，Agent 应定位并编辑源文件。该工具不会发布远端站点，也不会绕过网站服务器权限。
 
 <a id="modes"></a>
-## 工作模式、自进化与 AGI
+## 工作模式与自进化
 
 | 模式 | 运行方式 |
 | --- | --- |
@@ -422,7 +421,6 @@ MCP 调用经主进程桥到达当前任务的浏览器控制器，再执行快�
 | 计划 | 只读调查与方案输出；形成可读取/下载的 Markdown 计划文档 |
 | 目标 Goal | 围绕用户明确要求完成任务，在适用条件下进行有界验收与必要修复；有工作区时自动启用 Serena |
 | 自进化 | 结合相关经验工作，并记录有证据支持的规则或策略改进 |
-| AGI（实验性） | 启用思考侧路与自进化相关实验链，增加轨迹、经验、审计等上下文 |
 
 ### Goal 的边界
 
@@ -448,23 +446,6 @@ Continual Harness 保存策略、记忆、技能/角色相关条目和改进历�
 - 状态锁等待采用让出事件循环的方式，避免自进化存储竞争阻塞整个 Electron 主进程。
 
 长期记忆与自进化不是同义词：一般事实召回、明确规则和自动产生新策略有不同的来源与模式边界。
-
-### AGI 实验链具体包含什么
-
-| 模块 | 作用 | 不能据此声称什么 |
-| --- | --- | --- |
-| reasoning-sidepath | 引入更广候选方案及取舍说明 | 不保证方案比原请求更好 |
-| trajectory / utility | 记录运行轨迹与结果信号 | 不等于客观智能评分 |
-| adaptive-compute / runtime-bridge | 根据失败等信号给后续运行升档提示 | 不是无限增加预算 |
-| long-horizon | 提供长期目标协议上下文 | 不保证任意长任务永不遗忘 |
-| memory-consolidation | 整理经验关联、结果和衰减 | 不保证经验总是正确 |
-| workflow-mining | 从轨迹提出可复用流程候选 | 不代表候选自动成为可靠能力 |
-| topology / eval | 候选协作拓扑与评估证据 | 不保证多代理必然优于单代理 |
-| artifact-audit | 检查部分 HTML/SVG 的结构维度 | 不等于浏览器功能测试或审美评分 |
-
-例如工件审计会检查标题/身份、交互控件、媒体查询、减少动效和 ARIA 等结构信号。存在一个按钮不等于按钮可用，出现媒体查询也不证明所有屏幕布局正确。
-
-`lib/work-mode-isolation.js` 在非 AGI 模式清除侧路、长目标、经验关系与拓扑等专用字段，并通过会话模式元数据处理旧注入的复用问题。常规不会因为实验模块存在就自动获得 AGI 提示。AGI 仍需实际任务检验收益，不承诺通用人工智能。
 
 <a id="extensions"></a>
 ## Skills、MCP 与多模态
@@ -502,40 +483,22 @@ Yan Web 默认文本读取上限 2 MiB、下载上限 64 MiB，允许的参数�
 
 浏览器截图也可以进入中继路径。图像/视频生成通过对应模型和工具完成，资产由本地查看与保存链处理。没有配置、服务不支持或网络失败时，不会因界面存在按钮就拥有生成能力。
 
-<a id="palace"></a>
-## 云顶天宫 Work GUI
-
-Work GUI 是真实任务系统的另一种展示与操作入口。当前宿主加载本地宫殿页面，使用 Three.js/WebGL 场景和 CSS 覆盖面板；不会为宫殿再启动一个独立 Agent 内核。
-
-### 进入与场景
-
-进入时先看到双扇大门，交互后打开宫殿场景。建筑、浮岛、云雾、荷花水池与观星视角共同组成空间界面；入场音频播放及音符重播由独立音频模块管理。当前交付不包含人形主代理/子代理角色系统。
-
-| 入口 | 对应功能 |
-| --- | --- |
-| 南天门 | 模型、工作区选择与任务提交 |
-| 天工殿 | 主任务及运行状态 |
-| 协作东阙 | 子代理委派与进展 |
-| 藏经阁 | Skills、MCP 列表及 MCP 启停 |
-| 归卷台 | 成果与文件改动摘要 |
-| 观星交互 | 朝向天际、观察星河的场景交互 |
-
-阁楼打开当前场景上方的半透明面板，不跳转到另一套业务页面。`palace-host.js` 把白名单业务操作接到已有 preload API，包括快照、模型、工作区、任务提交/取消、MCP 启停和变更查询。
-
-### 事件与性能
-
-`lib/work-gui/feed.js` 把真实任务事件整理成 UI 快照与活动信息，场景订阅变化，不通过“人物正在走动”推测任务是否成功。离开/恢复 Work GUI 时宿主发送暂停/继续消息。
-
-性能诊断统计帧间隔、p95、draw calls、三角形数量与 DPR；支持时用 WebGL timer query 获取 GPU 时间，不支持则明确显示不可用，不能把 CPU 提交时间当 GPU 时间。按 `P` 可切换诊断显示，具体帧率取决于显卡、分辨率和系统负载。
-
 <a id="desktop"></a>
 ## 桌面交互与阅读体验
 
 ### 启动与字体
 
-启动页使用本地打包的 ReactBits Ghost Fibers 实现与 OGL 渲染资源，展示 Yan Agent 衬线字标，设计展示时长约 3 秒；实际冷启动仍受机器和初始化影响。源码和授权信息保留在 `renderer/splash/`。
+启动不播放开屏动画，也不显示加载页，冷启动完成后直接进入主界面；实际耗时受机器和初始化影响。主窗口创建时保持隐藏，等首帧渲染和渲染进程就绪信号齐备后再显示，避免先露出空白窗口。
 
 阅读字体随包提供 Noto Serif SC 字体文件及 OFL 许可，降低中文内容依赖用户系统字体回退带来的差异。字体文件一致不代表不同 GPU、缩放比例和操作系统栅格化完全一致。
+
+### 语音输入
+
+在设置 → 集成 → 语音功能中启用，然后手动下载并安装 SenseVoice Small 模型。模型与词表、语音检测模型共约 241 MB，安装完成后输入框显示麦克风按钮；转写结果进入可编辑草稿，不会自动发送。
+
+识别在本机 CPU 上运行，录音不会上传到语音服务。支持自动检测及中文、英语、粤语、日语、韩语，单次录音最长 120 秒。关闭功能保留模型缓存，也可在设置中移除模型。目前支持 Windows x64。
+
+复用 [DeepSeek Harness 官方语音组件](https://github.com/deepseek-ai/deepseek-harness/tree/639ed015397290b3745d163aafe02ffee4aa3f84/packages/experimental)，模型下载地址和 SHA-256 校验沿用上游。源码出处与模型许可保存在 `lib/vendor/dsh-voice`。
 
 ### 朗读
 
@@ -547,7 +510,9 @@ Work GUI 是真实任务系统的另一种展示与操作入口。当前宿主�
 
 右侧面板提供多标签与溢出菜单；工具 UI 区分运行中、成功、失败和中止，详情按需展开。壁纸分析为主题材质、色彩和对比提供依据；图片附件可以通过独立查看器检查。最高推理档的短暂额度提示用于说明成本倾向，不是具体计费承诺。
 
-运行中的临时对话可向主任务追加引导，相关版本与处理状态随运行协调；它不是随意并发改写正在执行的工具参数。
+侧边聊天使用主聊天完整输入组件的独立副本，两边可同时输入，草稿、附件和发送按钮分别管理，打开侧边聊天不会移动或隐藏主输入框。输出复用 Agent 渲染，仅提供两种发送方式：Side Chat 围绕当前任务独立讨论，不要求主任务处于运行中；Steer 将用户明确发送的要求交给正在运行的主任务，不取消当前工具，也不会退化为排队或新建分支。
+
+侧边聊天的记录、草稿及新增附件仅保存在内存，不创建持久化内核会话，不进入任务历史、恢复日志或长期记忆；关闭应用后消失。切换面板和主任务完成不清空本次应用生命周期内的记录。通过 Steer 明确交给主任务的指令属于主任务上下文，会随主任务正常保存。
 
 <a id="data"></a>
 ## 权限、数据与凭据
@@ -582,13 +547,13 @@ Work GUI 是真实任务系统的另一种展示与操作入口。当前宿主�
 当前构建目标为 Windows x64。需要可用的 Node.js/npm 和 Git；Node 版本应与锁文件及依赖的 engines 要求兼容。Serena、gh、tshark、Ghidra 等按所需功能另行准备。
 
 ```powershell
-git clone https://github.com/666-gy/Yan-Agent.git
+git clone https://github.com/ViaTumLab/Yan-Agent.git
 cd Yan-Agent
 npm ci
 npm start
 ```
 
-`git clone` 得到远端当前版本，不一定是本文对应的 v1.6.0。需要使用包含本版源码的分支/发布版本。开发模式可用 `npm run dev`。
+`git clone` 得到远端当前版本，不一定是本文对应的 v1.7.0 Beta1。需要使用包含本版源码的分支/发布版本。开发模式可用 `npm run dev`。
 
 ### 修改哪些文件后需要重新构建
 
@@ -599,7 +564,6 @@ npm start
 | provider 或编码环境插件 | `npm run bundle:opencode-provider` |
 | dsh 审阅组件 | `npm run bundle:dsh-review` |
 | TTS 打包依赖 | `npm run bundle:tts` |
-| 启动页 React/Ghost Fibers | `npm run bundle:splash` |
 
 ### 打包
 
@@ -608,7 +572,7 @@ npm run build
 npm run build:portable
 ```
 
-构建脚本依次准备适配器、审阅、TTS 和启动页资源，调用 electron-builder 生成 NSIS 或便携产物，再执行运行时、provider 和 CodeGraph 的打包校验。输出目录为 `dist/`，具体产物名以 `package.json` 为准。
+构建脚本依次准备适配器、审阅和 TTS 资源，调用 electron-builder 生成 NSIS 或便携产物，再执行运行时、provider 和 CodeGraph 的打包校验。输出目录为 `dist/`，具体产物名以 `package.json` 为准。
 
 `asarUnpack` 保留需要真实路径运行的 lib 与相关依赖，CodeGraph/officecli 等资源由 extraResources 处理。开发目录能运行不代表打包后路径一定正确，因此保留包后检查。
 
@@ -635,7 +599,7 @@ npm run verify:codegraph
 
 `npm test` 匹配 `test/*.test.cjs`，不等于自动运行全部 `.e2e.cjs`。Electron E2E 通常通过 `YAN_E2E_MODE` 和独立 `YAN_E2E_USER_DATA_DIR` 隔离数据；真实 API 测试需要其指定环境与凭据，可能产生调用费用。
 
-测试覆盖适配器请求/回放、任务恢复、上下文、分析工具、子代理依赖、Git/worktree、审阅大数据、浏览器注释、模式隔离、Work GUI 等。仓库存在测试文件不代表某次发布已经全部通过；发布说明应记录实际执行项与结果。
+测试覆盖适配器请求/回放、任务恢复、上下文、分析工具、子代理依赖、Git/worktree、审阅大数据、浏览器注释、模式隔离等。仓库存在测试文件不代表某次发布已经全部通过；发布说明应记录实际执行项与结果。
 
 <a id="limits"></a>
 ## 边界、排查与版本迁移
@@ -650,7 +614,6 @@ npm run verify:codegraph
 | Serena 不可用 | 工作区、Skill/Goal 启用条件、Serena/uvx、语言服务器；可降级精读与补丁 |
 | 审阅卡顿 | 改动数量、单文件大小、二进制、懒加载与后台 worker 状态 |
 | 注释改完刷新消失 | 本地 DOM 预览的预期行为；永久修改需要源码 |
-| Work GUI 帧率低 | GPU、DPR、窗口分辨率、性能面板；GPU 时间不可用时不要自行推算 |
 | 更新后任务中断 | 查看恢复状态、实际工具结果与磁盘变化，确认后续操作，避免直接重复执行副作用 |
 
 ### 相对 1.5.0 的收缩项
@@ -677,15 +640,21 @@ Goal、Serena、基础子代理、内置浏览器、基础 Git、DSML 与基础�
 | [lib/serena-runtime.js](lib/serena-runtime.js) | Serena 项目绑定与固定工具列表 |
 | [lib/worktree-service.js](lib/worktree-service.js) | 任务级 Git 检出隔离 |
 | [lib/review-worker.js](lib/review-worker.js) | 后台审阅计算 |
-| [lib/agi](lib/agi) | 实验性侧路、轨迹、经验与评估 |
 | [renderer/renderer.js](renderer/renderer.js) | 任务 UI、流式显示与面板协调 |
 | [renderer/browser-annotations.js](renderer/browser-annotations.js) | 注释交互与受限 DOM 修改 |
-| [renderer/work-gui/palace-host.js](renderer/work-gui/palace-host.js) | 场景到真实后端的桥 |
-| [renderer/work-gui/palace](renderer/work-gui/palace) | 云顶天宫场景与交互 |
 | [test](test) | 模块测试、Electron E2E 与运行时验证 |
 
-Yan Agent 主项目采用 MIT 许可。OpenCode、Electron、模型 SDK、Serena、CodeGraph、Tree-sitter、dsh 审阅组件、ReactBits Ghost Fibers、Three.js、字体及场景素材各自遵循其许可证。
+Yan Agent 主项目采用 MIT 许可。OpenCode、Electron、模型 SDK、Serena、CodeGraph、Tree-sitter、dsh 审阅组件及字体各自遵循其许可证。
 
-第三方来源与授权参见 [总说明](lib/THIRD_PARTY_NOTICES.md)、[技能说明](lib/skills/THIRD_PARTY_NOTICES.md)、[OpenCode 上游说明](vendor/opencode/UPSTREAM.md)、[dsh 来源](lib/vendor/dsh-code-review/VENDOR.md)、[启动页资源](renderer/splash/README.md)、[中文字体许可](renderer/assets/NotoSerifSC-OFL.txt)、[场景素材](renderer/work-gui/palace/assets/LICENSES.md)及[星河素材](renderer/work-gui/palace/assets/GALAXY-LICENSE.md)。
+第三方来源与授权参见 [总说明](lib/THIRD_PARTY_NOTICES.md)、[技能说明](lib/skills/THIRD_PARTY_NOTICES.md)、[OpenCode 上游说明](vendor/opencode/UPSTREAM.md)、[dsh 来源](lib/vendor/dsh-code-review/VENDOR.md) 及[中文字体许可](renderer/assets/NotoSerifSC-OFL.txt)。
 
-欢迎通过 [Issues](https://github.com/666-gy/Yan-Agent/issues) 提交可复现问题。请附版本、系统、模型连接类型、复现步骤及脱敏日志，并区分模型回答问题、API 兼容问题、工具失败和 UI 显示问题。
+欢迎通过 [Issues](https://github.com/ViaTumLab/Yan-Agent/issues) 提交可复现问题。请附版本、系统、模型连接类型、复现步骤及脱敏日志，并区分模型回答问题、API 兼容问题、工具失败和 UI 显示问题。
+
+
+### Bash 后台任务
+
+Bash 的前台等待与进程执行时长分开：桌面会话默认等待 10 秒，超出后转入后台，不再因等待预算耗尽终止命令。模型可以用 run_in_background: true 立即返回，用 yield_time_ms 调整本次前台等待时间；旧的 timeout 参数作为等待预算兼容。后台任务返回 job ID，bash_status 可读取状态与已捕获输出，无需重新运行命令。
+
+右上角胶囊面板中的 **Bash 任务** 打开输入框上方的任务面板，显示当前会话的命令、工作目录、耗时、状态和退出码。支持查看实时输出、将前台命令转后台、停止进程树；完成的任务仍可查看。
+
+后台命令成功或失败后，由主进程在原会话安排后续轮次，沿用正常任务管理、事件流和保存流程。会话仍忙时排队；多条完成通知合并，避免并发启动相同会话。用户停止命令、停止 Agent 或删除会话会取消对应任务及待唤醒通知，不会自行恢复。后台进程由本次应用生命周期管理，退出应用会清理，重启不会重新执行命令。输出捕获上限为 1 MiB，超过时明确标注截断。

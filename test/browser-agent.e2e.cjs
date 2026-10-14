@@ -106,7 +106,7 @@ async function guestState(page, tabId) {
     const kernel = await page.evaluate(() => window.yan.getConfig().then(config => config.executionKernel));
     assert.equal(kernel.id, 'yan-kernel');
     assert.equal(kernel.name, 'Yan Kernel');
-    assert.equal(kernel.version, '1.4.0');
+    assert.equal(kernel.version, require('../package.json').version);
     assert.equal(kernel.engine, 'opencode');
     assert.equal(kernel.engineVersion, '1.18.11');
 
@@ -396,14 +396,13 @@ async function guestState(page, tabId) {
     const afterEscape = await command(page, runId, 'status');
     assert.equal(afterEscape.code, 'BROWSER_AGENT_CONTROL_RELEASED');
 
-    // A later task must reclaim the retained Agent tab without opening it
-    // again. This mirrors a user starting a second conversation after the
-    // first browser task has completed.
+    // A later task must open its own tab, even after the previous task releases.
     const sequentialRunId = 'browser-e2e-sequential';
     const sequentialStatus = await command(page, sequentialRunId, 'status');
-    assert.equal(sequentialStatus.ok, true);
-    assert.equal(sequentialStatus.tabId, agentTabId);
-    assert.equal(sequentialStatus.agentControlled, true);
+    assert.equal(sequentialStatus.code, 'BROWSER_NOT_OPEN');
+    const sequentialOpened = await command(page, sequentialRunId, 'open', { target_type: 'url', url_or_path: agentUrl });
+    assert.equal(sequentialOpened.ok, true);
+    assert.notEqual(sequentialOpened.tabId, agentTabId);
     await releaseCommand(page, sequentialRunId);
 
     const closeRunId = 'browser-e2e-close';

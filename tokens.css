@@ -47,21 +47,43 @@
   --radius-surface: var(--r-lg);
 }
 
-/* Yan Work GUI — scoped riverside world palette */
-.work-gui-page {
-  --wgu-paper: oklch(98% 0.015 90);
-  --wgu-paper-soft: oklch(95% 0.02 105);
-  --wgu-ink: oklch(32% 0.035 175);
-  --wgu-muted: oklch(49% 0.03 165);
-  --wgu-rule: oklch(85% 0.025 120);
-  --wgu-accent: oklch(42% 0.055 175);
-  --wgu-success: oklch(43% 0.10 150);
-  --wgu-warning: oklch(48% 0.09 65);
-  --wgu-water: oklch(76% 0.055 184);
-  --wgu-shadow: oklch(31% 0.045 165 / 0.12);
-  --wgu-clear: oklch(100% 0 0 / 0);
-  --wgu-font-display: var(--font-reading);
-  --wgu-font-body: var(--font-sans);
-  --wgu-font-code: var(--font-mono);
-  --wgu-ease: cubic-bezier(0.16, 1, 0.3, 1);
+/* Desktop settings: opaque surfaces stay readable with any chat wallpaper. */
+:root {
+  --settings-canvas: #ffffff;
+  --settings-sidebar: #f3f3f3;
+  --settings-surface: #f7f7f7;
+  --settings-control: #eeeeee;
+  --settings-hover: #e8e8e8;
+  --settings-selected: #e2e2e2;
+  --settings-border: #e7e7e7;
+  --settings-divider: #e3e3e3;
+  --settings-border-strong: #cecece;
+  --settings-text: #242424;
+  --settings-text-secondary: #666666;
+  --settings-text-muted: #737373;
+  --settings-accent: #087bea;
+  --settings-accent-soft: #e4f0fc;
+  --settings-switch-off: #b8b8b8;
+  --settings-switch-thumb: #ffffff;
+  --settings-sidebar-width: 236px;
+  --settings-content-width: 860px;
+  --settings-radius: 14px;
+  --settings-control-radius: 8px;
+}
+html[data-theme="dark"] {
+  --settings-canvas: #181818;
+  --settings-sidebar: #202022;
+  --settings-surface: #232323;
+  --settings-control: #2c2c2c;
+  --settings-hover: #303032;
+  --settings-selected: #323234;
+  --settings-border: #2e2e2e;
+  --settings-divider: #333333;
+  --settings-border-strong: #444444;
+  --settings-text: #e5e5e5;
+  --settings-text-secondary: #a0a0a0;
+  --settings-text-muted: #969696;
+  --settings-accent: #3399ff;
+  --settings-accent-soft: #243346;
+  --settings-switch-off: #535356;
 }

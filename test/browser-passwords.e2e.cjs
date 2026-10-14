@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {_electron}=require('playwright');
+const root=path.resolve(__dirname,'..'),profile=fs.mkdtempSync(path.join(os.tmpdir(),'yan-passwords-'));
+(async()=>{const app=await _electron.launch({executablePath:require('electron'),args:[root],cwd:root,env:{...process.env,YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:profile}});try{
+const page=await app.firstWindow();await page.waitForFunction(()=>window.__YAN_APP_READY__);await page.setViewportSize({width:1440,height:1000});
+await page.locator('#settingsBtn').click();await page.locator('#settings-tab-browser').click();await page.locator('#browserPasswordsManage').click();
+await page.locator('#passwordAdd').click();await page.locator('#passwordUrl').fill('https://example.com/login');await page.locator('#passwordUsername').fill('test-user');await page.locator('#passwordSecret').fill('Secret-for-encryption-check-123');
+await page.locator('#passwordSave').click();await page.locator('.password-row').waitFor();
+const stored=fs.readFileSync(path.join(profile,'browser-passwords.json'),'utf8');assert.ok(!stored.includes('Secret-for'));assert.ok(!stored.includes('test-user'));assert.ok(!stored.includes('example.com'));
+const items=await page.evaluate(()=>window.yan.browserPasswordList());assert.equal(items.length,1);assert.equal('password' in items[0],false);
+await page.getByRole('button',{name:'编辑',exact:true}).click();assert.equal(await page.locator('#passwordSecret').inputValue(),'Secret-for-encryption-check-123');
+await page.locator('#passwordReveal').click();assert.equal(await page.locator('#passwordSecret').getAttribute('type'),'text');await page.locator('#passwordSecret').fill('changed');await page.locator('#passwordSave').click();await page.waitForFunction(()=>!document.querySelector('#passwordEditDialog').open);
+await page.locator('#passwordSearch').fill('unknown');assert.equal(await page.locator('.password-row').count(),0);await page.locator('#passwordSearch').fill('');
+await page.locator('#passwordAdvancedTab').click();assert.equal(await page.locator('#passwordSearch').isVisible(),false);
+fs.mkdirSync(path.join(root,'output/playwright/passwords'),{recursive:true});await page.evaluate(()=>applyTheme('light'));await page.screenshot({path:path.join(root,'output/playwright/passwords/advanced.png')});
+await page.locator('#passwordTab').click();await page.locator('#passwordAdd').click();await page.screenshot({path:path.join(root,'output/playwright/passwords/form.png')});await page.locator('#passwordCancel').click();assert.equal(await page.locator('#passwordSecret').inputValue(),'');
+await page.reload();await page.waitForFunction(()=>window.__YAN_APP_READY__);await page.locator('#settingsBtn').click();await page.locator('#settings-tab-browser').click();await page.locator('#browserPasswordsManage').click();await page.locator('.password-row').waitFor();
+await page.getByRole('button',{name:'删除',exact:true}).click();await page.locator('#passwordDeleteCancel').click();assert.equal((await page.evaluate(()=>window.yan.browserPasswordList())).length,1);
+await page.locator('#passwordAdvancedTab').click();await page.locator('#passwordClear').click();await page.locator('#passwordDeleteConfirm').click();await page.waitForFunction(()=>!document.querySelector('#passwordDeleteDialog').open);assert.equal((await page.evaluate(()=>window.yan.browserPasswordList())).length,0);assert.ok(!fs.existsSync(path.join(profile,'browser-passwords.json')));
+console.log('Password manager passed: real system encryption, metadata-only listing, create/edit/search, tab visibility, confirmation/cancel, persistence, clear and form cleanup.');
+}finally{await app.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

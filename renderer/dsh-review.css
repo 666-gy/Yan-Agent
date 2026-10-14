@@ -48,6 +48,22 @@ html[data-theme="dark"] body {
 #rs-review {
   padding: 0 !important;
 }
+/* The review fetch (git diff / run manifest) can take a moment on a large change
+   set; without a visible hint the empty panel reads as an unresponsive surface.
+   #rs-review already carries .rs-panel's position:absolute, so this overlay
+   anchors to it without re-establishing a containing block (an id-level
+   position override would out-specify .rs-panel and collapse the panel). */
+#rs-review[data-state="loading"]::after {
+  content: '审阅正在加载中';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  pointer-events: none;
+}
 #yanDshReviewPanel {
   position: relative;
   min-width: 0;

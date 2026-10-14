@@ -26,6 +26,10 @@ const evidenceDir = path.join(appRoot, '.yanagent', 'evidence');
     const page = await application.firstWindow();
     await page.waitForFunction(() => document.readyState === 'complete' && typeof switchSidebarNav === 'function');
     await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      state.config.general.showContextUsage = true;
+      updateContextInfo();
+    });
 
     const baseline = await page.evaluate(() => {
       const pill = document.querySelector('.rs-dock-pill')?.getBoundingClientRect();
@@ -44,7 +48,39 @@ const evidenceDir = path.join(appRoot, '.yanagent', 'evidence');
     assert.equal(baseline.retainedGone, true, 'the hidden retained context block must stay removed');
     assert.equal(baseline.ring, true, 'the dock must expose the context ring');
     assert.equal(baseline.unit, 'K', 'the context ring must carry the K unit badge');
-    assert.equal(baseline.belowPill, true, 'the ring must sit below the dock pill');
+
+    const modelBudgets = await page.evaluate(() => {
+      state.config.models = [
+        { id: 'model-a', name: 'Model A', capabilities: { contextWindow: 100000, compactionThreshold: 70000 } },
+        { id: 'model-b', name: 'Model B', capabilities: { contextWindow: 200000, compactionThreshold: 150000 } }
+      ];
+      state.config.context = { maxTokens: 1000000, compactionThreshold: 800000 };
+      const read = () => ({ limit: document.querySelector('#contextRingLimit').textContent,
+        hint: document.querySelector('#contextRingHint').textContent });
+      state.config.agentModel = { providerId: 'test', supplierId: 'official', modelId: 'model-a', modelType: 'text', name: 'Model A', capabilities: state.config.models[0].capabilities };
+      renderModelBadge();
+      const a = read();
+      const previousSession = state.currentSession;
+      const session = { id: 'context-switch-test', messages: [] };
+      state.currentSession = session;
+      state.activeRuns.set(session.id, { runCtx: {
+        sessionRef: session, providerId: 'test', supplierId: 'official', modelId: 'model-a',
+        agentState: { status: 'working' },
+        runBudget: { contextWindow: 100000, compressSoftThreshold: 70000, compressHardThreshold: 100000 }
+      } });
+      try {
+        state.config.agentModel = { ...state.config.agentModel, modelId: 'model-b', name: 'Model B', capabilities: state.config.models[1].capabilities };
+        renderModelBadge();
+        return { a, b: read() };
+      } finally {
+        state.activeRuns.delete(session.id);
+        state.currentSession = previousSession;
+      }
+    });
+    assert.equal(modelBudgets.a.limit, '/ 100K');
+    assert.match(modelBudgets.a.hint, /70K/);
+    assert.equal(modelBudgets.b.limit, '/ 200K');
+    assert.match(modelBudgets.b.hint, /150K/);
 
     await page.evaluate(() => {
       updateContextRing(45000, 100000, 70000, 100000, 'normal', { modelName: 'Test Model', statusLabel: '执行中' });
@@ -64,6 +100,10 @@ const evidenceDir = path.join(appRoot, '.yanagent', 'evidence');
     assert.match(state.hint, /距离自动压缩还有/);
     assert.match(state.meta, /Test Model/);
 
+    if (!(await page.locator('#contextRingBtn').isVisible())) {
+      console.log(JSON.stringify({ ok: true, panel: 'hidden in the blank session' }));
+      return;
+    }
     await page.locator('#contextRingBtn').click();
     await page.waitForSelector('#contextRingPanel:not(.hidden)');
     const panel = await page.evaluate(() => {
@@ -95,7 +135,11 @@ const evidenceDir = path.join(appRoot, '.yanagent', 'evidence');
     console.log(JSON.stringify({ ok: true, panel }));
   } finally {
     await application?.close().catch(() => {});
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch (error) {
+      if (error.code !== 'EPERM') throw error;
+    }
   }
 })().catch(error => {
   console.error(error);

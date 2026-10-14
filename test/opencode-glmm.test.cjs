@@ -240,7 +240,9 @@ test('GLMM routes by preset, model and endpoint without a model allowlist', () =
   for (const apiFormat of ['anthropic', 'responses']) {
     const provider = buildOpenCodeConfig({ providerId: 'glm', modelId: 'glm-5.3', apiFormat,
       responsesProviderModule: 'file:///responses.mjs' }).provider.glm;
-    assert.equal(provider.npm, apiFormat === 'anthropic' ? '@ai-sdk/anthropic' : 'file:///responses.mjs');
+    // An anthropic connection hands the endpoint to antl, which wraps the same
+    // SDK; the responses format keeps its own module.
+    assert.match(provider.npm, apiFormat === 'anthropic' ? /opencode-antl-provider/ : /^file:\/\/\/responses\.mjs$/);
     assert.equal(provider.options.yanGlmmCompatibility, undefined);
   }
   assert.equal(inferConnectionPreset('Z.AI', ''), 'glm');

@@ -1,0 +1,5 @@
+Codex brand mark, copied without changing its SVG paths from the installed
+OpenAI.Codex desktop application, version 26.924.2738.0, on 2026-09-29.
+Source: app/resources/app.asar/webview/assets/codex-new-f14177b03534.svg
+Used to identify the Codex provider. Brand artwork belongs to OpenAI.
+The adjacent claude.svg is the existing Claude brand mark used by Yan.

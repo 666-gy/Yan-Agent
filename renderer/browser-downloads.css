@@ -1,0 +1,30 @@
+.bd-panel, .bd-menu { position: fixed; inset: auto; margin: 0; border: 1px solid var(--border); background: var(--bg-elev); color: var(--text); box-shadow: var(--shadow-soft); font: var(--text-base)/1.5 var(--font-ui); }
+.bd-panel { width: 430px; max-width: calc(100vw - 16px); max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; padding: 12px 14px; border-radius: 22px; }
+.bd-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.bd-panel header strong { font-size: 16px; font-weight: 600; }
+.bd-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; border: 0; border-radius: 50%; background: transparent; color: var(--text-dim); cursor: pointer; padding: 4px; }
+.bd-icon svg, .bd-file svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.bd-icon:hover { background: var(--bg-hover); }
+.bd-icon:focus-visible, .bd-menu button:focus-visible { outline: 2px solid var(--settings-accent); outline-offset: 2px; }
+.bd-trigger[hidden] { display: none !important; }
+.browser-toolbar-actions .bd-trigger { position: relative; border-radius: 50%; background: transparent; }
+.browser-toolbar-actions .bd-trigger:hover, .browser-toolbar-actions .bd-trigger[aria-expanded="true"] { background: var(--bg-hover); }
+.browser-toolbar-actions .bd-trigger.is-downloading { color: var(--settings-accent); }
+.bd-icon .bd-ring { display: none; position: absolute; inset: -2px; width: 32px; height: 32px; transform: rotate(-90deg); pointer-events: none; }
+.bd-trigger.has-progress .bd-ring { display: block; }
+.bd-ring-track { stroke: var(--border); }
+.bd-ring-value { stroke: var(--settings-accent); stroke-dasharray: 100; stroke-dashoffset: calc(100 - var(--download-progress, 0)); }
+.bd-trigger.is-indeterminate .bd-ring-value { stroke-dasharray: 24 76; stroke-dashoffset: 0; }
+.bd-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.bd-file { display: grid; place-items: center; flex: 0 0 38px; height: 38px; border-radius: 12px; background: var(--bg-hover); color: var(--text-dim); }
+.bd-body { flex: 1; min-width: 0; }
+.bd-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bd-status { color: var(--text-dim); font-size: var(--text-sm); margin-top: 3px; }
+.bd-body progress { display: block; appearance: none; width: 100%; height: 4px; margin-top: 5px; border: 0; border-radius: 4px; overflow: hidden; }
+.bd-body progress::-webkit-progress-bar { background: var(--border); }
+.bd-body progress::-webkit-progress-value { background: var(--settings-accent); }
+.bd-actions { display: flex; gap: 2px; }
+.bd-menu { min-width: 190px; padding: 6px; border-radius: 16px; }
+.bd-menu button { display: block; width: 100%; border: 0; background: transparent; color: inherit; text-align: left; padding: 8px 10px; border-radius: 10px; font: inherit; cursor: pointer; }
+.bd-menu button:hover { background: var(--bg-hover); }
+.bd-empty { text-align: center; color: var(--text-dim); padding: 14px; }

@@ -1,0 +1,672 @@
+{
+  "schemaVersion": 1,
+  "id": "remotion",
+  "name": "Remotion",
+  "version": "1.0.7",
+  "description": "用 React 制作视频，涵盖动画、字幕、音频、地图与渲染。",
+  "author": "Remotion",
+  "license": "MIT",
+  "instructions": "instructions.md",
+  "skills": [
+    {
+      "id": "remotion-best-practices",
+      "name": "remotion-best-practices",
+      "description": "Router for all Remotion skills",
+      "path": "skills/remotion-best-practices/SKILL.md"
+    },
+    {
+      "id": "remotion-captions",
+      "name": "remotion-captions",
+      "description": "Transcribing, displaying and animating captions",
+      "path": "skills/remotion-best-practices/remotion-captions/REFERENCE.md"
+    },
+    {
+      "id": "remotion-create",
+      "name": "remotion-create",
+      "description": "Create a new Remotion video",
+      "path": "skills/remotion-best-practices/remotion-create/REFERENCE.md"
+    },
+    {
+      "id": "remotion-docs",
+      "name": "remotion-docs",
+      "description": "Search Remotion documentation",
+      "path": "skills/remotion-best-practices/remotion-docs/REFERENCE.md"
+    },
+    {
+      "id": "remotion-interactivity",
+      "name": "remotion-interactivity",
+      "description": "Structure Remotion markup for interactivity",
+      "path": "skills/remotion-best-practices/remotion-interactivity/REFERENCE.md"
+    },
+    {
+      "id": "remotion-maps",
+      "name": "remotion-maps",
+      "description": "Remotion Map animation knowledge",
+      "path": "skills/remotion-best-practices/remotion-maps/REFERENCE.md"
+    },
+    {
+      "id": "remotion-markup",
+      "name": "remotion-markup",
+      "description": "Content, animation and effects best practices",
+      "path": "skills/remotion-best-practices/remotion-markup/REFERENCE.md"
+    },
+    {
+      "id": "remotion-multimedia",
+      "name": "remotion-multimedia",
+      "description": "Interacting with Mediabunny",
+      "path": "skills/remotion-best-practices/remotion-multimedia/REFERENCE.md"
+    },
+    {
+      "id": "remotion-render",
+      "name": "remotion-render",
+      "description": "Export a Remotion video",
+      "path": "skills/remotion-best-practices/remotion-render/REFERENCE.md"
+    },
+    {
+      "id": "remotion-saas",
+      "name": "remotion-saas",
+      "description": "Build an app with Remotion",
+      "path": "skills/remotion-best-practices/remotion-saas/REFERENCE.md"
+    },
+    {
+      "id": "remotion-studio",
+      "name": "remotion-studio",
+      "description": "Preview a Remotion video",
+      "path": "skills/remotion-best-practices/remotion-studio/REFERENCE.md"
+    },
+    {
+      "id": "remotion-upgrade",
+      "name": "remotion-upgrade",
+      "description": "Upgrade Remotion, and related packages",
+      "path": "skills/remotion-best-practices/remotion-upgrade/REFERENCE.md"
+    }
+  ],
+  "resources": [
+    {
+      "id": "file-a20d08e12658c910",
+      "name": "skills/remotion-best-practices/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/agents/openai.yaml"
+    },
+    {
+      "id": "file-168f145a02e3b455",
+      "name": "skills/remotion-best-practices/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-92e713685e0fad99",
+      "name": "skills/remotion-best-practices/remotion-captions/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-captions/agents/openai.yaml"
+    },
+    {
+      "id": "file-81c6bf666268f968",
+      "name": "skills/remotion-best-practices/remotion-captions/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-captions/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-6f07c38d83b93855",
+      "name": "skills/remotion-best-practices/remotion-captions/display-captions.md",
+      "path": "skills/remotion-best-practices/remotion-captions/display-captions.md"
+    },
+    {
+      "id": "file-86ef23d2321d00ad",
+      "name": "skills/remotion-best-practices/remotion-captions/import-srt-captions.md",
+      "path": "skills/remotion-best-practices/remotion-captions/import-srt-captions.md"
+    },
+    {
+      "id": "file-360729d4ddf2b3a6",
+      "name": "skills/remotion-best-practices/remotion-captions/transcribe-captions.md",
+      "path": "skills/remotion-best-practices/remotion-captions/transcribe-captions.md"
+    },
+    {
+      "id": "file-94966bf6d1207b7c",
+      "name": "skills/remotion-best-practices/remotion-create/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-create/agents/openai.yaml"
+    },
+    {
+      "id": "file-b87fb9e5949815b4",
+      "name": "skills/remotion-best-practices/remotion-create/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-create/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-cd0b7de881f4ae62",
+      "name": "skills/remotion-best-practices/remotion-create/tailwind.md",
+      "path": "skills/remotion-best-practices/remotion-create/tailwind.md"
+    },
+    {
+      "id": "file-6fc4299bd128ef17",
+      "name": "skills/remotion-best-practices/remotion-create/video-layout.md",
+      "path": "skills/remotion-best-practices/remotion-create/video-layout.md"
+    },
+    {
+      "id": "file-51565f19bd28a803",
+      "name": "skills/remotion-best-practices/remotion-docs/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-docs/agents/openai.yaml"
+    },
+    {
+      "id": "file-951058d8b806033c",
+      "name": "skills/remotion-best-practices/remotion-docs/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-docs/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-2d8ba0d588e8e3b0",
+      "name": "skills/remotion-best-practices/remotion-interactivity/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-interactivity/agents/openai.yaml"
+    },
+    {
+      "id": "file-22768f6bc66e6c2c",
+      "name": "skills/remotion-best-practices/remotion-interactivity/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-interactivity/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-5ae0aa8ca7ccb591",
+      "name": "skills/remotion-best-practices/remotion-maps/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-maps/agents/openai.yaml"
+    },
+    {
+      "id": "file-de0f8f62579bd9be",
+      "name": "skills/remotion-best-practices/remotion-maps/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-maps/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-02441a886126ff03",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/TECHNIQUE.md"
+    },
+    {
+      "id": "file-e8f9db2c3f0c5c40",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/cesium-path.json",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/cesium-path.json"
+    },
+    {
+      "id": "file-a01bdf63771e2bf9",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/city-path.json",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/city-path.json"
+    },
+    {
+      "id": "file-f84f150545fb47c9",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/flight-path.ts",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/flight-path.ts"
+    },
+    {
+      "id": "file-130df5dbd26a603d",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/sample-river.geojson",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/assets/sample-river.geojson"
+    },
+    {
+      "id": "file-009a401cee9bde69",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/references/3d-data-sources.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/references/3d-data-sources.md"
+    },
+    {
+      "id": "file-642e55b2c34b8e5a",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/references/3d-flyover-architecture.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/references/3d-flyover-architecture.md"
+    },
+    {
+      "id": "file-1e8b18992e53ae85",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/references/3d-troubleshooting.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/references/3d-troubleshooting.md"
+    },
+    {
+      "id": "file-666c4d0f53662ace",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/cesium/scripts/prep-cesium-path.mjs",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/cesium/scripts/prep-cesium-path.mjs"
+    },
+    {
+      "id": "file-08d40af9589e5dd1",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/mapbox/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/mapbox/TECHNIQUE.md"
+    },
+    {
+      "id": "file-e441e06fb560eea8",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/mapbox/references/render-stability.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/mapbox/references/render-stability.md"
+    },
+    {
+      "id": "file-91f7cad601a8c14b",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maplibre/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maplibre/TECHNIQUE.md"
+    },
+    {
+      "id": "file-64f6b8f9b9736001",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maplibre/references/render-stability.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maplibre/references/render-stability.md"
+    },
+    {
+      "id": "file-18e45aa50a32cb3a",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/TECHNIQUE.md"
+    },
+    {
+      "id": "file-6e683cd78595634e",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/MapTilerVectorElement.ts",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/MapTilerVectorElement.ts"
+    },
+    {
+      "id": "file-916adbe341a8fba3",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/sample-data/country-meta.json",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/sample-data/country-meta.json"
+    },
+    {
+      "id": "file-962e3dc90a7078f0",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/sample-data/yarlung-flow.json",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/sample-data/yarlung-flow.json"
+    },
+    {
+      "id": "file-7f19dcd98d1a967d",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/tokens.ts",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/assets/tokens.ts"
+    },
+    {
+      "id": "file-cdc6ad0b2fcffc0e",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/map-data-sources.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/map-data-sources.md"
+    },
+    {
+      "id": "file-3f1e32ac0b6e6765",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/map-explainer-architecture.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/map-explainer-architecture.md"
+    },
+    {
+      "id": "file-f370f6db02d60374",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/map-geo-prep.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/map-geo-prep.md"
+    },
+    {
+      "id": "file-c4088e8ff4d3ab88",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/render-stability.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/references/render-stability.md"
+    },
+    {
+      "id": "file-33eb3cb8ca337111",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/scripts/prep-geo.mjs",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/maptiler/scripts/prep-geo.mjs"
+    },
+    {
+      "id": "file-212a47c159d21a34",
+      "name": "skills/remotion-best-practices/remotion-maps/techniques/static-map/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-maps/techniques/static-map/TECHNIQUE.md"
+    },
+    {
+      "id": "file-73fa2ccac9a91d89",
+      "name": "skills/remotion-best-practices/remotion-markup/3d.md",
+      "path": "skills/remotion-best-practices/remotion-markup/3d.md"
+    },
+    {
+      "id": "file-66d09c7ffdc7a43d",
+      "name": "skills/remotion-best-practices/remotion-markup/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-markup/agents/openai.yaml"
+    },
+    {
+      "id": "file-caf8bf4c826e3417",
+      "name": "skills/remotion-best-practices/remotion-markup/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-markup/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-8a675a8bdf6c0db3",
+      "name": "skills/remotion-best-practices/remotion-markup/audio-visualization.md",
+      "path": "skills/remotion-best-practices/remotion-markup/audio-visualization.md"
+    },
+    {
+      "id": "file-fdd8228f0a20b8b4",
+      "name": "skills/remotion-best-practices/remotion-markup/audio.md",
+      "path": "skills/remotion-best-practices/remotion-markup/audio.md"
+    },
+    {
+      "id": "file-9bb4e95bec153f4a",
+      "name": "skills/remotion-best-practices/remotion-markup/calculate-metadata.md",
+      "path": "skills/remotion-best-practices/remotion-markup/calculate-metadata.md"
+    },
+    {
+      "id": "file-b7908cbfe338f498",
+      "name": "skills/remotion-best-practices/remotion-markup/compositions.md",
+      "path": "skills/remotion-best-practices/remotion-markup/compositions.md"
+    },
+    {
+      "id": "file-2f423bb50234382a",
+      "name": "skills/remotion-best-practices/remotion-markup/cropping.md",
+      "path": "skills/remotion-best-practices/remotion-markup/cropping.md"
+    },
+    {
+      "id": "file-17b5fa713f285c6b",
+      "name": "skills/remotion-best-practices/remotion-markup/effects.md",
+      "path": "skills/remotion-best-practices/remotion-markup/effects.md"
+    },
+    {
+      "id": "file-9aaee82a153e76fc",
+      "name": "skills/remotion-best-practices/remotion-markup/embedding-videos.md",
+      "path": "skills/remotion-best-practices/remotion-markup/embedding-videos.md"
+    },
+    {
+      "id": "file-0e77186d0313fb7f",
+      "name": "skills/remotion-best-practices/remotion-markup/ffmpeg.md",
+      "path": "skills/remotion-best-practices/remotion-markup/ffmpeg.md"
+    },
+    {
+      "id": "file-fc09bf95061c4ee5",
+      "name": "skills/remotion-best-practices/remotion-markup/gifs.md",
+      "path": "skills/remotion-best-practices/remotion-markup/gifs.md"
+    },
+    {
+      "id": "file-65bef1661093860e",
+      "name": "skills/remotion-best-practices/remotion-markup/google-fonts.md",
+      "path": "skills/remotion-best-practices/remotion-markup/google-fonts.md"
+    },
+    {
+      "id": "file-8de0429b4d9b211e",
+      "name": "skills/remotion-best-practices/remotion-markup/html-in-canvas.md",
+      "path": "skills/remotion-best-practices/remotion-markup/html-in-canvas.md"
+    },
+    {
+      "id": "file-ee60b9cc1f5ef287",
+      "name": "skills/remotion-best-practices/remotion-markup/images.md",
+      "path": "skills/remotion-best-practices/remotion-markup/images.md"
+    },
+    {
+      "id": "file-1f0dc7c19fc07666",
+      "name": "skills/remotion-best-practices/remotion-markup/light-leaks.md",
+      "path": "skills/remotion-best-practices/remotion-markup/light-leaks.md"
+    },
+    {
+      "id": "file-4ec38ffba4ab0952",
+      "name": "skills/remotion-best-practices/remotion-markup/local-fonts.md",
+      "path": "skills/remotion-best-practices/remotion-markup/local-fonts.md"
+    },
+    {
+      "id": "file-2c4a21a32f66ed18",
+      "name": "skills/remotion-best-practices/remotion-markup/lottie.md",
+      "path": "skills/remotion-best-practices/remotion-markup/lottie.md"
+    },
+    {
+      "id": "file-a793cda8dbe26b14",
+      "name": "skills/remotion-best-practices/remotion-markup/measuring-dom-nodes.md",
+      "path": "skills/remotion-best-practices/remotion-markup/measuring-dom-nodes.md"
+    },
+    {
+      "id": "file-308615d1e90430d7",
+      "name": "skills/remotion-best-practices/remotion-markup/measuring-text.md",
+      "path": "skills/remotion-best-practices/remotion-markup/measuring-text.md"
+    },
+    {
+      "id": "file-a969d6217e09da51",
+      "name": "skills/remotion-best-practices/remotion-markup/multi-scene-video.md",
+      "path": "skills/remotion-best-practices/remotion-markup/multi-scene-video.md"
+    },
+    {
+      "id": "file-ce97763c9aec4116",
+      "name": "skills/remotion-best-practices/remotion-markup/parameters.md",
+      "path": "skills/remotion-best-practices/remotion-markup/parameters.md"
+    },
+    {
+      "id": "file-924107a1aceffa94",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/REFERENCE.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/REFERENCE.md"
+    },
+    {
+      "id": "file-0053d665a19e53cb",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/agents/openai.yaml"
+    },
+    {
+      "id": "file-63928f8868915d70",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-759f64f48fd7aef7",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/TECHNIQUE.md"
+    },
+    {
+      "id": "file-39ac6de77a1002b8",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/cesium-path.json",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/cesium-path.json"
+    },
+    {
+      "id": "file-07be199a0bd4d3bb",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/city-path.json",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/city-path.json"
+    },
+    {
+      "id": "file-806c07b66115a1d7",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/flight-path.ts",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/flight-path.ts"
+    },
+    {
+      "id": "file-d639523ee6b8f778",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/sample-river.geojson",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/assets/sample-river.geojson"
+    },
+    {
+      "id": "file-ab7857211bf37a5f",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/references/3d-data-sources.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/references/3d-data-sources.md"
+    },
+    {
+      "id": "file-ef6c32820b335c54",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/references/3d-flyover-architecture.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/references/3d-flyover-architecture.md"
+    },
+    {
+      "id": "file-9701e009b790714e",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/references/3d-troubleshooting.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/references/3d-troubleshooting.md"
+    },
+    {
+      "id": "file-7ba846f4cc603f32",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/scripts/prep-cesium-path.mjs",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/cesium/scripts/prep-cesium-path.mjs"
+    },
+    {
+      "id": "file-1a52077b763b4cd6",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/mapbox/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/mapbox/TECHNIQUE.md"
+    },
+    {
+      "id": "file-905d7013d47e1059",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/mapbox/references/render-stability.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/mapbox/references/render-stability.md"
+    },
+    {
+      "id": "file-b4c6df519c170580",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maplibre/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maplibre/TECHNIQUE.md"
+    },
+    {
+      "id": "file-3f0fd5674ea13abe",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maplibre/references/render-stability.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maplibre/references/render-stability.md"
+    },
+    {
+      "id": "file-9c091014c5635815",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/TECHNIQUE.md"
+    },
+    {
+      "id": "file-85c9863f566fb127",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/MapTilerVectorElement.ts",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/MapTilerVectorElement.ts"
+    },
+    {
+      "id": "file-618643bd36f3154c",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/sample-data/country-meta.json",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/sample-data/country-meta.json"
+    },
+    {
+      "id": "file-0ecf093c14afbe95",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/sample-data/yarlung-flow.json",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/sample-data/yarlung-flow.json"
+    },
+    {
+      "id": "file-0a0a99fb3cfc8a4e",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/tokens.ts",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/assets/tokens.ts"
+    },
+    {
+      "id": "file-c5ed672cde406803",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/map-data-sources.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/map-data-sources.md"
+    },
+    {
+      "id": "file-fc0b38ba69d94b32",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/map-explainer-architecture.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/map-explainer-architecture.md"
+    },
+    {
+      "id": "file-23f824c77e10030c",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/map-geo-prep.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/map-geo-prep.md"
+    },
+    {
+      "id": "file-558931ee71d42aca",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/render-stability.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/references/render-stability.md"
+    },
+    {
+      "id": "file-ce2380271868db62",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/scripts/prep-geo.mjs",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/maptiler/scripts/prep-geo.mjs"
+    },
+    {
+      "id": "file-4ec4e04e93ccc9c5",
+      "name": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/static-map/TECHNIQUE.md",
+      "path": "skills/remotion-best-practices/remotion-markup/remotion-maps/techniques/static-map/TECHNIQUE.md"
+    },
+    {
+      "id": "file-673fc72c25865fac",
+      "name": "skills/remotion-best-practices/remotion-markup/sequencing.md",
+      "path": "skills/remotion-best-practices/remotion-markup/sequencing.md"
+    },
+    {
+      "id": "file-825d740601be9ede",
+      "name": "skills/remotion-best-practices/remotion-markup/sfx.md",
+      "path": "skills/remotion-best-practices/remotion-markup/sfx.md"
+    },
+    {
+      "id": "file-85543f0c6880b065",
+      "name": "skills/remotion-best-practices/remotion-markup/silence-detection.md",
+      "path": "skills/remotion-best-practices/remotion-markup/silence-detection.md"
+    },
+    {
+      "id": "file-6c182b1afafbd0fd",
+      "name": "skills/remotion-best-practices/remotion-markup/text-highlights.md",
+      "path": "skills/remotion-best-practices/remotion-markup/text-highlights.md"
+    },
+    {
+      "id": "file-ef1838a0346517a7",
+      "name": "skills/remotion-best-practices/remotion-markup/timing.md",
+      "path": "skills/remotion-best-practices/remotion-markup/timing.md"
+    },
+    {
+      "id": "file-a513ed2ec8982915",
+      "name": "skills/remotion-best-practices/remotion-markup/transitions.md",
+      "path": "skills/remotion-best-practices/remotion-markup/transitions.md"
+    },
+    {
+      "id": "file-78e18eb4c102794a",
+      "name": "skills/remotion-best-practices/remotion-markup/video-editing.md",
+      "path": "skills/remotion-best-practices/remotion-markup/video-editing.md"
+    },
+    {
+      "id": "file-15ae56883e2e0905",
+      "name": "skills/remotion-best-practices/remotion-markup/voiceover.md",
+      "path": "skills/remotion-best-practices/remotion-markup/voiceover.md"
+    },
+    {
+      "id": "file-44a1e2c832915543",
+      "name": "skills/remotion-best-practices/remotion-multimedia/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-multimedia/agents/openai.yaml"
+    },
+    {
+      "id": "file-e02ab2dfbe36a471",
+      "name": "skills/remotion-best-practices/remotion-multimedia/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-multimedia/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-c6f33f3f4f238114",
+      "name": "skills/remotion-best-practices/remotion-multimedia/get-audio-duration.md",
+      "path": "skills/remotion-best-practices/remotion-multimedia/get-audio-duration.md"
+    },
+    {
+      "id": "file-5db59610e053aafd",
+      "name": "skills/remotion-best-practices/remotion-multimedia/get-video-dimensions.md",
+      "path": "skills/remotion-best-practices/remotion-multimedia/get-video-dimensions.md"
+    },
+    {
+      "id": "file-97aa73fe2d626faa",
+      "name": "skills/remotion-best-practices/remotion-multimedia/get-video-duration.md",
+      "path": "skills/remotion-best-practices/remotion-multimedia/get-video-duration.md"
+    },
+    {
+      "id": "file-5338799c6a1c5bb4",
+      "name": "skills/remotion-best-practices/remotion-render/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-render/agents/openai.yaml"
+    },
+    {
+      "id": "file-85260fde0f896e8b",
+      "name": "skills/remotion-best-practices/remotion-render/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-render/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-d732954c7b6368c1",
+      "name": "skills/remotion-best-practices/remotion-render/transparent-videos.md",
+      "path": "skills/remotion-best-practices/remotion-render/transparent-videos.md"
+    },
+    {
+      "id": "file-d412933a3bf49cab",
+      "name": "skills/remotion-best-practices/remotion-saas/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-saas/agents/openai.yaml"
+    },
+    {
+      "id": "file-efe94725be65621c",
+      "name": "skills/remotion-best-practices/remotion-saas/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-saas/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-9dd9ceac0e85e759",
+      "name": "skills/remotion-best-practices/remotion-saas/framework.md",
+      "path": "skills/remotion-best-practices/remotion-saas/framework.md"
+    },
+    {
+      "id": "file-e679d9625cfebfde",
+      "name": "skills/remotion-best-practices/remotion-saas/player.md",
+      "path": "skills/remotion-best-practices/remotion-saas/player.md"
+    },
+    {
+      "id": "file-43c4774cb7e6c3e6",
+      "name": "skills/remotion-best-practices/remotion-saas/rendering.md",
+      "path": "skills/remotion-best-practices/remotion-saas/rendering.md"
+    },
+    {
+      "id": "file-becb3da989619573",
+      "name": "skills/remotion-best-practices/remotion-studio/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-studio/agents/openai.yaml"
+    },
+    {
+      "id": "file-8bd9a1290019fac5",
+      "name": "skills/remotion-best-practices/remotion-studio/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-studio/assets/remotion-icon.png"
+    },
+    {
+      "id": "file-dd33398015e14dae",
+      "name": "skills/remotion-best-practices/remotion-upgrade/agents/openai.yaml",
+      "path": "skills/remotion-best-practices/remotion-upgrade/agents/openai.yaml"
+    },
+    {
+      "id": "file-35531969a2bad198",
+      "name": "skills/remotion-best-practices/remotion-upgrade/assets/remotion-icon.png",
+      "path": "skills/remotion-best-practices/remotion-upgrade/assets/remotion-icon.png"
+    },
+    {
+      "id": "license",
+      "name": "License",
+      "path": "LICENSE.txt"
+    },
+    {
+      "id": "notice",
+      "name": "Source and attribution",
+      "path": "NOTICE.txt"
+    }
+  ],
+  "mcpServers": []
+}

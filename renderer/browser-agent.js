@@ -1,9 +1,37 @@
-/* Yan Browser Agent Bridge - controls one visible, Agent-owned webview. */
+/* Yan Browser Agent Bridge - controls one Agent-owned webview. */
 (function (namespace) {
   'use strict';
 
   const MAX_SNAPSHOT_ITEMS = 180;
   const MAX_TEXT_LENGTH = 16000;
+  const renderLeases = new WeakMap();
+
+  function retainRender(element) {
+    if (!element) return () => {};
+    renderLeases.set(element, (renderLeases.get(element) || 0) + 1);
+    element.classList.add('browser-background-render');
+    return () => {
+      const count = (renderLeases.get(element) || 1) - 1;
+      if (count) renderLeases.set(element, count);
+      else { renderLeases.delete(element); element.classList.remove('browser-background-render'); }
+    };
+  }
+
+  // 给可能永不落地的原生 Promise(截图走 GPU 合成器)加上界。超时只是放弃等待,
+  // 底层调用无法取消,所以调用方不应该立刻重试。
+  function withTimeout(promise, ms, code) {
+    let timer = null;
+    return Promise.race([
+      Promise.resolve(promise).finally(() => clearTimeout(timer)),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(`${code} (${ms}ms)`);
+          error.code = code;
+          reject(error);
+        }, ms);
+      })
+    ]);
+  }
   const SNAPSHOT_SCRIPT = ({ startRef = 1, snapshotId = '' } = {}) => String.raw`(() => {
     const interactiveSelector = [
       'a[href]', 'button', 'input:not([type="hidden"])', 'textarea', 'select', 'summary',
@@ -247,11 +275,21 @@
 
     async withAction(callback) {
       this.setBusy(true);
+      const sidebar = this.webview?.closest('.right-sidebar');
+      const panel = this.webview?.closest('.rs-panel');
+      const needsFrame = (sidebar?.closest('.rs-hidden') || !panel?.classList.contains('active'))
+        && !renderLeases.has(panel);
+      const releaseSidebar = retainRender(sidebar);
+      const releasePanel = retainRender(panel);
       try {
+        // Give the hidden guest a viewport and compositor frame without opening the UI.
+        if (needsFrame) await new Promise(resolve => setTimeout(resolve, 100));
         return await callback();
       } catch (error) {
         return { ok: false, error: `浏览器操作失败：${error?.message || error}`, code: 'BROWSER_BRIDGE_ERROR' };
       } finally {
+        releasePanel();
+        releaseSidebar();
         if (this.busyTimer) clearTimeout(this.busyTimer);
         this.busyTimer = setTimeout(() => this.setBusy(false), 260);
       }
@@ -304,6 +342,8 @@
         entry.cancelled = true;
         entry.controller.abort();
       }
+      // Let aborted actions finish before clearing guest state or handing off.
+      await this.actionTail;
       this.invalidateRefs();
       const releasedKeys = await this.releaseHeldKeys();
       await this.clearGuestAgentState();
@@ -1225,14 +1265,15 @@
 
     async screenshot() {
       return this.withAction(async () => {
-        if (!this.webview?.capturePage) return { ok: false, error: '当前 Electron 版本不支持内置浏览器截图。', code: 'SCREENSHOT_UNAVAILABLE' };
+        if (!this.webview?.getWebContentsId || !window.yan?.browserCapturePage) return { ok: false, error: '当前 Electron 版本不支持内置浏览器截图。', code: 'SCREENSHOT_UNAVAILABLE' };
         const captureState = await this.executePage(`(() => ({
           title: document.title || '',
           text: String(document.body?.innerText || '').trim().slice(0, 4000),
           url: location.href
         }))()`);
-        const image = await this.webview.capturePage();
-        const dataUrl = image?.toDataURL?.() || '';
+        // capturePage 经由 GPU/Viz 合成器。合成器卡住时这个 Promise 可能永远不落地
+        // 并连带冻结主进程,所以必须自己设上界,失败后交给主进程侧的熔断器处理。
+        const dataUrl = await withTimeout(window.yan.browserCapturePage(this.webview.getWebContentsId()), 12_000, 'SCREENSHOT_TIMEOUT');
         const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
         if (!match) return { ok: false, error: '内置浏览器没有返回有效截图。', code: 'SCREENSHOT_EMPTY' };
         return {

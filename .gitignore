@@ -1,5 +1,6 @@
 node_modules/
 dist/
+/build/setup-ui/*.exe
 *.log
 .DS_Store
 Thumbs.db
@@ -22,6 +23,7 @@ output/
 /switch-page-test.png
 
 # Local analysis and generated caches
+lib/build-manifest.json
 .perf-audit/
 .ua/
 __pycache__/

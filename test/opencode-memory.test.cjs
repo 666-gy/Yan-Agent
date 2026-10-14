@@ -305,3 +305,28 @@ test('memory review failure is non-fatal and still cleans up the isolated sessio
   assert.match(review.error, /provider unavailable/i);
   assert.equal(deleted, true);
 });
+
+test('dirty review content is corrected before durable output is accepted', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-repair-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const sidecar = new OpenCodeSidecar({ appRoot: process.cwd(), dataDir });
+  let attempts = 0, correction = '', deleted = false;
+  sidecar.client = { session: {
+    create: async () => ({ data: { id: 'repair' } }),
+    prompt: async payload => {
+      if (payload.noReply) { correction = payload.parts[0].text; return { data: {} }; }
+      attempts++;
+      return { data: { info: { structured: { memories: [{ key: 'music.play', type: 'procedure', scope: 'global',
+        content: attempts === 1 ? '关键回执：原始工具日志' : '## 波点音乐播放验收\n\n核对底部歌曲名、暂停图标和进度推进。',
+        evidence: '最终窗口状态', basis: 'successful_outcome', verified: true, durable: true, sensitive: false, transient: false }],
+        harnessCandidates: [] } } } };
+    },
+    delete: async () => { deleted = true; return { data: true }; }
+  } };
+  const review = await sidecar.reviewMemory(completedPayload());
+  assert.equal(attempts, 2);
+  assert.match(correction, /failed validation/);
+  assert.equal(review.memories.length, 1);
+  assert.doesNotMatch(review.memories[0].content, /关键回执/);
+  assert.equal(deleted, true);
+});

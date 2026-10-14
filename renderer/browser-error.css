@@ -1,0 +1,19 @@
+/* Browser-style error document; retain Yan's original error glyph. */
+.browser-error-state { position:absolute; z-index:6; inset:47px 0 15px; display:flex; align-items:flex-start; justify-content:center; padding:clamp(32px, 10vh, 96px) 10% 32px; overflow:auto; background:var(--bg); color:var(--text); }
+.browser-error-state[hidden] { display:none; }
+.browser-error-card { display:flex; flex-direction:column; align-items:flex-start; width:100%; max-width:600px; text-align:left; }
+.browser-error-icon { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; margin-bottom:28px; color:var(--danger); flex-shrink:0; }
+.browser-error-icon svg { width:28px; height:28px; }
+.browser-error-title { margin:0 0 12px; color:var(--text); font-family:var(--font-body); font-size:calc(var(--ui-scale, 14px) * 1.285714); font-weight:500; line-height:1.4; }
+.browser-error-hint { margin:0; color:var(--text-dim); font-size:var(--ui-scale, 14px); line-height:1.7; overflow-wrap:anywhere; }
+.browser-error-details { order:1; display:block; margin-top:28px; color:var(--text-dim); font-family:var(--font-body); font-size:calc(var(--ui-scale, 14px) * .857143); line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
+.browser-error-actions { order:2; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:8px; margin-top:48px; }
+.browser-error-pill { display:inline-flex; align-items:center; justify-content:center; min-height:30px; padding:4px 10px; border:1px solid transparent; border-radius:999px; background:transparent; color:var(--text-dim); font:inherit; font-size:calc(var(--ui-scale, 14px) * .928571); cursor:pointer; }
+.browser-error-pill[data-browser-error-action="retry"] { background:var(--bg-hover); color:var(--text); }
+.browser-error-pill:hover { background:var(--bg-active, var(--bg-hover)); color:var(--text); }
+.browser-error-pill:focus-visible { outline:2px solid var(--text-muted); outline-offset:2px; }
+@media (max-height:500px) { .browser-error-state { padding-top:24px; } .browser-error-icon { margin-bottom:16px; } .browser-error-actions { margin-top:24px; } }
+
+.browser-error-suggestions { margin-top:24px; color:var(--text-dim); font-size:var(--ui-scale, 14px); line-height:1.7; }
+.browser-error-suggestions p { margin:0; }
+.browser-error-suggestions ul { margin:0; padding-left:40px; }

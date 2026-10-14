@@ -22,4 +22,10 @@ test('media policy does not make a successful image generation trigger a visual 
   assert.equal(system.includes('Do not add a visual relay read-back as a default validation step'), true);
   assert.equal(system.includes('explicit request to analyze or verify image contents'), true);
   assert.equal(system.includes('pass the prior generatedImageId directly as source_asset_id without reading it first'), true);
+  assert.match(system, /source_path for local\/uploaded images/);
+  assert.match(system, /Do not switch to Python\/Pillow/);
+});
+
+test('missing image model does not turn editor edits into a Python task', () => {
+  assert.match(combineSystem({ mediaModels: [] }), /configure an image model for Yan Media/);
 });

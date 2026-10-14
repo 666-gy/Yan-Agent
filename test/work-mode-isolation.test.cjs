@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { agiEnabled, isolateWorkMode, sessionModeMatches } = require('../lib/work-mode-isolation');
+const { isolateWorkMode, sessionModeMatches } = require('../lib/work-mode-isolation');
 const { combineSystem, combineTurnPrompt, permissionForRun } = require('../lib/opencode-sidecar');
 const { LongTermMemoryStore } = require('../lib/long-term-memory');
 
@@ -16,7 +16,6 @@ test('normal/plan/goal never inject AGI even with stale request fields', () => {
   for (const workMode of ['normal', 'plan', 'goal']) {
     const request = { ...polluted, workMode, prompt: 'fix code', accessMode: 'full' };
     const clean = isolateWorkMode(request);
-    assert.equal(agiEnabled(clean), false);
     assert.equal(clean.reasoningSidepath, undefined);
     assert.equal(clean.escalation, undefined);
     const text = combineSystem(request) + combineTurnPrompt(request, request.prompt, false);
@@ -24,24 +23,22 @@ test('normal/plan/goal never inject AGI even with stale request fields', () => {
     assert.equal(permissionForRun(request).write, workMode === 'plan' ? 'deny' : 'allow');
   }
 });
-test('AGI retains its gate and context; evolution retains only Harness', () => {
-  const agi = { ...polluted, workMode: 'agi', accessMode: 'full' };
-  const text = combineTurnPrompt(agi, 'fix code', false);
-  assert.match(text, /LONG_MARKER/);
-  assert.match(text, /EDGE_MARKER/);
-  assert.match(text, /HARNESS_MARKER/);
-  assert.match(text, /AGI reasoning side-path/);
-  assert.equal(permissionForRun(agi).write, 'ask');
+test('retired AGI requests normalize to normal; evolution retains only Harness', () => {
+  const clean = isolateWorkMode({ ...polluted, workMode: 'agi', accessMode: 'full' });
+  assert.equal(clean.workMode, 'normal');
+  assert.equal(clean.reasoningSidepath, undefined);
+  const text = combineTurnPrompt(clean, 'fix code', false);
+  assert.doesNotMatch(text, /LONG_MARKER|EDGE_MARKER|HARNESS_MARKER|AGI reasoning side-path/);
+  assert.equal(permissionForRun(clean).write, 'allow');
   const evolution = combineTurnPrompt({ ...polluted, workMode: 'evolution' }, 'fix code', false);
   assert.match(evolution, /HARNESS_MARKER/);
   assert.doesNotMatch(evolution, /LONG_MARKER|EDGE_MARKER|AGI reasoning side-path/);
-  assert.equal(agiEnabled({ workMode: 'agi', utility: true }), false);
-  assert.equal(agiEnabled({ workMode: 'agi', skillOnly: true }), false);
 });
 test('mode changes and legacy sessions cannot reuse injected kernel history', () => {
   const session = { metadata: { yanWorkMode: 'agi', yanModeIsolation: 1 } };
   assert.equal(sessionModeMatches(session, { workMode: 'normal' }), false);
-  assert.equal(sessionModeMatches(session, { workMode: 'agi' }), true);
+  assert.equal(sessionModeMatches(session, { workMode: 'agi' }), false);
+  assert.equal(sessionModeMatches({ metadata: { yanWorkMode: 'normal', yanModeIsolation: 2 } }, { workMode: 'normal' }), true);
   assert.equal(sessionModeMatches({ metadata: { yanWorkMode: 'normal' } }, { workMode: 'normal' }), false);
   const text = combineTurnPrompt({ workMode: 'normal', history: [
     { role: 'assistant', content: 'Visible answer<yan-reasoning-sidepath>SECRET_BRIEF</yan-reasoning-sidepath>' },

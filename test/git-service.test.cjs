@@ -183,17 +183,17 @@ test('validation rejects option injection and paths outside the repository', asy
   assert.throws(() => git.validateRemoteUrl('--upload-pack=evil'), { code: 'INVALID_REMOTE_URL' });
   await assert.rejects(() => git.stageFiles(repo, [path.join(root, 'outside.txt')]), { code: 'PATH_OUTSIDE_REPOSITORY' });
   await assert.rejects(() => git.stageFiles(repo, ['.yanagent/memory.json']), { code: 'INVALID_REPOSITORY_PATH' });
-  assert.equal(git.remoteWebUrl('git@github.com:666-gy/Yan-Agent.git'), 'https://github.com/666-gy/Yan-Agent');
+  assert.equal(git.remoteWebUrl('git@github.com:ViaTumLab/Yan-Agent.git'), 'https://github.com/ViaTumLab/Yan-Agent');
   assert.equal(
-    git.remoteWebUrl('https://oauth2:super-secret@github.com/666-gy/Yan-Agent.git'),
-    'https://github.com/666-gy/Yan-Agent'
+    git.remoteWebUrl('https://oauth2:super-secret@github.com/ViaTumLab/Yan-Agent.git'),
+    'https://github.com/ViaTumLab/Yan-Agent'
   );
 
-  await git.addRemote(repo, 'secure', 'https://oauth2:super-secret@github.com/666-gy/Yan-Agent.git');
+  await git.addRemote(repo, 'secure', 'https://oauth2:super-secret@github.com/ViaTumLab/Yan-Agent.git');
   const status = await git.repositoryStatus(repo);
   const secureRemote = status.remotes.find(remote => remote.name === 'secure');
-  assert.equal(secureRemote.fetchUrl, 'https://github.com/666-gy/Yan-Agent.git');
-  assert.equal(secureRemote.webUrl, 'https://github.com/666-gy/Yan-Agent');
+  assert.equal(secureRemote.fetchUrl, 'https://github.com/ViaTumLab/Yan-Agent.git');
+  assert.equal(secureRemote.webUrl, 'https://github.com/ViaTumLab/Yan-Agent');
   assert.equal(secureRemote.credentialsHidden, true);
 });
 
@@ -359,4 +359,57 @@ test('review reports rename content edits instead of full add/delete counts', as
   const pureFile = pureReview.files.find(item => item.path === 'new2.txt');
   assert.equal(pureFile.additions, 0);
   assert.equal(pureFile.deletions, 0);
+});
+
+
+test('review comparisons include branch commits and isolate lazy baselines and caches', async t => {
+  const repo = makeTempRoot();
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const command = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', windowsHide: true });
+  await git.initRepository(repo);
+  await git.setIdentity(repo, 'Yan Test', 'yan@example.com');
+  write(path.join(repo, 'removed.txt'), 'delete me\n');
+  write(path.join(repo, 'renamed.txt'), 'original\n');
+  command('add', '.'); command('commit', '-m', 'base');
+  command('checkout', '-b', 'feature');
+  command('mv', 'renamed.txt', '新名字.txt');
+  command('rm', 'removed.txt');
+  write(path.join(repo, 'committed.txt'), 'feature commit\n');
+  command('add', '.'); command('commit', '-m', 'feature');
+  command('checkout', 'main');
+  write(path.join(repo, 'main-only.txt'), 'main advance\n');
+  command('add', '.'); command('commit', '-m', 'main advances');
+  command('checkout', 'feature');
+  write(path.join(repo, 'committed.txt'), 'feature commit\nlocal edit\n');
+  write(path.join(repo, 'untracked.txt'), 'new file\n');
+  write(path.join(repo, '.yanagent', 'private.txt'), 'internal\n');
+  const all = await git.review(repo, { mode: 'all', baseBranch: 'main', layout: 'summary' });
+  assert.deepEqual(all.files.map(f => f.path).sort(), ['committed.txt', 'removed.txt', 'untracked.txt', '新名字.txt'].sort());
+  assert.equal(all.files.find(f => f.path === 'committed.txt').additions, 2);
+  assert.equal(all.files.find(f => f.path === 'removed.txt').deletions, 1);
+  const local = await git.review(repo, { mode: 'uncommitted', layout: 'summary' });
+  assert.deepEqual(local.files.map(f => f.path).sort(), ['committed.txt', 'untracked.txt']);
+  assert.equal(local.files.find(f => f.path === 'committed.txt').additions, 1);
+  const feature = await git.review(repo, { mode: 'all', baseBranch: 'feature', layout: 'summary' });
+  assert.equal(feature.count, 2);
+  const lazy = await git.review(repo, { ...all.comparison, layout: 'full', paths: ['removed.txt'], fresh: true });
+  assert.ok(lazy.files[0].diff.rows.length > 0);
+  const again = await git.review(repo, { mode: 'all', baseBranch: 'main', layout: 'summary' });
+  assert.equal(again.count, 4);
+  command('update-ref', 'refs/heads/main', command('rev-parse', 'feature').trim());
+  const pinned = await git.review(repo, { ...all.comparison, layout: 'full', paths: ['committed.txt'], fresh: true });
+  assert.equal(pinned.files[0].additions, 2);
+  await assert.rejects(git.review(repo, { mode: 'all', baseBranch: '--bad' }), /分支名称无效/);
+  await assert.rejects(git.review(repo, { mode: 'all', baseBranch: 'missing' }), /比较分支不存在/);
+});
+
+test('comparison review supports repositories without a first commit', async t => {
+  const repo = makeTempRoot();
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  await git.initRepository(repo);
+  write(path.join(repo, 'first.txt'), 'first\n');
+  const review = await git.review(repo, { mode: 'all', layout: 'full' });
+  assert.equal(review.count, 1);
+  assert.equal(review.additions, 1);
+  assert.equal(review.files[0].diff.rows.length, 1);
 });

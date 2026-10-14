@@ -45,11 +45,11 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     });
     await page.locator('#rs-subagents.active').waitFor({ state: 'visible' });
     assert.equal(await page.locator('[data-subagent-ui-id]').count(), 1);
-    assert.equal(await page.locator('[data-rs-tab="subagents"] .rs-work-tab-label').innerText(), '子智能体');
+    assert.equal(await page.locator('[data-rs-tab="subagents"] .rs-work-tab-label').innerText(), '子代理');
     assert.equal(await page.locator('[data-subagents-count]').innerText(), '已开启·1');
     assert.equal(await page.locator('#messages .agent-subagent-status').count(), 1);
     assert.equal(await page.locator('#messages .agent-subtask-details, #messages [data-tool="task"]').count(), 0);
-    assert.equal(await page.locator('[data-rs-tab="subagents"] [data-agent-icon="bot-message-square"]').count(), 1);
+    assert.equal(await page.locator('[data-rs-tab="subagents"] [data-keyline-icon="bot-2"]').count(), 1);
     const initial = await page.locator('#messages .agent-subagent-status').innerText();
     assert.equal(initial, 'Explore子代理已开始工作');
 
@@ -93,7 +93,7 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     });
     assert.deepEqual(parallel, ['started', 'updated', 'completed']);
     assert.equal(await page.locator('.subagent-ui-row.is-completed').count(), 2);
-    assert.equal(await page.locator('[data-rs-tab="subagents"] .rs-work-tab-label').innerText(), '子智能体');
+    assert.equal(await page.locator('[data-rs-tab="subagents"] .rs-work-tab-label').innerText(), '子代理');
     assert.equal(await page.locator('[data-subagents-count]').innerText(), '已开启·2');
     await page.screenshot({ path: path.join(output, 'subagent-root-dark.png') });
 

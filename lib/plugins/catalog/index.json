@@ -1,0 +1,63 @@
+[
+  {
+    "id": "yan-computer-use",
+    "category": "productivity",
+    "logo": "assets/skill-logos/computer-use.png",
+    "requirements": "Windows x64；电脑操控运行文件随 Yan 安装，截图能力沿用现有模型配置。",
+    "source": "https://github.com/trycua/cua",
+    "digest": "4700501e16bdde64280d103b8dacb461d2b2757faed8352e34f1707fe1298d41",
+    "presentation": {
+      "shortDescription": "Control Windows apps",
+      "longDescription": "Yan Computer Use lets Yan Agent interact with Windows apps on your computer, including finding and opening applications, reading window content, clicking controls, typing, and scrolling. It may take screenshots and read accessibility information while working, and checks the resulting state to verify actions. You stay in control: you can enable or disable the plugin and its Computer Use skill, and stop the task at any time. Screenshot interpretation follows your existing model and multimodal settings.",
+      "developer": "Yan",
+      "capabilities": [
+        "Computer Use",
+        "Screenshot"
+      ],
+      "website": "https://github.com/trycua/cua",
+      "terms": "https://github.com/trycua/cua/blob/cua-driver-rs-v0.34.0/LICENSE.md"
+    }
+  },
+  {
+    "id": "playwright",
+    "category": "developer-tools",
+    "logo": "assets/skill-logos/playwright.svg",
+    "runtime": "playwright",
+    "requirements": "MCP 服务随 Yan 一同安装；Chromium 浏览器（约 440 MB）在安装插件时从 Playwright 官方下载源获取，并按构建期记录的哈希逐一校验。卸载插件会删除下载的浏览器。",
+    "repository": "microsoft/playwright-mcp",
+    "source": "https://github.com/microsoft/playwright-mcp",
+    "digest": "d0ce52b6e6b083614fd47c8971cc3debe1f397f55ce98796ca4ed9c6840842f0",
+    "presentation": {
+      "shortDescription": "用 Chromium 做网页自动化",
+      "longDescription": "Playwright MCP 让 Agent 直接操作一个隔离的 Chromium：打开页面、点击与填写表单、读取可访问性树、执行脚本、截图，以及运行端到端检查。浏览器以独立配置启动，不读写用户日常浏览器的数据。",
+      "developer": "Microsoft",
+      "capabilities": [
+        "Browser",
+        "Screenshot"
+      ],
+      "website": "https://playwright.dev",
+      "privacy": "https://privacy.microsoft.com/privacystatement",
+      "terms": "https://github.com/microsoft/playwright-mcp/blob/main/LICENSE"
+    }
+  },
+  {
+    "id": "remotion",
+    "category": "creativity",
+    "logo": "assets/skill-logos/remotion.png",
+    "requirements": "工作流与参考资源可直接加载；制作和渲染视频时需要 Node.js、项目依赖和浏览器。Remotion 框架及商业使用遵循其独立许可。",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "repository": "openai/plugins",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/remotion",
+    "digest": "815f382fe5cdeb6f4e320637f12b63be547a257c19ff4d3afe9b834a0bfbe67a"
+  },
+  {
+    "id": "hyperframes",
+    "category": "creativity",
+    "logo": "assets/skill-logos/hyperframes.png",
+    "requirements": "工作流与参考资源可直接加载；制作和渲染视频时需要 Node.js、HyperFrames CLI 及其运行依赖。语音等在线功能可能需要独立账号。",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "repository": "openai/plugins",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/hyperframes",
+    "digest": "7cce03814682a6a2576604ce1028a79c6ebf49e8fb15c5d13f98cc4d6ec0a266"
+  }
+]

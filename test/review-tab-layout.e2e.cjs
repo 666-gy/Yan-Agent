@@ -13,6 +13,7 @@ const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-layout-'));
       env: { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: userData } });
     const page = await app.firstWindow();
     await page.waitForFunction(() => typeof YanDshReview !== 'undefined');
+    await page.waitForFunction(() => window.__YAN_APP_READY__);
     await page.waitForFunction(() => state.config && document.querySelector('#app')?.getBoundingClientRect().height > 0);
     await page.waitForTimeout(1000);
     await page.evaluate(async () => {

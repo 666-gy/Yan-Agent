@@ -1,0 +1,22 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),{EventEmitter}=require('node:events'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {registerBrowserSettings}=require('../lib/main/browser-settings');
+test('download telemetry distinguishes idle, resumable interruption and terminal failure',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'yan-download-state-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ let now=10000,received=0,paused=false,resumed=0,cancelled=0; t.mock.method(Date,'now',()=>now);
+ const handlers=new Map(),retried=[];const partition=new EventEmitter();partition.downloadURL=url=>retried.push(url);
+ const app=Object.assign(new EventEmitter(),{getPath:()=>dir,whenReady:async()=>{}});
+ const main={isDestroyed:()=>false,webContents:{mainFrame:{}}};const event={sender:main.webContents,senderFrame:main.webContents.mainFrame};
+ registerBrowserSettings({app,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},session:{fromPartition:()=>partition},shell:{}},{BROWSER_PARTITION:'test',getMainWindow:()=>main,configStore:{loadConfig:()=>({browser:{}})}});await Promise.resolve();
+ const item=Object.assign(new EventEmitter(),{getURL:()=> 'https://example.com/file',getFilename:()=> 'file.zip',getTotalBytes:()=>10000,getReceivedBytes:()=>received,setSavePath:()=>{},isPaused:()=>paused,canResume:()=>true,pause:()=>{paused=true;},resume:()=>{resumed++;paused=false;},cancel:()=>{cancelled++;}});
+ partition.emit('will-download',{preventDefault:()=>assert.fail('unexpected cancellation')},item);
+ const invoke=(name,arg)=>handlers.get('browser:'+name)(event,arg),read=()=>invoke('downloads')[0];
+ now+=1000;received=1000;item.emit('updated',{},'progressing');assert.ok(read().speed>0);
+ now+=1;item.emit('updated',{},'progressing');assert.ok(read().speed>0,'duplicate event does not zero speed');
+ now+=4000;assert.equal(read().stalled,true);assert.equal(read().status,'progressing');assert.equal(cancelled,0);
+ received=2000;item.emit('updated',{},'progressing');assert.equal(read().stalled,false);
+ item.emit('updated',{},'interrupted');assert.equal(read().canResume,true);assert.equal(read().canRetry,false);
+ invoke('download-control',{id:read().id,action:'resume'});assert.equal(resumed,1);assert.equal(read().status,'progressing');
+ item.emit('done',{},'interrupted');assert.equal(read().canResume,false);assert.equal(read().canRetry,true);
+ invoke('download-control',{id:read().id,action:'retry'});assert.deepEqual(retried,['https://example.com/file']);
+});

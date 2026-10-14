@@ -1,0 +1,62 @@
+name: Release Yan Agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yan-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      YAN_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      YAN_UPDATE_MIRROR_URL: ${{ vars.YAN_UPDATE_MIRROR_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:release
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$YAN_RELEASE_TAG" >/dev/null 2>&1 || gh release create "$YAN_RELEASE_TAG" --title "Yan Agent $YAN_RELEASE_TAG" --generate-notes
+          gh release upload "$YAN_RELEASE_TAG" dist/* --clobber
+
+      # R2 is an optional public mirror. The release remains fully usable when
+      # these secrets are absent because clients fall back to GitHub Releases.
+      - name: Mirror release to Cloudflare R2
+        if: ${{ secrets.R2_ACCESS_KEY_ID != '' && secrets.R2_SECRET_ACCESS_KEY != '' && secrets.R2_ACCOUNT_ID != '' && secrets.R2_BUCKET != '' && vars.YAN_UPDATE_MIRROR_URL != '' }}
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          aws s3 sync dist/ "s3://$R2_BUCKET/$YAN_RELEASE_TAG/" --endpoint-url "$R2_ENDPOINT" --no-progress
+          aws s3 cp dist/latest.json "s3://$R2_BUCKET/latest.json" --endpoint-url "$R2_ENDPOINT" --content-type application/json

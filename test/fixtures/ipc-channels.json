@@ -1,0 +1,1002 @@
+{
+  "generatedAt": "2026-09-19",
+  "baselineCommit": "a8ba36b",
+  "count": 243,
+  "channels": [
+    {
+      "name": "app-snapshot:capture",
+      "kind": "handle"
+    },
+    {
+      "name": "app-snapshot:settings",
+      "kind": "handle"
+    },
+    {
+      "name": "app-snapshot:target",
+      "kind": "handle"
+    },
+    {
+      "name": "app-snapshot:update",
+      "kind": "handle"
+    },
+    {
+      "name": "bash:control",
+      "kind": "handle"
+    },
+    {
+      "name": "bash:list",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:agent-command-result",
+      "kind": "on"
+    },
+    {
+      "name": "browser:capture-page",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:clear-data",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:credential-fill",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:credential-save",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:export-pdf",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:passkey-upgrade",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:password-${name}",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:recover-network",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:tab-activity",
+      "kind": "handle"
+    },
+    {
+      "name": "browser:tab-edited",
+      "kind": "on"
+    },
+    {
+      "name": "computer-control:add-app",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:delete-experience",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:download-experience",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:experience",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:record-review",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:remove-allowed",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:settings",
+      "kind": "handle"
+    },
+    {
+      "name": "computer-control:update",
+      "kind": "handle"
+    },
+    {
+      "name": "config:get",
+      "kind": "handle"
+    },
+    {
+      "name": "config:set",
+      "kind": "handle"
+    },
+    {
+      "name": "connections:delete",
+      "kind": "handle"
+    },
+    {
+      "name": "connections:list",
+      "kind": "handle"
+    },
+    {
+      "name": "connections:save",
+      "kind": "handle"
+    },
+    {
+      "name": "connections:set-enabled",
+      "kind": "handle"
+    },
+    {
+      "name": "connections:test",
+      "kind": "handle"
+    },
+    {
+      "name": "dsh-review:write-html",
+      "kind": "handle"
+    },
+    {
+      "name": "external-agents:acknowledge-stop",
+      "kind": "handle",
+      "file": "lib/main/external-agents.js"
+    },
+    {
+      "name": "external-agents:cancel",
+      "kind": "handle",
+      "file": "lib/main/external-agents.js"
+    },
+    {
+      "name": "external-agents:choose-executable",
+      "kind": "handle",
+      "file": "lib/main/external-agents.js"
+    },
+    {
+      "name": "external-agents:list",
+      "kind": "handle",
+      "file": "lib/main/external-agents.js"
+    },
+    {
+      "name": "external-agents:result",
+      "kind": "handle",
+      "file": "lib/main/external-agents.js"
+    },
+    {
+      "name": "external-agents:status",
+      "kind": "handle",
+      "file": "lib/main/external-agents.js"
+    },
+    {
+      "name": "file:choose-directory",
+      "kind": "handle"
+    },
+    {
+      "name": "file:inspect-attachment-path",
+      "kind": "handle"
+    },
+    {
+      "name": "file:reveal",
+      "kind": "handle"
+    },
+    {
+      "name": "file:upload",
+      "kind": "handle"
+    },
+    {
+      "name": "general:local-status",
+      "kind": "handle"
+    },
+    {
+      "name": "general:local-update",
+      "kind": "handle"
+    },
+    {
+      "name": "general:startup-apps",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:connection-status",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:detect",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:issue-create",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:issue-list",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:pr-create",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:pr-diff",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:pr-list",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:pr-merge",
+      "kind": "handle",
+      "file": "lib/main/ipc-gh.js"
+    },
+    {
+      "name": "gh:pr-view",
+      "kind": "handle"
+    },
+    {
+      "name": "gh:review-project",
+      "kind": "handle"
+    },
+    {
+      "name": "git:branch-create",
+      "kind": "handle"
+    },
+    {
+      "name": "git:branch-switch",
+      "kind": "handle"
+    },
+    {
+      "name": "git:clone",
+      "kind": "handle"
+    },
+    {
+      "name": "git:commit",
+      "kind": "handle"
+    },
+    {
+      "name": "git:diff",
+      "kind": "handle"
+    },
+    {
+      "name": "git:discard",
+      "kind": "handle"
+    },
+    {
+      "name": "git:fetch",
+      "kind": "handle"
+    },
+    {
+      "name": "git:history",
+      "kind": "handle"
+    },
+    {
+      "name": "git:identity-set",
+      "kind": "handle"
+    },
+    {
+      "name": "git:open-remote",
+      "kind": "handle"
+    },
+    {
+      "name": "git:pick-clone-destination",
+      "kind": "handle"
+    },
+    {
+      "name": "git:pull",
+      "kind": "handle"
+    },
+    {
+      "name": "git:push",
+      "kind": "handle"
+    },
+    {
+      "name": "git:remote-add",
+      "kind": "handle"
+    },
+    {
+      "name": "git:remote-remove",
+      "kind": "handle"
+    },
+    {
+      "name": "git:remote-set-url",
+      "kind": "handle"
+    },
+    {
+      "name": "git:review",
+      "kind": "handle"
+    },
+    {
+      "name": "git:review-document",
+      "kind": "handle"
+    },
+    {
+      "name": "git:stage",
+      "kind": "handle"
+    },
+    {
+      "name": "git:status",
+      "kind": "handle"
+    },
+    {
+      "name": "git:unstage",
+      "kind": "handle"
+    },
+    {
+      "name": "git:worktree-archive",
+      "kind": "handle",
+      "file": "lib/main/ipc-git.js"
+    },
+    {
+      "name": "git:worktree-create",
+      "kind": "handle"
+    },
+    {
+      "name": "git:worktree-list",
+      "kind": "handle"
+    },
+    {
+      "name": "git:worktree-merge",
+      "kind": "handle"
+    },
+    {
+      "name": "git:worktree-remove",
+      "kind": "handle"
+    },
+    {
+      "name": "git:worktree-restore",
+      "kind": "handle",
+      "file": "lib/main/ipc-git.js"
+    },
+    {
+      "name": "git:worktree-status",
+      "kind": "handle"
+    },
+    {
+      "name": "git:worktrees-cleanup",
+      "kind": "handle",
+      "file": "lib/main/ipc-git.js"
+    },
+    {
+      "name": "git:worktrees-managed",
+      "kind": "handle",
+      "file": "lib/main/ipc-git.js"
+    },
+    {
+      "name": "image:cancel",
+      "kind": "handle"
+    },
+    {
+      "name": "image:file-default",
+      "kind": "handle"
+    },
+    {
+      "name": "image:file-download",
+      "kind": "handle"
+    },
+    {
+      "name": "image:file-open",
+      "kind": "handle"
+    },
+    {
+      "name": "image:file-read",
+      "kind": "handle"
+    },
+    {
+      "name": "image:generate",
+      "kind": "handle"
+    },
+    {
+      "name": "image:generated-download",
+      "kind": "handle"
+    },
+    {
+      "name": "image:generated-open",
+      "kind": "handle"
+    },
+    {
+      "name": "image:generated-read",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:add",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:list",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:open-directory",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:remove",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:start",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:stop",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:test",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:tools",
+      "kind": "handle"
+    },
+    {
+      "name": "mcp:update",
+      "kind": "handle"
+    },
+    {
+      "name": "memory:clear",
+      "kind": "handle"
+    },
+    {
+      "name": "model:role-set",
+      "kind": "handle"
+    },
+    {
+      "name": "models:main-list",
+      "kind": "handle"
+    },
+    {
+      "name": "models:media-list",
+      "kind": "handle"
+    },
+    {
+      "name": "models:quick-list",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:cancel-interjection",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:cancel-run",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:classify-shell-command",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:compress-session",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:interject",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:permission-audit",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:permission-reply",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:prewarm",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:question-reply",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:recover-runs",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:run-changes",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:session-changes",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:start-run",
+      "kind": "handle"
+    },
+    {
+      "name": "opencode:sync-active-runs",
+      "kind": "handle"
+    },
+    {
+      "name": "permissions:get",
+      "kind": "handle"
+    },
+    {
+      "name": "permissions:set",
+      "kind": "handle"
+    },
+    {
+      "name": "pet:close",
+      "kind": "on"
+    },
+    {
+      "name": "pet:drag-end",
+      "kind": "on"
+    },
+    {
+      "name": "pet:drag-start",
+      "kind": "on"
+    },
+    {
+      "name": "pet:get-visible",
+      "kind": "handle"
+    },
+    {
+      "name": "pet:open-task",
+      "kind": "on"
+    },
+    {
+      "name": "pet:ready",
+      "kind": "on"
+    },
+    {
+      "name": "pet:refresh-data",
+      "kind": "on"
+    },
+    {
+      "name": "pet:stop-task",
+      "kind": "on"
+    },
+    {
+      "name": "pet:toggle-window",
+      "kind": "handle"
+    },
+    {
+      "name": "pet:update",
+      "kind": "on"
+    },
+    {
+      "name": "pets:delete",
+      "kind": "handle"
+    },
+    {
+      "name": "pets:list",
+      "kind": "handle"
+    },
+    {
+      "name": "plan:download-file",
+      "kind": "handle"
+    },
+    {
+      "name": "plan:read-file",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:add-marketplace",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:catalog",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:connect-account",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:disconnect-account",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:install-catalog",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:list",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:markets",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:open-directory",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:open-link",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:prepare",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:remove",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:remove-marketplace",
+      "kind": "handle"
+    },
+    {
+      "name": "plugins:update",
+      "kind": "handle"
+    },
+    {
+      "name": "powershell:open-external",
+      "kind": "handle"
+    },
+    {
+      "name": "provider:add-supplier",
+      "kind": "handle"
+    },
+    {
+      "name": "provider:configure",
+      "kind": "handle"
+    },
+    {
+      "name": "provider:delete-supplier",
+      "kind": "handle"
+    },
+    {
+      "name": "provider:get-secret",
+      "kind": "handle"
+    },
+    {
+      "name": "provider:remove-config",
+      "kind": "handle"
+    },
+    {
+      "name": "provider:set-supplier",
+      "kind": "handle"
+    },
+    {
+      "name": "providers:list",
+      "kind": "handle"
+    },
+    {
+      "name": "quick-input:close",
+      "kind": "on"
+    },
+    {
+      "name": "quick-input:submit",
+      "kind": "on"
+    },
+    {
+      "name": "quick-launch:get",
+      "kind": "handle"
+    },
+    {
+      "name": "quick-launch:update",
+      "kind": "handle"
+    },
+    {
+      "name": "remote-control:info",
+      "kind": "handle",
+      "file": "lib/main/remote-control.js"
+    },
+    {
+      "name": "session:agent-command-result",
+      "kind": "on"
+    },
+    {
+      "name": "session:archive",
+      "kind": "handle"
+    },
+    {
+      "name": "session:archived",
+      "kind": "handle"
+    },
+    {
+      "name": "session:create",
+      "kind": "handle"
+    },
+    {
+      "name": "session:deep-link",
+      "kind": "handle"
+    },
+    {
+      "name": "session:delete",
+      "kind": "handle"
+    },
+    {
+      "name": "session:directory",
+      "kind": "handle"
+    },
+    {
+      "name": "session:export-json",
+      "kind": "handle",
+      "file": "lib/main/ipc-session.js"
+    },
+    {
+      "name": "session:get",
+      "kind": "handle"
+    },
+    {
+      "name": "session:list",
+      "kind": "handle"
+    },
+    {
+      "name": "session:messages",
+      "kind": "handle"
+    },
+    {
+      "name": "session:rename",
+      "kind": "handle"
+    },
+    {
+      "name": "session:save",
+      "kind": "handle"
+    },
+    {
+      "name": "session:set-pinned",
+      "kind": "handle"
+    },
+    {
+      "name": "session:set-workspace",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:add-custom",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:catalog",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:list",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:market",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:open-directory",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:read",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:remove-custom",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:set-enabled",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:source-apply",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:source-forget",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:source-pick",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:source-preview",
+      "kind": "handle"
+    },
+    {
+      "name": "skills:source-state",
+      "kind": "handle"
+    },
+    {
+      "name": "storage:review",
+      "kind": "handle"
+    },
+    {
+      "name": "storage:stats",
+      "kind": "handle"
+    },
+    {
+      "name": "task-link:ready",
+      "kind": "handle"
+    },
+    {
+      "name": "tts:cancel",
+      "kind": "handle"
+    },
+    {
+      "name": "tts:synth",
+      "kind": "handle"
+    },
+    {
+      "name": "tts:voices",
+      "kind": "handle"
+    },
+    {
+      "name": "update:check",
+      "kind": "handle"
+    },
+    {
+      "name": "update:download",
+      "kind": "handle"
+    },
+    {
+      "name": "update:install",
+      "kind": "handle"
+    },
+    {
+      "name": "usage:stats",
+      "kind": "handle"
+    },
+    {
+      "name": "video:cancel",
+      "kind": "handle"
+    },
+    {
+      "name": "video:generate",
+      "kind": "handle"
+    },
+    {
+      "name": "vision-relay:open-guide-url",
+      "kind": "handle"
+    },
+    {
+      "name": "vision-relay:status",
+      "kind": "handle"
+    },
+    {
+      "name": "voice:cancel",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:cancel-preparation",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:configure",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:prepare",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:remove-models",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:status",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:stream-chunk",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:stream-finish",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:stream-start",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "voice:transcribe",
+      "kind": "handle",
+      "file": "lib/main/voice-input.js"
+    },
+    {
+      "name": "vscode:launch",
+      "kind": "handle"
+    },
+    {
+      "name": "vscode:status",
+      "kind": "handle"
+    },
+    {
+      "name": "wallpaper:analyze",
+      "kind": "handle"
+    },
+    {
+      "name": "webui:reply",
+      "kind": "on"
+    },
+    {
+      "name": "webui:snapshots",
+      "kind": "on"
+    },
+    {
+      "name": "win:background",
+      "kind": "on"
+    },
+    {
+      "name": "win:close",
+      "kind": "on"
+    },
+    {
+      "name": "win:is-maximized",
+      "kind": "handle"
+    },
+    {
+      "name": "win:minimize",
+      "kind": "on"
+    },
+    {
+      "name": "win:toggle-maximize",
+      "kind": "on"
+    },
+    {
+      "name": "win:ui-ready",
+      "kind": "on"
+    },
+    {
+      "name": "workspace:activate",
+      "kind": "handle"
+    },
+    {
+      "name": "workspace:choose",
+      "kind": "handle"
+    },
+    {
+      "name": "workspace:get",
+      "kind": "handle"
+    },
+    {
+      "name": "workspace:open-explorer",
+      "kind": "handle"
+    },
+    {
+      "name": "workspace:pick",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-ack-intent",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-consume-intent",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-delete-intent",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-enqueue-intent",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-requeue-intent",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-settle-recovered-run",
+      "kind": "handle"
+    },
+    {
+      "name": "yan:core-state",
+      "kind": "handle"
+    },
+    {
+      "name": "yanagent:ensure",
+      "kind": "handle"
+    },
+    {
+      "name": "yanagent:rollback-run",
+      "kind": "handle"
+    },
+    {
+      "name": "yanagent:run-changes",
+      "kind": "handle"
+    }
+  ]
+}

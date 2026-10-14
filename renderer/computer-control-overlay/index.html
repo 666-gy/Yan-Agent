@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yan Agent 电脑操控</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div class="control-overlay" aria-hidden="true"></div>
+  <canvas id="pointer-feedback" aria-hidden="true"></canvas>
+  <div class="status-pill" role="status"><img class="control-skill-icon" src="../assets/skill-logos/computer-use.png" alt="电脑操控"><span>Yan Agent 正在操控你的电脑</span><span class="esc">按 Esc 退出</span></div>
+  <script src="pointer-feedback.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+.storage-cleanup-dialog { position: fixed; inset: 0; margin: auto; box-sizing: border-box; width: min(540px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 24px 20px 20px; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--bg-elev); color: var(--text); box-shadow: 0 6px 22px #0002; }
+.storage-cleanup-dialog::backdrop { background: #0002; }
+.storage-cleanup-dialog h2 { margin: 0 32px 8px 0; font-size: 20px; font-weight: 600; }
+#storageCleanupDescription { margin: 0 0 16px; color: var(--text-dim); font-size: 14px; line-height: 1.5; }
+.storage-cleanup-close { position: absolute; right: 20px; top: 20px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); cursor: pointer; }
+.storage-cleanup-close:hover { background: var(--bg-hover); }
+.storage-cleanup-filters { padding: 0 16px; border: 1px solid var(--border); border-radius: 16px; }
+.storage-cleanup-filter { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; }
+.storage-cleanup-filter + .storage-cleanup-filter { border-top: 1px solid var(--border); }
+.storage-cleanup-filter > span { font-size: 14px; font-weight: 500; }
+.storage-cleanup-select { position: relative; }
+.storage-cleanup-select > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 999px; background: transparent; padding: 5px 12px; }
+.storage-cleanup-menu { position: absolute; z-index: 2; right: 0; top: calc(100% + 3px); min-width: 158px; padding: 5px; background: var(--bg-elev); border: 1px solid var(--border-strong); border-radius: 17px; box-shadow: 0 6px 16px #0002; }
+.storage-cleanup-menu[hidden] { display: none; }
+.storage-cleanup-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 8px; background: transparent; border: 0; border-radius: 10px; color: var(--text); font: inherit; font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.storage-cleanup-menu button:hover, .storage-cleanup-menu button:focus-visible { background: var(--bg-hover); }
+.storage-cleanup-list { max-height: 270px; overflow-y: auto; margin-top: 14px; min-height: 28px; color: var(--text-dim); font-size: 13px; }
+.storage-cleanup-empty { margin: 0; padding: 2px 0; }
+.storage-cleanup-chat { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.storage-cleanup-chat-info { min-width: 0; flex: 1; }
+.storage-cleanup-chat-info strong { display: block; color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
+.storage-cleanup-chat-info > span { display: block; margin-top: 4px; font-size: 12px; }
+.storage-cleanup-chat-size { flex-shrink: 0; font-size: 12px; }
+.storage-cleanup-select-all { display: flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--text); }
+.storage-cleanup-count { margin: 18px 0 0; color: var(--text-dim); font-size: 13px; }
+.storage-cleanup-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 2px; }
+.storage-cleanup-footer .storage-button { border-radius: 999px; }
+.storage-cleanup-delete { color: var(--danger, #e05252); background: color-mix(in srgb, var(--danger, #e05252) 8%, transparent); border-color: transparent; }
+.storage-cleanup-delete:hover:not(:disabled) { background: color-mix(in srgb, var(--danger, #e05252) 15%, transparent); }

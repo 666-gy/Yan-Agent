@@ -1,0 +1,77 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {_electron}=require('playwright');
+(async()=>{let app;try{
+app=await _electron.launch({executablePath:require('electron'),args:[process.cwd()],env:{...process.env,YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'yan-start-'))}});
+const page=await app.firstWindow();const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.log(e.stack)});await page.waitForFunction(()=>window.__YAN_APP_READY__);
+await page.evaluate(async()=>{const session=await api.createSession(true,'');session.messages=[{role:'user',content:'首页验证'}];await api.saveSession(session);await loadSession(session.id);closeRightSidebar();});
+await page.locator('#rightDockLaunch').click();
+const start=()=>page.locator('.rs-browser-panel.active .browser-empty-state');
+await page.waitForFunction(()=>document.getElementById('rightDockLaunch').getAttribute('aria-expanded')==='true');
+assert.equal(await page.locator('#rightDockLaunch').getAttribute('aria-label'),'隐藏侧边面板');
+assert.equal(await page.locator('#rightDockClose').count(),0);
+await page.locator('#rightDockLaunch').click();
+assert.equal(await page.locator('#app').evaluate(el=>el.classList.contains('rs-hidden')),true);
+await page.locator('#rightDockLaunch').click();
+const activeRoot=()=>page.locator('.rs-browser-panel.active');
+await activeRoot().locator('[data-browser-action="settings"]').click();
+assert.deepEqual(await activeRoot().locator('[data-browser-menu]').allTextContents(),['隐藏输入框','密码和自动填充','下载','历史记录','清除浏览数据','浏览器设置']);
+await activeRoot().locator('[data-browser-menu="composer"]').click();
+assert.equal(await page.locator('#composerStage').isVisible(),false);
+await activeRoot().locator('[data-browser-action="settings"]').click();
+await activeRoot().locator('[data-browser-menu="composer"]').click();
+assert.equal(await page.locator('#composerStage').isVisible(),true);
+for (const [action,target] of [['passwords','#browserPasswordsPage'],['downloads','#browserDownloadsPage'],['history','#browserHistoryPage'],['clear','#browserClearDialog']]) {
+ await activeRoot().locator('[data-browser-action="settings"]').click();
+ await activeRoot().locator('[data-browser-menu="'+action+'"]').click();
+ await page.locator(target).waitFor({state:'visible'});
+ if(action==='clear')await page.locator('#browserClearCancel').click();
+ await page.locator('#appRail [data-nav="tasks"]').click();
+ assert.equal(await page.locator('#app').evaluate(el=>el.classList.contains('rs-hidden')),false);
+}
+
+await start().waitFor({state:'visible'});
+assert.equal(await start().locator('[data-start-tool]').count(),3);
+await start().locator('[data-start-tool="browser"]').click();
+assert.equal(await page.evaluate(()=>document.activeElement.dataset.browserRole),'url');
+await start().locator('[data-start-tool="review"]').click();
+assert.equal(await page.evaluate(()=>getActiveRightSidebarTab().type),'review');
+await page.locator('#rightSidebarAddBtn').click();await start().waitFor({state:'visible'});
+await start().locator('[data-start-tool="interjection"]').click();
+assert.equal(await page.evaluate(()=>getActiveRightSidebarTab().type),'interjection');
+await page.locator('#sideChatComposerInput').click();
+await page.keyboard.type('focus regression');
+assert.equal(await page.locator('#sideChatComposerInput').textContent(),'focus regression');
+assert.equal(await page.evaluate(()=>document.activeElement.id),'sideChatComposerInput');
+await page.locator('#rightSidebarFocusBtn').click();
+await page.locator('#sideChatComposerInput').click();
+await page.keyboard.press('End');
+await page.keyboard.type(' fullscreen');
+assert.equal(await page.locator('#sideChatComposerInput').textContent(),'focus regression fullscreen');
+await page.locator('#rightSidebarFocusBtn').click();
+await page.locator('#rightSidebarAddBtn').click();await start().waitFor({state:'visible'});
+await page.evaluate(()=>{getBrowserTabController().navigate=async url=>{window.__startUrl=url;};});
+await start().locator('[data-start-url="https://www.baidu.com/"]').click();assert.equal(await page.evaluate(()=>window.__startUrl),'https://www.baidu.com/');
+for(const width of [320,375,414,768]) { const fits=await page.evaluate(width=>{const content=document.querySelector('.rs-browser-panel.active .side-start-content');content.style.width=width+'px';return content.scrollWidth<=width;},width);assert.equal(fits,true,'fit '+width); }
+await page.evaluate(()=>document.querySelector('.rs-browser-panel.active .side-start-content').style.removeProperty('width'));
+await page.waitForFunction(()=>Array.from(document.querySelectorAll('.rs-browser-panel.active .side-start-sites img')).length===3 && Array.from(document.querySelectorAll('.rs-browser-panel.active .side-start-sites img')).every(img=>img.naturalWidth>0));
+await page.mouse.move(0,0);
+fs.mkdirSync('output/playwright/side-start',{recursive:true});await page.screenshot({path:'output/playwright/side-start/home.png'});
+await activeRoot().locator('[data-browser-action="settings"]').click();await page.screenshot({path:'output/playwright/side-start/menu.png'});
+await page.evaluate(()=>closeAllBrowserSettingsMenus());
+await page.locator('#rightSidebarFocusBtn').click();
+await page.locator('[data-agent-chat-tab]').click();
+assert.equal(await page.locator('#rs-agent-chat #chatMainColumn').count(),1);
+assert.equal(await page.locator('#composer').isVisible(),true);
+assert.equal(await page.locator('#chatScroll').isVisible(),true);
+assert.equal(await page.locator('#rightDock').isVisible(),false);
+await page.screenshot({path:'output/playwright/side-start/agent-tab.png'});
+await page.locator('[data-rs-tab]').last().click();
+assert.equal(await page.locator('#pageChat #chatMainColumn').count(),1);
+await page.locator('[data-agent-chat-tab]').click();
+await page.evaluate(()=>{for(const tab of [...openRightSidebarTabs]) closeRightSidebarTool(tab.id);});
+assert.equal(await page.evaluate(()=>browserFocusMode),false);
+assert.equal(await page.locator('#pageChat #chatMainColumn').count(),1);
+assert.equal(await page.locator('#app').evaluate(el=>el.classList.contains('rs-hidden')),true);
+assert.deepEqual(errors,[]);console.log('PASS dock, new tab, three tools, Baidu navigation, responsive content, no renderer errors');
+}finally{await app?.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
+

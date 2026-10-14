@@ -1,0 +1,20 @@
+{
+  "note": "Tests that still read main.js / renderer/renderer.js as text (plan T0.3, appendix A). Every entry is a debt to convert to require/behavior assertions before its recorded wave; converting one removes it from this file in the same commit. New text pins are rejected.",
+  "convertedBefore": {
+    "vision-relay-toggle.test.cjs": "R2/R3",
+    "composer-subagent-anchor.test.cjs": "R2/R3",
+    "model-picker.test.cjs": "R2/R3",
+    "open-code-stream.test.cjs": "R2/R3",
+    "pr-panel.test.cjs": "R2/R3"
+  },
+  "pins": {
+    "main": [],
+    "renderer": [
+      "composer-subagent-anchor.test.cjs",
+      "model-picker.test.cjs",
+      "open-code-stream.test.cjs",
+      "pr-panel.test.cjs",
+      "vision-relay-toggle.test.cjs"
+    ]
+  }
+}

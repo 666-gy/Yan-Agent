@@ -20,14 +20,10 @@ const requiredVisibleIds = [
   'market-anysearch',
   'officecli',
   'remotion-best-practices',
-  'greensock-gsap',
-  'ui-ux-pro-max',
   'yan-codegraph',
   'yan-prompt-optimizer',
-  'yan-react-bits',
   'yan-serena',
-  'yan-uiverse',
-  'yan-understand-anything'
+  'yan-uiverse'
 ].sort();
 const requiredInternalIds = [
   'gsap',
@@ -35,6 +31,12 @@ const requiredInternalIds = [
   'hyperframes-registry',
   'website-to-hyperframes'
 ].sort();
+const removedUiSkillIds = [
+  'emil-motion', 'animate', 'apple-design', 'find-animation-opportunities', 'review-animations',
+  'greensock-gsap', 'gsap-core', 'gsap-frameworks', 'gsap-performance', 'gsap-plugins',
+  'gsap-react', 'gsap-scrolltrigger', 'gsap-timeline', 'gsap-utils',
+  'ui-ux-pro-max', 'liquid-glass-react', 'yan-react-bits'
+];
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(appRoot, relativePath), 'utf8'));
@@ -85,12 +87,7 @@ function assertCatalogMetadata() {
     ['hyperframes-registry', 'references/discovery.md'],
     ['website-to-hyperframes', 'references/step-7-validate.md'],
     ['remotion-best-practices', 'rules/3d.md'],
-    ['remotion-best-practices', 'rules/voiceover.md'],
-    ['greensock-gsap', 'SKILL.md'],
-    ['ui-ux-pro-max', 'data/styles.csv'],
-    ['ui-ux-pro-max', 'data/stacks/threejs.csv'],
-    ['ui-ux-pro-max', 'references/quick-reference.md'],
-    ['ui-ux-pro-max', 'scripts/search.py']
+    ['remotion-best-practices', 'rules/voiceover.md']
   ];
   for (const [id, relativePath] of expectedPackages) {
     assert.ok(fs.existsSync(path.join(appRoot, 'lib', 'skills', id, relativePath)), `${id} is missing ${relativePath}`);
@@ -100,6 +97,11 @@ function assertCatalogMetadata() {
   assert.ok(retired.length >= 52, 'the retired migration list must not lose historical Skill IDs');
   assert.strictEqual(new Set(retired).size, retired.length);
   for (const id of retainedIds) assert.ok(!retired.includes(id), `${id} cannot be retired`);
+  for (const id of removedUiSkillIds) {
+    assert.ok(retired.includes(id), `${id} must be removed from old installations`);
+    assert.ok(!retainedIds.includes(id), `${id} must not be bundled again`);
+    assert.ok(!fs.existsSync(path.join(appRoot, 'lib', 'skills', id, 'SKILL.md')), `${id} package must be removed`);
+  }
   assert.ok(visibleIds.length > requiredVisibleIds.length, 'the expanded v1.4.0 catalog must remain visible');
   assert.ok(internalIds.length >= requiredInternalIds.length, 'companion Skills must remain bundled');
 }
@@ -198,7 +200,9 @@ function assertRetiredMigration() {
     assert.ok(skillRegistry.installYanUserSkill(dataDir, retiredSkill).ok);
     assert.ok(skillRegistry.installYanUserSkill(dataDir, customSkill).ok);
 
-    const cfg = { customSkills: [...bundled, retiredSkill, customSkill] };
+    const removedUiSkills = removedUiSkillIds.map(id => ({ id, name: id, desc: 'retired UI skill', prompt: 'Old bundled instructions.', source: 'bundled' }));
+    for (const skill of removedUiSkills) assert.ok(skillRegistry.installYanUserSkill(dataDir, skill).ok);
+    const cfg = { customSkills: [...bundled, retiredSkill, customSkill, ...removedUiSkills] };
     const result = skillRegistry.pruneRetiredSkills(cfg, appRoot, dataDir);
     assert.strictEqual(result.changed, true);
     assert.ok(!cfg.customSkills.some(skill => skill.id === retiredSkill.id));
@@ -210,6 +214,15 @@ function assertRetiredMigration() {
     for (const id of retainedIds) assert.ok(installed.some(skill => skill.id === id), `${id} must load`);
     assert.ok(installed.some(skill => skill.id === customSkill.id), 'custom Skill must survive cleanup');
     assert.ok(!installed.some(skill => skill.id === retiredSkill.id), 'retired Skill must leave the registry');
+    for (const id of removedUiSkillIds) {
+      assert.ok(!cfg.customSkills.some(skill => skill.id === id), `${id} must leave saved metadata`);
+      assert.ok(!installed.some(skill => skill.id === id), `${id} must leave the installed catalog`);
+      assert.ok(!fs.existsSync(path.join(dataDir, 'skills', id)), `${id} must leave the user skills directory`);
+    }
+    const synced = skillRegistry.syncSkillStore(cfg, appRoot, dataDir);
+    assert.ok(synced.ok);
+    assert.ok(synced.index.entries.every(skill => !removedUiSkillIds.includes(skill.id)));
+    assert.strictEqual(skillRegistry.pruneRetiredSkills(cfg, appRoot, dataDir).changed, false, 'subsequent startup cleanup must be idempotent');
 
     const catalog = skillRegistry.getSkillCatalog(cfg, appRoot, dataDir);
     for (const id of visibleIds) assert.ok(catalog.installed.some(skill => skill.id === id), `${id} must be visible`);
@@ -229,14 +242,6 @@ function assertRetiredMigration() {
     assert.ok(remotion.prompt.includes('do not install Remotion or its Agent Skills globally'));
     assert.ok(remotion.prompt.includes(path.join(appRoot, 'lib', 'skills', 'remotion-best-practices')));
 
-    const uiux = skillRegistry.readSkill('ui-ux-pro-max', 'build a responsive dashboard', cfg, appRoot, dataDir);
-    assert.strictEqual(uiux.ok, true);
-    assert.ok(uiux.prompt.includes(path.join(appRoot, 'lib', 'skills', 'ui-ux-pro-max', 'scripts', 'search.py')));
-    assert.ok(!uiux.prompt.includes('${CLAUDE_PLUGIN_ROOT}'));
-
-    const gsap = skillRegistry.readSkill('greensock-gsap', 'add a scroll reveal animation', cfg, appRoot, dataDir);
-    assert.strictEqual(gsap.ok, true);
-    assert.ok(gsap.prompt.includes(path.join(appRoot, 'lib', 'skills', 'greensock-gsap')));
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

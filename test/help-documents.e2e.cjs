@@ -28,7 +28,7 @@ fs.mkdirSync(output, { recursive: true });
       await page.locator('#connPrev').click();
       await page.locator('#connectionDialogClose').click();
       let settingsOpen = true;
-      for (const key of ['yan-guide', 'glm', 'sensenova', 'agnes', 'siliconflow', 'overview', 'errors', 'release-notes']) {
+      for (const key of ['yan-guide', 'overview', 'errors', 'release-notes']) {
         if (key === 'yan-guide') {
           if (settingsOpen) {
             await page.locator('#closeSettings').click();
@@ -55,7 +55,7 @@ fs.mkdirSync(output, { recursive: true });
           assert.ok((await copy.innerText()).trim(), `${key} page ${index + 1} must contain text`);
           assert.equal(await page.locator(`#${prefix}StepLabel`).innerText(), `${index + 1} / ${total}`);
           checked++;
-          if (index === 0 && ['glm', 'errors', 'yan-guide'].includes(key)) {
+          if (index === 0 && ['errors', 'yan-guide'].includes(key)) {
             await page.screenshot({ path: path.join(output, `documents-${key}${round ? '-light' : ''}.png`) });
           }
           if (index + 1 < total) await page.locator(`#${prefix}Next`).click();

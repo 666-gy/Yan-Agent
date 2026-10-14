@@ -41,7 +41,8 @@ fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({
     const page = await application.firstWindow();
     await page.waitForFunction(() => document.readyState === 'complete' && typeof switchSidebarNav === 'function');
 
-    await page.locator('.sidebar-nav-item[data-nav="mcp"]').click();
+    await page.locator('.app-rail-button[data-nav="plugins"]').click();
+    await page.locator('#pluginsMcpTab').click();
     await page.locator('#pageMcp:not(.hidden)').waitFor();
     await page.locator('#mcpPageList [data-id="e2e-broken-mcp"] .mcp-open-btn').click();
     await page.locator('#mcpDetailView:not(.hidden)').waitFor();
@@ -67,8 +68,12 @@ fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({
     await page.screenshot({ path: screenshotPath, fullPage: false });
     console.log(JSON.stringify({ ok: true, ...snapshot, screenshotPath }));
   } finally {
+    const child = application?.process();
+    const stopped = child && child.exitCode === null ? new Promise(resolve => child.once('exit', resolve)) : Promise.resolve();
     await application?.close().catch(() => {});
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    await stopped;
+    assert.equal(path.dirname(userDataDir), path.resolve(os.tmpdir()));
+    await fs.promises.rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   }
 })().catch(error => {
   console.error(error);

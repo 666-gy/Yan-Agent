@@ -44,7 +44,7 @@ const alphaOf = value => {
     const metrics = await page.evaluate(async () => {
       const out = {};
       for (const [id, entry] of Object.entries(WALLPAPER_LIBRARY)) {
-        out[id] = await yan.wallpaperAnalyze(`assets/wallpapers/${encodeURIComponent(entry.file)}`);
+        out[id] = await yan.wallpaperAnalyze(`assets/wallpapers/${entry.poster || encodeURIComponent(entry.file)}`);
       }
       return out;
     });
@@ -74,10 +74,7 @@ const alphaOf = value => {
       const sidebar = getComputedStyle(document.querySelector('.sidebar'));
       const main = getComputedStyle(document.querySelector('.main'));
       const composer = getComputedStyle(document.querySelector('.composer'));
-      const switcher = getComputedStyle(document.querySelector('.window-view-switcher'));
-      const activePill = getComputedStyle(document.querySelector('.window-view-option.active'));
       const taskBar = getComputedStyle(document.querySelector('.task-bar'));
-      const actionsMenu = getComputedStyle(document.querySelector('.task-actions-menu'));
       return {
         classOn: document.getElementById('app').classList.contains('wallpaper-compat'),
         scrim: rootStyle.getPropertyValue('--wall-scrim').trim(),
@@ -88,13 +85,11 @@ const alphaOf = value => {
         accentInline: document.documentElement.style.getPropertyValue('--accent').trim(),
         sidebarBg: sidebar.backgroundColor,
         sidebarBlur: sidebar.backdropFilter,
+        shellBg: getComputedStyle(document.getElementById('app'), '::before').backgroundColor,
+        shellBlur: getComputedStyle(document.getElementById('app'), '::before').backdropFilter,
         mainBg: main.backgroundColor,
         composerBg: composer.backgroundColor,
-        switcherBg: switcher.backgroundColor,
-        switcherBlur: switcher.backdropFilter,
-        activePillBg: activePill.backgroundColor,
-        taskBarBg: taskBar.backgroundColor,
-        actionsMenuBg: actionsMenu.backgroundColor
+        taskBarBg: taskBar.backgroundColor
       };
     });
 
@@ -105,36 +100,34 @@ const alphaOf = value => {
 
     // --- dark theme + dark wallpaper ---
     await setTheme('dark');
-    await setWallpaper('deep-cave');
+    await setWallpaper('night-sky');
     let compat = await readCompat();
     assert.equal(compat.classOn, true, 'compat class engages with a wallpaper');
     assert.ok(compat.scrim.startsWith('rgba(10, 10, 11'), `dark scrim color: ${compat.scrim}`);
     assert.ok(alphaOf(compat.scrim) > 0.04 && alphaOf(compat.scrim) < 0.6, `scrim alpha: ${compat.scrim}`);
-    assert.ok(compat.sidebarBg.startsWith('rgba(') && alphaOf(compat.sidebarBg) < 1, `chrome material: ${compat.sidebarBg}`);
-    assert.ok(compat.sidebarBlur.includes('blur('), `chrome blur: ${compat.sidebarBlur}`);
+    assert.ok(alphaOf(compat.shellBg) > 0 && alphaOf(compat.shellBg) < 1, `shared chrome material: ${compat.shellBg}`);
+    assert.ok(compat.shellBlur.includes('blur('), `shared chrome blur: ${compat.shellBlur}`);
+    assert.equal(compat.sidebarBg, compat.mainBg, 'sidebar and content share the same panel material');
+    assert.equal(compat.sidebarBlur, 'none', 'sidebar must not independently blur the wallpaper');
     assert.ok(compat.mainBg.startsWith('rgba(') && alphaOf(compat.mainBg) < 1, `panel material: ${compat.mainBg}`);
     assert.ok(alphaOf(compat.matFloat) > alphaOf(compat.matPanel), 'floating material is more opaque than panels');
-    // The task bar and the view pills must not stay opaque islands on the photo.
+    // The task bar must not stay an opaque island on the photo.
     assert.equal(alphaOf(compat.taskBarBg), 0, `task bar dissolves into the panel: ${compat.taskBarBg}`);
-    assert.ok(alphaOf(compat.switcherBg) > 0 && alphaOf(compat.switcherBg) < 0.4, `view pill group is an ink wash: ${compat.switcherBg}`);
-    assert.ok(compat.switcherBlur.includes('blur('), `view pill group keeps the frost: ${compat.switcherBlur}`);
-    assert.ok(alphaOf(compat.activePillBg) < 0.5, `active view pill stays translucent: ${compat.activePillBg}`);
-    // Floating menus inside the task bar keep their own opaque surface.
-    assert.equal(alphaOf(compat.actionsMenuBg), 1, `task menu stays opaque: ${compat.actionsMenuBg}`);
-    await page.screenshot({ path: path.join(output, 'dark-deep-cave.png') });
+    await page.screenshot({ path: path.join(output, 'dark-night-sky.png') });
 
     // --- light theme + dark wallpaper (the hard case) ---
     await setTheme('light');
     await page.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--wall-scrim').startsWith('rgba(252'));
     compat = await readCompat();
     assert.ok(compat.scrim.startsWith('rgba(252, 251, 248'), `light scrim color: ${compat.scrim}`);
-    await page.screenshot({ path: path.join(output, 'light-deep-cave.png') });
+    await page.screenshot({ path: path.join(output, 'light-night-sky.png') });
 
-    // --- light theme + colorful wallpaper (accent follow) ---
-    await setWallpaper('sword-and-sakura');
+    // --- light theme + night sky (low saturation retains the chosen accent) ---
+    await setWallpaper('night-sky');
     compat = await readCompat();
-    assert.ok(compat.accentInline.startsWith('hsl('), `accent follows wallpaper: ${compat.accentInline}`);
-    await page.screenshot({ path: path.join(output, 'light-sword-and-sakura.png') });
+    const followsAccent = metrics['night-sky'].hue >= 0 && metrics['night-sky'].sat >= 0.12;
+    assert.equal(compat.accentInline.startsWith('hsl('), followsAccent, `accent follows sufficiently saturated wallpaper: ${compat.accentInline}`);
+    await page.screenshot({ path: path.join(output, 'light-night-sky.png') });
 
     const derived = await page.evaluate(() => ({
       light: deriveWallpaperCompat({
@@ -166,7 +159,7 @@ const alphaOf = value => {
     );
 
     // --- settings surface materials + the new controls ---
-    await page.evaluate(() => openSettings('general'));
+    await page.evaluate(() => openSettings('wallpaper'));
     await page.waitForSelector('#wallpaperMarketGrid', { timeout: 5000 });
     await page.evaluate(() => document.querySelector('.wallpaper-market-section')?.scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(300);
@@ -189,7 +182,7 @@ const alphaOf = value => {
     assert.equal(settingsCompat.autoToggle, false, 'auto-adapt toggle removed');
     assert.equal(settingsCompat.accentToggle, false, 'accent toggle removed');
     assert.equal(settingsCompat.legacyAdaptBar, false, 'adapt bar removed');
-    await page.screenshot({ path: path.join(output, 'settings-light-sword-and-sakura.png') });
+    await page.screenshot({ path: path.join(output, 'settings-light-night-sky.png') });
 
     // --- the real settings controls drive the system ---
     const strengthSlider = page.locator('#wallpaperMaterialStrength');
@@ -219,19 +212,19 @@ const alphaOf = value => {
     assert.equal(locked.wallpaper.opacity, 1, 'wallpaper opacity locked at 100%');
     assert.equal(locked.themeCompat.autoAdapt, true, 'auto-adapt permanently on');
     assert.equal(locked.themeCompat.accentFollow, true, 'accent-follow permanently on');
-    await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--accent').startsWith('hsl('));
+    await page.waitForFunction(follows => document.documentElement.style.getPropertyValue('--accent').startsWith('hsl(') === follows, followsAccent);
     await page.evaluate(() => closeSettings());
 
-    // --- user-case comparison: light theme + misty garden at two strengths ---
-    await setWallpaper('chinese-garden');
+    // --- user-case comparison: light theme + rainy architecture at two strengths ---
+    await setWallpaper('rainy-architecture');
     await page.waitForTimeout(150);
-    await page.screenshot({ path: path.join(output, 'light-chinese-garden-45.png') });
+    await page.screenshot({ path: path.join(output, 'light-rainy-architecture-45.png') });
     await page.evaluate(async () => {
       state.config = await yan.setConfig({ themeCompat: { materialStrength: 0.1 } });
       applyWallpaperConfig(state.config);
     });
     await page.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--mat-blur').trim() === '3px');
-    await page.screenshot({ path: path.join(output, 'light-chinese-garden-10.png') });
+    await page.screenshot({ path: path.join(output, 'light-rainy-architecture-10.png') });
     await page.evaluate(async () => {
       state.config = await yan.setConfig({ themeCompat: { materialStrength: 0.45 } });
       applyWallpaperConfig(state.config);
@@ -242,9 +235,9 @@ const alphaOf = value => {
     compat = await readCompat();
     assert.equal(compat.classOn, false);
     assert.equal(compat.scrim, '');
-    assert.equal(alphaOf(compat.sidebarBg), 1, `sidebar opaque again: ${compat.sidebarBg}`);
-    assert.equal(alphaOf(compat.taskBarBg), 1, `task bar opaque again: ${compat.taskBarBg}`);
-    assert.equal(alphaOf(compat.switcherBg), 1, `view pills opaque again: ${compat.switcherBg}`);
+    assert.equal(alphaOf(compat.shellBg), 1, `shared shell opaque again: ${compat.shellBg}`);
+    assert.equal(alphaOf(compat.sidebarBg), 1, 'sidebar restores the opaque theme surface');
+    assert.equal(alphaOf(compat.taskBarBg), 0, 'task bar keeps the page background');
     await setTheme('dark');
     await page.screenshot({ path: path.join(output, 'no-wallpaper-dark.png') });
 

@@ -59,10 +59,11 @@ test('Yan Session MCP advertises the handoff and bounded source tools', () => {
   const responses = result.stdout.trim().split('\n').map(line => JSON.parse(line));
   assert.equal(responses[0].result.serverInfo.name, 'Yan Session');
   assert.deepEqual(responses[1].result.tools.map(tool => tool.name), [
+    'external_agents_status', 'delegate_external_task', 'wait_external_tasks', 'read_external_task_result', 'list_external_tasks',
     'create_handoff',
     'read_source_context'
   ]);
-  assert.deepEqual(responses[1].result.tools[0].inputSchema.required, ['target_path', 'reason']);
+  assert.deepEqual(responses[1].result.tools.find(tool => tool.name === 'create_handoff').inputSchema.required, ['target_path', 'reason']);
 });
 
 test('Yan Session tools stay callable with or without a user workspace', () => {

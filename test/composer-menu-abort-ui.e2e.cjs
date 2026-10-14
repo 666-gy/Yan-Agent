@@ -31,13 +31,14 @@ fs.mkdirSync(outputDir, { recursive: true });
       }
     });
     const page = await application.firstWindow();
+    await page.waitForFunction(() => window.__YAN_APP_READY__);
     await page.locator('#attachBtn').waitFor();
 
     await page.locator('#attachBtn').click();
     await page.locator('#attachmentMenu:not(.hidden)').waitFor();
     const menu = await page.evaluate(() => {
       const panel = document.querySelector('#attachmentMenu');
-      const actionText = [...panel.querySelectorAll('#composerAddMainView .composer-add-actions button')]
+      const actionText = [...panel.querySelectorAll('#composerAddMainView > .composer-add-actions button:not(#appSnapshotAction):not(#promptOptimizerPill)')]
         .map(button => button.querySelector('.composer-add-action-name')?.textContent.trim());
       return {
         width: panel.getBoundingClientRect().width,
@@ -45,62 +46,62 @@ fs.mkdirSync(outputDir, { recursive: true });
         height: panel.getBoundingClientRect().height,
         actionText,
         skillListPresent: !!document.querySelector('#composerSkillMenuList'),
-        workModeChoices: panel.querySelectorAll('#composerWorkModeView [data-work-mode]').length,
-        workModeHidden: panel.querySelector('#composerWorkModeView')?.classList.contains('hidden'),
-        workModeLauncherExpanded: panel.querySelector('#composerWorkModeAction')?.getAttribute('aria-expanded'),
-        launcherIcons: [...panel.querySelectorAll('#composerWorkModeAction > svg, #composerSkillAction > svg')]
+        workModeChoices: panel.querySelectorAll('#composerAddMainView [data-work-mode]').length,
+        configHidden: panel.querySelector('#composerConfigView')?.classList.contains('hidden'),
+        removedLaunchers: panel.querySelectorAll('#composerConfigAction, #composerPluginAction').length,
+        launcherIcons: [...panel.querySelectorAll('#composerConfigAction > svg, #composerSkillAction > svg, #composerPluginAction > svg, #composerSubagentAction > svg')]
           .map(icon => icon.textContent.trim())
       };
     });
-    assert.ok(Math.abs(menu.width - menu.composerWidth) <= 8, `添加面板应与输入框同宽，面板 ${menu.width}px，输入框 ${menu.composerWidth}px`);
-    assert.ok(menu.height <= 190, `添加面板高度应不超过 190px，实际为 ${menu.height}px`);
+    assert.ok(Math.abs(menu.width - menu.composerWidth) <= 8);
+    assert.ok(menu.height <= 360);
     assert.deepEqual(menu.actionText, [
       '添加附件',
-      '优化你的prompt',
-      '使用/选择工作方式',
-      '使用$选择技能'
+      '绘图',
+      '使用$选择技能',
+      '目标',
+      '计划模式'
     ]);
-    assert.deepEqual(menu.launcherIcons, ['/', '$']);
+    assert.deepEqual(menu.launcherIcons, ['$']);
     assert.equal(menu.skillListPresent, true);
     assert.equal(menu.workModeChoices, 2);
-    assert.equal(menu.workModeHidden, true);
-    assert.equal(menu.workModeLauncherExpanded, 'false');
-    await page.locator('#composerWorkModeAction').click();
+    assert.equal(menu.configHidden, true);
+    assert.equal(menu.removedLaunchers, 0);
     await page.waitForTimeout(220);
     const workModeMenu = await page.evaluate(() => {
       const panel = document.querySelector('#attachmentMenu');
       const baseHeight = Number(panel.dataset.baseHeight);
-      const buttons = [...panel.querySelectorAll('#composerWorkModeView [data-work-mode]')];
+      const buttons = [...panel.querySelectorAll('#composerAddMainView [data-work-mode]')];
       return {
         baseHeight,
         height: panel.getBoundingClientRect().height,
-        title: panel.querySelector('#composerWorkModeView .composer-add-section-title')?.textContent.trim(),
         labels: buttons.map(button => button.querySelector('.composer-add-action-name')?.textContent.trim()),
         descriptions: buttons.map(button => button.querySelector('.composer-add-action-desc')?.textContent.trim()),
         heights: buttons.map(button => button.getBoundingClientRect().height),
         fontSizes: buttons.map(button => getComputedStyle(button.querySelector('.composer-add-action-name')).fontSize),
         iconMarkup: buttons.map(button => button.querySelector('svg:first-child')?.innerHTML),
-        mainHidden: panel.querySelector('#composerAddMainView')?.classList.contains('hidden'),
-        workModeHidden: panel.querySelector('#composerWorkModeView')?.classList.contains('hidden')
+        mainHidden: panel.querySelector('#composerAddMainView')?.classList.contains('hidden')
       };
     });
-    assert.ok(Math.abs(workModeMenu.height - workModeMenu.baseHeight * 0.8) <= 2,
-      `工作方式面板高度应为初始高度 0.8 倍，实际 ${workModeMenu.height}px，初始 ${workModeMenu.baseHeight}px`);
-    assert.equal(workModeMenu.title, '工作方式');
-    assert.deepEqual(workModeMenu.labels, ['目标', '计划']);
+    assert.deepEqual(workModeMenu.labels, ['目标', '计划模式']);
     assert.deepEqual(workModeMenu.descriptions, ['设置要追求的目标', '开启计划模式']);
-    assert.ok(workModeMenu.heights.every(height => height >= 38 && height <= 42), `工作方式按钮应恢复常规高度，实际 ${workModeMenu.heights.join(', ')}px`);
+    assert.ok(workModeMenu.heights.every(height => height >= 32 && height <= 34), `工作方式按钮应为紧凑行高，实际 ${workModeMenu.heights.join(', ')}px`);
     assert.deepEqual(workModeMenu.fontSizes, ['13px', '13px']);
     assert.deepEqual(workModeMenu.iconMarkup, [
       '<circle cx="12" cy="12" r="7"></circle><circle cx="12" cy="12" r="3"></circle><path d="M22 2 13.5 10.5M16 2h6v6"></path>',
       '<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5c-.9.7-1.5 1.5-1.5 2.5h-4c0-1-.6-1.8-1.5-2.5Z"></path>'
     ]);
-    assert.equal(workModeMenu.mainHidden, true);
-    assert.equal(workModeMenu.workModeHidden, false);
+    assert.equal(workModeMenu.mainHidden, false);
     await page.screenshot({ path: menuScreenshotPath, fullPage: false });
     await page.locator('#attachBtn').click();
 
     const composerInput = page.locator('#composerInput');
+    const openSkills = async () => {
+      await page.evaluate(() => { input.focus(); setComposerCaretByTextOffset(getComposerText().length); });
+      await page.keyboard.type('/');
+      await page.locator('[data-composer-config="skills"]').click();
+    };
+    const skillChoices = page.locator('#composerConfigList [data-composer-config^="skill:"]');
     await composerInput.fill('folder/name');
     assert.equal(await page.locator('#attachmentMenu').evaluate(panel => panel.classList.contains('hidden')), true,
       'prompt 中间的 / 不应打开工作方式面板');
@@ -110,49 +111,49 @@ fs.mkdirSync(outputDir, { recursive: true });
     const slashTrigger = await page.evaluate(() => ({
       menuHidden: document.querySelector('#attachmentMenu')?.classList.contains('hidden'),
       mainHidden: document.querySelector('#composerAddMainView')?.classList.contains('hidden'),
-      workModeHidden: document.querySelector('#composerWorkModeView')?.classList.contains('hidden'),
+      configHidden: document.querySelector('#composerConfigView')?.classList.contains('hidden'),
       caretOffset: getComposerCaretTextOffset()
     }));
-    assert.deepEqual(slashTrigger, { menuHidden: false, mainHidden: true, workModeHidden: false, caretOffset: 1 });
+    assert.deepEqual(slashTrigger, { menuHidden: false, mainHidden: true, configHidden: false, caretOffset: 1 });
     await composerInput.press('Backspace');
-    assert.equal(await composerInput.evaluate(element => element.value), '');
+    assert.equal(await composerInput.evaluate(element => element.value.trim()), '');
     assert.equal(await page.locator('#attachmentMenu').evaluate(panel => panel.classList.contains('hidden')), true,
       '删除开头的 / 后应关闭工作方式面板');
 
     await composerInput.fill('/');
     await page.waitForTimeout(220);
-    await page.locator('#composerWorkModeView [data-work-mode="goal"]').click();
+    await page.locator('[data-composer-config="goal"]').click();
     assert.equal(await composerInput.evaluate(element => element.value), '',
       '选择工作方式后应移除开头的 /');
     assert.equal(await page.locator('#attachmentMenu').evaluate(panel => panel.classList.contains('hidden')), true,
       '选择工作方式后应关闭工作方式面板');
 
-    await page.locator('#attachBtn').click();
-    await page.locator('#composerSkillAction').click();
+    await openSkills();
     await page.waitForTimeout(220);
     const skillMenu = await page.evaluate(() => {
       const panel = document.querySelector('#attachmentMenu');
-      const list = document.querySelector('#composerSkillMenuList');
-      const items = [...list.querySelectorAll('.skill-call-item')];
+      const list = document.querySelector('#composerConfigList');
+      const items = [...list.querySelectorAll('[data-composer-config^="skill:"]')];
       const first = items[0];
       return {
         baseHeight: Number(panel.dataset.baseHeight),
+        heightLimit: Math.min(window.innerHeight * 0.5, 360),
         height: panel.getBoundingClientRect().height,
         itemCount: items.length,
         rowHeight: first?.getBoundingClientRect().height || 0,
-        visibleRows: first ? Math.floor(list.clientHeight / first.getBoundingClientRect().height) : 0,
-        title: document.querySelector('#composerSkillView .composer-add-section-title')?.textContent.trim(),
-        names: items.slice(0, 6).map(item => item.querySelector('.skill-call-name')?.textContent.trim()),
-        descriptions: items.slice(0, 6).map(item => item.querySelector('.skill-call-desc')?.textContent.trim()),
-        descOverflow: first ? getComputedStyle(first.querySelector('.skill-call-desc')).textOverflow : '',
+        visibleRows: first ? Math.floor(panel.clientHeight / first.getBoundingClientRect().height) : 0,
+        title: document.querySelector('#composerConfigTitle')?.textContent.trim(),
+        names: items.slice(0, 6).map(item => item.querySelector('.composer-add-action-name')?.textContent.trim()),
+        descriptions: items.slice(0, 6).map(item => item.querySelector('.composer-add-action-desc')?.textContent.trim()),
+        descOverflow: first ? getComputedStyle(first.querySelector('.composer-add-action-desc')).textOverflow : '',
         mainHidden: document.querySelector('#composerAddMainView')?.classList.contains('hidden'),
-        skillHidden: document.querySelector('#composerSkillView')?.classList.contains('hidden')
+        skillHidden: document.querySelector('#composerConfigView')?.classList.contains('hidden')
       };
     });
-    assert.ok(Math.abs(skillMenu.height - skillMenu.baseHeight * 1.7) <= 2,
-      `技能面板高度应为初始高度 1.7 倍，实际 ${skillMenu.height}px，初始 ${skillMenu.baseHeight}px`);
+    assert.ok(skillMenu.height <= skillMenu.heightLimit + 2,
+      `技能面板高度应适应窗口上限，实际 ${skillMenu.height}px`);
     assert.ok(skillMenu.itemCount >= 6, `技能面板至少应有 6 个技能，实际 ${skillMenu.itemCount}`);
-    assert.equal(skillMenu.visibleRows, 6);
+    assert.ok(skillMenu.visibleRows >= 6);
     assert.equal(skillMenu.title, '技能');
     assert.ok(skillMenu.names.every(name => name.startsWith('$')));
     assert.ok(skillMenu.descriptions.every(Boolean));
@@ -165,28 +166,27 @@ fs.mkdirSync(outputDir, { recursive: true });
     await composerInput.fill('普通$文本');
     assert.equal(await page.locator('#attachmentMenu').evaluate(panel => panel.classList.contains('hidden')), true,
       '普通字符后的 $ 不应打开技能面板');
-    await composerInput.fill('$');
+    await composerInput.fill('/');
+    await page.locator('[data-composer-config="skills"]').click();
     await page.waitForTimeout(220);
     const dollarTrigger = await page.evaluate(() => ({
       value: document.querySelector('#composerInput')?.value,
       caretOffset: getComposerCaretTextOffset(),
       menuHidden: document.querySelector('#attachmentMenu')?.classList.contains('hidden'),
-      skillHidden: document.querySelector('#composerSkillView')?.classList.contains('hidden')
+      skillHidden: document.querySelector('#composerConfigView')?.classList.contains('hidden')
     }));
-    assert.deepEqual(dollarTrigger, { value: '$', caretOffset: 1, menuHidden: false, skillHidden: false });
+    assert.deepEqual(dollarTrigger, { value: '/', caretOffset: 1, menuHidden: false, skillHidden: false });
 
-    await composerInput.fill('$hallmark');
+    await composerInput.fill('/hallmark');
     await page.waitForTimeout(220);
     const fuzzySkillSearch = await page.evaluate(() => ({
-      query: composerSkillQuery,
-      names: [...document.querySelectorAll('#composerSkillMenuList .skill-call-name')]
+      names: [...document.querySelectorAll('#composerConfigList [data-composer-config^="skill:"] .composer-add-action-name')]
         .map(item => item.textContent.trim())
     }));
-    assert.equal(fuzzySkillSearch.query, 'hallmark');
     assert.ok(fuzzySkillSearch.names.some(name => /^\$hallmark$/i.test(name)),
-      `$hallmark 应筛选出 Hallmark，实际为 ${fuzzySkillSearch.names.join(', ')}`);
+      `/hallmark 应筛选出 Hallmark，实际为 ${fuzzySkillSearch.names.join(', ')}`);
 
-    await page.locator('#composerSkillMenuList [data-composer-skill-choice="hallmark"]').click();
+    await page.locator('[data-composer-config="skill:hallmark"]').click();
     const selectedFromDollar = await page.evaluate(() => ({
       value: document.querySelector('#composerInput')?.value,
       tokenCount: document.querySelectorAll('#composerInput [data-composer-skill-id]').length,
@@ -226,9 +226,9 @@ fs.mkdirSync(outputDir, { recursive: true });
     assert.match(skillTokenVisual.wandMask, /prompt-optimizer\.svg/);
     await page.screenshot({ path: skillTokenScreenshotPath, fullPage: false });
 
-    await page.keyboard.type('$');
+    await openSkills();
     await page.waitForTimeout(220);
-    await page.locator('#composerSkillMenuList .skill-call-item').first().click();
+    await skillChoices.first().click();
     const twoSkillsFromDollar = await page.evaluate(() => ({
       value: document.querySelector('#composerInput')?.value,
       tokenIds: [...document.querySelectorAll('#composerInput [data-composer-skill-id]')].map(token => token.dataset.composerSkillId)
@@ -257,7 +257,11 @@ fs.mkdirSync(outputDir, { recursive: true });
       const mentions = [...body.querySelectorAll('.msg-skill-call')];
       const messageGap = mentions[1].getBoundingClientRect().left - mentions[0].getBoundingClientRect().right;
       const nameNode = mentions[0].querySelector('.msg-skill-name').firstChild;
-      const contentNode = [...body.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.nodeValue.includes('读取这个skill'));
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      let contentNode;
+      while (walker.nextNode()) {
+        if (walker.currentNode.nodeValue.includes('读取这个skill')) { contentNode = walker.currentNode; break; }
+      }
       const textRect = node => {
         const range = document.createRange();
         range.selectNodeContents(node);
@@ -307,10 +311,9 @@ fs.mkdirSync(outputDir, { recursive: true });
       delete window.__skillMentionMessage;
     });
 
-    await page.locator('#attachBtn').click();
-    await page.locator('#composerSkillAction').click();
+    await openSkills();
     await page.waitForTimeout(220);
-    await page.locator('#composerSkillMenuList .skill-call-item').first().click();
+    await skillChoices.first().click();
     const threeSkillsWithButton = await page.evaluate(() => ({
       value: document.querySelector('#composerInput')?.value,
       caretOffset: getComposerCaretTextOffset(),
@@ -321,29 +324,31 @@ fs.mkdirSync(outputDir, { recursive: true });
     assert.deepEqual(threeSkillsWithButton.tokenIds.slice(0, 2), twoSkillsFromDollar.tokenIds);
     assert.equal(threeSkillsWithButton.tokenIds.length, 3);
 
-    await page.keyboard.type('  $');
+    await page.keyboard.type('  /');
+    await page.locator('[data-composer-config="skills"]').click();
     await page.waitForTimeout(220);
-    assert.equal(await page.locator('#composerSkillView').evaluate(view => view.classList.contains('hidden')), false,
-      '已选技能后的一个或多个空格再输入 $ 应打开技能面板');
-    await page.locator('#composerSkillMenuList .skill-call-item').first().click();
+    assert.equal(await page.locator('#composerConfigView').evaluate(view => view.classList.contains('hidden')), false,
+      '已选技能后的一个或多个空格再输入 / 应打开命令面板');
+    await skillChoices.first().click();
     const skillAfterWhitespace = await page.evaluate(() => ({
       value: document.querySelector('#composerInput')?.value,
       tokenIds: [...document.querySelectorAll('#composerInput [data-composer-skill-id]')].map(token => token.dataset.composerSkillId)
     }));
-    assert.equal(skillAfterWhitespace.value, '');
+    assert.equal(skillAfterWhitespace.value, '  ');
     assert.equal(skillAfterWhitespace.tokenIds.length, 4);
     assert.deepEqual(skillAfterWhitespace.tokenIds.slice(0, 3), threeSkillsWithButton.tokenIds);
 
-    await composerInput.fill('/$');
+    await composerInput.fill('/skills');
+    await page.locator('[data-composer-config="skills"]').click();
     await page.waitForTimeout(220);
-    assert.equal(await page.locator('#composerSkillView').evaluate(view => view.classList.contains('hidden')), false,
-      '/$ 应打开技能面板');
-    await page.locator('#composerSkillMenuList .skill-call-item').first().click();
+    assert.equal(await page.locator('#composerConfigView').evaluate(view => view.classList.contains('hidden')), false,
+      '/skills 应打开技能面板');
+    await skillChoices.first().click();
     const selectedFromSlashDollar = await page.evaluate(() => ({
       value: document.querySelector('#composerInput')?.value,
       tokenCount: document.querySelectorAll('#composerInput [data-composer-skill-id]').length
     }));
-    assert.deepEqual(selectedFromSlashDollar, { value: '/', tokenCount: 1 });
+    assert.deepEqual(selectedFromSlashDollar, { value: '', tokenCount: 1 });
 
     const integritySkill = await page.evaluate(() => {
       const skill = state.selectedSkills[0];
@@ -455,7 +460,9 @@ fs.mkdirSync(outputDir, { recursive: true });
     }));
   } finally {
     await application?.close().catch(() => {});
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    assert.equal(path.dirname(userDataDir), path.resolve(os.tmpdir()));
+    try { fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); }
+    catch (error) { console.warn('Temporary Electron profile cleanup:', error.message); }
   }
 })().catch(error => {
   console.error(error);

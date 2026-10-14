@@ -44,7 +44,7 @@
   window.YanBrowserAnnotations={init(controller,{onAdd,notify=()=>{}}={}){
     const {panel,webview,root}=controller;
     const button=document.createElement('button');button.type='button';button.className='tool-panel-nav-btn browser-annotate-btn';button.dataset.browserAction='annotate';button.title='注释网页';button.setAttribute('aria-label','注释网页');button.setAttribute('aria-pressed','false');
-    const icon=document.querySelector('[data-rs-dock-tool="interjection"] svg');if(icon)button.append(icon.cloneNode(true));
+    button.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/><path d="M12 8v4"/><path d="M10 10h4"/></svg>';
     const settingsWrap=root.querySelector('[data-browser-settings-wrap]');const actions=document.createElement('div');actions.className='browser-toolbar-actions';settingsWrap.before(actions);actions.append(button,settingsWrap);
     const layer=document.createElement('div');layer.className='browser-annotation-layer';layer.hidden=true;layer.tabIndex=-1;
     layer.innerHTML=`<div class="browser-annotation-box"></div><div class="browser-annotation-info" role="status"></div><form class="browser-annotation-editor" hidden>

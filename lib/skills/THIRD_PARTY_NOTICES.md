@@ -142,42 +142,6 @@ Source: https://github.com/DietrichGebert/ponytail
 
 Bundled revision: `16f29800fd2681bdf24f3eb4ccffe38be3baec6b`
 
-## GreenSock GSAP Skills
-
-Yan Agent bundles the official GSAP Agent Skill suite from
-`greensock/gsap-skills`, copyright (c) 2026 GreenSock, licensed under the MIT
-License.
-
-Source: https://github.com/greensock/gsap-skills
-
-Bundled revision: `aed9cfd3277740755f6bfc1155c7aa645403b760`
-
-## UI/UX Pro Max
-
-Yan Agent bundles the complete UI/UX Pro Max Skill from
-`nextlevelbuilder/ui-ux-pro-max-skill`, copyright Next Level Builder, licensed
-under the MIT License. The bundle includes its local design databases, Python
-search and design-system scripts, reference documents, and upstream tests.
-
-Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill
-
-Bundled version: `2.13.0`
-Bundled revision: `abb7f2fd5a083fa1ff55c326a963ff0d95c33f99`
-
-The complete upstream license is distributed at
-`lib/skills/ui-ux-pro-max/LICENSE`.
-
-## Emil Kowalski Agent Skills
-
-Yan Agent bundles `animate`, `review-animations`,
-`find-animation-opportunities`, and `apple-design` from
-`emilkowalski/skills`, copyright (c) 2026 Emil Kowalski, licensed under the
-MIT License.
-
-Source: https://github.com/emilkowalski/skills
-
-Bundled revision: `de33dbed000212b54400a33767d1e4d03654db2a`
-
 ## Awesome DESIGN.md
 
 Yan Agent bundles the Awesome DESIGN.md reference library from
@@ -197,15 +161,6 @@ copyright the TasteSkill contributors, licensed under the MIT License.
 Source: https://github.com/tasteskill/tasteskill
 
 Bundled revision: `37c8c376b92ebc02456f7c70776b514fddda88e1`
-
-## Liquid Glass React
-
-Yan Agent bundles the reference source for `rdev/liquid-glass-react`, copyright
-Max Rovensky and contributors, licensed under the MIT License. Yan bundles the
-component source for read-only implementation reference and does not install
-the npm package or its dependencies automatically.
-
-Source: https://github.com/rdev/liquid-glass-react
 
 ## Andrej Karpathy Guidelines
 

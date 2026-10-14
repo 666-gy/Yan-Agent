@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "playwright",
+  "name": "Playwright",
+  "version": "0.0.83",
+  "description": "隔离式网页自动化与端到端测试：使用 Chromium 打开页面、填写表单、截图与验证结果。",
+  "author": "Microsoft",
+  "license": "Apache-2.0",
+  "instructions": "instructions.md",
+  "platforms": ["win32"],
+  "skills": [],
+  "resources": [],
+  "mcpServers": [],
+  "configuration": {},
+  "environment": [],
+  "requiredCommands": []
+}

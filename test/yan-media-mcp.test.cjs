@@ -55,7 +55,7 @@ test('Yan Media exposes read_image by default and reports missing visual relay c
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
   const client = createClient({
     access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
-    vision: { providerId: 'agnes', baseUrl: 'https://apihub.agnes-ai.com/v1', apiKey: '' }
+    vision: { enabled: true, models: [] }
   }, dataDir);
   t.after(() => {
     client.child.kill();
@@ -72,7 +72,7 @@ test('Yan Media exposes read_image by default and reports missing visual relay c
     arguments: { generated_image_id: '0123456789abcdef0123456789abcdef' }
   });
   assert.equal(called.result.isError, true);
-  assert.equal(called.result.structuredContent.error, '通用读图工具需要先配置可用的视觉中继模型');
+  assert.equal(called.result.structuredContent.error, '通用读图工具需要先在“设置 → 多模态链路”启用视觉中继模型');
 });
 
 test('Yan Media hides read_image when visual relay is disabled but keeps generation tools', async t => {
@@ -168,13 +168,13 @@ test('read_image prefers configured GLM models before falling back to Agnes', as
   assert.equal(called.result.structuredContent.meta.observerModel, 'agnes-2.5-flash');
   assert.equal(called.result.structuredContent.meta.fallback, true);
   assert.deepEqual(requests, [
-    { model: 'glm-5v-turbo', maxTokens: 1024 },
-    { model: 'glm-4.6v-flash', maxTokens: 1024 },
+    { model: 'glm-5v-turbo', maxTokens: 3000 },
+    { model: 'glm-4.6v-flash', maxTokens: 3000 },
     { model: 'agnes-2.5-flash', maxTokens: 3000 }
   ]);
 });
 
-test('read_image keeps compatibility with the legacy Agnes relay configuration', async t => {
+test('read_image uses the configured relay model list in order', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-media-mcp-'));
   const imageDir = path.join(dataDir, 'generated-images');
   fs.mkdirSync(imageDir, { recursive: true });
@@ -191,11 +191,11 @@ test('read_image keeps compatibility with the legacy Agnes relay configuration',
   const client = createClient({
     access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
     vision: {
-      providerId: 'agnes',
-      baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
-      apiKey: 'test-key',
-      preferredModelId: 'agnes-2.5-flash',
-      fallbackModelId: 'agnes-2.0-flash'
+      enabled: true,
+      models: [
+        { providerId: 'agnes', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key', modelId: 'agnes-2.5-flash' },
+        { providerId: 'agnes', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key', modelId: 'agnes-2.0-flash' }
+      ]
     }
   }, dataDir);
   t.after(() => {
@@ -222,10 +222,8 @@ test('read_image rejects oversized local images before contacting the relay', as
   const client = createClient({
     access: { workspace, accessMode: 'request', allowFileRead: true, allowNetwork: true },
     vision: {
-      providerId: 'agnes',
-      baseUrl: 'http://127.0.0.1:1/v1',
-      apiKey: 'test-key',
-      preferredModelId: 'vision-test'
+      enabled: true,
+      models: [{ providerId: 'agnes', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'test-key', modelId: 'vision-test' }]
     }
   }, dataDir);
   t.after(() => {
@@ -254,7 +252,7 @@ test('read_image rejects ambiguous cross-workspace paths from the registry', asy
   fs.writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   const client = createClient({
     access: { workspace: '', accessMode: 'request', allowFileRead: true, allowNetwork: true },
-    vision: { providerId: 'agnes', baseUrl: 'http://127.0.0.1:1', apiKey: 'test-key', preferredModelId: 'vision-test' }
+    vision: { enabled: true, models: [{ providerId: 'agnes', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'test-key', modelId: 'vision-test' }] }
   }, dataDir, registryPath);
   t.after(() => {
     client.child.kill();
@@ -268,6 +266,63 @@ test('read_image rejects ambiguous cross-workspace paths from the registry', asy
   });
   assert.equal(called.result.isError, true);
   assert.match(called.result.structuredContent.error, /多个并发工作区/);
+});
+
+test('generate_image edits uploaded annotations through the image endpoint and preserves access checks', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-annotation-mcp-'));
+  const dataDir = path.join(root, 'data'), workspace = path.join(root, 'workspace');
+  fs.mkdirSync(dataDir); fs.mkdirSync(workspace);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1kAAAAASUVORK5CYII=', 'base64');
+  const source = path.join(dataDir, '标注 原图.png'); fs.writeFileSync(source, png);
+  const outside = path.join(root, 'outside.png'); fs.writeFileSync(outside, png);
+  const large = path.join(dataDir, 'large.png'); fs.writeFileSync(large, png); fs.truncateSync(large, 20 * 1024 * 1024 + 1);
+  const requests = [], clients = [];
+  const server = http.createServer((request, response) => {
+    const chunks = []; request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      requests.push({ url: request.url, type: request.headers['content-type'], body: Buffer.concat(chunks) });
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const runtime = { access: { workspace, accessMode: 'request', allowFileRead: true, allowNetwork: true },
+    image: { providerId: 'openai', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key', modelId: 'gpt-image-test', strategy: 'chat' } };
+  const client = createClient(runtime, dataDir); clients.push(client);
+  t.after(() => { for (const client of clients) client.child.kill(); server.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const listed = await client.request('tools/list');
+  const tool = listed.result.tools.find(item => item.name === 'generate_image');
+  assert.equal(tool.inputSchema.properties.source_path.type, 'string');
+  assert.equal(tool.inputSchema.properties.workspace.type, 'string');
+  const call = (arguments_, target = client) => target.request('tools/call', { name: 'generate_image', arguments: arguments_ });
+  const args = { prompt: '把圈里的杯子改为蓝色，不保留标注箭头', source_path: source, workspace };
+  const edited = await call(args);
+  assert.equal(edited.result.isError, false);
+  assert.equal(edited.result.structuredContent.meta.edited, true);
+  assert.equal(edited.result.structuredContent.meta.sourcePath, source);
+  assert.equal(requests[0].url, '/v1/images/edits');
+  assert.match(requests[0].type, /^multipart\/form-data/);
+  assert.ok(requests[0].body.includes(png), 'original attachment bytes reach the image model');
+  assert.ok(requests[0].body.includes(Buffer.from(args.prompt)));
+  assert.deepEqual(fs.readFileSync(source), png, 'input is never overwritten');
+  const assetId = edited.result.structuredContent.meta.generatedImageId;
+  const revision = await call({ prompt: '再次调整颜色', source_asset_id: assetId });
+  assert.equal(revision.result.isError, false, 'existing generated asset revisions still work');
+  assert.equal(revision.result.structuredContent.meta.sourceAssetId, assetId);
+  const count = requests.length;
+  for (const [input, expected] of [
+    [{ ...args, source_asset_id: assetId }, /只能提供一个/],
+    [{ ...args, source_path: outside }, /不在当前工作区/],
+    [{ ...args, source_path: large }, /20MB/],
+    [{ ...args, source_path: path.join(dataDir, 'missing.png') }, /ENOENT/]
+  ]) {
+    const failure = await call(input); assert.equal(failure.result.isError, true); assert.match(failure.result.structuredContent.error, expected);
+  }
+  for (const flag of ['allowNetwork', 'allowFileRead']) {
+    const denied = createClient({ ...runtime, access: { ...runtime.access, [flag]: false } }, dataDir); clients.push(denied);
+    const failure = await call(args, denied); assert.equal(failure.result.isError, true); assert.match(failure.result.structuredContent.error, /已关闭/);
+  }
+  assert.equal(requests.length, count, 'invalid inputs and denied access never reach the image provider');
 });
 
 test('generate_image normalizes SenseNova dimensions inside Yan Media', async t => {

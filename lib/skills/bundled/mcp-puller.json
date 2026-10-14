@@ -1,0 +1,10 @@
+{
+  "id": "mcp-puller",
+  "name": "MCP-Puller",
+  "desc": "用自然语言接入 MCP 服务：先核对官方来源，再按 Yan 规则写入配置",
+  "aliases": ["MCP 安装", "安装 MCP", "接入 MCP", "添加 MCP", "MCP 服务安装"],
+  "tags": ["agent-rules"],
+  "source": "bundled",
+  "version": 1,
+  "promptFile": "../mcp-puller/SKILL.md"
+}

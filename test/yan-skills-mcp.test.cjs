@@ -10,7 +10,7 @@ const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
 
-function createClient(dataDir) {
+function createClient(dataDir, extraEnv = {}) {
   const skillsRoot = path.join(dataDir, 'skills');
   fs.mkdirSync(skillsRoot, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [] }), 'utf8');
@@ -23,7 +23,8 @@ function createClient(dataDir) {
       YAN_SKILLS_CONFIG_PATH: path.join(dataDir, 'config.json'),
       YAN_SKILLS_APP_ROOT: appRoot,
       YAN_SKILLS_CLI: path.join(appRoot, 'node_modules', 'skills', 'bin', 'cli.mjs'),
-      YAN_SKILLS_ALLOW_NETWORK: 'false'
+      YAN_SKILLS_ALLOW_NETWORK: 'false',
+      ...extraEnv
     },
     stdio: ['pipe', 'pipe', 'pipe']
   });
@@ -57,6 +58,61 @@ function createClient(dataDir) {
   return { child, request };
 }
 
+test('pet tool exposes functional data binding and installs a widget without artwork', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-pet-mcp-'));
+  const client = createClient(dataDir);
+  t.after(() => { client.child.kill(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const listed = await client.request('tools/list');
+  const tool = listed.result.tools.find(item => item.name === 'install_pet');
+  assert.ok(tool.inputSchema.properties.layout.enum.includes('widget'));
+  assert.ok(tool.inputSchema.properties.layout.enum.includes('web'));
+  assert.ok(tool.inputSchema.properties.frontend.properties.js);
+  assert.ok(tool.inputSchema.properties.data_source.properties.connection_id);
+  const installed = await client.request('tools/call', { name: 'install_pet', arguments: {
+    name: 'Account balance', layout: 'widget', data_source: {
+      url: 'https://balance.example/account', value_path: ['data', 'balance']
+    }
+  } });
+  assert.equal(installed.result.isError, false);
+  assert.equal(installed.result.structuredContent.pet.layout, 'widget');
+  const petId = installed.result.structuredContent.pet.id;
+  const pets = await client.request('tools/call', { name: 'list_pets', arguments: {} });
+  assert.ok(pets.result.structuredContent.pets.some(item => item.id === petId && item.dataSource));
+  const web = await client.request('tools/call', { name: 'install_pet', arguments: {
+    name: 'Custom balance', layout: 'web', frontend: { html: '<strong id="amount"></strong>',
+      js: 'yanPet.onData(d=>{if(d.status==="ready")amount.textContent=d.text})', width: 320, height: 140 }
+  } });
+  assert.equal(web.result.isError, false);
+  const webPets = await client.request('tools/call', { name: 'list_pets', arguments: {} });
+  assert.ok(webPets.result.structuredContent.pets.some(item => item.id === web.result.structuredContent.pet.id && item.layout === 'web'));
+});
+
+test('disabling a loaded skill blocks cached instructions and resources until re-enabled', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-skills-disabled-'));
+  const client = createClient(dataDir);
+  t.after(() => { client.child.kill(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const call = async (name, extra = {}) => (await client.request('tools/call', {
+    name, arguments: { id: 'yan-uiverse', task_id: 'same-run', ...extra }
+  })).result;
+  assert.equal((await call('read_skill')).structuredContent.ok, true);
+  assert.equal((await call('read_skill_resource', { path: '$instructions' })).structuredContent.ok, true);
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [], disabledSkills: ['yan-uiverse', 'awesome-design-md'] }));
+  const list = await call('list_installed_skills');
+  assert.ok(!list.structuredContent.skills.some(skill => skill.id === 'yan-uiverse'));
+  for (const [name, extra] of [
+    ['read_skill', {}], ['read_skill_resource', { path: '$instructions' }],
+    ['read_skill_resources', { chunks: [{ path: '$instructions', chunk_index: 0 }] }],
+    ['list_design_references', {}], ['read_design_reference', { id: 'apple' }]
+  ]) {
+    const denied = await call(name, extra);
+    assert.equal(denied.isError, true, name);
+    assert.doesNotMatch(JSON.stringify(denied), /Uiverse/);
+  }
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [], disabledSkills: [] }));
+  assert.equal((await call('read_skill')).structuredContent.ok, true);
+  assert.equal((await call('read_skill_resource', { path: '$instructions' })).structuredContent.ok, true);
+});
+
 test('read_skill returns a structured per-task skip without failing MCP', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-skills-mcp-'));
   const largeSkillId = 'lossless-large';
@@ -88,11 +144,11 @@ test('read_skill returns a structured per-task skip without failing MCP', async 
 
   const available = await client.request('tools/call', {
     name: 'read_skill',
-    arguments: { id: 'yan-react-bits', task_id: 'run-success' }
+    arguments: { id: 'yan-uiverse', task_id: 'run-success' }
   });
   assert.equal(available.result.isError, false);
   assert.equal(available.result.structuredContent.ok, true);
-  assert.match(available.result.structuredContent.instructions, /React Bits/i);
+  assert.match(available.result.structuredContent.instructions, /Uiverse/i);
   assert.equal(available.result.structuredContent.delivery, 'inline');
   assert.equal(available.result.structuredContent.complete, true);
   assert.equal('skillDocument' in available.result.structuredContent, false);
@@ -304,4 +360,47 @@ test('learned input speed selects real chunk tiers for the same Skill', async ()
     client.child.kill();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+
+test('legacy external sources cannot expose Skills to catalog or management MCP tools', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-project-mcp-'));
+  const workspace = path.join(root, 'workspace');
+  const dataDir = path.join(root, 'data');
+  const external = path.join(root, 'external');
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(path.join(external, 'example', 'references'), { recursive: true });
+  fs.writeFileSync(path.join(external, 'example', 'SKILL.md'), '---\nname: external-example\ndescription: External test\n---\nRead references/detail.md.\n');
+  fs.writeFileSync(path.join(external, 'example', 'references', 'detail.md'), 'External resource content');
+  const source = require('../lib/skill-source');
+  const registry = require('../lib/skill-registry');
+  await source.applyProjectSkillSource({ workspace, sourcePath: external, mode: 'symlink' });
+  // The task workspace travels through the harness run context keyed by
+  // task_id, not the shared MCP env (which must stay signature-stable).
+  const contextDir = path.join(dataDir, 'harness', 'runtime');
+  fs.mkdirSync(contextDir, { recursive: true });
+  const runContextKey = crypto.createHash('sha256').update('project-run').digest('hex');
+  fs.writeFileSync(path.join(contextDir, `${runContextKey}.json`), JSON.stringify({ runId: 'project-run', workspace }));
+  const client = createClient(dataDir, { YAN_SKILLS_CONTEXT_DIR: contextDir, YAN_SKILLS_ALLOW_NETWORK: 'true' });
+  t.after(() => { client.child.kill(); fs.rmSync(root, { recursive: true, force: true }); });
+  const id = source.sourceIdForPath(external);
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ workspace: path.join(root, 'other'), customSkills: [],
+    skillSource: { known: [{ id, path: external, mode: 'symlink' }], active: { [registry.workspaceSkillSourceKey(workspace)]: id } } }));
+  const read = await client.request('tools/call', { name: 'read_skill', arguments: { id: 'external-example', task_id: 'project-run' } });
+  const result = read.result.structuredContent;
+  assert.equal(result.ok, false);
+  const listed = await client.request('tools/call', { name: 'list_installed_skills', arguments: { task_id: 'project-run' } });
+  assert.equal(listed.result.structuredContent.skills.some(skill => skill.id === 'external-example'), false);
+  const resource = await client.request('tools/call', { name: 'read_skill_resource', arguments: { id: 'external-example', task_id: 'project-run', path: 'references/detail.md' } });
+  assert.equal(resource.result.structuredContent.ok, false);
+  const removed = await client.request('tools/call', { name: 'remove_skill', arguments: { id: 'external-example' } });
+  assert.equal(removed.result.isError, true);
+  const removedPath = await client.request('tools/call', { name: 'remove_skill', arguments: { id: path.join(external, 'example') } });
+  assert.equal(removedPath.result.isError, true);
+  const installed = await client.request('tools/call', { name: 'install_skill', arguments: { source: path.join(external, 'example') } });
+  assert.equal(installed.result.isError, true);
+  assert.match(installed.result.structuredContent.error, /不接受本地路径/);
+  assert.ok(fs.existsSync(path.join(external, 'example', 'SKILL.md')));
+  assert.equal(fs.readFileSync(path.join(external, 'example', 'references', 'detail.md'), 'utf8'), 'External resource content');
 });

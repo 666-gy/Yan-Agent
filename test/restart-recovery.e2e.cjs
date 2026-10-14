@@ -95,6 +95,10 @@ async function waitForRecoveredSession(filePath, timeoutMs = 45_000) {
     // The replayed content must exist exactly once.
     assert.equal(persisted.messages.filter(message => message?.agentRun?.runId === runId).length, 1);
 
+    // Recovery saves the replayed messages before settling the Core turn.
+    // Wait for startup recovery to finish, not just for its first disk write.
+    await page.waitForFunction(() => window.__YAN_APP_READY__ === true);
+    assert.match(await page.locator('#toast').textContent(), /已从运行日志恢复 1 个中断任务的工作内容/);
     const coreState = JSON.parse(fs.readFileSync(path.join(coreDir, 'state.json'), 'utf8'));
     assert.equal(coreState.turns[runId].status, 'aborted', 'recovered Turn must settle in Core');
     assert.equal(coreState.turns[runId].result?.status, 'interrupted');
@@ -112,8 +116,12 @@ async function waitForRecoveredSession(filePath, timeoutMs = 45_000) {
     assert.equal(errors.length, 0, errors.join('; '));
     console.log(JSON.stringify({ ok: true, status: last.agentRun.status, textLength: last.agentRun.textContent.length }));
   } finally {
+    const child = application?.process();
+    const stopped = child && child.exitCode === null ? new Promise(resolve => child.once('exit', resolve)) : Promise.resolve();
     await application?.close();
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    await stopped;
+    assert.equal(path.dirname(userDataDir), path.resolve(os.tmpdir()));
+    await fs.promises.rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   }
 })().catch(error => {
   console.error(error);

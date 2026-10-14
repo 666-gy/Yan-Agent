@@ -297,8 +297,9 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-composer-todo-e2e
     assert.equal(todoResult.fileOnly.openedReview?.filePath, 'src/app.js', JSON.stringify(todoResult));
     assert.equal(todoResult.fileOnly.openAfterFileClick, false, JSON.stringify(todoResult));
     assert.deepEqual(todoResult.fileOnly.translations, {
-      progress: 'Completed 1/3',
-      files: 'Edited files'
+      // The current app fixes normalizeLanguage() to Chinese.
+      progress: '第 1/3 已完成',
+      files: '编辑了文件'
     }, JSON.stringify(todoResult));
 
     const transientSurfaceResult = await page.evaluate(async () => {
@@ -430,25 +431,23 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-composer-todo-e2e
         startedAt: Date.now(),
         timeline: [{ type: 'progress', variant: 'agent-loader', content: '' }]
       });
-      const loaderRoot = loaderHost.querySelector('.capybaraloader');
+      const loaderRoot = loaderHost.querySelector('.uivhound');
       const loaderParts = {
-        root: loaderHost.querySelectorAll('.capybaraloader').length,
-        head: loaderHost.querySelectorAll('.capybaraloader .capyhead').length,
-        ears: loaderHost.querySelectorAll('.capybaraloader .capyear').length,
-        eyes: loaderHost.querySelectorAll('.capybaraloader .capyeye').length,
-        backLegs: loaderHost.querySelectorAll('.capybaraloader .capyleg2').length,
-        line: loaderHost.querySelectorAll('.capybaraloader .loaderline').length
+        root: loaderHost.querySelectorAll('.uivhound').length,
+        bars: loaderHost.querySelectorAll('.uivhound .uivhound-loader').length,
+        lanes: loaderHost.querySelectorAll('.uivhound .uivhound-loaderA').length,
+        balls: loaderHost.querySelectorAll('.uivhound [class^="uivhound-ball"]').length
       };
-      const loaderScale = loaderRoot ? getComputedStyle(loaderRoot).transform : '';
+      const loaderFontSize = loaderRoot ? getComputedStyle(loaderRoot).fontSize : '';
       const loaderAnimations = loaderRoot ? loaderRoot.getAnimations({ subtree: true }) : [];
       const loaderAnimationNames = loaderAnimations.map(animation => animation.animationName);
       const loaderAnimationPlayStates = loaderAnimations.map(animation => animation.playState);
-      const loaderLeg = loaderRoot ? loaderRoot.querySelector('.capyleg2') : null;
-      const loaderLegTransformBefore = loaderLeg ? getComputedStyle(loaderLeg).transform : '';
+      const loaderBall = loaderRoot ? loaderRoot.querySelector('.uivhound-ball0') : null;
+      const loaderBallTransformBefore = loaderBall ? getComputedStyle(loaderBall).transform : '';
       loaderAnimations.forEach(animation => {
         animation.currentTime = (Number(animation.currentTime) || 0) + 250;
       });
-      const loaderLegTransformAfter = loaderLeg ? getComputedStyle(loaderLeg).transform : '';
+      const loaderBallTransformAfter = loaderBall ? getComputedStyle(loaderBall).transform : '';
       loaderHost.remove();
       const headerRun = {
         status: 'working',
@@ -485,11 +484,11 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-composer-todo-e2e
         replyHeader,
         cacheHeader,
         loaderParts,
-        loaderScale,
+        loaderFontSize,
         loaderAnimationNames,
         loaderAnimationPlayStates,
-        loaderLegTransformBefore,
-        loaderLegTransformAfter,
+        loaderBallTransformBefore,
+        loaderBallTransformAfter,
         textContent: openCodeTimelineItem(runCtx, 'text:text-visible')?.content || '',
         partialContent: runCtx.partialContent
       };
@@ -508,25 +507,23 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-composer-todo-e2e
     assert.equal(openCodeWaitResult.petAfterTool, '起飞中', JSON.stringify(openCodeWaitResult));
     assert.equal(openCodeWaitResult.waitAfterText, true, JSON.stringify(openCodeWaitResult));
     assert.equal(openCodeWaitResult.waitAfterComplete, false, JSON.stringify(openCodeWaitResult));
-    assert.equal(openCodeWaitResult.waitingLabel, '回包中', JSON.stringify(openCodeWaitResult));
-    assert.match(openCodeWaitResult.waitingStatus, /^回包中\s+\d+/u, JSON.stringify(openCodeWaitResult));
+    assert.equal(openCodeWaitResult.waitingLabel, 'Yan Agent is starting up', JSON.stringify(openCodeWaitResult));
+    assert.equal(openCodeWaitResult.waitingStatus, 'Yan Agent is starting up', JSON.stringify(openCodeWaitResult));
     assert.equal(openCodeWaitResult.respondedLabel, '已处理', JSON.stringify(openCodeWaitResult));
     assert.equal(openCodeWaitResult.respondedElapsed, true, JSON.stringify(openCodeWaitResult));
     assert.match(openCodeWaitResult.terminalHeader, /^已处理/u, JSON.stringify(openCodeWaitResult));
-    assert.match(openCodeWaitResult.replyHeader, /^回包时间/u, JSON.stringify(openCodeWaitResult));
+    assert.equal(openCodeWaitResult.replyHeader, '', JSON.stringify(openCodeWaitResult));
     assert.match(openCodeWaitResult.cacheHeader, /^缓存命中/u, JSON.stringify(openCodeWaitResult));
     assert.deepEqual(openCodeWaitResult.loaderParts, {
       root: 1,
-      head: 1,
-      ears: 2,
-      eyes: 2,
-      backLegs: 2,
-      line: 1
+      bars: 10,
+      lanes: 9,
+      balls: 9
     }, JSON.stringify(openCodeWaitResult));
-    assert.match(openCodeWaitResult.loaderScale, /^matrix\(0\.75, 0, 0, 0\.75,/u, JSON.stringify(openCodeWaitResult));
+    assert.ok(Math.abs(parseFloat(openCodeWaitResult.loaderFontSize) - 6) < 0.001, JSON.stringify(openCodeWaitResult));
     assert.deepEqual(
       [...openCodeWaitResult.loaderAnimationNames].sort(),
-      ['movebody', 'movebody', 'movebody', 'moveleg', 'moveleg2', 'moveline'],
+      new Array(9).fill('uivhound-move'),
       JSON.stringify(openCodeWaitResult)
     );
     assert.equal(
@@ -535,8 +532,8 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-composer-todo-e2e
       JSON.stringify(openCodeWaitResult)
     );
     assert.notEqual(
-      openCodeWaitResult.loaderLegTransformBefore,
-      openCodeWaitResult.loaderLegTransformAfter,
+      openCodeWaitResult.loaderBallTransformBefore,
+      openCodeWaitResult.loaderBallTransformAfter,
       JSON.stringify(openCodeWaitResult)
     );
     assert.equal(openCodeWaitResult.textContent, 'Finished.', JSON.stringify(openCodeWaitResult));

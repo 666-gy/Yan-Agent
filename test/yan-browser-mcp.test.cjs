@@ -25,6 +25,7 @@ async function startBridge() {
       if (request.action === 'status') {
         socket.end(`${JSON.stringify({ ok: true, result: { ok: true, url: 'https://example.test/' } })}\n`);
       }
+      if (request.action === 'set_viewport') socket.end(`${JSON.stringify({ ok: true, result: { ok: true, viewport: request.params } })}\n`);
       if (request.action === 'apply_annotation') socket.end(`${JSON.stringify({ok:true,result:{ok:true,styles:request.params.styles,text:request.params.text}})}\n`);
       if (request.action === 'screenshot') {
         socket.end(`${JSON.stringify({ ok: true, result: {
@@ -73,6 +74,7 @@ function startMcp(port) {
   });
   const send = message => child.stdin.write(`${JSON.stringify(message)}\n`);
   const request = (id, method, params = {}) => new Promise((resolve, reject) => {
+    if (method === 'tools/call') params = { ...params, arguments: { task_id: 'run-test', ...params.arguments } };
     const timer = setTimeout(() => reject(new Error(`MCP timeout: ${method}`)), 5_000);
     pending.set(id, message => {
       clearTimeout(timer);
@@ -104,6 +106,9 @@ test('Yan browser MCP transports operation identity and cancellation', async t =
   assert.equal(initialized.result.serverInfo.name, 'Yan Built-in Browser');
   const listed = await mcp.request(2, 'tools/list');
   const snapshot = listed.result.tools.find(tool => tool.name === 'browser_snapshot');
+  assert.ok(listed.result.tools.find(tool => tool.name === 'browser_set_viewport'));
+  const viewport = await mcp.request(21, 'tools/call', { name: 'browser_set_viewport', arguments: { width: 390, height: 844 } });
+  assert.deepEqual(viewport.result.structuredContent.viewport, { width: 390, height: 844, yan_run_id: 'run-test' });
   assert.match(snapshot.description, /latest snapshot/i);
   assert.ok(listed.result.tools.find(tool=>tool.name==='browser_apply_annotation'));
   const annotation=await mcp.request(20,'tools/call',{name:'browser_apply_annotation',arguments:{text:'修改文字',styles:{fontSize:'23px'}}});
@@ -114,6 +119,14 @@ test('Yan browser MCP transports operation identity and cancellation', async t =
   assert.equal(status.result.structuredContent.url, 'https://example.test/');
   assert.match(bridge.requests[0].operationId, /^browser-/);
   assert.equal(bridge.requests[0].token, 'test-token');
+  assert.ok(listed.result.tools.every(tool => tool.inputSchema.required.includes('task_id')));
+  const missing = await mcp.request(30, 'tools/call', { name: 'browser_status', arguments: { task_id: '' } });
+  assert.equal(missing.result.isError, true);
+  const other = await mcp.request(31, 'tools/call', { name: 'browser_status', arguments: { task_id: 'run-other' } });
+  assert.equal(other.result.isError, false);
+  assert.equal(bridge.requests.at(-1).params.yan_run_id, 'run-other');
+  await mcp.request(32, 'tools/call', { name: 'browser_history', arguments: { task_id: 'history-run', action: 'status' } });
+  assert.equal(bridge.requests.at(-1).params.yan_run_id, 'history-run');
 
   const screenshotTool = listed.result.tools.find(tool => tool.name === 'browser_screenshot');
   assert.equal(screenshotTool.inputSchema.properties.question.type, 'string');

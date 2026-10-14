@@ -100,5 +100,34 @@ test('read-denied sessions receive no project text', async t => {
   const plugin = await factory({ directory: root, client: { session: { get: async () => ({ data: { id: 'session', permission: [{ permission: 'read', pattern: '*', action: 'deny' }] } }) } } });
   const output = { system: [] };
   await plugin['experimental.chat.system.transform']({ sessionID: 'denied' }, output);
-  assert.deepEqual(output.system, []);
+  // General runtime diagnostics guidance is allowed; workspace rules are not.
+  assert.doesNotMatch(output.system.join('\n'), /ROOT_RULE|YAN_OVERRIDE|SOURCE_RULE|YAN PROJECT RULES/);
+});
+
+test('cross-workspace targets pass the kernel hook instead of being blocked', async t => {
+  const root = repo(t);
+  const sibling = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-sibling-'));
+  t.after(() => fs.rmSync(sibling, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(sibling, 'AGENTS.md'), 'SIBLING_RULE');
+  const factory = (await import(pathToFileURL(path.resolve('lib/coding-environment-plugin.mjs')))).default;
+  const plugin = await factory({ directory: root, client: { session: { get: async () => ({ data: { id: 'session', permission: [{ permission: 'read', pattern: '*', action: 'allow' }] } }) } } });
+  const target = path.join(sibling, 'copy.js');
+  // Working in a sibling copy of the project is a normal workflow: read, write,
+  // edit and apply_patch must all reach the kernel instead of throwing here.
+  const calls = [
+    ['read', { filePath: target }],
+    ['write', { filePath: target }],
+    ['edit', { filePath: target }],
+    ['apply_patch', { patchText: `*** Begin Patch\n*** Add File: ${target}\n+const x = 1;\n*** End Patch` }]
+  ];
+  for (const [tool, args] of calls) {
+    await plugin['tool.execute.before']({ sessionID: 'parent', tool, callID: `${tool}-call` }, { args });
+    await plugin['tool.execute.after']({ sessionID: 'parent', tool, callID: `${tool}-call`, args }, { output: '', metadata: {} });
+  }
+  // A sibling workspace's own AGENTS.md must never leak into this workspace's rules.
+  const output = { system: [] };
+  await plugin['experimental.chat.system.transform']({ sessionID: 'parent' }, output);
+  assert.doesNotMatch(output.system.join('\n'), /SIBLING_RULE/);
+  // In-workspace rules scoping is unchanged.
+  assert.match(output.system.join('\n'), /ROOT_RULE/);
 });

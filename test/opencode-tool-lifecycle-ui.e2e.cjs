@@ -66,16 +66,13 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
       const session = state.currentSession;
       const thinkingProbe = buildThinkingElement('思考内容', false);
       document.body.appendChild(thinkingProbe);
-      const thinkingDot = thinkingProbe.querySelector('.thinking-orb-dot');
+      const thinkingIcon = thinkingProbe.querySelector('.think-icon.thinking-bot');
+      const thinkingSvg = thinkingIcon?.querySelector('svg');
       const thinking = {
         label: thinkingProbe.querySelector('.thinking-label')?.textContent,
-        englishLabel: window.YanI18n?.translate('深度求索中……', 'en'),
-        variant: thinkingProbe.querySelector('.thinking-orb-helix')?.dataset.variant,
-        dotCount: thinkingProbe.querySelectorAll('.thinking-orb-dot').length,
-        animationName: thinkingDot ? getComputedStyle(thinkingDot).animationName : '',
-        animationDuration: thinkingDot ? getComputedStyle(thinkingDot).animationDuration : '',
-        hasKeyframes: ['--g0x', '--g0y', '--g0o', '--g7x', '--g7y', '--g7o']
-          .every(property => !!thinkingDot?.style.getPropertyValue(property))
+        iconColor: thinkingIcon ? getComputedStyle(thinkingIcon).color : '',
+        iconPaths: thinkingSvg ? [...thinkingSvg.querySelectorAll('path')].map(path => path.getAttribute('d')) : [],
+        iconViewBox: thinkingSvg?.getAttribute('viewBox') || ''
       };
       updateAgentTimelinePartElement(thinkingProbe, {
         type: 'thinking',
@@ -861,6 +858,14 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
         mixedCompleted,
         terminalStates,
         terminalLabelColors,
+        textDimColor: (() => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--text-dim)';
+          document.body.appendChild(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        })(),
         command,
         generic,
         runningGeneric,
@@ -896,14 +901,14 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
       legacyBadgeCount: 0
     });
     assert.deepEqual(states.thinking, {
-      label: '深度求索中……',
-      completedLabel: '思考',
-      englishLabel: 'Deep Diving……',
-      variant: 'G2',
-      dotCount: 40,
-      animationName: 'orb-globe-spin',
-      animationDuration: '3.6s',
-      hasKeyframes: true
+      label: '思考中',
+      completedLabel: '思考已结束',
+      iconColor: 'rgb(43, 176, 243)',
+      iconPaths: [
+        'M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z',
+        'M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574'
+      ],
+      iconViewBox: '0 0 24 24'
     });
     assert.notEqual(states.runningColors.groupLabel, states.groupedState.skillColor);
     assert.notEqual(states.runningColors.groupIcon, states.groupedState.skillColor);
@@ -1050,7 +1055,7 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
       assert.equal(states.terminalLabelColors[key].stepClass, 'tc-name');
       assert.equal(states.terminalLabelColors[key].group, states.groupedState.skillColor);
       assert.notEqual(states.terminalLabelColors[key].step, states.groupedState.skillColor);
-      assert.equal(states.terminalLabelColors[key].status, 'rgb(168, 168, 168)');
+      assert.equal(states.terminalLabelColors[key].status, states.textDimColor, 'terminal status label uses the --text-dim token');
     }
     assert.deepEqual(states.command, {
       panelCount: 1,

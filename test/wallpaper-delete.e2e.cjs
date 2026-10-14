@@ -29,14 +29,14 @@ async function launch() {
     let page = await application.firstWindow();
     await page.waitForFunction(() => typeof applyWallpaperConfig === 'function');
     await page.evaluate(async () => {
-      const config = await yan.setConfig({ wallpaper: { id: 'sword-and-sakura', removed: [], custom: [] } });
+      const config = await yan.setConfig({ wallpaper: { id: 'night-sky', removed: [], custom: [] } });
       applyWallpaperConfig(config);
     });
     await page.locator('#settingsBtn').click();
-    await page.locator('[data-tab="general"]').click();
+    await page.locator('[data-tab="wallpaper"]').click();
     await page.locator('#wallpaperMarketGrid').waitFor();
 
-    const deleteButton = page.locator('[data-wallpaper-delete="sword-and-sakura"]');
+    const deleteButton = page.locator('[data-wallpaper-delete="night-sky"]');
     assert.equal(await deleteButton.count(), 1);
     await deleteButton.click();
     await page.locator('#genericConfirmModal:not(.hidden)').waitFor();
@@ -47,20 +47,26 @@ async function launch() {
     await deleteButton.click();
     await page.locator('#genericConfirmModal:not(.hidden)').waitFor();
     await page.locator('#genericConfirmAccept').click();
-    await page.waitForFunction(() => document.querySelector('[data-wallpaper-id="sword-and-sakura"]')?.hidden === true);
+    await page.waitForFunction(() => {
+      const card = document.querySelector('[data-wallpaper-id="night-sky"]');
+      return card?.hidden === true && getComputedStyle(card).display === 'none';
+    });
     const afterDelete = await page.evaluate(() => yan.getConfig());
     assert.equal(afterDelete.wallpaper.id, '');
-    assert.ok(afterDelete.wallpaper.removed.includes('sword-and-sakura'));
+    assert.ok(afterDelete.wallpaper.removed.includes('night-sky'));
 
     await application.close();
     application = await launch();
     page = await application.firstWindow();
     await page.waitForFunction(() => typeof applyWallpaperConfig === 'function');
     await page.locator('#settingsBtn').click();
-    await page.locator('[data-tab="general"]').click();
+    await page.locator('[data-tab="wallpaper"]').click();
     await page.locator('#wallpaperMarketGrid').waitFor();
-    assert.equal(await page.locator('[data-wallpaper-id="sword-and-sakura"]').evaluate(element => element.hidden), true);
-    console.log(JSON.stringify({ ok: true, persistedRemoved: 'sword-and-sakura' }));
+    assert.deepEqual(
+      await page.locator('[data-wallpaper-id="night-sky"]').evaluate(element => ({ hidden: element.hidden, display: getComputedStyle(element).display })),
+      { hidden: true, display: 'none' }
+    );
+    console.log(JSON.stringify({ ok: true, persistedRemoved: 'night-sky' }));
   } finally {
     await application?.close().catch(() => {});
     fs.rmSync(userDataDir, { recursive: true, force: true });

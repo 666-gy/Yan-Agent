@@ -1,0 +1,11 @@
+{
+  "id": "domml-creator",
+  "name": "Domml-Creator",
+  "desc": "创建桌面伙伴、功能组件及实时余额/状态显示；支持 blank，无需强制图片资产",
+  "aliases": ["Domml-Creator", "创建宠物", "制作桌宠"],
+  "tags": ["agent-rules"],
+  "triggers": ["Domml-Creator", "创建宠物", "制作桌宠"],
+  "source": "bundled",
+  "version": 3,
+  "promptFile": "../domml-creator/SKILL.md"
+}

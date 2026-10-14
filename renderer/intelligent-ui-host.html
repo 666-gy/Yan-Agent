@@ -1,0 +1,151 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: https://tiles.openfreemap.org https://upload.wikimedia.org https://images.unsplash.com https://images.pexels.com; font-src data:; frame-src about:; worker-src blob:; connect-src https://tiles.openfreemap.org; form-action 'none'; base-uri 'none';">
+<style>html,body{margin:0;background:transparent;overflow:hidden}iframe{display:block;width:100%;height:320px;border:0}</style>
+<template id="ui-defaults">
+/* Foundation only: unlayered generated CSS always wins, regardless of specificity. */
+@layer yan-foundation {
+  :root {
+    --ui-surface:light-dark(#f4f4f5,#292929);
+    --ui-series-1:var(--ui-accent);--ui-series-2:light-dark(#a05b00,#eab85b);
+    --ui-series-3:light-dark(#ae4286,#ee8ec9);--ui-series-4:light-dark(#167d74,#69c7bc);
+    --ui-series-5:light-dark(#7652b1,#b59ae1);--ui-series-6:light-dark(#b54a3b,#eb9a8e);
+    --ui-font:system-ui,"Segoe UI",sans-serif;--ui-space:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:4px;background:transparent;color:var(--ui-text);font:13px/1.5 var(--ui-font);overflow-wrap:anywhere}
+  h1,h2,h3{font-size:15px;font-weight:500;line-height:1.4;margin:10px 0 6px}
+  p{margin:6px 0}body>:first-child{margin-top:0}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{border:1px solid var(--ui-border);border-radius:999px;padding:5px 12px;background:transparent;cursor:pointer;min-height:32px}
+  button:hover,button[aria-pressed=true],button[aria-selected=true]{background:var(--ui-surface)}
+  button[aria-pressed=true],button[aria-selected=true]{border-color:var(--ui-accent)}
+  .ui-icon-button{width:32px;height:32px;padding:0;border-radius:50%;display:inline-grid;place-items:center}
+  button:disabled{opacity:.5;cursor:default}
+  input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]),select,textarea{min-width:0;max-width:100%;border:1px solid var(--ui-border);border-radius:8px;padding:5px 8px;background:transparent}
+  input[type=color]{width:32px;height:32px;padding:0;border:1px solid var(--ui-border);border-radius:50%;overflow:hidden;background:transparent;cursor:pointer}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
+  select option{background:var(--ui-bg);color:var(--ui-text)}textarea{width:100%;resize:vertical}
+  input[type=range]{width:100%;min-width:0;margin:6px 0;accent-color:var(--ui-text)}
+  input[type=checkbox],input[type=radio]{accent-color:var(--ui-text)}
+  :focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px}
+  .ui-controls{display:flex;flex-wrap:wrap;gap:8px 12px;margin:0 0 12px}
+  .ui-field{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:4px 8px;flex:1 1 160px;min-width:0}
+  .ui-field>input,.ui-field>select,.ui-field>textarea{grid-column:1/-1;width:100%}
+  .ui-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+  .ui-app{width:100%;max-width:100%;margin-inline:auto;min-width:0}
+  .ui-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;margin:8px 0}
+  .ui-muted{color:var(--ui-muted)}.ui-number,output{font-variant-numeric:tabular-nums}.ui-number{text-align:right}
+  /* Compatibility names remain layout-only; no automatically boxed metrics. */
+  .ui-grid{display:flex;flex-wrap:wrap;gap:16px 32px;margin:12px 0}.ui-grid>*{flex:1 1 140px;min-width:0}
+  .ui-stat{background:transparent;border:0;border-radius:0;padding:0}.ui-value{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+  .ui-result{margin:12px 0;font-weight:500}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 0;text-align:left;border-bottom:1px solid var(--ui-border);overflow-wrap:anywhere}th{font-weight:500}
+  tr[data-best=true]{font-weight:600}details{margin-top:16px}summary{cursor:pointer;color:var(--ui-muted)}details[open]>summary{margin-bottom:8px}
+  svg{max-width:100%;height:auto}hr{border:0;border-top:1px solid var(--ui-border);margin:16px 0}
+  @media(max-width:420px){.ui-controls{gap:12px}.ui-field{flex-basis:100%}th,td{padding:6px 0}}
+  @media(pointer:coarse){button,input,select,summary{min-height:44px}input,select,textarea{font-size:16px}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+}
+</template>
+</head><body><script>
+'use strict';
+let child;
+function installPanelBridge(initialState, capabilities) {
+  const MAX_BYTES = 16 * 1024;
+  let current = initialState, nextId = 0;
+  const pending = new Map();
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const api = Object.freeze({
+    capabilities: Object.freeze(capabilities),
+    createMap: (element, options) => {
+      if (!capabilities.map || !window.YanMapRuntime) throw new Error('Map capability unavailable for this panel.');
+      return window.YanMapRuntime.createMap(element, options);
+    },
+    getState: () => clone(current),
+    setState: async value => {
+      const json = JSON.stringify(value, (_key, field) => {
+        if (['undefined', 'function', 'symbol', 'bigint'].includes(typeof field)
+          || (typeof field === 'number' && !Number.isFinite(field))) throw new TypeError('State must contain JSON values only.');
+        return field;
+      });
+      if (typeof json !== 'string') throw new TypeError('State must contain JSON values only.');
+      if (new TextEncoder().encode(json).length > MAX_BYTES) throw new RangeError('State exceeds 16 KiB.');
+      current = JSON.parse(json);
+      const requestId = ++nextId;
+      return new Promise(resolve => {
+        const timer = setTimeout(() => { pending.delete(requestId); resolve(false); }, 3000);
+        pending.set(requestId, { resolve, timer });
+        parent.postMessage({ type: 'state', requestId, json }, '*');
+      });
+    }
+  });
+  Object.defineProperty(window, 'yanUi', { value: api, writable: false, configurable: false });
+  addEventListener('message', event => {
+    if (event.source !== parent || event.data?.type !== 'state-result') return;
+    const request = pending.get(event.data.requestId);
+    if (!request) return;
+    clearTimeout(request.timer);
+    pending.delete(event.data.requestId);
+    request.resolve(event.data.ok === true);
+  });
+}
+window.addEventListener('message', event => {
+  if (event.source === parent && event.data?.type === 'yan-ui-render') {
+    let html = event.data.html;
+    const openui = event.data.format === 'openui';
+    if (openui) {
+      if (typeof event.data.code !== 'string' || event.data.code.length > 65536 || typeof event.data.openui !== 'string') return;
+      const program = JSON.stringify(event.data.code).replace(/</g, '\\u003c');
+      const source = event.data.openui.replace(/<\/script/gi, '<\\/script');
+      html = '<body><scr' + 'ipt>' + source + '\nwindow.YanOpenUi.mount(' + program + ');</scr' + 'ipt>';
+    } else if (typeof html !== 'string' || html.length > 163840) return;
+    child?.remove();
+    child = document.createElement('iframe');
+    child.title = '交互内容';
+    child.setAttribute('sandbox', 'allow-scripts');
+    const dark = event.data.dark === true;
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    child.style.colorScheme = dark ? 'dark' : 'light';
+    const css = ':root{color-scheme:' + (dark ? 'dark' : 'light') + ';--ui-bg:' + (dark ? '#202020' : '#ffffff') + ';--ui-text:' + (dark ? '#ededed' : '#202020') + ';--ui-muted:' + (dark ? '#aaa' : '#666') + ';--ui-border:' + (dark ? '#444' : '#ddd') + ';--ui-accent:' + (dark ? '#79adf4' : '#2465b5') + '}';
+    // Serialize data as a JS literal without allowing a saved value to end the script tag.
+    const snapshot = JSON.stringify(event.data.state ?? null).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    const allowedHosts = new Set(['upload.wikimedia.org', 'images.unsplash.com', 'images.pexels.com']);
+    const sources = [];
+    for (const value of (Array.isArray(event.data.resources?.images) ? event.data.resources.images.slice(0, 12) : [])) {
+      try {
+        const url = new URL(value);
+        if (url.protocol === 'https:' && allowedHosts.has(url.hostname) && !url.username && !url.password && !url.port) {
+          // CSP matches paths, not query strings; providers are also bounded by the outer policy.
+          sources.push((url.origin + url.pathname).replace(/[;'"<>\s]/g, char => encodeURIComponent(char).replace(/'/g, '%27')));
+        }
+      } catch {}
+    }
+    const map = event.data.resources?.map === true && typeof event.data.runtime?.script === 'string';
+    if (map) sources.push('blob:', 'https://tiles.openfreemap.org/');
+    const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: " + sources.join(' ') + "; font-src data:; connect-src " + (map ? 'https://tiles.openfreemap.org' : "'none'") + "; worker-src " + (map ? 'blob:' : "'none'") + "; frame-src 'none'; form-action 'none'; base-uri 'none';";
+    const meta = '<meta http-equiv="Content-Security-Policy" content="' + policy.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">';
+    const bridge = '(' + installPanelBridge.toString() + ')(' + snapshot + ',' + JSON.stringify({ map }) + ');' + "addEventListener('error',()=>parent.postMessage({type:'error'},'*'));addEventListener('unhandledrejection',()=>parent.postMessage({type:'error'},'*'));addEventListener('DOMContentLoaded',()=>{let pending=false;const report=()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;parent.postMessage({type:'size',height:Math.max(document.body.scrollHeight,document.body.offsetHeight)},'*')})};new ResizeObserver(report).observe(document.body);report()});";
+    const runtimeScript = map ? event.data.runtime.script.replace(/<\/script/gi, '<\\/script') : '';
+    const runtimeCss = map ? event.data.runtime.css : '';
+    child.srcdoc = '<!doctype html><meta charset="utf-8">' + meta + '<style>' + runtimeCss + css + document.getElementById('ui-defaults').content.textContent + '</style><scr' + 'ipt>' + runtimeScript + '\n' + bridge + '</scr' + 'ipt>' + html;
+    document.body.append(child);
+  } else if (event.source === parent && event.data?.type === 'yan-ui-state-result') {
+    child?.contentWindow?.postMessage({ type: 'state-result', requestId: event.data.requestId, ok: event.data.ok === true }, '*');
+  } else if (child && event.source === child.contentWindow) {
+    if (event.data?.type === 'size' && Number.isFinite(event.data.height)) {
+      const height = Math.max(1, Math.min(20000, Math.ceil(event.data.height) + 2));
+      child.style.height = height + 'px';
+      parent.postMessage({type:'yan-ui-size',height}, '*');
+    } else if (event.data?.type === 'error') parent.postMessage({type:'yan-ui-error'}, '*');
+    else if (event.data?.type === 'summary' && typeof event.data.text === 'string' && event.data.text.length <= 8000) {
+      parent.postMessage({type:'yan-ui-summary',text:event.data.text}, '*');
+    }
+    else if (event.data?.type === 'state' && Number.isSafeInteger(event.data.requestId)
+      && typeof event.data.json === 'string' && event.data.json.length <= 16384) {
+      parent.postMessage({ type: 'yan-ui-state', requestId: event.data.requestId, json: event.data.json }, '*');
+    }
+  }
+});
+</script></body></html>
