@@ -25,9 +25,9 @@ function makeRepo(t) {
   return root;
 }
 
-function startServer(t, contextDir) {
+function startServer(t, contextDir, configPath = '') {
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'lib', 'yan-workspace-mcp.js')], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', YAN_WORKSPACE_CONTEXT_DIR: contextDir },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', YAN_WORKSPACE_CONTEXT_DIR: contextDir, YAN_GIT_CONFIG_PATH: configPath },
     stdio: ['pipe', 'pipe', 'pipe']
   });
   t.after(() => child.kill());
@@ -138,4 +138,29 @@ test('yan-workspace-mcp refuses calls without an authorized task context', async
   const result = await callTool(request, 'worktree_list', { task_id: 'ghost-run' });
   assert.equal(result.isError, true);
   assert.match(result.structured.error, /context/i);
+});
+
+
+test('Agent MCP uses saved managed-worktree root and shares the settings registry', async t => {
+  const repo = makeRepo(t);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-managed-mcp-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 3 }));
+  const contextDir = path.join(dataDir, 'harness', 'runtime'); fs.mkdirSync(contextDir, { recursive: true });
+  const configPath = path.join(dataDir, 'config.json');
+  const configuredRoot = path.join(dataDir, 'custom-root');
+  const cfg = { git: { branchPrefix: 'agent/' }, worktrees: { root: configuredRoot, autoCleanup: false } };
+  fs.writeFileSync(configPath, JSON.stringify(cfg));
+  const taskId = 'managed-test';
+  const key = crypto.createHash('sha256').update(taskId).digest('hex');
+  fs.writeFileSync(path.join(contextDir, `${key}.json`), JSON.stringify({ runId: taskId, workspace: repo, allowFileWrite: true }));
+  const { request } = startServer(t, contextDir, configPath);
+  const created = await callTool(request, 'worktree_create', { task_id: taskId, name: 'configured' });
+  assert.equal(created.isError, false, created.structured?.error);
+  assert.ok(created.structured.path.startsWith(configuredRoot));
+  assert.equal(created.structured.branch, 'agent/configured');
+  const manager = require('../lib/managed-worktrees').createManagedWorktrees({ dataDir, loadConfig: () => cfg });
+  const listed = await manager.list();
+  assert.equal(listed.worktrees.length, 1);
+  assert.equal(listed.worktrees[0].taskId, 'configured');
+  assert.match(listed.worktrees[0].reason, /运行/);
 });

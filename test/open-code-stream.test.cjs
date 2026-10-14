@@ -193,6 +193,27 @@ test('nonfinite usage and a zero-length timing interval cannot inflate input spe
   assert.equal(summary.effectiveInputTokensPerSecond, 240000);
 });
 
+test('binds an early step-start to the assistant message without a phantom request', () => {
+  const performance = createRunPerformance(1000);
+  beginPerformanceRequest(performance, 1050);
+  observePerformanceEvent(performance, {
+    type: 'message.part.updated',
+    data: { part: { messageID: 'early-step', type: 'step-start' } }
+  }, 1100);
+  observePerformanceEvent(performance, {
+    type: 'message.updated',
+    data: { info: { id: 'early-step', role: 'assistant', time: { created: 1080 } } }
+  }, 1200);
+  observePerformanceEvent(performance, {
+    type: 'message.part.delta', data: { messageID: 'early-step', field: 'text', delta: 'hello' }
+  }, 1500);
+  finishPerformanceRequest(performance, {input: 100,output: 1}, 1600, 'early-step');
+  const summary = summarizeRunPerformance(performance, {}, 1700);
+  assert.equal(summary.requestCount, 1);
+  assert.equal(summary.unattributedRequestCount, 0);
+  assert.equal(summary.firstTtftMs, 420);
+});
+
 test('measures every internal assistant step instead of inflating one outer request', () => {
   const performance = createRunPerformance(1_000);
   beginPerformanceRequest(performance, 1_050);

@@ -3,12 +3,50 @@
 !include "nsDialogs.nsh"
 !include "WinMessages.nsh"
 
+; Keep APP_ID / the uninstall GUID stable for upgrades, but migrate the Shell
+; identity away from the old ID that development electron.exe also registered.
+; Must match DESKTOP_APP_ID in lib/main/windows/app-identity.js.
+!define YAN_DESKTOP_APP_ID "com.yan.agent.desktop"
+
 ; Apply to both the installer and generated uninstaller, including nsDialogs.
 !macro customHeader
   SetFont "Microsoft YaHei UI" 9
+  !ifndef BUILD_UNINSTALLER
+    !insertmacro YanSetupFunctions
+  !endif
 !macroend
 
 !define YAN_PATH_SCRIPT "JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnAAoAJABzAGMAbwBwAGUAPQAkAGUAbgB2ADoAWQBBAE4AXwBBAEcARQBOAFQAXwBQAEEAVABIAF8AUwBDAE8AUABFAAoAJABkAGkAcgA9AFsASQBPAC4AUABhAHQAaABdADoAOgBHAGUAdABGAHUAbABsAFAAYQB0AGgAKAAkAGUAbgB2ADoAWQBBAE4AXwBBAEcARQBOAFQAXwBQAEEAVABIAF8ARABJAFIAKQAuAFQAcgBpAG0ARQBuAGQAKAAnAFwAJwApAAoAJABhAGMAdABpAG8AbgA9ACQAZQBuAHYAOgBZAEEATgBfAEEARwBFAE4AVABfAFAAQQBUAEgAXwBBAEMAVABJAE8ATgAKACQAYwB1AHIAcgBlAG4AdAA9AFsARQBuAHYAaQByAG8AbgBtAGUAbgB0AF0AOgA6AEcAZQB0AEUAbgB2AGkAcgBvAG4AbQBlAG4AdABWAGEAcgBpAGEAYgBsAGUAKAAnAFAAYQB0AGgAJwAsACQAcwBjAG8AcABlACkACgAkAGkAdABlAG0AcwA9AEAAKAAkAGMAdQByAHIAZQBuAHQAIAAtAHMAcABsAGkAdAAgACcAOwAnACAAfAAgAFcAaABlAHIAZQAtAE8AYgBqAGUAYwB0ACAAewAgAC0AbgBvAHQAIABbAHMAdAByAGkAbgBnAF0AOgA6AEkAcwBOAHUAbABsAE8AcgBXAGgAaQB0AGUAUwBwAGEAYwBlACgAJABfACkAIAB9ACkACgAkAG0AYQB0AGMAaABlAHMAPQBAACgAJABpAHQAZQBtAHMAIAB8ACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAJABfAC4AVAByAGkAbQAoACkALgBUAHIAaQBtACgAJwAiACcAKQAuAFQAcgBpAG0ARQBuAGQAKAAnAFwAJwApACAALQBpAGUAcQAgACQAZABpAHIAIAB9ACkACgBpAGYAKAAkAGEAYwB0AGkAbwBuACAALQBlAHEAIAAnAGEAZABkACcAIAAtAGEAbgBkACAAJABtAGEAdABjAGgAZQBzAC4AQwBvAHUAbgB0ACAALQBlAHEAIAAwACkAewAKACAAIAAkAG4AZQB4AHQAPQBpAGYAKABbAHMAdAByAGkAbgBnAF0AOgA6AEkAcwBOAHUAbABsAE8AcgBXAGgAaQB0AGUAUwBwAGEAYwBlACgAJABjAHUAcgByAGUAbgB0ACkAKQB7ACQAZABpAHIAfQBlAGwAcwBlAHsAJABjAHUAcgByAGUAbgB0AC4AVAByAGkAbQBFAG4AZAAoACcAOwAnACkAKwAnADsAJwArACQAZABpAHIAfQAKACAAIABbAEUAbgB2AGkAcgBvAG4AbQBlAG4AdABdADoAOgBTAGUAdABFAG4AdgBpAHIAbwBuAG0AZQBuAHQAVgBhAHIAaQBhAGIAbABlACgAJwBQAGEAdABoACcALAAkAG4AZQB4AHQALAAkAHMAYwBvAHAAZQApAAoAfQBlAGwAcwBlAGkAZgAoACQAYQBjAHQAaQBvAG4AIAAtAGUAcQAgACcAcgBlAG0AbwB2AGUAJwAgAC0AYQBuAGQAIAAkAG0AYQB0AGMAaABlAHMALgBDAG8AdQBuAHQAIAAtAGcAdAAgADAAKQB7AAoAIAAgACQAbgBlAHgAdAA9AEAAKAAkAGkAdABlAG0AcwAgAHwAIABXAGgAZQByAGUALQBPAGIAagBlAGMAdAAgAHsAIAAkAF8ALgBUAHIAaQBtACgAKQAuAFQAcgBpAG0AKAAnACIAJwApAC4AVAByAGkAbQBFAG4AZAAoACcAXAAnACkAIAAtAGkAbgBlACAAJABkAGkAcgAgAH0AKQAgAC0AagBvAGkAbgAgACcAOwAnAAoAIAAgAFsARQBuAHYAaQByAG8AbgBtAGUAbgB0AF0AOgA6AFMAZQB0AEUAbgB2AGkAcgBvAG4AbQBlAG4AdABWAGEAcgBpAGEAYgBsAGUAKAAnAFAAYQB0AGgAJwAsACQAbgBlAHgAdAAsACQAcwBjAG8AcABlACkACgB9AA=="
+
+!define YAN_ICON_SCRIPT "JABsAGkAbgBrAD0AJABlAG4AdgA6AFkAQQBOAF8AUwBIAE8AUgBUAEMAVQBUAF8ATABJAE4ASwAKACQAaQBjAG8AbgA9ACQAZQBuAHYAOgBZAEEATgBfAFMASABPAFIAVABDAFUAVABfAEkAQwBPAE4ACgAkAGkAYwBvAG4AUABhAHQAaAA9ACQAaQBjAG8AbgAuAFMAcABsAGkAdAAoACIALAAiACkAWwAwAF0ACgBpAGYAIAAoACQAbABpAG4AawAgAC0AYQBuAGQAIAAkAGkAYwBvAG4AIAAtAGEAbgBkACAAKABUAGUAcwB0AC0AUABhAHQAaAAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJABsAGkAbgBrACkAIAAtAGEAbgBkACAAKABUAGUAcwB0AC0AUABhAHQAaAAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJABpAGMAbwBuAFAAYQB0AGgAKQApACAAewAKACAAIAAkAHMAaABlAGwAbAA9AE4AZQB3AC0ATwBiAGoAZQBjAHQAIAAtAEMAbwBtAE8AYgBqAGUAYwB0ACAAVwBTAGMAcgBpAHAAdAAuAFMAaABlAGwAbAAKACAAIAAkAHMAaABvAHIAdABjAHUAdAA9ACQAcwBoAGUAbABsAC4AQwByAGUAYQB0AGUAUwBoAG8AcgB0AGMAdQB0ACgAJABsAGkAbgBrACkACgAgACAAJABzAGgAbwByAHQAYwB1AHQALgBJAGMAbwBuAEwAbwBjAGEAdABpAG8AbgA9ACQAaQBjAG8AbgAKACAAIAAkAHMAaABvAHIAdABjAHUAdAAuAFMAYQB2AGUAKAApAAoAfQAKAA=="
+
+; Retarget a freshly created shortcut to the shared two-icon resource file and
+; select the Windows-theme-matching icon as the default; both stay selectable.
+!macro YanSetShortcutIcon LINK
+  ${If} ${FileExists} "${LINK}"
+    ; AppsUseLightTheme: 1 = light Windows theme, 0 = dark. In logo-icons.dll
+    ; index 0 is the light-colored logo (for dark systems), index 1 the dark one.
+    StrCpy $0 1
+    ClearErrors
+    ReadRegDWORD $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" "AppsUseLightTheme"
+    ${If} ${Errors}
+      StrCpy $0 1
+    ${EndIf}
+    ${If} $0 == 0
+      StrCpy $1 "$INSTDIR\resources\app.asar.unpacked\renderer\assets\logo-icons.dll,0"
+    ${Else}
+      StrCpy $1 "$INSTDIR\resources\app.asar.unpacked\renderer\assets\logo-icons.dll,1"
+    ${EndIf}
+    ${If} ${FileExists} "$INSTDIR\resources\app.asar.unpacked\renderer\assets\logo-icons.dll"
+      System::Call 'Kernel32::SetEnvironmentVariable(t "YAN_SHORTCUT_LINK", t "${LINK}") i.r0'
+      System::Call 'Kernel32::SetEnvironmentVariable(t "YAN_SHORTCUT_ICON", t "$1") i.r0'
+      nsExec::ExecToLog 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${YAN_ICON_SCRIPT}'
+      Pop $2
+      System::Call 'Kernel32::SetEnvironmentVariable(t "YAN_SHORTCUT_LINK", p 0) i.r0'
+      System::Call 'Kernel32::SetEnvironmentVariable(t "YAN_SHORTCUT_ICON", p 0) i.r0'
+    ${EndIf}
+  ${EndIf}
+!macroend
 
 !macro RunYanPathUpdateForScope ACTION SCOPE
   System::Call 'Kernel32::SetEnvironmentVariable(t "YAN_AGENT_PATH_SCOPE", t "${SCOPE}") i.r0'
@@ -32,6 +70,8 @@
   Var YanAddToPathCheckbox
   Var YanAddToPathRequested
 
+  !include "${BUILD_RESOURCES_DIR}\setup-ui\setup-ui.nsh"
+
   !macro customInit
     StrCpy $YanAddToPathRequested "1"
     ClearErrors
@@ -39,6 +79,7 @@
     ${IfNot} ${Errors}
       StrCpy $YanAddToPathRequested $R8
     ${EndIf}
+    Call YanSetupStart
   !macroend
 
   !macro customPageAfterChangeDir
@@ -76,6 +117,20 @@
   FunctionEnd
 
   !macro customInstall
+    ; Also update shortcuts retained by an in-place upgrade.
+    ${If} ${FileExists} "$newStartMenuLink"
+      WinShell::SetLnkAUMI "$newStartMenuLink" "${YAN_DESKTOP_APP_ID}"
+      !insertmacro YanSetShortcutIcon "$newStartMenuLink"
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$newStartMenuLink", p 0)'
+    ${EndIf}
+    ${If} ${FileExists} "$newDesktopLink"
+      WinShell::SetLnkAUMI "$newDesktopLink" "${YAN_DESKTOP_APP_ID}"
+      !insertmacro YanSetShortcutIcon "$newDesktopLink"
+      System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$newDesktopLink", p 0)'
+    ${EndIf}
+    ${If} $YanUiFile != ""
+      WriteINIStr "$YanUiFile" "Setup" "Phase" "configuring"
+    ${EndIf}
     WriteRegDWORD SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "AddToPath" $YanAddToPathRequested
     ${If} $YanAddToPathRequested == "1"
       !insertmacro RunYanPathUpdate "add"

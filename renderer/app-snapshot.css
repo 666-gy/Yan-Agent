@@ -1,0 +1,31 @@
+/* Hallmark · existing desktop tokens · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+.composer-snapshots { display: flex; flex: none; align-items: flex-start; gap: 10px; overflow-x: auto; max-width: 100%; padding: 4px 0 2px; }
+.composer-snapshot { --snapshot-surface: var(--bg-elev); --snapshot-remove-bg: var(--text); --snapshot-remove-fg: var(--bg); position: relative; flex: 0 0 232px; width: 232px; max-width: 100%; border-radius: 12px; background: transparent; border: 1px solid transparent; overflow: hidden; }
+.composer-snapshot-open { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.composer-snapshot-stage { display: block; position: relative; height: 126px; margin: 18px 20px 0; border-radius: 3px; }
+.composer-snapshot-image { display: block; width: 100%; height: 100%; object-fit: contain; object-position: top; filter: drop-shadow(0 1px 3px var(--border-strong)); }
+.composer-snapshot-stage::after { content: ''; position: absolute; inset: 0 -3px -1px; background: linear-gradient(to bottom, transparent 32%, var(--snapshot-surface) 100%); pointer-events: none; }
+.composer-snapshot-identity { display: flex; position: relative; flex-direction: column; align-items: center; gap: 9px; margin-top: -36px; padding: 0 14px 10px; }
+.composer-snapshot-icon { width: 26px; height: 26px; object-fit: contain; border-radius: 50%; }
+.composer-snapshot-title { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--text-base); font-weight: 600; }
+.composer-snapshot-remove { position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--snapshot-remove-bg); color: var(--snapshot-remove-fg); cursor: pointer; opacity: 0; pointer-events: none; transition: opacity 120ms ease; }
+.composer-snapshot:hover, .composer-snapshot:focus-within { --snapshot-surface: var(--bg-soft); background: var(--snapshot-surface); border-color: var(--border); }
+.composer-snapshot:hover .composer-snapshot-remove, .composer-snapshot:focus-within .composer-snapshot-remove { opacity: 1; pointer-events: auto; }
+.composer-snapshot-remove:hover { filter: brightness(.85); }
+.composer-snapshot-open:active, .composer-snapshot-remove:active { opacity: .8; }
+.composer-snapshot-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.composer-snapshot-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.snapshot-settings-intro { display: flex; align-items: center; gap: 20px; padding: 24px 28px; border: 1px solid var(--border-strong); border-radius: 24px; margin-bottom: 22px; }
+.snapshot-settings-intro > svg { flex: none; color: var(--accent); }
+.snapshot-settings-intro h2 { font-size: var(--text-md); font-weight: 600; margin: 0 0 3px; }
+.snapshot-settings-intro p, .snapshot-setting-row p { font-size: var(--text-base); line-height: 1.5; color: var(--text-dim); margin: 0; }
+.snapshot-settings-group { width: 100%; border: 1px solid var(--border); border-radius: 24px; padding: 0 20px; }
+.snapshot-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 0; min-height: 70px; }
+.snapshot-setting-row + .snapshot-setting-row { border-top: 1px solid var(--border); }
+.snapshot-setting-row label { display: block; font-size: var(--text-base); font-weight: 600; margin-bottom: 3px; }
+.snapshot-setting-row .appearance-picker-trigger { flex: none; }
+@media (max-width: 600px) { .snapshot-settings-intro { padding: 18px; gap: 12px; } .snapshot-setting-row { flex-wrap: wrap; gap: 12px; } .snapshot-settings-group { padding: 0 16px; } }
+
+#attachmentMenu #appSnapshotAction.snapshot-unavailable { background: var(--bg-soft); color: var(--text-faint); opacity: .6; cursor: not-allowed; }
+.snapshot-action-icon { width: 18px; height: 18px; object-fit: contain; flex: none; }
+#snapshotShortcut-trigger { min-width: 160px; }

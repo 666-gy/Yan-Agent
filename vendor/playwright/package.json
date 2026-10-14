@@ -1,0 +1,9 @@
+{
+  "name": "yan-playwright-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned, offline Playwright MCP runtime bundled with Yan Agent",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83"
+  }
+}

@@ -30,8 +30,13 @@ async function waitForRendererReady(page) {
   ));
 }
 
+// The visible brand text moved to the title bar and the sidebar keeps only the
+// version line; both must follow the reading-font setting.
 const readBrandFont = page => page.evaluate(() => (
-  getComputedStyle(document.querySelector('.sidebar-brand-name')).fontFamily
+  getComputedStyle(document.querySelector('.sidebar-brand-version')).fontFamily
+));
+const readTitlebarFont = page => page.evaluate(() => (
+  getComputedStyle(document.querySelector('.titlebar-brand-name')).fontFamily
 ));
 
 (async () => {
@@ -43,6 +48,8 @@ const readBrandFont = page => page.evaluate(() => (
     assert.equal(await page.evaluate(() => document.documentElement.dataset.readingFont), 'serif');
     const serifStack = await readBrandFont(page);
     assert.match(serifStack, /Yan Reading Serif/);
+    const serifTitlebar = await readTitlebarFont(page);
+    assert.match(serifTitlebar, /Yan Reading Serif/, `title bar wordmark must follow the reading font, saw ${serifTitlebar}`);
     const fonts = await page.evaluate(async () => {
       const report=[];
       for (const weight of [400,600,700]) {
@@ -67,21 +74,25 @@ const readBrandFont = page => page.evaluate(() => (
     assert.match(serifStack, /Charter|Georgia|serif/i, `default reading stack must stay serif, saw ${serifStack}`);
 
     await page.locator('#settingsBtn').click();
-    await page.locator('[data-tab="general"]').click();
-    await page.locator('#readingFontSegmented [data-reading-font="sans"]').click();
-    await page.waitForFunction(() => document.documentElement.dataset.readingFont === 'sans');
+    await page.locator('[data-tab="logo"]').click();
+    await page.locator('#appearanceContentFont-trigger').click();
+    await page.getByRole('option', { name: '无衬线字体', exact: true }).click();
+    await page.waitForFunction(() => state.config.appearance.contentFont === 'sans');
     const sansStack = await readBrandFont(page);
     assert.match(sansStack, /Segoe UI|Microsoft YaHei|system-ui/i, `sans option must swap to the UI stack, saw ${sansStack}`);
+    const sansTitlebar = await readTitlebarFont(page);
+    assert.match(sansTitlebar, /Segoe UI|Microsoft YaHei|system-ui/i, `title bar wordmark must swap to the UI stack, saw ${sansTitlebar}`);
     const saved = await page.evaluate(() => yan.getConfig());
-    assert.equal(saved.readingFont, 'sans');
+    assert.equal(saved.appearance.contentFont, 'sans');
 
     await page.reload();
     await waitForRendererReady(page);
-    assert.equal(await page.evaluate(() => document.documentElement.dataset.readingFont), 'sans');
+    assert.equal(await page.evaluate(() => state.config.appearance.contentFont), 'sans');
     assert.match(await readBrandFont(page), /Segoe UI|Microsoft YaHei|system-ui/i);
+    assert.match(await readTitlebarFont(page), /Segoe UI|Microsoft YaHei|system-ui/i);
     await page.locator('#settingsBtn').click();
-    await page.locator('[data-tab="general"]').click();
-    assert.equal(await page.locator('#readingFontSegmented [data-reading-font="sans"]').getAttribute('aria-checked'), 'true');
+    await page.locator('[data-tab="logo"]').click();
+    assert.equal(await page.locator('#appearanceContentFont').inputValue(), 'sans');
 
     await application.close();
     application = null;
@@ -89,8 +100,8 @@ const readBrandFont = page => page.evaluate(() => (
     application = await launch();
     page = await application.firstWindow();
     await waitForRendererReady(page);
-    assert.equal(await page.evaluate(() => document.documentElement.dataset.readingFont), 'sans');
-    console.log(JSON.stringify({ ok: true, readingFont: 'sans', persistedAcrossRestart: true, serifStack, sansStack }));
+    assert.equal(await page.evaluate(() => state.config.appearance.contentFont), 'sans');
+    console.log(JSON.stringify({ ok: true, readingFont: 'sans', persistedAcrossRestart: true, serifStack, serifTitlebar, sansStack, sansTitlebar }));
   } finally {
     await application?.close().catch(() => {});
     try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch {}

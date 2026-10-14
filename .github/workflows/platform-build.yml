@@ -1,0 +1,55 @@
+name: Linux and macOS portability builds
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/platform-v170]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            script: build:linux
+            target: linux-x64
+          - os: macos-15-arm64
+            script: build:mac
+            target: darwin-arm64
+          - os: macos-15-intel
+            script: build:mac
+            target: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libgbm1 libasound2t64 libxss1 libx11-xcb1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libnotify4 libsecret-1-0 libxtst6
+      - run: npm ci --no-audit --no-fund
+      - run: npm run ${{ matrix.script }}
+      - run: node --test test/platform-runtime.test.cjs
+      - name: Packaged startup (Linux)
+        if: runner.os == 'Linux'
+        run: YAN_PLATFORM_EXECUTABLE="$PWD/dist/linux-x64/linux-unpacked/yan-agent" xvfb-run -a node test/platform-startup.e2e.cjs
+      - name: Packaged startup (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=$(find "dist/${{ matrix.target }}" -type d -name 'Yan Agent.app' -print -quit)
+          YAN_PLATFORM_EXECUTABLE="$PWD/$app/Contents/MacOS/Yan Agent" node test/platform-startup.e2e.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yan-${{ matrix.target }}
+          path: |
+            dist/${{ matrix.target }}/*.AppImage
+            dist/${{ matrix.target }}/*.tar.gz
+            dist/${{ matrix.target }}/*.dmg
+            dist/${{ matrix.target }}/*.zip
+            output/cross-platform/startup-*.png

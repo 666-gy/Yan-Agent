@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <base href="/webui/">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f5f5">
+  <title>Yan Agent WebUI</title>
+  <link rel="icon" href="../assets/logo-light.png">
+  <link rel="stylesheet" href="webui.css">
+  <link rel="stylesheet" href="../vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="../markdown-math.css">
+  <script defer src="../vendor/katex/katex.min.js"></script>
+  <script defer src="../markdown-math.js"></script>
+  <link rel="stylesheet" href="desktop-composer.css">
+  <link rel="stylesheet" href="desktop-messages.css">
+  <link rel="stylesheet" href="messages.css">
+  <link rel="stylesheet" href="desktop-workspace.css">
+  <link rel="stylesheet" href="additions.css">
+  <script defer src="vendor/lucide.min.js"></script>
+  <script defer src="desktop-model-notice.js"></script>
+  <script defer src="desktop-task-icons.js"></script>
+  <script defer src="desktop-messages.js"></script>
+  <script defer src="desktop-tool-ui.js"></script>
+  <script defer src="desktop-folder-icons.js"></script>
+  <script defer src="messages.js"></script>
+  <script defer src="webui.js"></script>
+  <script defer src="additions.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Yan Agent WebUI</h1>
+    <div class="account-pill" aria-label="连接与外观">
+      <button class="icon-button" id="restartButton" aria-label="重启" title="重启"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.7883 13.9407C20.929 13.3034 21 12.6527 21 12C21 7.0294 16.9706 3 12 3C9.5169 3 7.1441 4.0259 5.4432 5.8349M4.2857 3L4.7293 6.105C4.7683 6.3784 5.0216 6.5683 5.295 6.5293L8.4 6.0857M3.2117 10.0593C3.071 10.6966 3 11.3473 3 12C3 16.9706 7.0294 21 12 21C14.4831 21 16.8559 19.9741 18.5568 18.1651M19.7143 21L19.2707 17.895C19.2317 17.6216 18.9784 17.4317 18.705 17.4707L15.6 17.9143"/></svg></button>
+      <button class="icon-button" id="themeButton" aria-label="切换到深色模式" title="切换到深色模式"><i data-lucide="moon"></i></button>
+    </div>
+  </header>
+  <main>
+    <section class="projects-section" aria-labelledby="projectsHeading">
+      <div class="section-heading"><h2 id="projectsHeading">项目</h2></div>
+      <div id="projectList" class="project-list"></div>
+      <div id="emptyState" class="empty-state" hidden><p>还没有任务，点右下角「+」创建第一个任务</p></div>
+      <div id="errorState" class="empty-state" hidden><p>暂时无法读取项目</p><button id="retryButton" class="text-button">重试</button></div>
+    </section>
+  </main>
+  <button id="newTaskButton" class="new-task" aria-label="新建任务" title="新建任务"><img src="vendor/keyline-plus.svg" width="30" height="30" alt=""></button>
+  <section id="newTaskView" class="new-task-view" aria-labelledby="newTaskTitle" hidden>
+    <header class="new-task-header">
+      <button id="backToProjects" class="glass-back icon-button" aria-label="返回项目" title="返回项目"><i data-lucide="chevron-left"></i></button>
+      <h1 id="newTaskTitle">新任务</h1>
+      <button id="taskMoreButton" class="glass-back icon-button" type="button" title="任务操作" aria-label="任务操作" aria-haspopup="menu" aria-expanded="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+    </header>
+    <div id="taskMessagePane" class="task-message-pane" hidden>
+      <div id="taskMessages" class="task-messages" aria-live="polite" tabindex="0" aria-label="任务会话"></div>
+      <div id="messageScrollTrack" class="message-scroll-track" hidden><div id="messageScrollThumb" class="message-scroll-thumb" role="scrollbar" tabindex="0" aria-label="会话滚动" aria-controls="taskMessages" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
+    </div>
+    <div class="new-task-welcome"><h2>我们要做什么？</h2></div>
+    <div id="newTaskWorkspace" class="new-task-workspace" aria-label="任务工作区"><div class="new-task-workspace-slot"><div id="taskBarFolderWrap" class="task-bar-folder-wrap">
+              <button id="taskBarFolder" class="task-bar-folder" type="button" title="选择工作区文件夹" aria-haspopup="dialog" aria-expanded="false" aria-controls="workspaceChoiceMenu">
+                <svg class="task-bar-folder-glyph" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <svg class="task-bar-folder-open-glyph" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg>
+                <span id="taskBarFolderName" class="task-bar-folder-name">选择工作区</span>
+              </button>
+              <div id="workspaceChoiceMenu" class="workspace-choice-menu hidden" role="dialog" aria-label="工作区选项">
+                <div id="workspaceChoiceRecent" class="workspace-choice-recent" role="group" aria-label="最近工作区"></div>
+                <div class="workspace-choice-actions">
+                  <button type="button" class="workspace-choice-item" data-workspace-choice="blank"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span>不在工作区工作</span></button>
+                </div>
+              </div>
+            </div></div></div>
+    <form id="taskComposer" class="composer" aria-label="新任务输入框">
+      <div id="composerSelections" class="composer-selections" aria-label="已添加内容" hidden></div>
+      <div class="composer-inner"><div class="composer-editor"><textarea id="composerInput" class="composer-input" aria-label="消息输入" rows="1" placeholder="与 Yan Agent 协作" spellcheck="false"></textarea></div></div>
+      <div class="composer-toolbar-controls">
+        <button id="composerAddButton" class="composer-icon-btn composer-add" type="button" aria-label="添加内容" title="添加内容" aria-haspopup="dialog"><img src="vendor/keyline-plus.svg" width="22" height="22" alt=""></button>
+        <div id="modelPickerWrap" class="model-picker-wrap">
+                  <button id="modelPill" class="ws-pill model-pill" type="button" title="选择模型与推理强度" aria-haspopup="dialog" aria-controls="modelQuickMenu" aria-expanded="false">
+                    <svg class="model-control-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 18V5" />
+                      <path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+                      <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" />
+                      <path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+                      <path d="M18 18a4 4 0 0 0 2-7.464" />
+                      <path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+                      <path d="M6 18a4 4 0 0 1-2-7.464" />
+                      <path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
+                    </svg>
+                    <span id="modelPillName" class="ws-pill-name">—</span>
+                    <span id="modelPillSpeed" class="model-pill-speed">中</span>
+                  </button>
+                  <section id="modelQuickMenu" class="model-quick-menu hidden" role="dialog" aria-label="模型与推理强度" aria-hidden="true" aria-busy="false" data-view="control">
+                    <div id="modelQuickDefaultView" class="model-quick-view">
+                      <button id="modelQuickModelRoute" class="model-quick-route" type="button" aria-controls="modelQuickModelsView" aria-expanded="false" aria-label="选择模型">
+                        <span id="modelQuickRouteModel" class="model-quick-route-label">—</span>
+                        <span id="modelQuickRouteReasoning" class="model-quick-route-value">中</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                      <div id="reasoningSpeedSliderShell" class="reasoning-speed-slider-shell" data-mode="medium">
+                        <span class="reasoning-speed-fluid" aria-hidden="true"></span>
+                        <span class="reasoning-speed-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+                        <input id="reasoningSpeedSlider" type="range" min="0" max="100" step="1" value="25" aria-label="推理强度" aria-valuetext="中" />
+                      </div>
+                      <div id="modelQuickBillingNote" class="reasoning-speed-billing is-empty"></div>
+                    </div>
+                    <div id="modelQuickModelsView" class="model-quick-view hidden" aria-label="可选模型">
+                      <div id="modelQuickList" class="model-quick-list" role="listbox" aria-label="可用模型"></div>
+                    </div>
+                    <div id="modelPickerMenuNotice" class="model-selector-notice" role="status" aria-live="polite" hidden></div>
+                  </section>
+</div>
+        <button id="sendTaskButton" class="send-btn" type="submit" aria-label="发送" title="发送" disabled><i data-lucide="arrow-up"></i></button>
+      </div>
+    </form>
+  </section>
+  <div id="taskActionsMenu" class="task-toolbar-menu" role="menu" aria-label="任务操作" hidden></div>
+  <dialog id="renameTaskDialog"><form id="renameTaskForm"><h2>重命名任务</h2><input id="taskNameInput" aria-label="任务名称" maxlength="160" required><div class="dialog-actions"><button type="button" id="cancelRename" class="text-button">取消</button><button type="submit" class="text-button confirm-button">保存</button></div></form></dialog>
+  <div id="webuiStatus" class="webui-status" role="status" hidden></div>
+  <input id="devicePhotos" type="file" accept="image/*" multiple hidden>
+  <dialog id="addContentSheet" class="add-content-sheet" aria-labelledby="addSheetTitle">
+    <header class="add-sheet-header">
+      <button id="addSheetBack" type="button" class="sheet-icon-button" aria-label="返回添加内容" hidden><i data-lucide="chevron-left"></i></button>
+      <h2 id="addSheetTitle">添加至聊天</h2>
+      <button id="addSheetClose" type="button" class="sheet-icon-button" aria-label="关闭添加内容"><i data-lucide="x"></i></button>
+    </header>
+    <div id="addSheetHome" class="add-sheet-home">
+      <button type="button" data-add="skills"><img src="vendor/keyline-book-open.svg" alt=""><span>技能</span><i data-lucide="chevron-right"></i></button>
+      <button type="button" data-add="photos"><img src="vendor/keyline-image.svg" alt=""><span>照片</span></button>
+      <button type="button" data-add="optimize"><img src="vendor/prompt-optimizer.svg" alt=""><span>优化你的提示词</span></button>
+      <button type="button" data-add="files"><img src="vendor/keyline-file.svg" alt=""><span>当前项目的文件</span><i data-lucide="chevron-right"></i></button>
+    </div>
+    <section id="addSheetSkills" hidden>
+      <label class="sheet-search"><i data-lucide="search"></i><input id="skillSearch" type="search" placeholder="搜索技能" aria-label="搜索技能" autocomplete="off"></label>
+      <div id="sheetSkillsList" class="sheet-list"></div>
+    </section>
+    <section id="addSheetFiles" hidden><div id="sheetFileTree" class="sheet-list" aria-label="项目文件树"></div></section>
+    <p id="addSheetStatus" class="sheet-status" role="status" hidden></p>
+  </dialog>
+  <dialog id="disconnectDialog">
+    <h2>断开连接？</h2><p>电脑上的任务会继续运行。</p>
+    <div class="dialog-actions"><button class="text-button" id="cancelDisconnect">取消</button><button class="text-button confirm-button" id="confirmDisconnect">断开</button></div>
+  </dialog>
+  <dialog id="disconnectedDialog"><h2>已断开连接</h2><div class="dialog-actions"><button class="text-button confirm-button" id="reconnectButton">重新连接</button></div></dialog>
+</body>
+</html>

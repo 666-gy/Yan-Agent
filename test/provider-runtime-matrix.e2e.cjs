@@ -9,13 +9,16 @@ const appRoot = path.resolve(__dirname, '..');
 const providers = Object.freeze([
   ['conn-packaged-test', 'Custom Connection'],
   ['openai', 'OpenAI'],
+  ['gptl', 'GPTL'],
   ['grok', 'Grok'],
   ['agnes', 'Agnes'],
+  ['gemini', 'Gemini'],
   ['deepseek', 'DeepSeek'],
   ['qwen', 'Qwen'],
   ['glm', 'GLM'],
   ['doubao', 'Doubao'],
   ['moonshot', 'Moonshot'],
+  ['kimi', 'Kimi'],
   ['stepfun', 'StepFun'],
   ['minimax', 'MiniMax'],
   ['baichuan', 'Baichuan'],
@@ -85,6 +88,7 @@ for (const [providerId, providerName] of providers) {
   const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
   assert.equal(result.status, 0, `${providerName} provider failed:\n${output}`);
   results.push({ providerId, providerName, ok: true });
+  console.log(`[packaged-provider] ${providerName}: passed`);
 }
 
 console.log(JSON.stringify({

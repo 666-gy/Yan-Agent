@@ -16,7 +16,8 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-lifecycle-'));
     const page = await application.firstWindow();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.locator('#taskBar:not(.hidden)').waitFor();
+    await page.waitForFunction(() => window.__YAN_APP_READY__);
+    await page.evaluate(async () => { if (!state.currentSession) await newSession(); });
     await application.evaluate(({ ipcMain }) => {
       globalThis.reviewCalls = { history: 0, writes: 0 };
       const write = ipcMain._invokeHandlers.get('dsh-review:write-html');
@@ -47,6 +48,19 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-lifecycle-'));
     assert.equal(await page.frameLocator('#yanDshReviewFrame').locator('.dsh-cr-row').count(), 0);
     assert.deepEqual(await application.evaluate(() => globalThis.reviewCalls), { history: 0, writes: 1 });
     assert.ok(openMs < 5000, `cached manifest took ${openMs}ms`);
+    await page.evaluate(() => {
+      globalThis.cachedReviewDocument = document.querySelector('#yanDshReviewFrame').contentDocument;
+      rsReviewState.selectedPath = 'src/file-12.js';
+      createRightSidebarTab('interjection');
+      for (let i = 0; i < 3; i++) {
+        activateRightSidebarTab('interjection');
+        activateRightSidebarTab('review');
+      }
+      closeRightSidebarTool('interjection');
+    });
+    await page.waitForTimeout(200);
+    assert.equal(await page.evaluate(() => cachedReviewDocument === document.querySelector('#yanDshReviewFrame').contentDocument), true);
+    assert.deepEqual(await application.evaluate(() => globalThis.reviewCalls), { history: 0, writes: 1 });
 
     // Closing while the backend is pending must not resurrect the iframe.
     await page.evaluate(() => {
@@ -112,13 +126,13 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-lifecycle-'));
     // Huge single lines are rejected before highlighter work. Large row sets
     // receive a clearly marked preview, not an unbounded DOM insertion.
     await page.evaluate(async () => {
-      await YanDshReview.open({ summary: { files: [{ path: 'huge.js', status: 'created' }] }, lazy: true, selectedPath: 'huge.js',
+      await YanDshReview.open({ summary: { files: [{ path: 'huge.js', status: 'created', additions: 1, deletions: 0 }] }, lazy: true, selectedPath: 'huge.js',
         loadFile: async () => ({ path: 'huge.js', diff: { rows: [{ type: 'add', newLine: 1, text: 'x'.repeat(1000000) }] } }) });
     });
     await page.waitForFunction(() => document.querySelector('#yanDshReviewFrame').contentDocument.querySelector('#file-0')?.dataset.yanState === 'error');
     assert.equal(await page.frameLocator('#yanDshReviewFrame').locator('.dsh-cr-row').count(), 0);
     await page.evaluate(async () => {
-      await YanDshReview.open({ summary: { files: [{ path: 'many.js', status: 'created' }] }, lazy: true, selectedPath: 'many.js',
+      await YanDshReview.open({ summary: { files: [{ path: 'many.js', status: 'created', additions: 3000, deletions: 0 }] }, lazy: true, selectedPath: 'many.js',
         loadFile: async () => ({ path: 'many.js', diff: { rows: Array.from({ length: 3000 }, (_, i) => ({ type: 'add', newLine: i + 1, text: 'const n = 1;' })) } }) });
     });
     await page.waitForFunction(() => document.querySelector('#yanDshReviewFrame').contentDocument.querySelector('#file-0')?.dataset.yanState === 'loaded');
@@ -131,6 +145,6 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-lifecycle-'));
     await application?.close();
     assert.equal(path.dirname(path.resolve(root)), path.resolve(os.tmpdir()));
     assert.ok(path.basename(root).startsWith('yan-review-lifecycle-'));
-    fs.rmSync(root, { recursive: true, force: true });
+    try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 12, retryDelay: 250 }); } catch { /* Windows may hold Chromium profile files briefly. */ }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

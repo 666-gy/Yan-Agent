@@ -11,7 +11,13 @@ const {
   buildOpenCodeConfig,
   stageDeepSeekProviderModule,
   stageGlmmProviderModule,
-  stageQwemProviderModule
+  stageQwemProviderModule,
+  stageKimlProviderModule,
+  stageGptlProviderModule,
+  stageAgnlProviderModule,
+  stageGemlProviderModule,
+  stageGrolProviderModule,
+  stageResponsesProviderModule
 } = require('../lib/opencode-sidecar');
 const { stageOpenCodeRuntime } = require('../lib/opencode-runtime');
 
@@ -28,7 +34,7 @@ const providerModule = path.resolve(process.env.YAN_PROVIDER_MODULE_PATH || path
   'lib',
   'opencode-dsml-provider.mjs'
 ));
-const responsesBundle = path.join(appRoot, 'lib', 'opencode-openai-responses-provider.bundle.mjs');
+const responsesBundle = path.join(path.dirname(providerModule), 'opencode-openai-responses-provider.bundle.mjs');
 const providerId = String(process.env.YAN_TEST_PROVIDER_ID || 'deepseek').trim();
 const providerName = String(process.env.YAN_TEST_PROVIDER_NAME || providerId).trim();
 const modelId = `${providerId}-packaged-test`;
@@ -50,11 +56,18 @@ function runProcess(command, args, options, timeoutMs = 30_000) {
       clearTimeout(timer);
       reject(error);
     });
-    child.once('exit', code => {
+    child.once('close', code => {
       clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
   });
+}
+
+function cleanupRuntime(directory) {
+  assert.equal(path.dirname(path.resolve(directory)), path.resolve(os.tmpdir()));
+  assert.match(path.basename(directory), /^yan-(?:provider|responses)-runtime-/);
+  // Windows can retain the executable briefly after process completion.
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });
 }
 
 function stageProviderPackage(runtimeRoot) {
@@ -132,10 +145,14 @@ function stageProviderBundle(runtimeRoot) {
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
-    const providerModuleSpecifier = providerId === 'glm'
-      ? stageGlmmProviderModule({ appRoot: process.env.YAN_PACKAGED_APP_ROOT || appRoot, dataDir: runtimeRoot })
-      : providerId === 'qwen'
-      ? stageQwemProviderModule({ appRoot: process.env.YAN_PACKAGED_APP_ROOT || appRoot, dataDir: runtimeRoot })
+    const family = {
+      glm: ['glmm', stageGlmmProviderModule], qwen: ['qwem', stageQwemProviderModule],
+      kimi: ['kiml', stageKimlProviderModule], gptl: ['gptl', stageGptlProviderModule],
+      agnes: ['agnl', stageAgnlProviderModule], gemini: ['geml', stageGemlProviderModule],
+      grok: ['grol', stageGrolProviderModule]
+    }[providerId];
+    const providerModuleSpecifier = family
+      ? family[1]({ appRoot: process.env.YAN_PACKAGED_APP_ROOT || appRoot, dataDir: runtimeRoot })
       : process.env.YAN_PACKAGED_APP_ROOT
       ? stageDeepSeekProviderModule({
           appRoot: process.env.YAN_PACKAGED_APP_ROOT,
@@ -152,6 +169,12 @@ function stageProviderBundle(runtimeRoot) {
       deepSeekProviderModule: providerModuleSpecifier,
       glmmProviderModule: providerModuleSpecifier,
       qwemProviderModule: providerModuleSpecifier,
+      kimlProviderModule: providerModuleSpecifier,
+      gptlProviderModule: providerModuleSpecifier,
+      agnlProviderModule: providerModuleSpecifier,
+      gemlProviderModule: providerModuleSpecifier,
+      grolProviderModule: providerModuleSpecifier,
+      ...(family ? { [family[0]]: true } : {}),
       capabilities: { reasoning: true, contextWindow: 32_768, maxOutputTokens: 8_192 },
       accessMode: 'full',
       permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true }
@@ -199,7 +222,9 @@ function stageProviderBundle(runtimeRoot) {
     const responsesRuntimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-responses-runtime-'));
     try {
       const responsesModuleUrl = String(
-        process.env.YAN_RESPONSES_PROVIDER_MODULE_SPECIFIER || pathToFileURL(responsesBundle).href
+        process.env.YAN_RESPONSES_PROVIDER_MODULE_SPECIFIER || (process.env.YAN_PACKAGED_APP_ROOT
+          ? stageResponsesProviderModule({ appRoot: process.env.YAN_PACKAGED_APP_ROOT, dataDir: responsesRuntimeRoot })
+          : pathToFileURL(responsesBundle).href)
       );
       const responsesConfig = buildOpenCodeConfig({
         providerId: 'conn-responses-test',
@@ -249,7 +274,7 @@ function stageProviderBundle(runtimeRoot) {
         `The responses provider must not fall back to /chat/completions. Requests: ${JSON.stringify(responsesRequests)}`
       );
     } finally {
-      fs.rmSync(responsesRuntimeRoot, { recursive: true, force: true });
+      cleanupRuntime(responsesRuntimeRoot);
     }
 
     console.log(JSON.stringify({
@@ -262,7 +287,7 @@ function stageProviderBundle(runtimeRoot) {
     }));
   } finally {
     server.close();
-    fs.rmSync(runtimeRoot, { recursive: true, force: true });
+    cleanupRuntime(runtimeRoot);
   }
 })().catch(error => {
   console.error(error);

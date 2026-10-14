@@ -1,0 +1,722 @@
+/* Hallmark · component: continuous Agent shell · theme: existing Yan tokens
+   Reference: supplied desktop screenshots · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+.app { --app-rail-w: 48px; background: var(--sidebar-bg); }
+.app-rail { position: absolute; inset: 40px auto 0 0; z-index: 81; width: var(--app-rail-w); display: flex; align-items: center; flex-direction: column; gap: 8px; padding: 8px 0 12px; -webkit-app-region: no-drag; }
+.app-rail-button { display: flex; border: 1px solid transparent; align-items: center; justify-content: center; flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; color: var(--text-dim); background: transparent; cursor: pointer; }
+.app-rail-button > svg { width: 20px; height: 20px; }
+.app-rail-button .titlebar-sidebar-logo { width: 24px; height: 24px; object-fit: contain; }
+.app-rail-button:hover { color: var(--text); background: var(--bg-hover); }
+.app-rail-button.active { color: var(--text); background: var(--bg-active); border-color: transparent; }
+.app-rail-button:hover { border-color: var(--border-strong); }
+.app-rail-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app-rail-settings { margin-top: auto; }
+.app.settings-mode .app-rail-button.active { background: transparent; }
+.app.settings-mode .app-rail-settings { background: var(--bg-active); color: var(--text); }
+.app > .layout { margin-left: var(--app-rail-w); border-top-left-radius: var(--r-xl); overflow: hidden; }
+.app .sidebar { border-top-left-radius: var(--r-xl); background: var(--sidebar-bg); }
+.app #settingsOverlay { left: var(--app-rail-w); border-top-left-radius: var(--r-xl); overflow: hidden; }
+/* One continuous shell material owns the titlebar, sidebar, resize gutter and
+   exposed canvas corners. Never blur/tint these adjoining rectangles twice. */
+.app::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: var(--sidebar-bg);
+}
+.app > .titlebar,
+.app > .layout { z-index: 2; }
+.app.wallpaper-enabled.wallpaper-compat::before {
+  background: var(--mat-chrome, transparent);
+  -webkit-backdrop-filter: blur(var(--mat-blur, 0px)) saturate(1.08);
+  backdrop-filter: blur(var(--mat-blur, 0px)) saturate(1.08);
+}
+.titlebar { background: var(--sidebar-bg); border-bottom: 0; }
+.sidebar { border-right: 0; }
+.app .titlebar,
+.app .sidebar,
+.app.wallpaper-enabled.wallpaper-compat .titlebar,
+.app.wallpaper-enabled.wallpaper-compat .sidebar {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.resize-handle-left { background: transparent; }
+.app:not(.browser-focus-mode) #pageChat {
+  border-top-left-radius: var(--r-xl);
+}
+.app:not(.browser-focus-mode) #chatMainColumn { border-top-left-radius: inherit; }
+.app:not(.browser-focus-mode) #taskBar {
+  background: transparent;
+  border-top-left-radius: inherit;
+  border-bottom: 1px solid var(--border);
+}
+.app.wallpaper-enabled.wallpaper-compat #taskBar { background: transparent; }
+.app.sidebar-hidden #pageChat,
+.app.sidebar-hidden #chatMainColumn,
+.app.sidebar-hidden #taskBar { border-top-left-radius: 0; }
+
+/* Blank tasks keep attention on the prompt and its environment. */
+.chat-main-column.empty #taskBar,
+#pageChat.empty #rightDock,
+.chat-main-column.empty #taskGitBranchWrap,
+.chat-main-column.empty .task-bar-sep { display: none !important; }
+.new-task-workspace { display: none; }
+/* One shared outline; the two actions are segments, not circular buttons. */
+.task-bar-new-task { display: none; }
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarFolderWrap {
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: transparent;
+}
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarNewTask,
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarFolder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-dim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarNewTask { border-radius: var(--r-pill) 0 0 var(--r-pill); }
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarFolder { border-radius: 0 var(--r-pill) var(--r-pill) 0; }
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarFolderWrap > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+.app.sidebar-hidden #taskBar.task-bar-locked #taskBarFolderWrap > button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+#taskBarNewTask:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+#taskBarNewTask:disabled { opacity: .5; cursor: wait; }
+.app:not(.browser-focus-mode) .chat-main-column.empty .new-task-workspace:not([hidden]) {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  height: 32px;
+  margin: 0 24px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.new-task-workspace-slot { min-width: 0; }
+/* Dedicated branch picker for a new task: just the branch, opening upward. */
+.new-task-branch { position: relative; flex: 0 0 auto; }
+.new-task-branch-btn {
+  height: 28px;
+  max-width: 200px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  color: var(--text-dim);
+  background: transparent;
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  font-weight: 400;
+}
+.new-task-branch-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-task-branch-btn:hover:not(:disabled),
+.new-task-branch-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.new-task-branch-btn:active:not(:disabled) { background: color-mix(in srgb, var(--text) 11%, transparent); }
+.new-task-branch-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.new-task-branch-chevron { color: var(--text-faint); flex: 0 0 auto; }
+.new-task-branch-menu {
+  position: absolute;
+  z-index: 90;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 252px;
+  max-height: min(48vh, 340px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  padding: 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+.new-task-branch-search {
+  flex: 0 0 auto;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 10px;
+  background: var(--fill-soft, rgba(127, 127, 127, .1));
+  color: var(--text-faint);
+}
+.new-task-branch-search input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 400 13px/1 var(--font-sans);
+  outline: none;
+}
+.new-task-branch-search input:focus,
+.new-task-branch-search input:focus-visible { outline: none; }
+.new-task-branch-list { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; gap: 2px; }
+.new-task-branch-create {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 10px;
+  color: var(--text-dim);
+  font: 500 13px/1.2 var(--font-sans);
+  text-align: left;
+}
+.new-task-branch-create:hover { background: var(--bg-hover); color: var(--text); }
+.new-task-branch-create > svg { color: var(--text-faint); flex: 0 0 auto; }
+.new-task-branch-option {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 10px;
+  color: var(--text-dim);
+  font: 500 13px/1.2 var(--font-sans);
+  text-align: left;
+}
+.new-task-branch-option:hover { background: var(--bg-hover); color: var(--text); }
+.new-task-branch-option.is-current { color: var(--text); font-weight: 600; }
+.new-task-branch-empty { padding: 8px; color: var(--text-faint); font: 400 11.5px/1.5 var(--font-sans); text-align: center; }
+.new-task-workspace #taskBarFolderWrap { display: flex; min-width: 0; }
+.app .new-task-workspace #taskBarFolder {
+  height: 28px;
+  min-width: 0;
+  max-width: min(360px, 100%);
+  gap: 7px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  font-weight: 400;
+}
+.app .new-task-workspace #taskBarFolder:hover:not(:disabled),
+.app .new-task-workspace #taskBarFolder[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.app .new-task-workspace #taskBarFolder:active:not(:disabled) { background: color-mix(in srgb, var(--text) 11%, transparent); }
+.new-task-workspace #taskBarFolder:focus-visible,
+.new-task-workspace .workspace-choice-item:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.new-task-workspace #taskBarFolder:disabled { opacity: .5; cursor: wait; }
+.new-task-workspace #taskBarFolder[aria-busy="true"] { opacity: .65; }
+.new-task-workspace #taskBarFolder[data-state="error"] { color: var(--danger); }
+.new-task-workspace #taskBarFolder[data-state="success"] { color: var(--text); }
+.new-task-workspace #taskBarFolder > svg { flex-shrink: 0; }
+.new-task-workspace .workspace-choice-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  max-width: min(320px, calc(100vw - 48px));
+}
+.app .workspace-choice-menu {
+  width: 300px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 20px;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+}
+.workspace-choice-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 8px 5px;
+  padding: 10px 4px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.app #workspaceChoiceSearch {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(var(--ui-scale, 14px) * 1.0);
+  line-height: 20px;
+}
+#workspaceChoiceSearch::placeholder { color: var(--text-dim); opacity: 1; }
+.workspace-choice-search:focus-within { border-bottom-color: var(--text-muted); }
+.app .workspace-choice-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: calc(var(--ui-scale, 14px) * 1.0);
+  line-height: 20px;
+  font-weight: 400;
+}
+.workspace-choice-search > svg,
+.workspace-choice-item > svg { flex-shrink: 0; }
+.workspace-choice-item > span { overflow: hidden; text-overflow: ellipsis; }
+.workspace-choice-recent .workspace-choice-item { color: var(--text); }
+.workspace-choice-item[aria-pressed="true"] { background: var(--bg-hover); }
+.workspace-choice-actions { margin-top: 5px; padding-top: 6px; position: relative; }
+.workspace-choice-actions::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: var(--border);
+}
+.workspace-choice-empty { padding: 12px 10px; color: var(--text-muted); font-size: calc(var(--ui-scale, 14px) * 0.928571); }
+/* The new-task workspace picker and the branch picker open side by side; keep the
+   two panels at the same proportions (smaller workspace list, larger branch list). */
+.new-task-workspace .workspace-choice-menu {
+  width: 252px;
+  padding: 5px;
+  border-radius: 16px;
+}
+.new-task-workspace .workspace-choice-search {
+  gap: 8px;
+  margin: 0 6px 4px;
+  padding: 6px 4px;
+}
+.new-task-workspace #workspaceChoiceSearch {
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+  line-height: 18px;
+}
+.new-task-workspace .workspace-choice-item {
+  gap: 8px;
+  min-height: 29px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+  line-height: 18px;
+}
+.new-task-workspace .workspace-choice-empty {
+  padding: 10px 9px;
+  font-size: calc(var(--ui-scale, 14px) * 0.892857);
+}
+.app.wallpaper-enabled.wallpaper-compat .workspace-choice-menu {
+  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
+}
+/* Separate raised workspace panel, meeting the editor without overlapping
+   translucent paint. Match the editor's material rather than stacking it. */
+.app.wallpaper-enabled.wallpaper-compat #pageChat.empty .new-task-workspace:not([hidden]) {
+  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
+  -webkit-backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.7)) saturate(1.06);
+  backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.7)) saturate(1.06);
+}
+.user-message-content { max-height: 6lh; overflow: hidden; }
+.msg.user.is-expanded .user-message-content { max-height: none; }
+.msg.user .user-message-toggle {
+  display: block;
+  margin-top: 6px;
+  padding: 2px 0;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  line-height: 1.5;
+}
+.msg.user .user-message-toggle:hover { color: var(--text); }
+.msg.user .user-message-toggle[hidden] { display: none; }
+.msg.user .user-message-toggle:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+
+.task-context-menu {
+  min-width: 176px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px #0002;
+}
+.task-context-menu .sidebar-context-menu-item {
+  min-height: 28px;
+  padding: 5px 9px;
+  gap: 8px;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  line-height: 18px;
+  font-weight: 400;
+}
+.task-context-menu .sidebar-context-menu-item > svg { width: 15px; height: 15px; }
+.task-context-menu .sidebar-context-menu-item > span { flex: 1; }
+.task-context-menu .sidebar-context-menu-item > img { width: 15px; height: 15px; object-fit: contain; }
+.task-context-menu .sidebar-context-menu-item[aria-expanded="true"],
+.task-context-menu .sidebar-context-menu-item:focus-visible { background: var(--bg-hover); outline: none; }
+.task-context-menu .sidebar-context-menu-item:disabled { opacity: .4; cursor: default; background: transparent; }
+.task-context-separator { height: 1px; background: var(--border-soft); margin: 4px -4px; }
+.task-toolbar-menu { width: 174px; padding: 5px; border-radius: 14px; }
+.task-toolbar-menu .sidebar-context-menu-item { min-height: 32px; padding: 5px 8px; gap: 9px; font-size: 13px; border-radius: 9px; }
+.task-toolbar-menu .sidebar-context-menu-item > svg { width: 17px; height: 17px; }
+.task-toolbar-menu .task-context-separator { margin: 4px 8px; }
+/* Task "…" menu (and its submenus) read as acrylic: a translucent fill plus a
+   blur, so rows never bleed through but the surface is not opaque either. */
+.task-context-menu {
+  background: color-mix(in srgb, var(--bg-elev) 74%, transparent);
+  border-color: color-mix(in srgb, var(--text) 14%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+.app .session-more-btn,
+.app .workspace-more-btn { border: 1px solid transparent; border-radius: 50%; background: transparent; }
+.app .session-more-btn:hover,
+.app .session-more-btn:focus-visible,
+.app .session-more-btn[aria-expanded="true"],
+.app .workspace-more-btn:hover,
+.app .workspace-more-btn:focus-visible,
+.app .workspace-more-btn[aria-expanded="true"] { border-color: var(--border); background: var(--bg-hover); }
+.session-item.is-unread .session-title-text { font-weight: 650; }
+.session-item.is-unread::before { content: ''; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+
+#deleteSessionModal .delete-task-warning,
+#removeWorkspaceModal .delete-task-warning,
+#petDeleteDialog .delete-task-warning {
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg-soft);
+  padding: 10px 16px;
+}
+#removeWorkspaceModal .workspace-perm-target {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font-family: var(--font-sans);
+}
+#removeWorkspacePath {
+  font: 12px/1.6 var(--font-sans);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+/* The outer surface now meets the fixed navigation rail. */
+.app:not(.wallpaper-enabled) .sidebar { background: var(--bg); }
+.app:not(.sidebar-hidden) #pageChat,
+.app:not(.sidebar-hidden) #chatMainColumn,
+.app:not(.sidebar-hidden) #taskBar { border-top-left-radius: 0; }
+.app.sidebar-hidden #pageChat { border-top-left-radius: var(--r-xl); }
+
+.app:not(.wallpaper-enabled) .resize-handle-left { background: var(--bg); }
+.app .resize-handle-left:hover { background: var(--border); }
+
+/* Capability pages share the existing collapsible application sidebar. */
+:root { --composer-plugin-mention: #087bea; }
+[data-theme="dark"] { --composer-plugin-mention: #59adff; }
+.composer-plugin-token { color: var(--composer-plugin-mention); }
+.composer-plugin-logo { display: inline-flex; flex: 0 0 18px; width: 18px; height: 18px; align-self: center; align-items: center; }
+.composer-plugin-logo .skill-logo-image { width: 18px; height: 18px; border-radius: 4px; }
+#composerPluginMenuList .skill-call-item { gap: 10px; }
+.plugins-page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; overflow-wrap: anywhere; background: var(--bg); container: customization / inline-size; }
+.plugins-page > .page-panel { flex: 1; min-height: 0; }
+/* Hallmark · plugin detail · screenshot reference / Yan tokens · P5 H5 E4 S5 R5 V4 */
+#pageAgents.is-detail #agentDetailView, #pagePluginPackages.is-detail #pluginDetailView, #mcpDetailView, #skillDetailView, #codeReviewDetailView { width: min(880px, 100%); margin-inline: auto; }
+#agentDetailContent, #pluginDetailContent, #mcpDetailContent, #skillDetailContent, #codeReviewDetailContent { padding: 12px 0 48px; font-family: var(--font-ui); color: var(--text); }
+.skill-children-section, .skill-document-section { margin-top: 34px; }
+.plugin-skill-row.skill-child-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.skill-document-section > h2 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding-bottom: 15px; border-bottom: 1px solid var(--border-soft); font: 550 18px/1.5 var(--font-ui); }
+.msg-body.skill-document-markdown { padding-top: 12px; min-width: 0; width: 100%; max-width: none; box-sizing: border-box; overflow-wrap: anywhere; }
+.skill-document-markdown, .skill-document-markdown * { -webkit-user-select: text; user-select: text; }
+#mcpDetailContent .plugin-detail-logo { display: grid; place-items: center; color: var(--text-dim); }
+#mcpDetailContent .plugin-detail-logo > svg { width: 64px; height: 64px; }
+.mcp-detail-test { border-radius: var(--r-pill); white-space: nowrap; }
+.mcp-tools-section { margin-top: 34px; }
+.plugin-skill-row.mcp-tool-row { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+.mcp-tool-row .mcp-tool-logo { width: 28px; min-height: 24px; }
+.plugin-detail-close { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+.plugin-detail-logo { width: 76px; height: 76px; margin-bottom: 22px; }
+.plugin-detail-logo .skill-logo-image { width: 76px; height: 76px; border-radius: 18px; }
+.plugin-detail-title-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.plugin-detail-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.plugin-detail-name h1 { margin: 0; font: 600 28px/1.3 var(--font-ui); overflow-wrap: anywhere; }
+.plugin-directory { flex: 0 0 32px; width: 32px; height: 32px; }
+.plugin-directory img { width: 24px; height: 24px; object-fit: contain; }
+.plugin-detail-actions { display: flex; flex-shrink: 0; gap: 18px; align-items: center; }
+.plugin-detail-actions .capability-circle-btn { border: 0; background: transparent; }
+.plugin-detail-actions .switch { margin: 0; }
+.code-review-project-row.active { background: var(--bg-active); color: var(--text); }
+#codeReviewProjectsRefresh { margin-left: auto; }
+#codeReviewDetailContent .plugin-info-link { border: 1px solid transparent; border-radius: var(--r-pill); }
+#codeReviewDetailContent .plugin-info-link:hover { border-color: var(--border); }
+.app.panel-composer-mode #pageChat { position: absolute; inset: 0 0 0 calc(var(--sidebar-w, 256px) + 4px); min-width: 0; }
+.app.panel-composer-mode.sidebar-hidden #pageChat { left: 0; }
+.app.panel-composer-mode #codeReviewDetailPanel .page-body { padding-bottom: calc(var(--focus-composer-height, 132px) + 96px); }
+.app.panel-composer-mode[data-browser-focus-composer="standby"] #codeReviewDetailPanel .page-body,
+.app.panel-composer-mode[data-browser-focus-composer="minimized"] #codeReviewDetailPanel .page-body { padding-bottom: 100px; }
+.code-review-pr-section { margin-top: 36px; }
+.code-review-pr-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 15px; border-bottom: 1px solid var(--border-soft); }
+.code-review-pr-section .code-review-pr-heading h2 { padding: 0; border: 0; }
+.code-review-pr-heading-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.code-review-pr-heading-main h2 { flex: 0 0 auto; }
+.code-review-pr-list { display: grid; gap: 18px; margin-top: 20px; }
+.code-review-pr-card { border: 1px solid var(--border); border-radius: 0; background: var(--bg); overflow: hidden; }
+.code-review-pr-copy { padding: 20px; }
+.code-review-pr-copy h3 { margin: 0; font: 550 16px/1.5 var(--font-ui); overflow-wrap: anywhere; }
+.code-review-pr-copy p { margin: 8px 0 0; color: var(--text-dim); font: 13px/1.5 var(--font-ui); overflow-wrap: anywhere; }
+.code-review-pr-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg-elev); }
+.code-review-pr-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.code-review-pill { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: var(--r-pill); white-space: nowrap; }
+.code-review-pill svg { width: 16px; height: 16px; flex-shrink: 0; }
+.code-review-pill:disabled { opacity: .45; cursor: not-allowed; }
+.plugin-detail-subtitle { margin: 12px 0 0; font-size: 16px; color: var(--text-dim); line-height: 1.5; }
+/* Hallmark · screenshot-led examples / existing Yan controls · P5 H5 E5 S5 R5 V4 */
+.plugin-examples {
+  --example-surface: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+  --example-arrow: color-mix(in srgb, var(--text) 10%, transparent);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; min-height: 304px; margin-top: 28px; padding: 36px 48px;
+  border-radius: 20px; background: url('assets/plugin-demo-night-sky.webp') center / cover no-repeat;
+}
+.plugin-example-row { display: flex; align-items: center; gap: 12px; max-width: 100%; padding: 12px 12px 12px 18px; border-radius: 24px; background: var(--example-surface); backdrop-filter: blur(12px); }
+.plugin-examples-computer {
+  background: radial-gradient(ellipse at 24% 18%, #d3d9f4aa 0%, transparent 58%),
+    radial-gradient(ellipse at 75% 82%, #e5dcf8bb 0%, transparent 55%),
+    linear-gradient(120deg, #a4bde5, #c9bde9);
+}
+.plugin-example-copy { min-width: 0; margin: 0; color: var(--text); font: 400 17px/1.55 var(--font-ui); overflow-wrap: anywhere; }
+.plugin-example-brand { display: inline-flex; align-items: center; gap: 7px; margin-right: 5px; color: var(--accent); font-weight: 500; vertical-align: baseline; }
+.plugin-example-brand .skill-logo-image { width: 17px; height: 17px; border-radius: 4px; align-self: center; }
+.plugin-example-send { flex: 0 0 36px; width: 36px; height: 36px; border-radius: var(--r-pill); color: var(--text); background: var(--example-arrow); }
+:is(#pluginDetailContent, #skillDetailContent) .plugin-example-send:hover:not(:disabled) { background: var(--bg-hover); }
+.plugin-example-send:disabled { opacity: .45; cursor: default; }
+.plugin-example-send[aria-busy="true"] { cursor: progress; }
+.plugin-detail-description { margin: 30px 0 34px; font-size: 15px; line-height: 1.65; white-space: pre-line; }
+.plugin-skills-section h2, .plugin-info-section h2 { margin: 0; padding: 0 0 15px; border-bottom: 1px solid var(--border-soft); font: 550 18px/1.5 var(--font-ui); }
+.plugin-skills-section h2 span { margin-left: 5px; color: var(--text-dim); font-weight: 400; }
+.plugin-skill-list { padding-top: 12px; }
+.plugin-skill-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 14px 8px; }
+.plugin-skill-logo .skill-logo-image { width: 25px; height: 25px; border-radius: 6px; }
+.plugin-skill-copy { min-width: 0; }
+.plugin-skill-copy h3 { margin: 0; font: 400 16px/1.45 var(--font-ui); overflow-wrap: anywhere; }
+.plugin-skill-copy p { margin: 5px 0 0; color: var(--text-dim); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-skill-row .switch { margin: 0; }
+.plugin-skills-more { display: flex; align-items: center; gap: 14px; min-height: 44px; margin-top: 12px; padding: 0 8px; color: var(--text-dim); font-size: 14px; text-align: left; }
+.plugin-skills-stack { display: flex; padding-left: 6px; flex-shrink: 0; }
+.plugin-skills-stack .skill-logo-image { width: 20px; height: 20px; border: 1px solid var(--border-soft); border-radius: 50%; margin-left: -6px; background: var(--bg); }
+.plugin-info-section { margin-top: 36px; }
+.plugin-info-section dl { margin: 20px 0 0; }
+.plugin-info-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; align-items: center; min-height: 38px; font-size: 15px; }
+.plugin-info-row dt { color: var(--text-dim); }
+.plugin-info-row dd { margin: 0; min-width: 0; }
+.plugin-info-link { color: var(--text); width: 32px; height: 32px; margin-left: -6px; }
+.plugin-info-missing { color: var(--text-faint); }
+.plugin-account-section, .plugin-preparation { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 20px 0 28px; color: var(--text-dim); font-size: 13px; }
+.plugin-account-section h2 { color: var(--text); font-size: 15px; margin: 0; }
+.plugin-account-section p, .plugin-preparation p { margin: 5px 0; line-height: 1.5; }
+.plugin-account-section button, .plugin-preparation button { flex-shrink: 0; }
+.plugin-account-section .ghost-btn { border-radius: var(--r-pill); }
+#pluginDetailContent button:focus-visible, #mcpDetailContent button:focus-visible, #skillDetailContent button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+#pluginDetailContent button:hover:not(:disabled), #mcpDetailContent button:hover:not(:disabled), #skillDetailContent button:hover:not(:disabled) { color: var(--text); }
+#pluginDetailContent button:active:not(:disabled), #mcpDetailContent button:active:not(:disabled), #skillDetailContent button:active:not(:disabled) { transform: translateY(1px); }
+#pluginDetailContent [data-fixed-disabled] { cursor: not-allowed; }
+#pluginDetailContent [data-plugin-action][aria-busy="true"] { cursor: progress; }
+@container customization (max-width: 480px) {
+  .plugin-examples { padding: 24px 14px; gap: 14px; min-height: 0; }
+  .plugin-example-row { gap: 8px; padding: 12px; border-radius: 20px; }
+  .plugin-example-copy { font-size: 14px; }
+  .plugin-detail-title-row { gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .plugin-detail-actions { gap: 12px; }
+  .plugin-detail-name h1 { font-size: 24px; }
+  .plugin-skill-row { gap: 10px; padding-inline: 0; grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .plugin-skill-row.mcp-tool-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .plugin-skill-row.skill-child-row { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .mcp-tool-row .mcp-tool-logo { width: 24px; }
+  .plugin-info-row { grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+  .plugin-account-section, .plugin-preparation { align-items: flex-start; flex-direction: column; }
+}
+/* Use the available page width when the shared sidebar is expanded. */
+@container customization (max-width: 1040px) {
+  .skill-group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .skill-detail-head { grid-template-columns: 56px minmax(0, 1fr); }
+  .skill-detail-actions { grid-column: 2; justify-content: flex-start; }
+}
+@container customization (max-width: 700px) {
+  .skill-group-grid { grid-template-columns: minmax(0, 1fr); }
+  .capability-page-header { align-items: flex-start; flex-direction: column; }
+}
+.sidebar-brand-name { font-family: var(--font-ui); font-size: var(--text-md); font-weight: 600; color: var(--text); }
+.app.wallpaper-enabled.wallpaper-compat .sidebar,
+.app.wallpaper-enabled.wallpaper-compat .resize-handle-left { background: var(--mat-panel, transparent); }
+.app.wallpaper-enabled.wallpaper-compat .plugins-page { background: color-mix(in srgb, var(--bg) 30%, transparent); backdrop-filter: blur(calc(var(--mat-blur, 0px) * .45)) saturate(1.05); }
+.app.wallpaper-enabled.wallpaper-compat .plugins-page > .capability-page { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.app .resize-handle-left::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--border-strong); pointer-events: none; }
+
+/* Right sidebar surfaces on wallpaper: after the shell went translucent the
+   active tab chip, the temporary-chat composer and the browser start page kept
+   opaque theme fills, so the panel still read as a white slab beside the
+   material Agent surface. Route every remaining fill through the same
+   materials, and hide the blank browser guest so its empty state does not sit
+   on a pure-white webview. */
+.app.wallpaper-enabled.wallpaper-compat .rs-work-tab.active {
+  background: color-mix(in srgb, var(--bg-elev) 64%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 12%, transparent);
+}
+.app.wallpaper-enabled.wallpaper-compat .rs-work-tab:hover,
+.app.wallpaper-enabled.wallpaper-compat .rs-tabbar-btn:hover,
+.app.wallpaper-enabled.wallpaper-compat .rs-tabbar-btn[aria-expanded="true"],
+.app.wallpaper-enabled.wallpaper-compat .rs-work-tab-close:hover,
+.app.wallpaper-enabled.wallpaper-compat .rs-tab-overflow-item:hover,
+.app.wallpaper-enabled.wallpaper-compat .rs-tab-overflow-item.active,
+.app.wallpaper-enabled.wallpaper-compat .side-start-content button:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.app.wallpaper-enabled.wallpaper-compat .side-start-content button:active {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+.app.wallpaper-enabled.wallpaper-compat .rs-tab-overflow-menu,
+.app.wallpaper-enabled.wallpaper-compat .rs-add-menu {
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  -webkit-backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.6)) saturate(1.08);
+  backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.6)) saturate(1.08);
+}
+.app.wallpaper-enabled.wallpaper-compat .auxiliary-dialogue-composer { background: transparent; }
+.app.wallpaper-enabled.wallpaper-compat .auxiliary-dialogue-input-shell {
+  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
+  -webkit-backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.7)) saturate(1.06);
+  backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.7)) saturate(1.06);
+}
+.app.wallpaper-enabled.wallpaper-compat .browser-address-pill { background: color-mix(in srgb, var(--bg) 62%, transparent); }
+.app.wallpaper-enabled.wallpaper-compat .side-start-tools { background: color-mix(in srgb, var(--bg-elev) 64%, transparent); }
+.app.wallpaper-enabled.wallpaper-compat .right-browser-shell:has(.browser-empty-state.active) .browser-webview { visibility: hidden; }
+
+/* Wallpaper chrome: the rail selector and the sidebar / task-bar "more"
+   controls kept an opaque chip behind the icon, so on a photo the selected and
+   hovered states read as black blocks. Drop those fills to transparent and let
+   color alone mark the state. */
+.app.wallpaper-enabled.wallpaper-compat .app-rail-button,
+.app.wallpaper-enabled.wallpaper-compat .app-rail-button:hover,
+.app.wallpaper-enabled.wallpaper-compat .app-rail-button.active,
+.app.wallpaper-enabled.wallpaper-compat .app-rail-button:active {
+  background: transparent;
+}
+.app.wallpaper-enabled.wallpaper-compat .session-more-btn,
+.app.wallpaper-enabled.wallpaper-compat .workspace-more-btn,
+.app.wallpaper-enabled.wallpaper-compat .session-more-btn:hover,
+.app.wallpaper-enabled.wallpaper-compat .session-more-btn:focus-visible,
+.app.wallpaper-enabled.wallpaper-compat .session-more-btn[aria-expanded="true"],
+.app.wallpaper-enabled.wallpaper-compat .workspace-more-btn:hover,
+.app.wallpaper-enabled.wallpaper-compat .workspace-more-btn:focus-visible,
+.app.wallpaper-enabled.wallpaper-compat .workspace-more-btn[aria-expanded="true"] {
+  background: transparent;
+  border-color: transparent;
+}
+/* The popovers the sidebar "more" buttons and the branch-bar "more" button open
+   were opaque paper. A fully transparent menu would let rows bleed into the
+   page behind them, so frost them into acrylic: translucent fill + blur. */
+body.wallpaper-compat .sidebar-context-menu,
+body.wallpaper-compat .task-actions-menu {
+  background: color-mix(in srgb, var(--bg-elev) 72%, transparent);
+  border-color: color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 16px;
+  -webkit-backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.9)) saturate(1.1);
+  backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.9)) saturate(1.1);
+}
+body.wallpaper-compat .sidebar-context-menu .sidebar-context-menu-item:hover,
+body.wallpaper-compat .task-actions-menu .task-action-item:hover,
+body.wallpaper-compat .task-actions-menu .task-action-item.active {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+/* The branch bar's "more" control (right of the branch button) becomes a
+   transparent ring; its menu keeps the acrylic frame above. */
+.app.wallpaper-enabled.wallpaper-compat .task-bar-icon-btn {
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+}
+.app.wallpaper-enabled.wallpaper-compat .task-bar-icon-btn:hover:not(:disabled),
+.app.wallpaper-enabled.wallpaper-compat .task-bar-icon-btn.active {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--text) 26%, transparent);
+  color: var(--text);
+}
+
+/* Session rows: hovering a task reveals a small pill with inline pin / archive
+   actions instead of the old "…"; the full action menu now opens on right-click
+   the row (the workspace folder keeps its own "…"). */
+.session-actions-pill {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--bg-elev2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.session-item:hover .session-actions-pill,
+.session-actions-pill:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.session-action-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-dim);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.session-action-btn:hover { background: var(--bg-hover); color: var(--text); }
+.session-action-btn[aria-pressed="true"] { color: var(--accent-text); }
+.session-action-btn svg { width: 15px; height: 15px; }
+.app.wallpaper-enabled.wallpaper-compat .session-actions-pill {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text) 14%, transparent);
+}
+.app.wallpaper-enabled.wallpaper-compat .session-action-btn:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* Project header: the label sits at the start with a single chevron toggle after
+   it (chevron-right = collapse all, chevron-down = expand all). The toggle is
+   hidden until the header is hovered, and stays flat — no border, no hover fill. */
+.sidebar-list-section-header.project-section-header { justify-content: flex-start; gap: 3px; }
+.project-section-header .sidebar-list-section-label { font-size: calc(var(--ui-scale, 14px) * 0.892857); }
+.project-section-header .project-section-actions { opacity: 0; pointer-events: none; transition: opacity var(--fast) var(--ease); }
+.project-section-header:hover .project-section-actions,
+.project-section-header:focus-within .project-section-actions { opacity: 1; pointer-events: auto; }
+.project-section-header .project-section-action { width: 22px; height: 22px; border: 0; background: transparent; color: var(--text-faint); }
+.project-section-header .project-section-action:hover,
+.project-section-header .project-section-action:active { background: transparent; border: 0; color: var(--text); }
+.app.wallpaper-enabled.wallpaper-compat .project-section-header .project-section-action:hover,
+.app.wallpaper-enabled.wallpaper-compat .project-section-header .project-section-action:active {
+  background: transparent;
+  border-color: transparent;
+}

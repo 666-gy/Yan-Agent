@@ -8,58 +8,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const Module = require('node:module');
-
 const appRoot = path.resolve(__dirname, '..');
-const stubDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-recovery-stub-'));
-
-const electronStub = {
-  app: {
-    getPath: () => stubDataDir,
-    getName: () => 'yan-agent',
-    getVersion: () => '1.4.0',
-    getLocale: () => 'zh',
-    getPreferredSystemLanguages: () => ['zh-CN'],
-    isReady: () => false,
-    requestSingleInstanceLock: () => true,
-    setAppUserModelId: () => {},
-    on: () => {},
-    once: () => {},
-    whenReady: () => new Promise(() => {}),
-    commandLine: { appendSwitch: () => {}, appendArgument: () => {} }
-  },
-  BrowserWindow: class StubWindow {},
-  Tray: class StubTray {},
-  ipcMain: { handle: () => {}, on: () => {}, removeHandler: () => {} },
-  ipcRenderer: {},
-  dialog: {},
-  shell: {},
-  Menu: { buildFromTemplate: () => null, setApplicationMenu: () => {} },
-  nativeImage: { createFromPath: () => ({}), createEmpty: () => ({}) },
-  webContents: { fromId: () => null },
-  screen: {
-    getCursorScreenPoint: () => ({ x: 0, y: 0 }),
-    getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 }, bounds: { x: 0, y: 0, width: 1920, height: 1080 } })
-  },
-  session: { defaultSession: { setSpellCheckerEnabled: () => {} } },
-  clipboard: {},
-  globalShortcut: { register: () => false, isRegistered: () => false, unregister: () => {}, unregisterAll: () => {} },
-  net: {}
-};
-
-const originalLoad = Module._load;
-Module._load = function stubbedLoad(request, parent, isMain) {
-  if (request === 'electron') return electronStub;
-  return originalLoad.call(this, request, parent, isMain);
-};
-
-let main;
-try {
-  process.env.YAN_MAIN_TEST_EXPORTS = '1';
-  main = require(path.join(appRoot, 'main.js'));
-} finally {
-  Module._load = originalLoad;
-}
+const { createRecoveryRuntime } = require('../lib/main/recovery');
+const main = { __test: createRecoveryRuntime({ getYanCore: () => null }) };
 
 const { YanCore } = require(path.join(appRoot, 'lib', 'yan-core'));
 
@@ -182,6 +133,19 @@ test('main recovery descriptors honor the requested run id filter', () => {
   const descriptors = main.__test.buildRecoveredRunDescriptors(['run-b'], core);
   assert.equal(descriptors.length, 1);
   assert.equal(descriptors[0].runId, 'run-b');
+});
+
+test('previously aborted recovery retries until its session timeline is saved', () => {
+  const { core, rootDir } = createTestCore();
+  startInterruptedTurn(core, { threadId: 'sess-a', turnId: 'run-a' });
+  core.ingestProviderEvent('run-a', { type: 'session.next.tool.called', data: { callID: 'c1', tool: 'bash' } });
+  core.recoverInterruptedTurns();
+  core.completeTurn('run-a', { status: 'interrupted' });
+  assert.equal(main.__test.buildRecoveredRunDescriptors([], core).length, 1);
+  assert.ok(core.markRecoveryReplayed('run-a').recovery.replayedAt);
+  assert.deepEqual(main.__test.buildRecoveredRunDescriptors([], core), []);
+  const restarted = new YanCore({ rootDir });
+  assert.deepEqual(main.__test.buildRecoveredRunDescriptors([], restarted), []);
 });
 
 test('recoveryRendererEvent only accepts mapped provider journal entries', () => {

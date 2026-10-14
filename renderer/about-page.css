@@ -1,0 +1,164 @@
+/* About page · independent workspace reached from the app rail.
+ * Hallmark · genre: modern-minimal documentation page · existing settings tokens.
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ */
+.about-page-layer {
+  position: absolute;
+  z-index: 79;
+  top: 40px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--text);
+  --bg: var(--settings-canvas);
+  --bg-elev: var(--settings-surface);
+  --bg-elev2: var(--settings-control);
+  --bg-soft: var(--settings-surface);
+  --bg-hover: var(--settings-hover);
+  --bg-active: var(--settings-selected);
+  --border: var(--settings-border);
+  --border-soft: var(--settings-divider);
+  --border-strong: var(--settings-border-strong);
+  --text: var(--settings-text);
+  --text-dim: var(--settings-text-secondary);
+  --text-faint: var(--settings-text-muted);
+  --accent: var(--settings-accent);
+  --accent-soft: var(--settings-accent-soft);
+  --color-focus: var(--settings-accent);
+}
+.about-page-layer.hidden { display: none; }
+.app #aboutPage { left: var(--app-rail-w); border-top-left-radius: var(--r-xl); overflow: hidden; }
+
+/* The About workspace is a sibling overlay: remove the app layout from paint
+   and hit testing while it is open, exactly like the settings workspace. */
+.app.about-mode > .layout { visibility: hidden; pointer-events: none; }
+.app.about-mode #rightSidebar,
+.app.about-mode #rightResizeHandle,
+.app.about-mode .right-sidebar-fixed-toggle {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.app.about-mode #todoProgressHost,
+.app.about-mode #composerStage,
+.app.about-mode #browserFocusConversationDock,
+.app.about-mode #browserFocusStandbyShell,
+.app.about-mode #browserFocusMinimizedShell,
+.app.about-mode #browserFocusComposerCollapse {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Rail: the About entry sits directly above the Settings entry at the bottom. */
+.app-rail-about { margin-top: auto; }
+.app-rail .app-rail-settings { margin-top: 0; }
+.app.about-mode .app-rail-button.active { background: transparent; }
+.app.about-mode .app-rail-about { background: var(--bg-active); color: var(--text); }
+.app.about-mode .app-rail-about:hover { border-color: transparent; }
+
+.about-page-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--bg);
+}
+.about-page-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 56px clamp(24px, 5vw, 88px) 72px;
+}
+.about-page-scroll > * {
+  width: 100%;
+  max-width: var(--settings-content-width);
+  margin-inline: auto;
+}
+
+.about-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-bottom: 44px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border);
+}
+.about-hero-copy { min-width: 0; }
+.about-hero-title { margin: 0; color: var(--text); font: 600 30px/1.25 var(--font-display); }
+.about-hero-version { margin: 12px 0 0; color: var(--text-dim); font-size: var(--text-base); }
+.about-hero-version-value { color: var(--text); font-weight: 600; }
+
+.about-hero-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+.about-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 22px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter var(--dur-micro, 120ms) ease;
+}
+.about-update-btn:hover { filter: brightness(1.06); }
+.about-update-btn:active { filter: brightness(.95); }
+.about-update-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.about-update-btn:disabled { opacity: .68; cursor: progress; filter: none; }
+.about-update-btn svg { width: 18px; height: 18px; flex: none; }
+
+.about-section { margin-bottom: 56px; }
+.about-section:last-child { margin-bottom: 0; }
+.about-section-title {
+  margin: 0 0 20px;
+  color: var(--text);
+  font: 600 var(--text-lg, 18px)/1.4 var(--font-display);
+}
+
+.about-release-notes { color: var(--text-dim); font-size: var(--text-base); line-height: 1.75; }
+.about-release-notes h1 { margin: 0 0 18px; color: var(--text); font: 600 22px/1.35 var(--font-display); }
+.about-release-notes h2 {
+  margin: 34px 0 12px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text);
+  font: 600 17px/1.4 var(--font-display);
+}
+.about-release-notes h2:first-of-type { margin-top: 8px; padding-top: 0; border-top: 0; }
+.about-release-notes h3 { margin: 22px 0 10px; color: var(--text); font-size: var(--text-md, 15px); font-weight: 600; }
+.about-release-notes p { margin: 12px 0; }
+.about-release-notes ul { margin: 10px 0; padding-left: 22px; }
+.about-release-notes li { margin: 6px 0; }
+.about-release-notes li::marker { color: var(--text-faint); }
+.about-release-notes strong { color: var(--text); }
+.about-release-notes a { color: var(--accent); text-decoration: none; }
+.about-release-notes a:hover { text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .about-page-scroll { padding: 32px 20px 56px; }
+  .about-hero { align-items: flex-start; }
+  .about-hero-actions { align-items: flex-start; width: 100%; }
+}

@@ -58,8 +58,21 @@ test('returns unavailable when no candidate exists', async () => {
     candidates: ['C:\\missing\\Code.exe'],
     cliPaths: ['C:\\missing\\bin\\code.cmd'],
     fsImpl: fakeFs(),
+    registryPaths: [],
   });
   assert.deepEqual(status, { available: false, executable: '', source: '' });
+});
+
+test('detects a custom installation through the registry without PATH', async () => {
+  const executable = 'D:\\Vs code\\Microsoft VS Code\\Code.exe';
+  const status = await detectVsCode({
+    platform: 'win32', candidates: [], cliPaths: [], fsImpl: fakeFs([executable]),
+    execFileImpl(command, args, options, callback) {
+      assert.equal(command, 'reg.exe');
+      callback(null, `    (Default)    REG_SZ    "${executable}" "%1"\r\n`);
+    },
+  });
+  assert.deepEqual(status, { available: true, executable, source: 'registry' });
 });
 
 test('rejects an invalid workspace before launching', async () => {

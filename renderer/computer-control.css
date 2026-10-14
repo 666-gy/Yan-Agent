@@ -1,0 +1,30 @@
+.computer-control-page [hidden] { display: none !important; }
+.computer-section-title { margin: 0 0 20px; font-size: inherit; font-weight: 600; }
+.computer-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 48px 0 18px; }
+.computer-section-heading h3 { margin: 0; font-size: inherit; font-weight: 600; }
+.computer-group { padding: 0 20px; border: 1px solid var(--border); border-radius: 20px; }
+.computer-app-row { display: flex; align-items: center; gap: 18px; min-height: 94px; padding: 18px 0; }
+.computer-app-row + .computer-app-row { border-top: 1px solid var(--border); }
+.computer-app-logo, .computer-brand { flex-shrink: 0; width: 48px; height: 48px; object-fit: contain; border-radius: 12px; }
+.computer-brand { display: grid; place-items: center; background: var(--bg-elev2); }
+.computer-brand svg { width: 30px; height: 30px; }
+.computer-control-page .icon-btn { width: 36px; height: 36px; padding: 8px; border: 0; border-radius: 50%; background: transparent; box-shadow: none; }
+.computer-control-page .icon-btn:hover { background: var(--bg-elev2); }
+.computer-control-page .icon-btn:focus-visible { outline: 2px solid var(--text-dim); outline-offset: 2px; }
+.computer-app-info { min-width: 0; flex: 1; }
+.computer-app-info strong { font-weight: 600; }
+.computer-app-info p { margin: 5px 0 0; color: var(--text-dim); line-height: 1.5; overflow-wrap: anywhere; }
+.computer-app-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.computer-empty { padding: 32px 16px; color: var(--text-dim); text-align: center; }
+#computerControlError, #computerControlDeleteError { color: var(--danger, #c74545); }
+.computer-experience-detail .plugin-detail-subtitle { overflow-wrap: anywhere; }
+.computer-experience-detail .computer-app-logo { width: 76px; height: 76px; border-radius: 18px; }
+.computer-experience-detail h2 { font-size: 18px; margin: 24px 0; }
+.computer-experience-markdown { overflow-wrap: anywhere; }
+.settings-page-layer[data-active-tab="computer-control"].computer-detail-open .settings-page-heading { display: none; }
+#computerControlDeleteDialog { position: fixed; inset: 0; margin: auto; width: 480px; max-width: calc(100vw - 32px); padding: 20px 24px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-soft); }
+#computerControlDeleteDialog::backdrop { background: rgb(0 0 0 / .2); }
+#computerControlDeleteDialog h2 { margin: 0 0 10px; font-size: 20px; }
+#computerControlDeleteDialog p { color: var(--text-dim); }
+.computer-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 18px; }
+.computer-control-page .computer-dialog-actions .conn-pill { min-width: 76px; min-height: 38px; padding: 8px 18px; border-radius: 999px; }

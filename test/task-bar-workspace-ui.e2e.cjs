@@ -26,17 +26,25 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-task-bar-e2e-'));
       }
     });
     const page = await application.firstWindow();
+    await page.waitForFunction(() => window.__YAN_APP_READY__ && typeof setEmptyState === 'function');
+    await page.evaluate(() => setEmptyState(false));
     await page.locator('#taskBar:not(.hidden)').waitFor();
 
     assert.equal(await page.locator('#taskBarYanxiCode').count(), 0, 'Yanxi Code entry must be removed');
     assert.equal(await page.locator('.task-tool-item', { hasText: 'Yanxi Code' }).count(), 0);
 
-    await page.locator('#taskToolsMenuToggle').click();
-    await page.locator('#taskToolsMenu:not(.hidden)').waitFor();
-    const labels = await page.locator('#taskToolsMenu .task-tool-item strong').allInnerTexts();
-    assert.ok(!labels.includes('Yanxi Code'), `tools menu still lists Yanxi Code: ${labels.join(', ')}`);
-    assert.ok(labels.includes('终端') && labels.includes('资源管理器'));
-    assert.ok(labels.includes('VS Code'));
+    // The workspace tools pill was removed; its open-with entries now live in the
+    // task "…" menu as 打开方式.
+    assert.equal(await page.locator('#taskToolsWrap').count(), 0, 'workspace tools pill must be removed');
+    await page.locator('#taskBarMoreBtn').click();
+    await page.locator('.task-toolbar-menu').waitFor();
+    const undoLabels = await page.locator('#taskActionsMenu .sidebar-context-menu-item > span').allInnerTexts();
+    assert.ok(undoLabels.includes('打开方式'), `task menu lacks 打开方式: ${undoLabels.join(', ')}`);
+    await page.locator('#taskActionsMenu .sidebar-context-menu-item', { hasText: '打开方式' }).click();
+    const openWithMenu = page.locator('.task-context-menu', { hasText: '文件资源管理器' }).last();
+    await openWithMenu.waitFor();
+    const labels = await openWithMenu.locator('.sidebar-context-menu-item > span').allInnerTexts();
+    assert.deepEqual(labels, ['VS Code', '文件资源管理器', '终端']);
     await page.keyboard.press('Escape');
 
     const emptyState = await page.evaluate(() => {
@@ -49,10 +57,15 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-task-bar-e2e-'));
       };
     });
     assert.equal(emptyState.hasClass, true, 'empty-state class must be applied without a workspace');
-    assert.ok(
-      ['rgb(217, 119, 87)', 'rgb(194, 97, 63)'].includes(emptyState.background),
-      `workspace button must use the accent background, got ${emptyState.background}`
-    );
+    const accentRgb = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.background = 'var(--accent)';
+      document.body.append(probe);
+      const rgb = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return rgb;
+    });
+    assert.equal(emptyState.background, accentRgb, `workspace button must use the theme accent, got ${emptyState.background}`);
     assert.notEqual(emptyState.shadow, 'none');
 
     await page.locator('#taskBarTitle').dblclick();

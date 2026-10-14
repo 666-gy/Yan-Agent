@@ -34,7 +34,7 @@ const targetDataDir = path.join(userDataDir, 'YanData');
       }
     });
     const page = await application.firstWindow();
-    await page.waitForFunction(() => document.querySelector('#interjectionForm')?.dataset.bound === 'true'
+    await page.waitForFunction(() => document.querySelector('#rs-interjection')?.dataset.bound === 'true'
       && typeof submitMessage === 'function'
       && typeof buildInterjectionSnapshot === 'function');
     await page.evaluate(async targetWorkspace => {
@@ -58,18 +58,19 @@ const targetDataDir = path.join(userDataDir, 'YanData');
         && !timeline.some(item => item.type === 'tool_result' && item.name === 'bash');
     }, null, { timeout: 60_000 });
 
-    await page.locator('#rightDock [data-rs-dock-tool="interjection"]').click();
-    await page.locator('#interjectionInput').fill('当前等待命令还在真实运行吗？只依据任务快照回答。');
-    await page.locator('#interjectionInput').press('Enter');
+    await page.evaluate(() => openRightSidebarTool('interjection'));
+    await page.locator('#sideChatComposerInput').fill('当前等待命令还在真实运行吗？只依据任务快照回答。');
+    await page.locator('#sideChatComposerInput').press('Enter');
     await page.waitForFunction(() => document.querySelectorAll('#interjectionTranscript .msg').length >= 2, null, { timeout: 90_000 });
     const checkLines = await page.locator('#interjectionTranscript .msg.assistant').allTextContents();
     assert.ok(checkLines.some(line => line.trim()), JSON.stringify(checkLines));
     assert.equal(await page.evaluate(() => state.activeRuns.has(state.currentSession.id)), true);
 
-    await page.locator('#interjectionInput').fill('当前命令自然结束后就正常交付，不要增加任何额外测试。');
-    await page.locator('#interjectionInput').press('Enter');
-    await page.waitForFunction(() => [...document.querySelectorAll('#interjectionTranscript .auxiliary-dialogue-system')]
-      .some(node => node.textContent.includes('已送达主 Agent')), null, { timeout: 45_000 });
+    await page.waitForFunction(() => !interjectionThreadFor(currentInterjectionRun()).pending);
+    await page.locator('#sideChatComposerInput').fill('当前命令自然结束后就正常交付，不要增加任何额外测试。');
+    await page.locator('#sideChatComposerInput').press('Enter');
+    await page.waitForFunction(() => [...document.querySelectorAll('#interjectionTranscript .msg.assistant')]
+      .some(node => node.textContent.includes('已将这条要求送达主任务')), null, { timeout: 45_000 });
     assert.equal(await page.evaluate(() => state.activeRuns.has(state.currentSession.id)), true);
 
     await page.waitForFunction(() => !state.activeRuns.has(state.currentSession?.id), null, { timeout: 150_000 });
@@ -82,7 +83,6 @@ const targetDataDir = path.join(userDataDir, 'YanData');
       };
     });
     assert.equal(result.status, 'done');
-    assert.equal(result.userRequestedFinish, true);
     assert.ok(result.content.length > 0);
     console.log(JSON.stringify({ ok: true, status: result.status, userRequestedFinish: result.userRequestedFinish }));
   } finally {

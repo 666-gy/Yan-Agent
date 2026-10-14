@@ -1,0 +1,4 @@
+# Plugin catalogs are content-addressed. Preserve upstream bytes and digests on
+# Windows checkouts even when the user's global core.autocrlf setting is true.
+lib/plugins/catalog/** -text
+test/fixtures/plugin-package/** -text

@@ -1,0 +1,2166 @@
+[
+  {
+    "id": "figma",
+    "name": "Figma",
+    "description": "读取和创建设计，连接组件代码，维护设计系统并实现界面。",
+    "entry": "figma-use",
+    "url": "https://mcp.figma.com/mcp",
+    "website": "https://www.figma.com/login",
+    "category": "creativity",
+    "logo": "assets/skill-logos/figma.png",
+    "repository": "openai/plugins",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/figma",
+    "download": true,
+    "requirements": "安装后自动在系统浏览器打开官方登录授权页面。完成授权后启用；功能可用范围取决于账号套餐与服务权限。",
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "figma",
+      "name": "Figma",
+      "version": "2.0.20",
+      "description": "读取和创建设计，连接组件代码，维护设计系统并实现界面。",
+      "author": "Figma",
+      "license": "LicenseRef-Figma-Developer-Terms",
+      "instructions": "yan-instructions.md",
+      "skills": [
+        {
+          "id": "figma-code-connect",
+          "name": "figma-code-connect",
+          "description": "Figma · figma-code-connect",
+          "path": "skills/figma-code-connect/SKILL.md"
+        },
+        {
+          "id": "figma-create-new-file",
+          "name": "figma-create-new-file",
+          "description": "Figma · figma-create-new-file",
+          "path": "skills/figma-create-new-file/SKILL.md"
+        },
+        {
+          "id": "figma-design-to-code",
+          "name": "figma-design-to-code",
+          "description": "Figma · figma-design-to-code",
+          "path": "skills/figma-design-to-code/SKILL.md"
+        },
+        {
+          "id": "figma-generate-design",
+          "name": "figma-generate-design",
+          "description": "Figma · figma-generate-design",
+          "path": "skills/figma-generate-design/SKILL.md"
+        },
+        {
+          "id": "figma-generate-diagram",
+          "name": "figma-generate-diagram",
+          "description": "Figma · figma-generate-diagram",
+          "path": "skills/figma-generate-diagram/SKILL.md"
+        },
+        {
+          "id": "figma-generate-library",
+          "name": "figma-generate-library",
+          "description": "Figma · figma-generate-library",
+          "path": "skills/figma-generate-library/SKILL.md"
+        },
+        {
+          "id": "figma-implement-motion",
+          "name": "figma-implement-motion",
+          "description": "Figma · figma-implement-motion",
+          "path": "skills/figma-implement-motion/SKILL.md"
+        },
+        {
+          "id": "figma-swiftui",
+          "name": "figma-swiftui",
+          "description": "Figma · figma-swiftui",
+          "path": "skills/figma-swiftui/SKILL.md"
+        },
+        {
+          "id": "figma-use-figjam",
+          "name": "figma-use-figjam",
+          "description": "Figma · figma-use-figjam",
+          "path": "skills/figma-use-figjam/SKILL.md"
+        },
+        {
+          "id": "figma-use-motion",
+          "name": "figma-use-motion",
+          "description": "Figma · figma-use-motion",
+          "path": "skills/figma-use-motion/SKILL.md"
+        },
+        {
+          "id": "figma-use-slides",
+          "name": "figma-use-slides",
+          "description": "Figma · figma-use-slides",
+          "path": "skills/figma-use-slides/SKILL.md"
+        },
+        {
+          "id": "figma-use",
+          "name": "figma-use",
+          "description": "Figma · figma-use",
+          "path": "skills/figma-use/SKILL.md"
+        }
+      ],
+      "resources": [],
+      "mcpServers": [
+        {
+          "id": "figma",
+          "type": "remote",
+          "url": "https://mcp.figma.com/mcp",
+          "auth": "oauth"
+        }
+      ]
+    },
+    "files": [
+      {
+        "path": ".app.json",
+        "sha": "f840d296c39f152e29bb2ccf8d446c89274499fc",
+        "size": 98
+      },
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha": "cd1940f458e9a135c1f1e81b6bcd4e6298435945",
+        "size": 1677
+      },
+      {
+        "path": ".mcp.json",
+        "sha": "7acdb2e2f0bb0fc2c9d6f9021562f2192386ec93",
+        "size": 163
+      },
+      {
+        "path": "LICENSE.txt",
+        "sha": "5dcf1aa26bfef4087f41ef51cd93138fd6db25cd",
+        "size": 441
+      },
+      {
+        "path": "README.md",
+        "sha": "f3680ca735155e042a93985b420602aff249bbbd",
+        "size": 2466
+      },
+      {
+        "path": "agents/design-parity-review-agent.md",
+        "sha": "0487dcaac9a15e13a72b25ed4f2a7a3aa1a2b8be",
+        "size": 485
+      },
+      {
+        "path": "agents/design-system-rules-agent.md",
+        "sha": "fc36f81adb66dc66d865f538af79c9a4181c00d6",
+        "size": 660
+      },
+      {
+        "path": "agents/figma-code-connect-agent.md",
+        "sha": "ff79e0b94395c67c8a8e1d13d9a7e7e18ebed3a3",
+        "size": 644
+      },
+      {
+        "path": "agents/figma-implementation-agent.md",
+        "sha": "e44cc53e24bc06f4667c8b18312f4cdf0f2445a7",
+        "size": 679
+      },
+      {
+        "path": "agents/openai.yaml",
+        "sha": "dd64163fdf4f69b3c766f9b44c8fe25e98c30b28",
+        "size": 277
+      },
+      {
+        "path": "assets/app-icon.png",
+        "sha": "228b6f307fbe04d3e6584772cec754999ec6f2ea",
+        "size": 37004
+      },
+      {
+        "path": "assets/figma-plugin-large.svg",
+        "sha": "d271c60053709b8f4ca10c9fc051438a6a8b277a",
+        "size": 968
+      },
+      {
+        "path": "assets/figma-plugin-small.svg",
+        "sha": "d0bfd527503808645ccd27acae74323facba5dde",
+        "size": 463
+      },
+      {
+        "path": "assets/figma-small.svg",
+        "sha": "39074e325567de3a617efc45e80642acd17b74b6",
+        "size": 810
+      },
+      {
+        "path": "assets/figma.png",
+        "sha": "31d5a6e5e0efaadb2c12c23bc9020eaa40fdf8ef",
+        "size": 18755
+      },
+      {
+        "path": "assets/icon.svg",
+        "sha": "5184f7cf270d90c4ccb34545081b3f707602bb5d",
+        "size": 964
+      },
+      {
+        "path": "assets/logo-padded.png",
+        "sha": "a440869869daecb30454f9f25c8b4539b12d87b3",
+        "size": 18308
+      },
+      {
+        "path": "commands/connect-figma-components.md",
+        "sha": "124053623e6585a0e28c262ef5c2964b3edaef6c",
+        "size": 708
+      },
+      {
+        "path": "commands/create-design-system-rules.md",
+        "sha": "e7399aad34c185b45c9b82b669c789f1c2a2a9b9",
+        "size": 592
+      },
+      {
+        "path": "commands/implement-from-figma.md",
+        "sha": "8469ba1bf46919960300fb0bb76cdc931982bcb5",
+        "size": 719
+      },
+      {
+        "path": "commands/review-design-parity.md",
+        "sha": "824758300a071bf4ff5bc4f45147ce95372a68b3",
+        "size": 689
+      },
+      {
+        "path": "hooks.json",
+        "sha": "0904b23a9f3f1fc02e67f5c74e3e9178cf5af56e",
+        "size": 249
+      },
+      {
+        "path": "plugin.lock.json",
+        "sha": "e7af750daa70ab4d239ce17e191a71545ba517ad",
+        "size": 2981
+      },
+      {
+        "path": "scripts/post_write_figma_parity_check.sh",
+        "sha": "5d8b61b8434a754ce804a70ae39218d74c0c94e7",
+        "size": 327
+      },
+      {
+        "path": "skills/figma-code-connect/SKILL.md",
+        "sha": "867ae9db76a0bdefa0ca233aab3f9b4c7dd006f9",
+        "size": 26669
+      },
+      {
+        "path": "skills/figma-code-connect/references/advanced-patterns.md",
+        "sha": "09466578a7c0a8f44950c19df2dc2f137bb79e3d",
+        "size": 10069
+      },
+      {
+        "path": "skills/figma-code-connect/references/api.md",
+        "sha": "fe74f3118690b7af9ae96eadafbace1e6ad773fc",
+        "size": 23396
+      },
+      {
+        "path": "skills/figma-create-new-file/SKILL.md",
+        "sha": "5de12596d9c2b5c5292876f07ff44de10087cd52",
+        "size": 3946
+      },
+      {
+        "path": "skills/figma-design-to-code/SKILL.md",
+        "sha": "1e55d56ca8c170e6e238b241bf20dc1f1964f2cd",
+        "size": 4983
+      },
+      {
+        "path": "skills/figma-generate-design/SKILL.md",
+        "sha": "9ce4e0b1ef480b477e503f791d5b25c1eabacb7a",
+        "size": 33620
+      },
+      {
+        "path": "skills/figma-generate-design/references/componentization.md",
+        "sha": "ea0748672986ae148e5bdba328537229456c0e2b",
+        "size": 1764
+      },
+      {
+        "path": "skills/figma-generate-design/references/discover-product-font.md",
+        "sha": "78403e81cf2c7080b27d845632b026155a25effa",
+        "size": 4699
+      },
+      {
+        "path": "skills/figma-generate-diagram/SKILL.md",
+        "sha": "28db4f55e5c2bdc287e68f34ed97235dd4d460a8",
+        "size": 10272
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/architecture.md",
+        "sha": "26d75a394b0432d74086f43e65fb64a59e24a997",
+        "size": 13551
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/erd.md",
+        "sha": "b2059348acf944999ebbfe44d840e0ede4028154",
+        "size": 13388
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/flowchart.md",
+        "sha": "6f0cdd77bdff04f88ad525cda492c015536ab2ca",
+        "size": 19558
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/gantt.md",
+        "sha": "34a1e44c9c039b3814cefd0841b689e79c41da06",
+        "size": 13253
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/sequence.md",
+        "sha": "fdb4968f90ba5ba570a48a90859304b260d1d6d2",
+        "size": 14982
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/state.md",
+        "sha": "4e452b685f638e01a12290a7a073346549ad8828",
+        "size": 14654
+      },
+      {
+        "path": "skills/figma-generate-diagram/references/workflow.md",
+        "sha": "4688cc80074705dca8a1bb9c0d12dcd7e7b74da9",
+        "size": 11141
+      },
+      {
+        "path": "skills/figma-generate-library/SKILL.md",
+        "sha": "ee849ebae1a6ae9b311b3be2b57c46dbecd3ec8e",
+        "size": 23717
+      },
+      {
+        "path": "skills/figma-generate-library/references/code-connect-setup.md",
+        "sha": "a2500ce3c9d1610a7aeacfb9045549e9aa052873",
+        "size": 12456
+      },
+      {
+        "path": "skills/figma-generate-library/references/component-creation.md",
+        "sha": "a8381eb2bfda4de616c314f1af17ba4d96b78254",
+        "size": 37943
+      },
+      {
+        "path": "skills/figma-generate-library/references/discovery-phase.md",
+        "sha": "b710e8595979a575552497795be71db6f989c585",
+        "size": 21372
+      },
+      {
+        "path": "skills/figma-generate-library/references/documentation-creation.md",
+        "sha": "523ccfd4dbda123d3e932ef4adda76dee6f0edeb",
+        "size": 29037
+      },
+      {
+        "path": "skills/figma-generate-library/references/error-recovery.md",
+        "sha": "b408c20b25b901f7e44d4e6c71cb443bc53a75b4",
+        "size": 18605
+      },
+      {
+        "path": "skills/figma-generate-library/references/naming-conventions.md",
+        "sha": "3405e37c07f8b5b85d6fadf0e39c2673de81bdd7",
+        "size": 19003
+      },
+      {
+        "path": "skills/figma-generate-library/references/token-creation.md",
+        "sha": "c9115ff075baa0cf154154979fd94e3ab73ad533",
+        "size": 32603
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/bindVariablesToComponent.js",
+        "sha": "d3e805d97056787db2cc2a802eb2429a94277b97",
+        "size": 4026
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/cleanupOrphans.js",
+        "sha": "af4ebb4ebe0315c314b67a2e0e1f40209d593191",
+        "size": 2204
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/createComponentWithVariants.js",
+        "sha": "7b53e7705695320cb387209d4bf9f093c869e743",
+        "size": 4679
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/createDocumentationPage.js",
+        "sha": "3ebcc60e6c01852a4b355ecc109eb3e76fe62ab8",
+        "size": 4738
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/createSemanticTokens.js",
+        "sha": "d585cb4482f214d71b549f75a616f8f110f31bfa",
+        "size": 3651
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/createVariableCollection.js",
+        "sha": "8933cc498d272f573b97c5ead2e2cc3e5d03e370",
+        "size": 1408
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/inspectFileStructure.js",
+        "sha": "f4a5bd76c562c81c00aa63c4950f599ca911df7f",
+        "size": 3718
+      },
+      {
+        "path": "skills/figma-generate-library/scripts/validateCreation.js",
+        "sha": "e607d0430560189f469bae3b0a3e528de4cfa0f6",
+        "size": 2718
+      },
+      {
+        "path": "skills/figma-implement-motion/SKILL.md",
+        "sha": "1732d9bf2bb069eaf3def1f202986e518c2e9fc5",
+        "size": 23279
+      },
+      {
+        "path": "skills/figma-implement-motion/references/examples-and-anti-examples.md",
+        "sha": "37944748950fa769e4a7d8dbfb37346a2edb5158",
+        "size": 11705
+      },
+      {
+        "path": "skills/figma-implement-motion/references/framework-recommendations.md",
+        "sha": "f705ed1102ac90a26468e96413d5bc9db408c9bb",
+        "size": 7003
+      },
+      {
+        "path": "skills/figma-implement-motion/references/gotchas.md",
+        "sha": "fded086170324a3fdde0869c536f08d961a74fb9",
+        "size": 9621
+      },
+      {
+        "path": "skills/figma-implement-motion/references/motion-lint-rules.md",
+        "sha": "2199eac207c3eaaa6c96464c8747f9d730c9fe00",
+        "size": 2095
+      },
+      {
+        "path": "skills/figma-implement-motion/references/svg-and-path-motion.md",
+        "sha": "68c0ad4ff4b1bd9d08051057dcc77ad9c103eed3",
+        "size": 8403
+      },
+      {
+        "path": "skills/figma-implement-motion/references/unsupported-and-fallbacks.md",
+        "sha": "577c9f2ec1f77b9bfba6a4235b54fca1b45230c3",
+        "size": 6164
+      },
+      {
+        "path": "skills/figma-swiftui/SKILL.md",
+        "sha": "60ca47143059a2e0e358df261f0558de459a0b1e",
+        "size": 4049
+      },
+      {
+        "path": "skills/figma-swiftui/references/code-to-design.md",
+        "sha": "b883522dff1ce0628407a6a1101bfff5766fd9ed",
+        "size": 18991
+      },
+      {
+        "path": "skills/figma-swiftui/references/design-to-code.md",
+        "sha": "85b5842538f7778a4f8b52e3394659ec0c3e4d4d",
+        "size": 37329
+      },
+      {
+        "path": "skills/figma-use-figjam/SKILL.md",
+        "sha": "846c2897d4e83f1518d32770a47f1ee1c09cf89c",
+        "size": 7089
+      },
+      {
+        "path": "skills/figma-use-figjam/references/batch-modify.md",
+        "sha": "e9a28325af5bce8967d3e3c5e9e57eb8594b4428",
+        "size": 7395
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-code-block.md",
+        "sha": "bd4e4bcdd4fd230ac5de6b5c11ade30fa500e2ab",
+        "size": 2791
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-connector.md",
+        "sha": "388ee25c33d3f73886bcd401fcb10c763401dcab",
+        "size": 11595
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-label.md",
+        "sha": "50f8d981ff297f7c842a1ecbb2a43410c0b08e73",
+        "size": 11831
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-section.md",
+        "sha": "265e53ccf2630a909c10c699f5e51fb359575ffa",
+        "size": 7695
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-shape-with-text.md",
+        "sha": "c3713a9bb8d2d0595d150ca12bd0efaa4e7abe83",
+        "size": 15946
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-sticky.md",
+        "sha": "eb904bc0aa4dd9177564db77265206b172857045",
+        "size": 10552
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-table.md",
+        "sha": "e51b56a489856892ac894c649f68fdec30250a47",
+        "size": 13457
+      },
+      {
+        "path": "skills/figma-use-figjam/references/create-text.md",
+        "sha": "d3d9fa6feeb1c7441637c183349d09c7de5ac7c4",
+        "size": 18575
+      },
+      {
+        "path": "skills/figma-use-figjam/references/edit-text.md",
+        "sha": "da32f9af6061416f48ede0a0547996aae10bdcc5",
+        "size": 12051
+      },
+      {
+        "path": "skills/figma-use-figjam/references/figjam-colors.md",
+        "sha": "cbe3c1ec88976a8fa3e90c7bd94d0583b1f7f906",
+        "size": 9228
+      },
+      {
+        "path": "skills/figma-use-figjam/references/plan-board-content.md",
+        "sha": "2a163fc82d103d9e37d8550b0ee4fdf2d6d0387f",
+        "size": 17219
+      },
+      {
+        "path": "skills/figma-use-figjam/references/position-figjam-nodes.md",
+        "sha": "cf889adad011182053ea041f066142203ad8969d",
+        "size": 3920
+      },
+      {
+        "path": "skills/figma-use-motion/SKILL.md",
+        "sha": "a1228c948067d198a8d51484d7ec1be1a9f00529",
+        "size": 6910
+      },
+      {
+        "path": "skills/figma-use-motion/references/motion-easing.md",
+        "sha": "412ac7190b4a1f10f9e870703659946f0f74cecc",
+        "size": 4591
+      },
+      {
+        "path": "skills/figma-use-motion/references/motion-patterns.md",
+        "sha": "f7c0f118d97215338bb62572194aaf3c28f33eec",
+        "size": 19966
+      },
+      {
+        "path": "skills/figma-use-slides/SKILL.md",
+        "sha": "4df533d022de9b19b51104693110d179b600053c",
+        "size": 22033
+      },
+      {
+        "path": "skills/figma-use-slides/references/slide-content.md",
+        "sha": "7c4df4583652422c7226e77cff8155a97f36c562",
+        "size": 6208
+      },
+      {
+        "path": "skills/figma-use-slides/references/slide-design.md",
+        "sha": "8f2954143ba8f7a72c07c7829136f1f0bee81608",
+        "size": 15827
+      },
+      {
+        "path": "skills/figma-use-slides/references/slide-gotchas.md",
+        "sha": "a5b4bac508adb7e1fc4a6f46b509347a3a410147",
+        "size": 16533
+      },
+      {
+        "path": "skills/figma-use-slides/references/slide-grid.md",
+        "sha": "e818b8ebfefc18ea76f3b8ac1507a719b1f7444d",
+        "size": 3058
+      },
+      {
+        "path": "skills/figma-use-slides/references/slide-lifecycle.md",
+        "sha": "f5c93a409046b104a46e8d1163b53debfd39af68",
+        "size": 2208
+      },
+      {
+        "path": "skills/figma-use-slides/references/slide-properties.md",
+        "sha": "dfcb8b0e7e4ab2312e7d8c299ca9f9e1a1aa61ae",
+        "size": 3817
+      },
+      {
+        "path": "skills/figma-use/SKILL.md",
+        "sha": "1f79ee54400555f744d92af8a20bd1779ba7e1d4",
+        "size": 35188
+      },
+      {
+        "path": "skills/figma-use/references/api-reference.md",
+        "sha": "14d41ebf1c7066156a02afb3a06da96cbd321f2c",
+        "size": 16235
+      },
+      {
+        "path": "skills/figma-use/references/common-patterns.md",
+        "sha": "600b89b37a8073d89feb9c092af9e6e5d11e56fd",
+        "size": 14410
+      },
+      {
+        "path": "skills/figma-use/references/component-patterns.md",
+        "sha": "225eba25ef2164ded86bfbf2c23a813e25493990",
+        "size": 24086
+      },
+      {
+        "path": "skills/figma-use/references/effect-style-patterns.md",
+        "sha": "40ebad2b4d2335c10556e50cbd369658327abc4e",
+        "size": 3182
+      },
+      {
+        "path": "skills/figma-use/references/gotchas.md",
+        "sha": "34dd481e30ac3610387d2a173e68a917c7792e22",
+        "size": 53365
+      },
+      {
+        "path": "skills/figma-use/references/plugin-api-patterns.md",
+        "sha": "a27cb64660cf1d2161dbd7f55a4cfd690347261f",
+        "size": 16249
+      },
+      {
+        "path": "skills/figma-use/references/plugin-api-standalone.d.ts",
+        "sha": "c9f224bfab682126f7ace878df27b89fbbe3c8eb",
+        "size": 452454
+      },
+      {
+        "path": "skills/figma-use/references/plugin-api-standalone.index.md",
+        "sha": "ed47a8269c1549a68ad324cbe83554c33c7bd805",
+        "size": 29953
+      },
+      {
+        "path": "skills/figma-use/references/text-style-patterns.md",
+        "sha": "46c531b46f974e7dc32f24c012d0d350de2a12d7",
+        "size": 6914
+      },
+      {
+        "path": "skills/figma-use/references/validation-and-recovery.md",
+        "sha": "56acf9b67969dab5174c3ba685f0f68b01373981",
+        "size": 4553
+      },
+      {
+        "path": "skills/figma-use/references/variable-patterns.md",
+        "sha": "9c3287dc9c80602ecc871b0989e0a5611f1b079b",
+        "size": 13928
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-components--creating.md",
+        "sha": "62c4ad97a856175851b6d971292ad26a2283fa88",
+        "size": 2199
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-components--using.md",
+        "sha": "b501339be1fd4ceaee31bc729322a0d887e3813e",
+        "size": 2420
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-components.md",
+        "sha": "5ed79e34c2ae8fe5ac1f35fba9ce4e5be31008b2",
+        "size": 4272
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-effect-styles.md",
+        "sha": "0e52ca45f39ca36790900d256b425cdeb691ab2b",
+        "size": 3268
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-text-styles.md",
+        "sha": "454d993cfce7c05efb7965ed9efcf019056eb96a",
+        "size": 5144
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-variables--creating.md",
+        "sha": "ab2968ac8e4fbca3ecb14f2732c79a8ae8408532",
+        "size": 1559
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-variables--using.md",
+        "sha": "4fbddd8d9461e3c2ad9a3d0655c6be445e249116",
+        "size": 1908
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds-variables.md",
+        "sha": "26c0615bbebe09fd4d5f725774250985c599e380",
+        "size": 5186
+      },
+      {
+        "path": "skills/figma-use/references/working-with-design-systems/wwds.md",
+        "sha": "4b335a5866c52548a533e4f2bf6d75c6ab76ac67",
+        "size": 5220
+      },
+      {
+        "path": "ui/figma-workbench.html",
+        "sha": "043689c0833fdefb16f3065f43b42cc0574b0e6b",
+        "size": 6407
+      }
+    ],
+    "presentation": {
+      "shortDescription": "Figma design-to-code workflows",
+      "longDescription": "Figma workflows for implementing designs in code, creating Code Connect templates for published Figma components, and generating project-specific design system rules for repeatable Figma-to-code work.",
+      "developer": "Figma",
+      "capabilities": [
+        "Interactive",
+        "Read",
+        "Write"
+      ],
+      "website": "https://www.figma.com/",
+      "privacy": "https://www.figma.com/legal/privacy/",
+      "terms": "https://www.figma.com/legal/developer-terms/"
+    }
+  },
+  {
+    "id": "canva",
+    "name": "Canva",
+    "description": "创建、编辑和审阅设计，适配社交媒体尺寸并检查品牌一致性。",
+    "entry": "canva-edit-design",
+    "url": "https://mcp.canva.com/mcp",
+    "website": "https://www.canva.com/login/",
+    "category": "creativity",
+    "logo": "assets/skill-logos/canva.png",
+    "repository": "openai/plugins",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/canva",
+    "download": true,
+    "requirements": "安装后自动在系统浏览器打开官方登录授权页面。完成授权后启用；功能可用范围取决于账号套餐与服务权限。",
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "canva",
+      "name": "Canva",
+      "version": "14.0.0",
+      "description": "创建、编辑和审阅设计，适配社交媒体尺寸并检查品牌一致性。",
+      "author": "Canva Pty Ltd.",
+      "license": "Upstream service terms",
+      "instructions": "yan-instructions.md",
+      "skills": [
+        {
+          "id": "canva-brand-check",
+          "name": "canva-brand-check",
+          "description": "Canva · canva-brand-check",
+          "path": "skills/canva-brand-check/SKILL.md"
+        },
+        {
+          "id": "canva-branded-presentation",
+          "name": "canva-branded-presentation",
+          "description": "Canva · canva-branded-presentation",
+          "path": "skills/canva-branded-presentation/SKILL.md"
+        },
+        {
+          "id": "canva-bulk-create",
+          "name": "canva-bulk-create",
+          "description": "Canva · canva-bulk-create",
+          "path": "skills/canva-bulk-create/SKILL.md"
+        },
+        {
+          "id": "canva-design-feedback",
+          "name": "canva-design-feedback",
+          "description": "Canva · canva-design-feedback",
+          "path": "skills/canva-design-feedback/SKILL.md"
+        },
+        {
+          "id": "canva-edit-design",
+          "name": "canva-edit-design",
+          "description": "Canva · canva-edit-design",
+          "path": "skills/canva-edit-design/SKILL.md"
+        },
+        {
+          "id": "canva-implement-feedback",
+          "name": "canva-implement-feedback",
+          "description": "Canva · canva-implement-feedback",
+          "path": "skills/canva-implement-feedback/SKILL.md"
+        },
+        {
+          "id": "canva-resize-for-social-media",
+          "name": "canva-resize-for-social-media",
+          "description": "Canva · canva-resize-for-social-media",
+          "path": "skills/canva-resize-for-social-media/SKILL.md"
+        },
+        {
+          "id": "canva-translate-design",
+          "name": "canva-translate-design",
+          "description": "Canva · canva-translate-design",
+          "path": "skills/canva-translate-design/SKILL.md"
+        }
+      ],
+      "resources": [],
+      "mcpServers": [
+        {
+          "id": "canva",
+          "type": "remote",
+          "url": "https://mcp.canva.com/mcp",
+          "auth": "oauth"
+        }
+      ]
+    },
+    "files": [
+      {
+        "path": ".app.json",
+        "sha": "30845bf88fee3759c0e680e8ac921ffcfdd890a3",
+        "size": 97
+      },
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha": "229c7c92c05cae6ce51cb1cdc9eafc339253df9b",
+        "size": 3754
+      },
+      {
+        "path": ".mcp.json",
+        "sha": "b8fbd3beacae121f32b19be5198a19f88dfaf4ee",
+        "size": 110
+      },
+      {
+        "path": "assets/composer-icon.png",
+        "sha": "0e29ead9e1e5ae8a52247bce8b0de23a1a96293e",
+        "size": 1080894
+      },
+      {
+        "path": "assets/logo.png",
+        "sha": "ba9e690d097afbf83226d8e15fdfd6acc11ccc30",
+        "size": 44919
+      },
+      {
+        "path": "skills/canva-brand-check/SKILL.md",
+        "sha": "7392e054bac38ee93c01ae6e0ce62b1e2140e072",
+        "size": 5147
+      },
+      {
+        "path": "skills/canva-branded-presentation/SKILL.md",
+        "sha": "4927aab940a1451c8314a47b19859687f3f3d523",
+        "size": 3090
+      },
+      {
+        "path": "skills/canva-bulk-create/SKILL.md",
+        "sha": "643b6a4905ecb26a6e7f9d5dce65f698f85c4966",
+        "size": 5309
+      },
+      {
+        "path": "skills/canva-design-feedback/SKILL.md",
+        "sha": "ce1c52b5312f125ca07d825b82c5d74abb3c39c8",
+        "size": 4735
+      },
+      {
+        "path": "skills/canva-edit-design/SKILL.md",
+        "sha": "d0aaf0c0fb163a4a2a69cd62f9cbd1408b2010a1",
+        "size": 5769
+      },
+      {
+        "path": "skills/canva-implement-feedback/SKILL.md",
+        "sha": "6bb8a7ce5244e158f6d8dec3ea05103e21f46b31",
+        "size": 7170
+      },
+      {
+        "path": "skills/canva-resize-for-social-media/SKILL.md",
+        "sha": "8d94bca516fa265256bf509f74c708fa352b1fb6",
+        "size": 5887
+      },
+      {
+        "path": "skills/canva-translate-design/SKILL.md",
+        "sha": "1e3feb3cc09708709e23ea05e83e3deb1adc3fdf",
+        "size": 2846
+      }
+    ],
+    "presentation": {
+      "shortDescription": "Create, review, edit designs",
+      "longDescription": "Bring your Canva design workflow into Codex and create, refine, and review designs through natural conversation.\nAvailable skills:\nResize for social media: Adapt a design for Facebook, Instagram, and LinkedIn in one step.\nBulk create: Generate multiple designs from spreadsheet data using a brand template.\nEdit designs: Update text, media, and formatting, or reposition and resize elements.\nGet design feedback: Receive structured feedback on visual hierarchy, layout, readability, consistency, and accessibility.\nImplement feedback: Review comment threads and apply clear, actionable changes.\nBrand check: Check colors, fonts, logo usage, and copy against your Brand Kit.\nOnce installed, describe what you want in plain language or invoke Canva directly with @Canva.\nTry prompts like:\n- @Canva, resize this design for social media.\n- @Canva, create designs from this spreadsheet using my brand template.\n- @Canva, update the headline in this design.\n- @Canva, review this design’s visual hierarchy and readability.\n- @Canva, implement the feedback in the comment threads.\n- @Canva, check this design against my Brand Kit.\n\nRequirements: Connect your Canva account to use the plugin. Bulk Create requires an eligible Canva Enterprise plan.\n\nWant to take a more hands-on approach? Instantly open your design in Canva’s powerful editor for the final touches.",
+      "developer": "Canva Pty Ltd.",
+      "capabilities": [],
+      "website": "https://www.canva.com/",
+      "privacy": "https://www.canva.com/policies/privacy-policy/",
+      "terms": "https://www.canva.com/policies/terms-of-use/"
+    }
+  },
+  {
+    "id": "game-studio",
+    "name": "Game Studio",
+    "category": "developer-tools",
+    "description": "设计、开发和测试浏览器游戏，涵盖 2D、3D、素材制作与试玩。",
+    "entry": "game-studio",
+    "website": "https://openai.com/",
+    "requirements": "提供游戏规划、Phaser、Three.js、React Three Fiber 与试玩工作流。项目依赖、浏览器、Blender 或素材生成工具按具体任务准备。",
+    "runtimeInstructions": "Start with game-studio, then read web-game-foundations and the selected engine skill. Use available Yan browser, shell and file tools. Image generation, Blender and browser automation are optional capabilities: check availability before promising them.",
+    "logo": "assets/skill-logos/game-studio.png",
+    "repository": "openai/plugins",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/game-studio",
+    "download": true,
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "game-studio",
+      "name": "Game Studio",
+      "version": "0.1.2",
+      "description": "设计、开发和测试浏览器游戏，涵盖 2D、3D、素材制作与试玩。",
+      "author": "OpenAI",
+      "license": "MIT",
+      "instructions": "yan-instructions.md",
+      "skills": [
+        {
+          "id": "game-playtest",
+          "name": "game-playtest",
+          "description": "Game Studio · game-playtest",
+          "path": "skills/game-playtest/SKILL.md"
+        },
+        {
+          "id": "game-studio",
+          "name": "game-studio",
+          "description": "Game Studio · game-studio",
+          "path": "skills/game-studio/SKILL.md"
+        },
+        {
+          "id": "game-ui-frontend",
+          "name": "game-ui-frontend",
+          "description": "Game Studio · game-ui-frontend",
+          "path": "skills/game-ui-frontend/SKILL.md"
+        },
+        {
+          "id": "phaser-2d-game",
+          "name": "phaser-2d-game",
+          "description": "Game Studio · phaser-2d-game",
+          "path": "skills/phaser-2d-game/SKILL.md"
+        },
+        {
+          "id": "react-three-fiber-game",
+          "name": "react-three-fiber-game",
+          "description": "Game Studio · react-three-fiber-game",
+          "path": "skills/react-three-fiber-game/SKILL.md"
+        },
+        {
+          "id": "sprite-pipeline",
+          "name": "sprite-pipeline",
+          "description": "Game Studio · sprite-pipeline",
+          "path": "skills/sprite-pipeline/SKILL.md"
+        },
+        {
+          "id": "three-webgl-game",
+          "name": "three-webgl-game",
+          "description": "Game Studio · three-webgl-game",
+          "path": "skills/three-webgl-game/SKILL.md"
+        },
+        {
+          "id": "web-3d-asset-pipeline",
+          "name": "web-3d-asset-pipeline",
+          "description": "Game Studio · web-3d-asset-pipeline",
+          "path": "skills/web-3d-asset-pipeline/SKILL.md"
+        },
+        {
+          "id": "web-game-foundations",
+          "name": "web-game-foundations",
+          "description": "Game Studio · web-game-foundations",
+          "path": "skills/web-game-foundations/SKILL.md"
+        }
+      ],
+      "resources": [],
+      "mcpServers": []
+    },
+    "files": [
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha": "5e44d10c60c6415130c5f8442e60577be257979c",
+        "size": 1419
+      },
+      {
+        "path": "assets/app-icon.png",
+        "sha": "6415b68216c22c88ea1bb006e814836a6ee511c0",
+        "size": 8885
+      },
+      {
+        "path": "assets/game-studio.svg",
+        "sha": "bb7846b910640c1ad905126a93a428075dd3b0de",
+        "size": 1481
+      },
+      {
+        "path": "references/alternative-3d-engines.md",
+        "sha": "14c4192d2bc2bf65443499246cd003f4e8461f64",
+        "size": 2043
+      },
+      {
+        "path": "references/engine-selection.md",
+        "sha": "d5d7bc10850c4aa1ad8c64bf415ed7919d281a5e",
+        "size": 2503
+      },
+      {
+        "path": "references/frontend-prompts.md",
+        "sha": "86d46e2de9fcbb5d85cbc7a59d09429072002449",
+        "size": 3712
+      },
+      {
+        "path": "references/gltf-loading-starter.md",
+        "sha": "2eb1324ca55d17fa08ac7a9cb19a41bfcd22f513",
+        "size": 980
+      },
+      {
+        "path": "references/phaser-architecture.md",
+        "sha": "53fb903dc4b8fa1f74c3320c5103774879561594",
+        "size": 1200
+      },
+      {
+        "path": "references/playtest-checklist.md",
+        "sha": "3a2e81d4aad7897759e1c492a93d41ddc959b39c",
+        "size": 1599
+      },
+      {
+        "path": "references/rapier-integration-starter.md",
+        "sha": "f78a5be3d7d8c1cd1d89b33dff45f9375a81d4fe",
+        "size": 1055
+      },
+      {
+        "path": "references/react-three-fiber-stack.md",
+        "sha": "947a3e0ddc51df70250d4ac95ef43f136997e97e",
+        "size": 1764
+      },
+      {
+        "path": "references/react-three-fiber-starter.md",
+        "sha": "c14a92e8b326eda857053445dd2df9b370f8c106",
+        "size": 1424
+      },
+      {
+        "path": "references/sprite-pipeline.md",
+        "sha": "d3804a623b7c98f43051f0d1015f33364ac8c9be",
+        "size": 1706
+      },
+      {
+        "path": "references/three-hud-layout-patterns.md",
+        "sha": "af9a1345da0f97e880fdfc6e7820d3177b77c779",
+        "size": 2192
+      },
+      {
+        "path": "references/three-webgl-architecture.md",
+        "sha": "f6558b77d7bb3c9842ca330b6d47a67f9ee7bd0c",
+        "size": 1447
+      },
+      {
+        "path": "references/threejs-stack.md",
+        "sha": "aee34d4d9e91676727e43f9737e823c75071bcc0",
+        "size": 1630
+      },
+      {
+        "path": "references/threejs-vanilla-starter.md",
+        "sha": "9f7830f6c905478495642f703eca60ea7a57ec97",
+        "size": 1768
+      },
+      {
+        "path": "references/web-3d-asset-pipeline.md",
+        "sha": "ce5bc3da7613285e207a50065aed8055bca2dcb1",
+        "size": 1780
+      },
+      {
+        "path": "references/webgl-debugging-and-performance.md",
+        "sha": "5d9853f79067d0cb32ddb46ebfe4136819b00050",
+        "size": 1299
+      },
+      {
+        "path": "scripts/build_sprite_edit_canvas.py",
+        "sha": "fc1b2a2ef3bbb529d818fd58d722e3a180847c43",
+        "size": 2833
+      },
+      {
+        "path": "scripts/normalize_sprite_strip.py",
+        "sha": "9bb3e0485550b3a27942fe2eb634495529982254",
+        "size": 5129
+      },
+      {
+        "path": "scripts/render_sprite_preview_sheet.py",
+        "sha": "8937ed83873e8766982bd52f2ca261db5527f47d",
+        "size": 3217
+      },
+      {
+        "path": "skills/game-playtest/SKILL.md",
+        "sha": "d74823c9231966b8bc49924932f4b1c7d3a19e0a",
+        "size": 2912
+      },
+      {
+        "path": "skills/game-playtest/agents/openai.yaml",
+        "sha": "9ef3afd845b316c47824974b6524adf4823af3ec",
+        "size": 225
+      },
+      {
+        "path": "skills/game-studio/SKILL.md",
+        "sha": "ba409990d8ff8fa0e04350c18a2c1581c39bd30c",
+        "size": 5396
+      },
+      {
+        "path": "skills/game-studio/agents/openai.yaml",
+        "sha": "2179b571600266860c7d152e7cd28f1f5b19a78c",
+        "size": 213
+      },
+      {
+        "path": "skills/game-ui-frontend/SKILL.md",
+        "sha": "f2681fb955143f96cb04bfa4f1cb09d6839b162a",
+        "size": 5060
+      },
+      {
+        "path": "skills/game-ui-frontend/agents/openai.yaml",
+        "sha": "38d5e21db91a814732021fbf5f50112c70285c9d",
+        "size": 232
+      },
+      {
+        "path": "skills/phaser-2d-game/SKILL.md",
+        "sha": "8bd4ed6afcb502a0c78cd8b32cbb3163b7187fff",
+        "size": 3182
+      },
+      {
+        "path": "skills/phaser-2d-game/agents/openai.yaml",
+        "sha": "c715eb752a9b65958ff77aa32af57f2ee43c0998",
+        "size": 213
+      },
+      {
+        "path": "skills/react-three-fiber-game/SKILL.md",
+        "sha": "90fb0657bce2c96ab8aa3ae52534aaf51bbe67b8",
+        "size": 4023
+      },
+      {
+        "path": "skills/react-three-fiber-game/agents/openai.yaml",
+        "sha": "6bb67f35c1212548d5552ab6ec48331ddbe7544c",
+        "size": 239
+      },
+      {
+        "path": "skills/sprite-pipeline/SKILL.md",
+        "sha": "a31ef15cf890426873a805ced1ed9b11f16a1efa",
+        "size": 3383
+      },
+      {
+        "path": "skills/sprite-pipeline/agents/openai.yaml",
+        "sha": "fe41692205c1ca5c973f6e8d69362bea1a5b074c",
+        "size": 234
+      },
+      {
+        "path": "skills/three-webgl-game/SKILL.md",
+        "sha": "647cbcaddd28d3c3092d28e1b9de6ce56aa39999",
+        "size": 5833
+      },
+      {
+        "path": "skills/three-webgl-game/agents/openai.yaml",
+        "sha": "898f8c7ca29b6ca74b53f9e7058f75fa97702f42",
+        "size": 234
+      },
+      {
+        "path": "skills/web-3d-asset-pipeline/SKILL.md",
+        "sha": "d0fde630c0cbae52b52aa22f43c8df9eb7989212",
+        "size": 3453
+      },
+      {
+        "path": "skills/web-3d-asset-pipeline/agents/openai.yaml",
+        "sha": "308ca2b541bf438e3b177792bc25302ec90c16ac",
+        "size": 236
+      },
+      {
+        "path": "skills/web-game-foundations/SKILL.md",
+        "sha": "1fe88e9c7c63c4f0ef9fda4ebd24fa61ae9a44a1",
+        "size": 4592
+      },
+      {
+        "path": "skills/web-game-foundations/agents/openai.yaml",
+        "sha": "a59dfd1c3add47d7166e41fb4516922510ba4f88",
+        "size": 229
+      }
+    ],
+    "presentation": {
+      "shortDescription": "Design, prototype, and ship browser games",
+      "longDescription": "Plan, prototype, and build browser games with guided workflows for gameplay systems, UI, asset pipelines, and playtesting across 2D and 3D projects.",
+      "developer": "OpenAI",
+      "capabilities": [
+        "Interactive",
+        "Write"
+      ],
+      "website": "https://openai.com/",
+      "privacy": "https://openai.com/policies/privacy-policy/",
+      "terms": "https://openai.com/policies/terms-of-use/"
+    }
+  },
+  {
+    "id": "circleci",
+    "name": "CircleCI",
+    "category": "developer-tools",
+    "description": "优化持续集成配置，诊断构建失败，并使用 CircleCI CLI 和 Chunk 工作流。",
+    "entry": "config",
+    "website": "https://circleci.com/",
+    "requirements": "配置审阅可直接使用。操作云端构建需 CircleCI 账号和对应 CLI；使用前检查已安装 CLI 的帮助，再通过其官方浏览器登录流程授权。Chunk CLI 目前需要 macOS 或 Linux。",
+    "runtimeInstructions": "Route config optimization to skill:config, build failures to skill:builds, CircleCI CLI work to skill:cli, and Chunk work to skill:chunk. Installing these workflows does not require login. For cloud operations, check the installed CLI help and account state first. Follow the installed CLI help and the bundled official references for browser-based login or signup. Use an available system-browser opener for the official authorization URL when required; never invent CLI commands. Opening the website alone does not authenticate the CLI. Never request account passwords or log tokens. Chunk CLI is macOS/Linux only.",
+    "logo": "assets/skill-logos/circleci.png",
+    "repository": "openai/plugins",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/circleci",
+    "download": true,
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "circleci",
+      "name": "CircleCI",
+      "version": "1.0.4",
+      "description": "优化持续集成配置，诊断构建失败，并使用 CircleCI CLI 和 Chunk 工作流。",
+      "author": "CircleCI",
+      "license": "MIT",
+      "instructions": "yan-instructions.md",
+      "skills": [
+        {
+          "id": "builds",
+          "name": "builds",
+          "description": "CircleCI · builds",
+          "path": "skills/builds/SKILL.md"
+        },
+        {
+          "id": "chunk",
+          "name": "chunk",
+          "description": "CircleCI · chunk",
+          "path": "skills/chunk/SKILL.md"
+        },
+        {
+          "id": "cli",
+          "name": "cli",
+          "description": "CircleCI · cli",
+          "path": "skills/cli/SKILL.md"
+        },
+        {
+          "id": "config",
+          "name": "config",
+          "description": "CircleCI · config",
+          "path": "skills/config/SKILL.md"
+        }
+      ],
+      "resources": [],
+      "mcpServers": []
+    },
+    "files": [
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha": "6be0e00976d795c2bd04c8dc976c626a5ed1de44",
+        "size": 1308
+      },
+      {
+        "path": "assets/composer-icon.svg",
+        "sha": "77bc0764bc114f7d600e03c7aab40cb45af32796",
+        "size": 5400
+      },
+      {
+        "path": "assets/logo-dark.png",
+        "sha": "076e9adbf5f3fbe5e66df5187a119116e58d2449",
+        "size": 9668
+      },
+      {
+        "path": "assets/logo.png",
+        "sha": "98a87e9cfb910268e3e841e8cf2fe5d727415778",
+        "size": 10488
+      },
+      {
+        "path": "skills/builds/SKILL.md",
+        "sha": "3406ab3798678556e7f205444dfcf08c7fdd0bb4",
+        "size": 2324
+      },
+      {
+        "path": "skills/builds/agents/openai.yaml",
+        "sha": "290d8e79f058b428eaedf3c3508598f50d511d31",
+        "size": 107
+      },
+      {
+        "path": "skills/builds/references/transient-vs-deterministic.md",
+        "sha": "1da8c25177f0fc083ea80063bbe5fed1e36f556b",
+        "size": 3062
+      },
+      {
+        "path": "skills/chunk/SKILL.md",
+        "sha": "e53ee910f7fc1c70250f7a2cc029cd561fb3cec4",
+        "size": 2554
+      },
+      {
+        "path": "skills/chunk/agents/openai.yaml",
+        "sha": "702a575bc3b4c2eba23a4dd6256c94ee8cc9913a",
+        "size": 96
+      },
+      {
+        "path": "skills/chunk/references/chunk-cli.md",
+        "sha": "747e4d6c6e6cd033dd783506f38c5927f0bedee9",
+        "size": 3488
+      },
+      {
+        "path": "skills/chunk/references/chunk-ui.md",
+        "sha": "ee7d416ae482ecb7e68e6e407ed0722096019fed",
+        "size": 2074
+      },
+      {
+        "path": "skills/cli/SKILL.md",
+        "sha": "eb5de2ec1fe15acfc31a6fe5acb8351dc0dc88b2",
+        "size": 2772
+      },
+      {
+        "path": "skills/cli/agents/openai.yaml",
+        "sha": "b5c7503bcbb11d3038a7b1998cd800400fc8dc93",
+        "size": 112
+      },
+      {
+        "path": "skills/config/SKILL.md",
+        "sha": "63f8b7913a9a084c814a8246583bb137006ef750",
+        "size": 3018
+      },
+      {
+        "path": "skills/config/agents/openai.yaml",
+        "sha": "f572aa895341663b3efcc1eeba6b44ca332aa029",
+        "size": 119
+      },
+      {
+        "path": "skills/config/references/cache-optimization.md",
+        "sha": "e2a6b65ff303227881a5ecb333ebdafcce6c7af2",
+        "size": 5880
+      },
+      {
+        "path": "skills/config/references/patterns.md",
+        "sha": "e0e9dd0099a6ab7d7b5a3f0e51ea6ac789d08b59",
+        "size": 3381
+      },
+      {
+        "path": "skills/config/references/persisting-data.md",
+        "sha": "536b51b1926e2a3ac23ea2a98db5cf8ef40eaf19",
+        "size": 3139
+      },
+      {
+        "path": "skills/config/references/test-results-and-splitting.md",
+        "sha": "7f9fd8e36cff718ad422363aec2de13388951965",
+        "size": 2851
+      }
+    ],
+    "logoDark": "assets/skill-logos/circleci-dark.png",
+    "presentation": {
+      "shortDescription": "Build, test, and deploy any application",
+      "longDescription": "Bring testing, deployment, and CI best practices into Codex",
+      "developer": "CircleCI",
+      "capabilities": [
+        "Interactive",
+        "Write"
+      ],
+      "website": "https://circleci.com/",
+      "privacy": "https://circleci.com/legal/privacy-policy",
+      "terms": "https://circleci.com/legal/terms-of-service"
+    }
+  },
+  {
+    "id": "build-ios-apps",
+    "name": "Build iOS Apps",
+    "category": "developer-tools",
+    "description": "构建和调试 iOS 应用，包含 SwiftUI、App Intents、模拟器和性能分析。",
+    "entry": "ios-debugger-agent",
+    "website": "https://developer.apple.com/xcode/",
+    "platforms": [
+      "darwin"
+    ],
+    "requiredCommands": [
+      "xcodebuild",
+      "xcrun",
+      "node"
+    ],
+    "requirements": "运行需要 macOS、完整 Xcode、模拟器与 Node.js。首次激活通过 npx 获取固定版本 XcodeBuildMCP 2.7.0；Windows 上仅可安装和查看内容。签名与发布按任务连接 Apple 开发者账号。",
+    "runtimeInstructions": "This package runs on macOS with Xcode. Confirm the active Xcode developer directory, SDK and simulator availability before building. Yan connects the pinned XcodeBuildMCP service for simulator, UI automation, debugging and logging. Match its actual tool descriptions and schemas; do not copy Codex tool prefixes. Simulator browser mirroring is optional and requires an available host browser integration. Do not claim Xcode builds or simulator execution succeeded on Windows.",
+    "mcpServers": [
+      {
+        "id": "xcodebuildmcp",
+        "type": "local",
+        "command": "npx",
+        "args": [
+          "-y",
+          "xcodebuildmcp@2.7.0",
+          "mcp"
+        ],
+        "env": {
+          "XCODEBUILDMCP_ENABLED_WORKFLOWS": "simulator,ui-automation,debugging,logging"
+        },
+        "timeoutMs": 120000
+      }
+    ],
+    "logo": "assets/skill-logos/build-ios-apps.png",
+    "repository": "openai/plugins",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/build-ios-apps",
+    "download": true,
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "build-ios-apps",
+      "name": "Build iOS Apps",
+      "version": "0.1.2",
+      "description": "构建和调试 iOS 应用，包含 SwiftUI、App Intents、模拟器和性能分析。",
+      "author": "OpenAI",
+      "license": "MIT",
+      "instructions": "yan-instructions.md",
+      "skills": [
+        {
+          "id": "ios-app-intents",
+          "name": "ios-app-intents",
+          "description": "Build iOS Apps · ios-app-intents",
+          "path": "skills/ios-app-intents/SKILL.md"
+        },
+        {
+          "id": "ios-debugger-agent",
+          "name": "ios-debugger-agent",
+          "description": "Build iOS Apps · ios-debugger-agent",
+          "path": "skills/ios-debugger-agent/SKILL.md"
+        },
+        {
+          "id": "ios-ettrace-performance",
+          "name": "ios-ettrace-performance",
+          "description": "Build iOS Apps · ios-ettrace-performance",
+          "path": "skills/ios-ettrace-performance/SKILL.md"
+        },
+        {
+          "id": "ios-memgraph-leaks",
+          "name": "ios-memgraph-leaks",
+          "description": "Build iOS Apps · ios-memgraph-leaks",
+          "path": "skills/ios-memgraph-leaks/SKILL.md"
+        },
+        {
+          "id": "ios-simulator-browser",
+          "name": "ios-simulator-browser",
+          "description": "Build iOS Apps · ios-simulator-browser",
+          "path": "skills/ios-simulator-browser/SKILL.md"
+        },
+        {
+          "id": "swiftui-liquid-glass",
+          "name": "swiftui-liquid-glass",
+          "description": "Build iOS Apps · swiftui-liquid-glass",
+          "path": "skills/swiftui-liquid-glass/SKILL.md"
+        },
+        {
+          "id": "swiftui-performance-audit",
+          "name": "swiftui-performance-audit",
+          "description": "Build iOS Apps · swiftui-performance-audit",
+          "path": "skills/swiftui-performance-audit/SKILL.md"
+        },
+        {
+          "id": "swiftui-ui-patterns",
+          "name": "swiftui-ui-patterns",
+          "description": "Build iOS Apps · swiftui-ui-patterns",
+          "path": "skills/swiftui-ui-patterns/SKILL.md"
+        },
+        {
+          "id": "swiftui-view-refactor",
+          "name": "swiftui-view-refactor",
+          "description": "Build iOS Apps · swiftui-view-refactor",
+          "path": "skills/swiftui-view-refactor/SKILL.md"
+        }
+      ],
+      "resources": [],
+      "platforms": [
+        "darwin"
+      ],
+      "requiredCommands": [
+        "xcodebuild",
+        "xcrun",
+        "node"
+      ],
+      "mcpServers": [
+        {
+          "id": "xcodebuildmcp",
+          "type": "local",
+          "command": "npx",
+          "args": [
+            "-y",
+            "xcodebuildmcp@2.7.0",
+            "mcp"
+          ],
+          "env": {
+            "XCODEBUILDMCP_ENABLED_WORKFLOWS": "simulator,ui-automation,debugging,logging"
+          },
+          "timeoutMs": 120000
+        }
+      ]
+    },
+    "files": [
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha": "cea374fe5d45bf09a93826d21cce102208152fa7",
+        "size": 1824
+      },
+      {
+        "path": ".mcp.json",
+        "sha": "7105b445558b3984dad98b7d63c76ac31acb48ba",
+        "size": 242
+      },
+      {
+        "path": "README.md",
+        "sha": "111805f7d7c03d41a07383989ba88d3ffac978c5",
+        "size": 1616
+      },
+      {
+        "path": "agents/openai.yaml",
+        "sha": "c02b566ea7e38ca2a4357d0735a182e8565af01a",
+        "size": 319
+      },
+      {
+        "path": "assets/app-icon.png",
+        "sha": "d1167805cd9c63a08ec95bd9487a3a27bcb058f6",
+        "size": 4722
+      },
+      {
+        "path": "assets/build-ios-apps-small.svg",
+        "sha": "4eee97cc036e41682c1e4e3bbfa5212fd09abcc3",
+        "size": 1706
+      },
+      {
+        "path": "skills/ios-app-intents/SKILL.md",
+        "sha": "098e520f93a4618f00b07975b8692e070f362d44",
+        "size": 4613
+      },
+      {
+        "path": "skills/ios-app-intents/agents/openai.yaml",
+        "sha": "f223f954fbc33f7f44cf685aa1ab1a1a183090ee",
+        "size": 113
+      },
+      {
+        "path": "skills/ios-app-intents/references/code-templates.md",
+        "sha": "08a76aaaf498c054cf3908acd1fe36a0a3bf8b9b",
+        "size": 7575
+      },
+      {
+        "path": "skills/ios-app-intents/references/example-patterns.md",
+        "sha": "3fd0b152d6a2bff09b863bc76e8c4aa657a1f2f0",
+        "size": 3712
+      },
+      {
+        "path": "skills/ios-app-intents/references/first-pass-checklist.md",
+        "sha": "274003fbcb4c9c4836bf775236696dc2eff6c64b",
+        "size": 1411
+      },
+      {
+        "path": "skills/ios-app-intents/references/system-surfaces.md",
+        "sha": "becd9868f86ff2ccc2e4d411bf9c4f71d3070cb0",
+        "size": 1059
+      },
+      {
+        "path": "skills/ios-debugger-agent/SKILL.md",
+        "sha": "092e79abdff23ba94f95f37c584395aac6a51491",
+        "size": 2643
+      },
+      {
+        "path": "skills/ios-debugger-agent/agents/openai.yaml",
+        "sha": "6caff63ff4712fb2b923e7edcdbbc7aa94498ba6",
+        "size": 218
+      },
+      {
+        "path": "skills/ios-ettrace-performance/SKILL.md",
+        "sha": "a2538d4d81584596ba265de639b39e99fbebe403",
+        "size": 8832
+      },
+      {
+        "path": "skills/ios-ettrace-performance/agents/openai.yaml",
+        "sha": "7d04b02f644ca98d8c925d57faf0e671d1bee4e4",
+        "size": 262
+      },
+      {
+        "path": "skills/ios-ettrace-performance/scripts/analyze_flamegraph_json.py",
+        "sha": "542a9aa327d068acc171e2b8edcb82b95149b316",
+        "size": 10762
+      },
+      {
+        "path": "skills/ios-ettrace-performance/scripts/collect_ios_dsyms.sh",
+        "sha": "2f667b4e5765194fc03df0ed596e9564d553501a",
+        "size": 6061
+      },
+      {
+        "path": "skills/ios-memgraph-leaks/SKILL.md",
+        "sha": "bddac5965753192bf4000f6a62a3faf54d1bab08",
+        "size": 3953
+      },
+      {
+        "path": "skills/ios-memgraph-leaks/agents/openai.yaml",
+        "sha": "c16d9be5afc39cc095437125d8e3b923865335d1",
+        "size": 247
+      },
+      {
+        "path": "skills/ios-memgraph-leaks/scripts/capture_sim_memgraph.sh",
+        "sha": "f0804f02d7d4f1f2bdf93a68dc62629d6321a47e",
+        "size": 3118
+      },
+      {
+        "path": "skills/ios-memgraph-leaks/scripts/summarize_memgraph_leaks.py",
+        "sha": "4c77ec1fa08637847596fecc42de42543186f934",
+        "size": 5769
+      },
+      {
+        "path": "skills/ios-simulator-browser/SKILL.md",
+        "sha": "d5f0dd1e88f77f52eac99515673987bbf76e9caa",
+        "size": 3251
+      },
+      {
+        "path": "skills/ios-simulator-browser/agents/openai.yaml",
+        "sha": "282037086eb24f2c24b2c25243a436d56642cf2f",
+        "size": 193
+      },
+      {
+        "path": "skills/ios-simulator-browser/scripts/lib/xcode-project.mjs",
+        "sha": "ec71e851c61487aa7bfeb058e294ef71db11d5a0",
+        "size": 21443
+      },
+      {
+        "path": "skills/ios-simulator-browser/scripts/swiftui-preview-browser.mjs",
+        "sha": "3f801c26254fb1931cf061e17c597486c4209bd1",
+        "size": 28706
+      },
+      {
+        "path": "skills/ios-simulator-browser/scripts/templates/FocusedPreviewApp.swift",
+        "sha": "c11d76924ef896f8954518f689795f6521657fb0",
+        "size": 12833
+      },
+      {
+        "path": "skills/ios-simulator-browser/scripts/templates/FocusedPreviewHotReloadRuntime.swift",
+        "sha": "9376e786fd04f825ded615fbcc030c9071be0a83",
+        "size": 1927
+      },
+      {
+        "path": "skills/ios-simulator-browser/scripts/templates/PreviewBrowserEntries.swift",
+        "sha": "6281fe271f4dd46555f282360ddd1c32cb8de6e0",
+        "size": 2061
+      },
+      {
+        "path": "skills/swiftui-liquid-glass/SKILL.md",
+        "sha": "9a0fb205669c695db6430a32304eb49dfcce4a1c",
+        "size": 3745
+      },
+      {
+        "path": "skills/swiftui-liquid-glass/agents/openai.yaml",
+        "sha": "29ab2a9f548f3a31a283ca997d158bca346de199",
+        "size": 221
+      },
+      {
+        "path": "skills/swiftui-liquid-glass/references/liquid-glass.md",
+        "sha": "2abbd0d6e2e67c304fb87c4527b0e3ad89077d17",
+        "size": 8159
+      },
+      {
+        "path": "skills/swiftui-performance-audit/SKILL.md",
+        "sha": "db22c9dfb7afa5038243669756e1cb235450ca91",
+        "size": 5012
+      },
+      {
+        "path": "skills/swiftui-performance-audit/agents/openai.yaml",
+        "sha": "ed7978fdb3629067b8a0f666a4c3251402a67e24",
+        "size": 242
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/code-smells.md",
+        "sha": "8d5a7bb6e4d4fa6313ff198fb33b051ae9e2f79c",
+        "size": 3753
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/demystify-swiftui-performance-wwdc23.md",
+        "sha": "18de77c5a6a0cfca7d55c98f07a6ab88aaf11d71",
+        "size": 1813
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/optimizing-swiftui-performance-instruments.md",
+        "sha": "3080feb7cfac8ec223d2e19c9c241b67342e43b6",
+        "size": 1837
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/profiling-intake.md",
+        "sha": "39b6530de509ec917b86dded32d248f08531c609",
+        "size": 1904
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/report-template.md",
+        "sha": "97982c7a731e4c59d99aca58bba18d6136107d76",
+        "size": 1201
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/understanding-hangs-in-your-app.md",
+        "sha": "2dab5e131498a28efaa0b8505e8baaf763e7ee77",
+        "size": 1267
+      },
+      {
+        "path": "skills/swiftui-performance-audit/references/understanding-improving-swiftui-performance.md",
+        "sha": "2281f06b59f6d9e996d727de9d9b645d4eb33f6a",
+        "size": 2262
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/SKILL.md",
+        "sha": "bb1c733651c178514d3a60e88793a539094cbfbf",
+        "size": 7329
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/agents/openai.yaml",
+        "sha": "5ddfa5d3a17c6756a58303c3f9e0b2ae335603a0",
+        "size": 221
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/app-wiring.md",
+        "sha": "c70eabcd816a7653cdaed699fbb1e2a72886736d",
+        "size": 6637
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/async-state.md",
+        "sha": "4fe831372427be00cba99528dce7d920276ca13e",
+        "size": 2833
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/components-index.md",
+        "sha": "0156b4d1bfc78b407468dbfd5f2e2c56cc2a6439",
+        "size": 4303
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/controls.md",
+        "sha": "5a7084831baaf3489c79a2710f9bfe84d4511081",
+        "size": 1682
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/deeplinks.md",
+        "sha": "6bb7d5cff5d5262d37bd6bccdff72be62bd378c3",
+        "size": 1703
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/focus.md",
+        "sha": "da31fafd47d5b54ea8538577782721963d183788",
+        "size": 2390
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/form.md",
+        "sha": "e7de4d452c65f7be2717b8dd9c7891e3b54996d9",
+        "size": 3062
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/grids.md",
+        "sha": "4a822a821c280822466c35bd36bec9504fb14d63",
+        "size": 1851
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/haptics.md",
+        "sha": "41942bea558ccd8a59b744f4efa43f256f3074b4",
+        "size": 2049
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/input-toolbar.md",
+        "sha": "9506d3fad9dfc9d2fda85505fafb0681d53ff910",
+        "size": 1451
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/lightweight-clients.md",
+        "sha": "8313d4f5d6989e3a729bee7e6eed91a7ef1460c1",
+        "size": 2524
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/list.md",
+        "sha": "7b570fafe064d5daf15cead2774124e6def128f7",
+        "size": 2732
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/loading-placeholders.md",
+        "sha": "7014458be14c6fbc9b8cef2cd59bcff40ee0d319",
+        "size": 1274
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/macos-settings.md",
+        "sha": "242c6b56ececef9eecfc620641f551dc95bb517d",
+        "size": 1997
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/matched-transitions.md",
+        "sha": "94922dbd31895b0eca1c249a0fed638af87eaa16",
+        "size": 1674
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/media.md",
+        "sha": "2201e05aa6a44fad28b60a6a03611e10625f69eb",
+        "size": 2040
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/menu-bar.md",
+        "sha": "6d274faafc19f0b2443be8fc439465da553bab1f",
+        "size": 2236
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/navigationstack.md",
+        "sha": "decf5c42b056af5a30f2333efcc7ceb43bd3c593",
+        "size": 4343
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/overlay.md",
+        "sha": "a2a9a63f0bfb0a113b13a1789065aa8e653ce26b",
+        "size": 1238
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/performance.md",
+        "sha": "b574e73aa7739a5a3f8ad2d26324d0da6c5ec98a",
+        "size": 1990
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/previews.md",
+        "sha": "a07a3d8da098318e738528993bbc5024bd295e5c",
+        "size": 1688
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/scroll-reveal.md",
+        "sha": "a278ece6c260fa6f86f311fa63dabb1605046473",
+        "size": 5299
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/scrollview.md",
+        "sha": "849c58cde056927170d82bb9d989ce3ac3da6dde",
+        "size": 2364
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/searchable.md",
+        "sha": "6d7a2f15c3543f91b8c0f7cef2fffea606944037",
+        "size": 1727
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/sheets.md",
+        "sha": "ce52412241bdb3e999c62945b717a838b78423a6",
+        "size": 4272
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/split-views.md",
+        "sha": "fe3734977026e2192dd564d43ceedf6a708c5729",
+        "size": 2027
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/tabview.md",
+        "sha": "2a44bfe515720864eb6a5c89087dcad960b629b3",
+        "size": 3486
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/theming.md",
+        "sha": "ec976fefc0cf2fe313526745ee2890bea8df85a3",
+        "size": 1776
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/title-menus.md",
+        "sha": "d77254dddf689263278bf179d12b5d7f519e8ba4",
+        "size": 2115
+      },
+      {
+        "path": "skills/swiftui-ui-patterns/references/top-bar.md",
+        "sha": "f5ea8991a308be2b289711132f8bddf7a70494a6",
+        "size": 1359
+      },
+      {
+        "path": "skills/swiftui-view-refactor/SKILL.md",
+        "sha": "5617e31f0fc4980dadfb5276cb102a337d845e36",
+        "size": 7882
+      },
+      {
+        "path": "skills/swiftui-view-refactor/agents/openai.yaml",
+        "sha": "5cc30e512fc16a3be2ad7e3d8d58eea28cb149f5",
+        "size": 226
+      },
+      {
+        "path": "skills/swiftui-view-refactor/references/mv-patterns.md",
+        "sha": "12d4bcccf5bbe185ea9f2e27b97b0abee518e4f5",
+        "size": 5568
+      }
+    ],
+    "presentation": {
+      "shortDescription": "Build, refine, and debug iOS apps with App Intents, SwiftUI, and Xcode workflows",
+      "longDescription": "Use Build iOS Apps to design App Intents and App Shortcuts, build or refactor SwiftUI UI, render SwiftUI previews in the Codex in-app browser, adopt modern iOS patterns such as Liquid Glass, audit runtime performance, capture ETTrace profiles, investigate memory leaks, and debug apps on simulators with XcodeBuildMCP-backed workflows.",
+      "developer": "OpenAI",
+      "capabilities": [
+        "Interactive",
+        "Read",
+        "Write"
+      ],
+      "website": "https://openai.com/",
+      "privacy": "https://openai.com/policies/privacy-policy/",
+      "terms": "https://openai.com/policies/terms-of-use/"
+    }
+  },
+  {
+    "id": "build-macos-apps",
+    "name": "Build macOS Apps",
+    "category": "developer-tools",
+    "description": "构建、调试和优化 macOS 应用，覆盖 SwiftUI、AppKit、签名与发布准备。",
+    "entry": "build-run-debug",
+    "website": "https://developer.apple.com/xcode/",
+    "platforms": [
+      "darwin"
+    ],
+    "requiredCommands": [
+      "xcodebuild",
+      "xcrun",
+      "swift"
+    ],
+    "requirements": "运行需要 macOS 与完整 Xcode / Swift 工具链；Windows 上仅可安装和查看内容。构建、日志和调试通过现有终端工具执行，签名及公证按任务准备开发者账号。",
+    "runtimeInstructions": "This package runs on macOS. Start with build-run-debug and route to the other skills as needed. Use Yan shell tools for xcodebuild, swift, lldb, codesign, spctl and log commands after checking availability. Codex-specific Run buttons and environment metadata are not Yan features; preserve project scripts and use available tools. Signing and notarization credentials are only needed for the requested distribution task. Never claim macOS native execution on Windows.",
+    "logo": "assets/skill-logos/build-macos-apps.png",
+    "repository": "openai/plugins",
+    "revision": "1dc195897af4161d039b80d8471ec0a10c9bbc89",
+    "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/build-macos-apps",
+    "download": true,
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "build-macos-apps",
+      "name": "Build macOS Apps",
+      "version": "0.1.4",
+      "description": "构建、调试和优化 macOS 应用，覆盖 SwiftUI、AppKit、签名与发布准备。",
+      "author": "OpenAI",
+      "license": "MIT",
+      "instructions": "yan-instructions.md",
+      "skills": [
+        {
+          "id": "appkit-interop",
+          "name": "appkit-interop",
+          "description": "Build macOS Apps · appkit-interop",
+          "path": "skills/appkit-interop/SKILL.md"
+        },
+        {
+          "id": "build-run-debug",
+          "name": "build-run-debug",
+          "description": "Build macOS Apps · build-run-debug",
+          "path": "skills/build-run-debug/SKILL.md"
+        },
+        {
+          "id": "liquid-glass",
+          "name": "liquid-glass",
+          "description": "Build macOS Apps · liquid-glass",
+          "path": "skills/liquid-glass/SKILL.md"
+        },
+        {
+          "id": "packaging-notarization",
+          "name": "packaging-notarization",
+          "description": "Build macOS Apps · packaging-notarization",
+          "path": "skills/packaging-notarization/SKILL.md"
+        },
+        {
+          "id": "signing-entitlements",
+          "name": "signing-entitlements",
+          "description": "Build macOS Apps · signing-entitlements",
+          "path": "skills/signing-entitlements/SKILL.md"
+        },
+        {
+          "id": "swiftpm-macos",
+          "name": "swiftpm-macos",
+          "description": "Build macOS Apps · swiftpm-macos",
+          "path": "skills/swiftpm-macos/SKILL.md"
+        },
+        {
+          "id": "swiftui-patterns",
+          "name": "swiftui-patterns",
+          "description": "Build macOS Apps · swiftui-patterns",
+          "path": "skills/swiftui-patterns/SKILL.md"
+        },
+        {
+          "id": "telemetry",
+          "name": "telemetry",
+          "description": "Build macOS Apps · telemetry",
+          "path": "skills/telemetry/SKILL.md"
+        },
+        {
+          "id": "test-triage",
+          "name": "test-triage",
+          "description": "Build macOS Apps · test-triage",
+          "path": "skills/test-triage/SKILL.md"
+        },
+        {
+          "id": "view-refactor",
+          "name": "view-refactor",
+          "description": "Build macOS Apps · view-refactor",
+          "path": "skills/view-refactor/SKILL.md"
+        },
+        {
+          "id": "window-management",
+          "name": "window-management",
+          "description": "Build macOS Apps · window-management",
+          "path": "skills/window-management/SKILL.md"
+        }
+      ],
+      "resources": [],
+      "platforms": [
+        "darwin"
+      ],
+      "requiredCommands": [
+        "xcodebuild",
+        "xcrun",
+        "swift"
+      ],
+      "mcpServers": []
+    },
+    "files": [
+      {
+        "path": ".codex-plugin/plugin.json",
+        "sha": "78ae3298c49b3903933000114e2019299872de2c",
+        "size": 1781
+      },
+      {
+        "path": "README.md",
+        "sha": "4b7be879821ad90e5f9470dd5e737caf3866a901",
+        "size": 3155
+      },
+      {
+        "path": "agents/openai.yaml",
+        "sha": "358d8af933ea11f7209e21ff16d617dbb28f8993",
+        "size": 356
+      },
+      {
+        "path": "assets/app-icon.png",
+        "sha": "d1167805cd9c63a08ec95bd9487a3a27bcb058f6",
+        "size": 4722
+      },
+      {
+        "path": "assets/build-macos-apps-small.svg",
+        "sha": "2cc64d12100d47a584b9ad7abe8767b7263397bd",
+        "size": 1557
+      },
+      {
+        "path": "commands/build-and-run-macos-app.md",
+        "sha": "dc493ff32c54f87427f4e5f8710d699453b3e245",
+        "size": 1754
+      },
+      {
+        "path": "commands/fix-codesign-error.md",
+        "sha": "5414e483bbe16ac8fc2a3e9b424064090c270f3d",
+        "size": 864
+      },
+      {
+        "path": "commands/test-macos-app.md",
+        "sha": "595b34bf5cacda123a4ef5b47bbbefd178278f01",
+        "size": 838
+      },
+      {
+        "path": "skills/appkit-interop/SKILL.md",
+        "sha": "76783efaece7d8dbb0e8f514d627b5612ad75994",
+        "size": 2826
+      },
+      {
+        "path": "skills/appkit-interop/agents/openai.yaml",
+        "sha": "8f5e2415656076511ede9baf0b98043aa641c882",
+        "size": 310
+      },
+      {
+        "path": "skills/appkit-interop/references/drag-drop-pasteboard.md",
+        "sha": "d1f5e73c0f39f9787b94daa980e9d4e0820f1bcf",
+        "size": 784
+      },
+      {
+        "path": "skills/appkit-interop/references/representables.md",
+        "sha": "104eea354eab38f782b98e5e5378c398c18b7dda",
+        "size": 1567
+      },
+      {
+        "path": "skills/appkit-interop/references/responder-menus.md",
+        "sha": "9c312d72a16ed5872a9962b7733114b6d7c6877d",
+        "size": 834
+      },
+      {
+        "path": "skills/appkit-interop/references/window-panels.md",
+        "sha": "f89e0f397dd0572d2d29291769e5d4a7beceae39",
+        "size": 1104
+      },
+      {
+        "path": "skills/build-run-debug/SKILL.md",
+        "sha": "d01792112c8ef8bce476f7d53f6174198486a15f",
+        "size": 7933
+      },
+      {
+        "path": "skills/build-run-debug/agents/openai.yaml",
+        "sha": "6ae822b4e71060f155010be9004678c7acd8356b",
+        "size": 301
+      },
+      {
+        "path": "skills/build-run-debug/references/run-button-bootstrap.md",
+        "sha": "450fce698714d08cfaf5d9d3d95ec6ebf217e53e",
+        "size": 4749
+      },
+      {
+        "path": "skills/liquid-glass/SKILL.md",
+        "sha": "9095a81ac1aa478afaee3fe3530bf3d00df7052b",
+        "size": 8668
+      },
+      {
+        "path": "skills/liquid-glass/agents/openai.yaml",
+        "sha": "299a312ee76518163a1ad9806788e843a4bf3e4d",
+        "size": 327
+      },
+      {
+        "path": "skills/packaging-notarization/SKILL.md",
+        "sha": "13312f11e0f9e145c8f3ccd071c8b1d7451af7da",
+        "size": 1432
+      },
+      {
+        "path": "skills/packaging-notarization/agents/openai.yaml",
+        "sha": "25fdb502baafce9d867e2d29bb7791297c67e250",
+        "size": 304
+      },
+      {
+        "path": "skills/signing-entitlements/SKILL.md",
+        "sha": "02a6c6633597bdc9ae3c5062a7b62b93b3d2d747",
+        "size": 1773
+      },
+      {
+        "path": "skills/signing-entitlements/agents/openai.yaml",
+        "sha": "1c8155e4f00b4ff14fc28245d2f45c775f6b5f84",
+        "size": 290
+      },
+      {
+        "path": "skills/swiftpm-macos/SKILL.md",
+        "sha": "a1e6c7727c28b0ab63bbb594f4c090a6638b00b3",
+        "size": 1375
+      },
+      {
+        "path": "skills/swiftpm-macos/agents/openai.yaml",
+        "sha": "26ee99a5f6dc9008c2c201b2f82912981fcb19d8",
+        "size": 268
+      },
+      {
+        "path": "skills/swiftui-patterns/SKILL.md",
+        "sha": "1453b20ff0ba9618e3afb23cf318a2b740ac80af",
+        "size": 11790
+      },
+      {
+        "path": "skills/swiftui-patterns/agents/openai.yaml",
+        "sha": "74ef83c2e44b6e8bc7949efdd1d3f95c495f3dfc",
+        "size": 308
+      },
+      {
+        "path": "skills/swiftui-patterns/references/commands-menus.md",
+        "sha": "47fb3b750b2e6a1108eaa1ac4d03e59a97489fc8",
+        "size": 1146
+      },
+      {
+        "path": "skills/swiftui-patterns/references/components-index.md",
+        "sha": "0fe243272ebab0083c00b59cebf828637a4ad7fd",
+        "size": 998
+      },
+      {
+        "path": "skills/swiftui-patterns/references/menu-bar-extra.md",
+        "sha": "f0d243d8b6e5822dd84c07b4415664652b78d49f",
+        "size": 3059
+      },
+      {
+        "path": "skills/swiftui-patterns/references/settings.md",
+        "sha": "e974b2fac0d5045a6d88fde003e835954bdc8db7",
+        "size": 1413
+      },
+      {
+        "path": "skills/swiftui-patterns/references/split-inspectors.md",
+        "sha": "98563ed41a358440289f5c4cde221f3038830e1f",
+        "size": 2845
+      },
+      {
+        "path": "skills/swiftui-patterns/references/windowing.md",
+        "sha": "a2764e643a83834e102076e1fc06b6171529bb9f",
+        "size": 1893
+      },
+      {
+        "path": "skills/telemetry/SKILL.md",
+        "sha": "c1ba13a5debe597b0bf021d43bfdbec4b91dd294",
+        "size": 3717
+      },
+      {
+        "path": "skills/telemetry/agents/openai.yaml",
+        "sha": "de120dc36666f68a7cbd1ba5519845521f7c47f3",
+        "size": 343
+      },
+      {
+        "path": "skills/test-triage/SKILL.md",
+        "sha": "3b303e21ec082f1c222c174e42243e5146d2b6d4",
+        "size": 1564
+      },
+      {
+        "path": "skills/test-triage/agents/openai.yaml",
+        "sha": "62d2b90da8afe73e4b09d4121e4bbbbc09ac1265",
+        "size": 283
+      },
+      {
+        "path": "skills/view-refactor/SKILL.md",
+        "sha": "89ccaf7fb79fa23ad361f5d83c85acc6795ee445",
+        "size": 5516
+      },
+      {
+        "path": "skills/view-refactor/agents/openai.yaml",
+        "sha": "46d315c4cecaaeba39b310a854c308a204561c68",
+        "size": 328
+      },
+      {
+        "path": "skills/window-management/SKILL.md",
+        "sha": "a5a66a4eca2c3b7b55eb8836f284dbaa6c95a914",
+        "size": 8782
+      },
+      {
+        "path": "skills/window-management/agents/openai.yaml",
+        "sha": "620da539e933fbbf3873544baf1b862f4342d49b",
+        "size": 418
+      },
+      {
+        "path": "skills/window-management/references/api-snippets.md",
+        "sha": "5b2d06071812a175e5447b071a9f1bf0e57a67c6",
+        "size": 1601
+      }
+    ],
+    "presentation": {
+      "shortDescription": "Build, debug, instrument, and implement macOS apps with SwiftUI and AppKit guidance",
+      "longDescription": "macOS development workflows for discovering local projects, building and running desktop apps, implementing native SwiftUI scenes, bridging into AppKit when necessary, adding lightweight Logger telemetry, triaging test failures, inspecting signing and entitlements, and debugging desktop-specific build or runtime errors.",
+      "developer": "OpenAI",
+      "capabilities": [
+        "Interactive",
+        "Read",
+        "Write"
+      ],
+      "website": "https://openai.com/",
+      "privacy": "https://openai.com/policies/privacy-policy/",
+      "terms": "https://openai.com/policies/terms-of-use/"
+    }
+  }
+]

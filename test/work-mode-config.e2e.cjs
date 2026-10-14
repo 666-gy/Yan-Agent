@@ -24,10 +24,9 @@ fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'absolute' } })
     assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).agent.workMode, 'normal');
     assert.equal(await page.locator('#workModeIndicator').isVisible(), false);
     await page.locator('#attachBtn').click();
-    await page.locator('#composerWorkModeAction').click();
-    assert.deepEqual(await page.locator('#composerWorkModeView .composer-add-action-name').allTextContents(), ['目标', '计划', '自进化']);
-    for (const mode of ['goal', 'plan', 'evolution']) {
-      await page.locator(`#composerWorkModeView [data-work-mode="${mode}"]`).click();
+    assert.deepEqual(await page.locator('#composerAddMainView [data-work-mode] .composer-add-action-name').allTextContents(), ['目标', '计划模式']);
+    for (const mode of ['goal', 'plan']) {
+      await page.locator(`#composerAddMainView [data-work-mode="${mode}"]`).click();
       await page.waitForFunction(mode => getCurrentWorkMode() === mode, mode);
       await page.reload();
       await ready();
@@ -35,7 +34,6 @@ fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'absolute' } })
       await page.locator('#workModeIndicator').click();
       await page.waitForFunction(() => getCurrentWorkMode() === 'normal');
       await page.locator('#attachBtn').click();
-      await page.locator('#composerWorkModeAction').click();
     }
     const output = path.join(root, 'output', 'work-mode-cleanup');
     fs.mkdirSync(output, { recursive: true });
@@ -46,6 +44,6 @@ fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'absolute' } })
     });
     assert.equal(normalized, 'normal');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ ok: true, migration: 'normal', modes: ['goal', 'plan', 'evolution'], errors }));
+    console.log(JSON.stringify({ ok: true, migration: 'normal', modes: ['goal', 'plan'], errors }));
   } finally { await app?.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

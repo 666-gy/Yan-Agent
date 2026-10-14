@@ -55,7 +55,7 @@ test('list_entries filters by status, kind, and query with usage counters', asyn
 test('get_entry returns full content and validates kind and id', () => {
   const fetched = mcp.getEntry(context, { kind: 'memory', id: 'read-tool-memory' });
   assert.equal(fetched.ok, true);
-  assert.equal(fetched.entry.content, '列表工具要支持按关键字过滤，并在预览里返回内容。');
+  assert.equal(fetched.entry.content, '## 读工具记忆\n\n列表工具要支持按关键字过滤，并在预览里返回内容。');
   assert.equal(fetched.entry.status, 'active');
   assert.equal(mcp.getEntry(context, { kind: 'memory', id: 'missing-entry' }).entry, null);
   assert.throws(() => mcp.listEntries(context, { kind: 'unknown' }), /Unsupported harness kind/);

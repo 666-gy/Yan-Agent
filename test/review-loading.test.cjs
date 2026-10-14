@@ -10,6 +10,25 @@ const { runReviewTask } = require('../lib/review-worker');
 const { summarizeOpenCodeToolChanges, collectWorkspaceFileSweep } = require('../lib/run-change-summary');
 const { OpenCodeSidecar } = require('../lib/opencode-sidecar');
 
+test('completed review replaces stale live files, including an authoritative empty snapshot', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../renderer/renderer.js'), 'utf8');
+  const start = source.indexOf('  const completedReviewSummary =', source.indexOf('function openCodeResultToAgentRun('));
+  const end = source.indexOf('  const status =', start);
+  assert.ok(start > 0 && end > start);
+  const reconcile = source.slice(start, end) + '\nreviewSummary;';
+  for (const result of [
+    { reviewSummary: { count: 0, files: [] } },
+    { changes: [] },
+    { reviewSummary: { files: [{ path: 'real.js', additions: 1, deletions: 0 }] } }
+  ]) {
+    const runCtx = { liveReviewSummary: { files: [{ path: 'runtime.log', additions: 999 }] } };
+    const summary = require('node:vm').runInNewContext(reconcile, { result, runCtx });
+    assert.equal(summary.files.some(file => file.path === 'runtime.log'), false);
+    assert.equal(summary.count, result.reviewSummary?.files.length || 0);
+    assert.equal(runCtx.liveReviewSummary.files.some(file => file.path === 'runtime.log'), false);
+  }
+});
+
 function workspace(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-loading-'));
   t.after(() => {

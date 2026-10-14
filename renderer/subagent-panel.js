@@ -119,7 +119,7 @@
           return `<button type="button" class="subagent-ui-row is-${escapeHtml(record.status)}" data-subagent-ui-id="${escapeHtml(record.id)}">
           <span class="subagent-ui-icon" data-agent-role="${escapeHtml(record.role)}">${iconFor(record.role)}</span><span class="subagent-ui-main"><strong>${escapeHtml(agentName(record))}</strong><small>${escapeHtml(taskSummary(record))}</small>${planChip}</span><span class="subagent-ui-meta"><strong>${escapeHtml(elapsed(record))}</strong><small>${escapeHtml(statusLabel(record))}</small></span>
         </button>`;
-        }).join('')}` : '<div class="subagents-empty">当前任务尚未调用子智能体</div>';
+        }).join('')}` : '<div class="subagents-empty">当前任务尚未调用子代理</div>';
         if (focusId) [...query('[data-subagents-list]').children].find(row => row.dataset.subagentUiId === focusId)?.focus({ preventScroll: true });
       }
       const detail = all.find(record => record.id === selected);

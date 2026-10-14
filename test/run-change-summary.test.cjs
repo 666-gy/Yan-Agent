@@ -289,6 +289,38 @@ test('collectWorkspaceFileSweep picks up shell-written files by mtime', async t 
   assert.ok(!keys.some(key => key.endsWith('stale.js')));
 });
 
+test('review excludes runtime directories and outside paths but keeps source and blank-workspace deliverables', async t => {
+  const workspace = await mkdtempWorkspace(t);
+  const paths = ['opencode-runtime/state.json', '.git/config', '.yanagent/log.txt', 'lib/opencode-runtime.js', 'answer.txt'];
+  for (const file of paths) {
+    await fs.mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
+    await fs.writeFile(path.join(workspace, file), 'changed\n');
+  }
+  const raw = [...paths, '../external-runtime.log', path.join(workspace, '..', 'external.json')]
+    .map(file => ({ file, additions: 1, deletions: 0, status: 'modified' }));
+  const summary = summarizeOpenCodeDiffs(workspace, raw);
+  assert.deepEqual(summary.files.map(file => file.path), ['lib/opencode-runtime.js', 'answer.txt']);
+  assert.equal(filterReviewSummary(workspace, { files: raw }).count, 2);
+  const sweep = await collectWorkspaceFileSweep(workspace, { startTime: Date.now() - 1000 });
+  assert.deepEqual([...sweep.values()].map(entry => path.relative(workspace, entry.path).replaceAll('\\', '/')).sort(),
+    ['answer.txt', 'lib/opencode-runtime.js']);
+  const blank = path.join(workspace, 'opencode-runtime', 'no-workspace', 'chat');
+  assert.equal(summarizeOpenCodeDiffs(blank, [{ file: path.join(blank, 'answer.txt'), additions: 1 }]).count, 1);
+});
+
+test('a clean git status does not fall back to sweeping ignored runtime files', async t => {
+  const workspace = await mkdtempWorkspace(t);
+  const { execFileSync } = require('node:child_process');
+  const git = (...args) => execFileSync('git', args, { cwd: workspace, windowsHide: true });
+  git('init', '-q');
+  await fs.writeFile(path.join(workspace, '.gitignore'), 'cache/\n');
+  git('add', '.gitignore');
+  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'initial');
+  await fs.mkdir(path.join(workspace, 'cache'));
+  await fs.writeFile(path.join(workspace, 'cache', 'state.json'), '{}');
+  assert.equal((await collectWorkspaceFileSweep(workspace, { startTime: Date.now() - 1000 })).size, 0);
+});
+
 test('collectWorkspaceFileSweep batches HEAD baselines for tracked git changes', async t => {
   const { execFileSync } = require('node:child_process');
   const workspace = await mkdtempWorkspace(t);

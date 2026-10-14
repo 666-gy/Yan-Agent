@@ -1,0 +1,53 @@
+/* Bash shares the task capsule and composer material. Output stays plain text. */
+.task-bash-section { display:grid; padding:2px 0; }
+.task-bash-row { display:flex; align-items:center; gap:2px; min-height:46px; padding-right:12px; }
+.task-bash-label { flex:0 1 auto; min-width:0; display:flex; align-items:center; gap:8px; min-height:46px; padding:0 4px 0 10px; color:var(--text); }
+.task-bash-label > strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:550 13px/1.2 var(--font-sans); }
+.task-bash-label .task-git-row-icon { width:22px; }
+.task-bash-count { margin-left:auto; padding-left:8px; color:var(--text-dim); font:500 11.5px/1.2 var(--font-sans); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.task-bash-toggle { width:24px; height:24px; flex:0 0 24px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:50%; background:transparent; color:var(--text-faint); transition:border-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+.task-bash-toggle:hover { border-color:var(--border); color:var(--text); }
+.task-bash-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.task-bash-toggle svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.task-bash-quick { display:grid; gap:2px; margin:2px 0 4px; padding:2px; border-radius:var(--r-md); background:var(--fill-soft, rgba(127,127,127,.08)); }
+.task-bash-quick.hidden { display:none; }
+.bash-quick-job { display:flex; align-items:center; gap:6px; min-height:34px; padding:0 4px 0 8px; border-radius:var(--r-sm, 8px); }
+.bash-quick-job:hover { background:var(--bg-hover); }
+.bash-quick-open { flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:8px; padding:6px 4px; border:0; background:transparent; color:var(--text); text-align:left; cursor:pointer; }
+.bash-quick-command { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:11.5px var(--font-mono, monospace); color:var(--text-dim); }
+.bash-quick-time { flex:0 0 auto; color:var(--text-faint); font:600 11px/1 var(--font-mono, monospace); font-variant-numeric:tabular-nums; }
+.bash-quick-stop { flex:0 0 auto; width:26px; height:26px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:50%; background:transparent; color:var(--text-dim); transition:border-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out), background var(--dur-micro) var(--ease-out); }
+.bash-quick-stop:hover { border-color:var(--border); color:var(--text); background:var(--bg-hover); }
+.bash-quick-stop:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.bash-quick-stop:disabled { opacity:.5; }
+.bash-quick-stop svg { pointer-events:none; }
+.bash-quick-empty { margin:0; padding:14px 8px; text-align:center; color:var(--text-dim); font-size:12px; }
+.bash-status-panel { width:100%; margin-bottom:10px; border:1px solid var(--border); border-radius:16px; background:var(--bg-elev); box-shadow:var(--shadow); overflow:hidden; }
+.bash-status-head { display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); font-size:13px; }
+.bash-status-head > span { flex:1; color:var(--text-dim); font-size:12px; }
+.bash-status-head button { width:32px; height:32px; display:grid; place-items:center; padding:0; border:1px solid var(--border); background:transparent; color:var(--text-dim); border-radius:50%; font-size:18px; line-height:1; }
+.bash-status-details { max-height:min(40vh,340px); overflow:auto; padding:0 14px; }
+.bash-job { padding:12px 0; border-bottom:1px solid var(--border); }
+.bash-job:last-child { border-bottom:0; }
+.bash-job-row { display:flex; align-items:center; gap:8px; }
+.bash-job-command { flex:0 1 auto; max-width:55%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:12px var(--font-mono,monospace); }
+.bash-job-cwd { flex:1; min-width:0; text-align:right; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-faint); font-size:11px; }
+.bash-job-output-toggle { display:grid; place-items:center; width:24px; height:24px; flex:0 0 auto; padding:0; border:0; background:transparent; color:var(--text-dim); border-radius:6px; }
+.bash-job-output-toggle svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.bash-job-output-toggle:hover { background:var(--bg-hover); color:var(--text); }
+.bash-job-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.bash-job-actions[hidden],.bash-job-actions button[hidden] { display:none; }
+.bash-job-wake-error { display:block; margin-top:8px; color:var(--text-faint); font-size:11px; overflow-wrap:anywhere; }
+.bash-job-wake-error[hidden] { display:none; }
+.bash-job-actions button { padding:4px 8px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text-dim); font-size:12px; }
+.bash-job-actions button:hover,.bash-status-head button:hover { background:var(--bg-hover); color:var(--text); }
+.bash-job-actions button:disabled { opacity:.5; }
+.bash-job-output-wrap { position:relative; margin-top:10px; background:var(--bg); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.bash-job-copy { position:absolute; top:6px; right:6px; z-index:1; width:26px; height:26px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:50%; background:var(--bg-elev2, var(--bg)); color:var(--text-dim); transition:border-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+.bash-job-copy:hover { border-color:var(--border); color:var(--text); }
+.bash-job-copy:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.bash-job-copy:disabled { opacity:.4; }
+.bash-job-copy svg { pointer-events:none; }
+.bash-job-output { max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:11px/1.6 var(--font-mono,monospace); margin:0; padding:10px 42px 10px 12px; user-select:text; overflow-anchor:none; }
+.bash-status-empty { padding:22px 0; text-align:center; color:var(--text-dim); font-size:12px; }
+.bash-status-panel button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }

@@ -1,0 +1,41 @@
+.drawing-action-icon { display: flex; flex: 0 0 20px; color: #23cbb5; }
+.drawing-action-icon svg { width: 20px; height: 20px; }
+.drawing-board.image-editor { position: fixed; inset: 20px 28px; margin: auto; width: calc(100vw - 56px); height: calc(100vh - 40px); max-width: 1500px; max-height: none; border: 1px solid #d0d0d0; border-radius: 28px; background: white; container-type: normal;
+  --ie-paper: #fff; --ie-ink: #242628; --ie-muted: #77797c; --ie-line: #d5d5d5; --ie-hover: #f3f3f3; --ie-focus: #2868d4; --ie-shadow: 0 1px 3px #0000000c; }
+.drawing-board::backdrop { background: #00000024; }
+.drawing-board .image-editor-stage { display: grid; place-items: center; overflow: hidden; background: white; }
+.drawing-paper { position: relative; width: max-content; height: max-content; }
+.drawing-board .image-editor-image { background: white; box-shadow: none; user-select: none; }
+.drawing-board .image-editor-toolbar { inset: 0; padding: 0; display: block; }
+.drawing-board .image-annotation-tools { position: absolute; inset: 0; padding: 0; border: 0; background: none; box-shadow: none; pointer-events: none; display: block; }
+.drawing-board .drawing-tools { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 5px; border: 1px solid #d5d5d5; border-radius: 28px; background: #fff; box-shadow: 0 1px 3px #0000000c; pointer-events: auto; }
+.drawing-board .drawing-tools button { width: 40px; height: 40px; padding: 10px; }
+.drawing-board .drawing-history { position: absolute; right: 14px; top: 16px; display: flex; gap: 6px; pointer-events: auto; }
+.drawing-board .drawing-history button { width: 40px; height: 40px; padding: 10px; }
+.drawing-board .image-annotation-tools > button, .drawing-board .image-annotation-divider { display: none; }
+.drawing-board .drawing-close { position: absolute; z-index: 4; left: 14px; top: 16px; width: 40px; height: 40px; padding: 10px; color: #77797c; }
+.drawing-board .drawing-close svg { width: 20px; height: 20px; stroke-width: 1.6; }
+.drawing-board .drawing-confirm { position: absolute; z-index: 4; bottom: 16px; right: 14px; width: 42px; height: 42px; padding: 10px; border-radius: 50%; color: white; background: #36383a; }
+.drawing-board .drawing-confirm:disabled { background: #929496; opacity: 1; }
+.drawing-board .drawing-confirm:hover:not(:disabled) { background: #1c1e20; }
+.drawing-board .drawing-confirm svg { width: 23px; height: 23px; stroke-width: 1.6; }
+.drawing-board .image-annotation-palette { top: auto !important; left: 50% !important; bottom: 17px; transform: translateX(-50%); display: flex; gap: 12px; padding: 5px; border: 0; box-shadow: none; border-radius: 0; background: transparent; }
+.drawing-board .image-annotation-palette button, .drawing-board .image-annotation-custom { width: 30px; height: 30px; flex: none; }
+.drawing-board .image-annotation-palette button[aria-pressed="true"] { outline: 3px solid #2868d4; outline-offset: 3px; }
+.drawing-board .image-editor-brush-control { left: 18px; border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 0; }
+.drawing-board .image-editor-brush-size { width: 22px; height: min(240px, 36vh); padding: 0; border: 0; background: transparent; appearance: none; }
+.drawing-board .image-editor-brush-size::-webkit-slider-runnable-track { width: 3px; height: 100%; background: #d5d5d5; }
+.drawing-board .image-editor-brush-size::-webkit-slider-thumb { appearance: none; width: 22px; height: 22px; margin-left: -9px; border: 1px solid #d0d0d0; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px #00000018; }
+.drawing-board .image-annotation-shapes { border-radius: 8px; }
+@media (max-width: 940px) {
+  .drawing-board .image-annotation-palette { gap: 8px; }
+  .drawing-board .image-annotation-palette button, .drawing-board .image-annotation-custom { width: 26px; height: 26px; }
+}
+@media (max-width: 640px) {
+  .drawing-board.image-editor { inset: 8px; width: calc(100vw - 16px); height: calc(100vh - 16px); border-radius: 16px; }
+  .drawing-board .drawing-tools { top: 10px; }
+  .drawing-board .drawing-tools button { width: 30px; height: 34px; padding: 7px; }
+  .drawing-board .drawing-history { top: 62px; right: 10px; }
+  .drawing-board .image-annotation-palette { max-width: calc(100% - 76px); flex-wrap: wrap; justify-content: center; gap: 9px; left: 10px !important; transform: none; bottom: 14px; }
+  .drawing-board .image-annotation-palette button, .drawing-board .image-annotation-custom { width: 22px; height: 22px; }
+}

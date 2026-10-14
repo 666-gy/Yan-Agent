@@ -82,3 +82,41 @@ test('image provider errors retain correction context without forcing an unretry
     }
   );
 });
+
+test('image generation negotiates a rejected response format while retaining accepted options', async () => {
+  const requests = [];
+  const result = await generateImage({
+    baseUrl: 'https://example.test/v1', apiKey: 'test-key', providerId: 'openai',
+    model: 'sensenova-u1-fast', prompt: 'test image', aspectRatio: '16:9',
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body); requests.push(body);
+      return 'response_format' in body
+        ? jsonResponse({ error: { message: 'response_format is a forbidden field' } }, 400)
+        : jsonResponse({ data: [{ b64_json: PNG_HEADER_BASE64 }] });
+    }
+  });
+  assert.equal(result.mimeType, 'image/png');
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].response_format, 'b64_json');
+  assert.deepEqual(requests[1], { model: 'sensenova-u1-fast', prompt: 'test image', n: 1, size: '2752x1536' });
+});
+
+test('image editing negotiates multipart options without removing the source image', async () => {
+  const requests = [];
+  await generateImage({
+    baseUrl: 'https://example.test/v1', apiKey: 'test-key', providerId: 'openai',
+    model: 'gpt-image-1', prompt: 'edit image', sourceImage: { buffer: Buffer.from(PNG_HEADER_BASE64, 'base64') },
+    fetchImpl: async (_url, options) => {
+      const body = options.body;
+      requests.push({ size: body.get('size'), imageSize: body.get('image').size, prompt: body.get('prompt'), model: body.get('model') });
+      return body.has('size')
+        ? jsonResponse({ error: { message: 'size is a forbidden field' } }, 400)
+        : jsonResponse({ data: [{ b64_json: PNG_HEADER_BASE64 }] });
+    }
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].size, null);
+  assert.equal(requests[1].imageSize, 8);
+  assert.equal(requests[1].prompt, 'edit image');
+  assert.equal(requests[1].model, 'gpt-image-1');
+});

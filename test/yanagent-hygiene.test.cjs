@@ -11,30 +11,38 @@ const { execFileSync } = require('node:child_process');
 const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
-const mainSrc = fs.readFileSync(path.join(appRoot, 'main.js'), 'utf8');
 const sidecarSrc = fs.readFileSync(path.join(appRoot, 'lib', 'opencode-sidecar.js'), 'utf8');
 const deliverySrc = fs.readFileSync(path.join(appRoot, 'lib', 'delivery-policy.js'), 'utf8');
-const { understandAnythingOutputDir } = require('../lib/codegraph-to-understand-anything');
 const { pruneYanagentEvidence, EVIDENCE_TTL_MS } = require('../lib/yanagent-evidence');
-
-test('Understand Anything output defaults into .yanagent/ua', () => {
-  assert.equal(
-    understandAnythingOutputDir(path.join('C:', 'ws')).toLowerCase(),
-    path.join('C:', 'ws', '.yanagent', 'ua').toLowerCase()
-  );
-  assert.equal(
-    understandAnythingOutputDir(path.join('C:', 'ws'), path.join('C:', 'custom')).toLowerCase(),
-    path.join('C:', 'custom').toLowerCase()
-  );
-});
+const { registerYanagentStore } = require('../lib/main/yanagent-store');
 
 test('ensureYanagent writes a self-ignoring .gitignore, a scratch dir and the evidence dir', () => {
-  const guard = mainSrc.match(/function ensureYanagent\(workspace\) \{[\s\S]*?\n\}/);
-  assert.ok(guard, 'ensureYanagent must exist');
-  assert.match(guard[0], /\['logs', 'snapshots', 'scratch', 'evidence'\]/, 'evidence dir must be prepared');
-  assert.match(guard[0], /pruneYanagentEvidence\(root\)/, 'ensureYanagent must bound the evidence store');
-  assert.match(guard[0], /\.gitignore/, 'a .gitignore must be written');
-  assert.match(guard[0], /writeFileSync\(ignore, '\*\\n'/);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-yanagent-'));
+  try {
+    const store = registerYanagentStore({
+      resourceLocks: { withLock: (_name, _mode, _meta, run) => run() },
+      yanagentDir: '.yanagent'
+    });
+    const root = store.ensureYanagent(workspace);
+    assert.equal(root, path.join(workspace, '.yanagent'));
+    for (const sub of ['logs', 'snapshots', 'scratch', 'evidence']) {
+      assert.equal(fs.existsSync(path.join(root, sub)), true, `${sub} dir must be prepared`);
+    }
+    assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), '*\n', 'the folder hides itself from git');
+
+    // ensureYanagent must bound the evidence store on every call.
+    const stale = path.join(root, 'evidence', 'stale.png');
+    fs.writeFileSync(stale, 'stale', 'utf8');
+    const old = new Date(Date.now() - EVIDENCE_TTL_MS - 60_000);
+    fs.utimesSync(stale, old, old);
+    store.ensureYanagent(workspace);
+    assert.equal(fs.existsSync(stale), false, 'expired evidence must be pruned');
+
+    // Idempotent: a second call keeps the same directory.
+    assert.equal(store.ensureYanagent(workspace), root);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test('a .yanagent folder with the written ignore file stays invisible to git', () => {
@@ -76,7 +84,17 @@ test('reusable evidence survives the run but is bounded by TTL', () => {
 });
 
 test('tool output and agent guidance separate evidence from scratch cleanup', () => {
-  assert.match(mainSrc, /'--output-dir', '\.yanagent\/playwright'/, 'Playwright MCP must write under .yanagent');
+  const { createRuntimeDefaults } = require('../lib/main/runtime-defaults');
+  // Playwright's server appears only once its plugin installed the browser.
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-hygiene-playwright-'));
+  const executable = path.join(dataDir, 'runtimes', 'playwright', 'browsers', 'chromium-1247', 'chrome-win64', 'chrome.exe');
+  fs.mkdirSync(path.dirname(executable), { recursive: true });
+  fs.writeFileSync(executable, 'fixture');
+  fs.writeFileSync(path.join(dataDir, 'runtimes', 'playwright', 'installed.json'), JSON.stringify({
+    mcpVersion: require('../lib/playwright-runtime').MCP_VERSION, browserExecutable: 'chromium-1247/chrome-win64/chrome.exe' }));
+  const playwright = createRuntimeDefaults({ dataDir }).ensureDefaultMcp([]).find(server => server.id === 'mcp_default_playwright');
+  fs.rmSync(dataDir, { recursive: true, force: true });
+  assert.equal(playwright.args[playwright.args.indexOf('--output-dir') + 1], '.yanagent/playwright');
   assert.match(sidecarSrc, /put every temporary artifact[\s\S]{0,200}\.yanagent\//, 'workspace rule must name .yanagent');
   assert.match(sidecarSrc, /\.yanagent\/evidence\//, 'workspace rule must keep reusable evidence');
   assert.match(sidecarSrc, /keep them under <workspace>\/\.yanagent\/ and delete the ones you created/, 'mapper rule must clean up');

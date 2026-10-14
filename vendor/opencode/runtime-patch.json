@@ -9,6 +9,27 @@
       "size": 174182280,
       "sourceSha256": "578d7eb3fff2c807fc0dedaab5e5d9177713a9560fa4304db6a0161111e9cc35",
       "patchedSha256": "344eedb423ef3c4d732af1f2ac8cc694b31a38850e7085705296739123ab77a5"
+    },
+    {
+      "package": "opencode-darwin-arm64",
+      "size": 138608738,
+      "sourceSha256": "f554a08dee4c34f4f43df63af72f0a6afbe57f955496853f411767718927bf2c",
+      "patchedSha256": "296e8a7174936a0e0e8575ec9d45a4857824ce96e16e906b7783b244c2e89d30",
+      "filter": "let k=W.modelID.includes(\"gpt-\")&&!W.modelID.includes(\"oss\")&&!W.modelID.includes(\"gpt-4\");if(Q.id===xr.id)return k;if(Q.id===Hr.id||Q.id===vr.id)return!k;"
+    },
+    {
+      "package": "opencode-darwin-x64",
+      "size": 144130128,
+      "sourceSha256": "0b8b05cabb5a67539740417c815eb70c3aba83737c7609ba2e86bef7d7cd0202",
+      "patchedSha256": "5c682b585ae702e04f6adff8ea03ccb48a43db50e86111b152dccb850763a0d3",
+      "filter": "let k=W.modelID.includes(\"gpt-\")&&!W.modelID.includes(\"oss\")&&!W.modelID.includes(\"gpt-4\");if(Q.id===xr.id)return k;if(Q.id===Hr.id||Q.id===vr.id)return!k;"
+    },
+    {
+      "package": "opencode-linux-x64",
+      "size": 179214464,
+      "sourceSha256": "8eb15fe87080dd11aa095cc0391eb3536d55a46fa9e4427c6a8b664d390ac089",
+      "patchedSha256": "732a481f859d9c6e037cb92a7e8f7b617b5e2ef0f448a7a04c9c03626ff196c4",
+      "filter": "let k=W.modelID.includes(\"gpt-\")&&!W.modelID.includes(\"oss\")&&!W.modelID.includes(\"gpt-4\");if(Q.id===xr.id)return k;if(Q.id===Hr.id||Q.id===vr.id)return!k;"
     }
   ]
 }

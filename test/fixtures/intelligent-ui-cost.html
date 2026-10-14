@@ -1,0 +1,48 @@
+<section id="cost-example">
+  <div class="ui-controls">
+    <label class="ui-field" for="people"><span>团队人数</span><span><output id="count">20</output> 人</span><input id="people" type="range" min="5" max="80" value="20"></label>
+    <label class="ui-field usage" for="calls"><span>每人每月调用</span><span><input id="calls" type="number" min="100" max="3000" value="800" aria-label="每人每月调用量"> 次</span></label>
+  </div>
+  <div class="comparison" aria-label="方案月成本比较，单位元">
+    <div class="cost-row" data-plan="A"><span class="plan">A <small>不限量</small></span><div class="track"><div class="mark" id="bar-a"></div></div><output id="a"></output></div>
+    <div class="cost-row" data-plan="B"><span class="plan">B <small>固定＋调用</small></span><div class="track"><div class="mark" id="bar-b"></div></div><output id="b"></output></div>
+    <div class="cost-row" data-plan="C"><span class="plan">C <small>人数＋调用</small></span><div class="track"><div class="mark" id="bar-c"></div></div><output id="c"></output></div>
+  </div>
+  <p id="decision" aria-live="polite"></p>
+  <p class="ui-muted assumption">假设价格，单位：元/月</p>
+  <details><summary>查看计费依据</summary><p>A：每人 30 元；B：200 元加每次 0.02 元；C：每人 15 元加每次 0.01 元。</p></details>
+</section>
+<style>
+#cost-example{padding:8px 0}
+#cost-example .ui-controls{align-items:center;gap:24px 48px;margin-bottom:28px}
+#cost-example .usage{display:flex;justify-content:space-between;gap:12px}
+#cost-example #calls{width:6ch;text-align:right;font-variant-numeric:tabular-nums}
+#cost-example .comparison{display:grid;gap:18px}
+#cost-example .cost-row{display:grid;grid-template-columns:120px minmax(0,1fr) 72px;align-items:center;gap:20px}
+#cost-example .plan{display:flex;align-items:baseline;gap:12px}
+#cost-example small{color:var(--ui-muted);font-size:12px}
+#cost-example .track{height:8px;background:color-mix(in srgb,var(--ui-text) 5%,transparent)}
+#cost-example .mark{height:100%;background:color-mix(in srgb,var(--ui-text) 25%,transparent);transition:width 180ms ease-out}
+#cost-example [data-best=true] .mark{background:var(--ui-accent)}
+#cost-example .cost-row output{text-align:right;font-size:18px}
+#cost-example #decision{margin:24px 0 4px;font-weight:500}
+#cost-example .assumption{font-size:12px;margin:0}
+@media(max-width:420px){#cost-example .cost-row{grid-template-columns:90px minmax(0,1fr) 58px;gap:12px}#cost-example .plan{gap:6px}#cost-example .ui-controls{gap:18px}#cost-example .cost-row output{font-size:16px}}
+@media(prefers-reduced-motion:reduce){#cost-example .mark{transition:none}}
+</style>
+<script>
+(()=>{
+ const root=document.getElementById('cost-example'),get=id=>root.querySelector('#'+id);
+ function calc(){
+  const n=+get('people').value,q=+get('calls').value;
+  get('count').textContent=n;
+  const valid=get('calls').value!==''&&q>=100&&q<=3000;
+  get('calls').setAttribute('aria-invalid',String(!valid));
+  const values=[n*30,200+n*q*.02,n*15+n*q*.01],minimum=Math.min(...values),max=Math.max(...values);
+  ['a','b','c'].forEach((id,i)=>{get(id).textContent=valid?String(Math.round(values[i]*100)/100):'—';get('bar-'+id).style.width=valid?(values[i]/max*100)+'%':'0%';get(id).parentElement.dataset.best=String(valid&&values[i]===minimum)});
+  const winners=values.flatMap((v,i)=>v===minimum?['ABC'[i]]:[]);
+  get('decision').textContent=valid?(winners.join('、')+(winners.length>1?' 并列最低':' 方案更省')+'，每月 '+minimum.toFixed(0)+' 元'):'输入 100 至 3000 次调用量';
+ }
+ get('people').oninput=get('calls').oninput=calc;calc();
+})();
+</script>

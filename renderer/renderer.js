@@ -40,10 +40,14 @@ function positiveContextTokens(value) {
 }
 
 function configuredContextBudget(cfg = state.config) {
-  const maxTokens = positiveContextTokens(cfg?.context?.maxTokens)
-    || DEFAULT_CONTEXT_SETTINGS.maxTokens;
-  const requestedThreshold = positiveContextTokens(cfg?.context?.compactionThreshold)
-    || DEFAULT_CONTEXT_SETTINGS.compactionThreshold;
+  const selection = getAgentModelSelection();
+  const model = cfg?.models?.find(item => item.id === selection.modelId);
+  const maxTokens = positiveContextTokens(model?.contextWindow)
+    || positiveContextTokens(selection.capabilities?.contextWindow)
+    || 128_000;
+  const requestedThreshold = positiveContextTokens(model?.compactionThreshold)
+    || positiveContextTokens(selection.capabilities?.compactionThreshold)
+    || Math.floor(maxTokens * 0.8);
   const compactionThreshold = requestedThreshold < maxTokens
     ? requestedThreshold
     : Math.max(1, maxTokens - 1);
@@ -80,7 +84,7 @@ async function consumeQuickInputPrompt() {
   const prompt = pendingQuickInputPrompt;
   pendingQuickInputPrompt = '';
   if (!prompt || !quickInputHandlerReady) return;
-  await newSession();
+  await newSession({ standalone: state.config?.general?.standaloneQuickChat === true });
   input.value = prompt;
   autoGrow();
   updateSendState();
@@ -102,6 +106,7 @@ const state = {
   skills: [],
   selectedSkills: [],
   selectedSubagents: [],
+  selectedPlugins: [],
   composerDrafts: new Map(), // sessionId -> { text, skills, attachments, caretOffset }
   queuedTurns: new Map(),    // sessionId -> { id, text, attachments, skillCalls, modelSelection }
   activeRuns: new Map()    // sessionId -> { sessionRef, runCtx, assistantEl } 所有运行中的任务（完全独立）
@@ -160,430 +165,7 @@ function isCurrentSessionExecutionActive() {
   return isSessionExecutionActive(state.currentSession?.id);
 }
 
-const interjectionThreads = new Map();
-const interjectionRequests = new Map();
-const interjectionItemTickers = new WeakMap();
-let interjectionUiTimer = 0;
-
-function createInterjectionRequestId() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return `auxiliary-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function currentInterjectionRun() {
-  const sessionId = state.currentSession?.id;
-  const runCtx = sessionId ? getRunCtx(sessionId) : null;
-  if (!runCtx || runCtx.shouldAbort || runCtx.agentState?.status !== 'working') return null;
-  return runCtx;
-}
-
-function interjectionThreadFor(runCtx, reset = false) {
-  const sessionId = String(runCtx?.sessionId || state.currentSession?.id || '');
-  if (!sessionId) return null;
-  let thread = interjectionThreads.get(sessionId);
-  if (!runCtx) return thread || null;
-  if (reset || !thread || thread.runId !== runCtx.runId) {
-    thread = { runId: runCtx.runId, items: [] };
-    interjectionThreads.set(sessionId, thread);
-  }
-  return thread;
-}
-
-function interjectionItemDuration(item) {
-  const startedAt = Number(item?.startedAt) || Date.now();
-  const completedAt = Number(item?.completedAt) || Date.now();
-  return Math.max(0, completedAt - startedAt);
-}
-
-function clearInterjectionItemTicker(item) {
-  const ticker = item && interjectionItemTickers.get(item);
-  if (ticker?.timer) clearInterval(ticker.timer);
-  if (item) interjectionItemTickers.delete(item);
-}
-
-function syncInterjectionItemElapsed(item) {
-  const elapsed = formatHandledDuration(interjectionItemDuration(item));
-  const elapsedEl = item?.ui?.elapsedEl;
-  if (elapsedEl) elapsedEl.textContent = elapsed;
-  return elapsed;
-}
-
-function startInterjectionItemTicker(item) {
-  clearInterjectionItemTicker(item);
-  syncInterjectionItemElapsed(item);
-  if (!item?.streaming) return;
-  const ticker = {
-    timer: setInterval(() => {
-      if (!item.ui?.body?.isConnected || !item.streaming) {
-        clearInterjectionItemTicker(item);
-        return;
-      }
-      syncInterjectionItemElapsed(item);
-    }, 1_000)
-  };
-  interjectionItemTickers.set(item, ticker);
-}
-
-function renderInterjectionAgentItem(body, item) {
-  const header = document.createElement('div');
-  header.className = 'auxiliary-dialogue-agent-header';
-  header.innerHTML = '<span class="auxiliary-dialogue-status-label">已处理</span><span class="auxiliary-dialogue-elapsed">0秒</span>';
-  const content = document.createElement('div');
-  content.className = 'auxiliary-dialogue-agent-content';
-  body.append(header, content);
-  item.ui = {
-    body,
-    content,
-    elapsedEl: header.querySelector('.auxiliary-dialogue-elapsed')
-  };
-  updateInterjectionStreamItem(item, { renderFinalMarkdown: !item.streaming });
-  startInterjectionItemTicker(item);
-}
-
-function updateInterjectionStreamItem(item, { renderFinalMarkdown = false } = {}) {
-  const content = item?.ui?.content;
-  if (!content?.isConnected) return false;
-  const text = String(item.text || '');
-  if (!text) {
-    const status = String(item.status || '辅助 Agent 正在处理…');
-    if (item.lastRenderedStatus !== status) {
-      item.lastRenderedStatus = status;
-      content.replaceChildren(buildProgressNoteElement(status));
-    }
-    return true;
-  }
-  item.lastRenderedStatus = '';
-  if (renderFinalMarkdown) {
-    content.replaceChildren(buildTextRoundElement(text));
-  } else {
-    let round = content.querySelector('.msg-round.agent-streaming');
-    if (!round) {
-      round = document.createElement('div');
-      round.className = 'msg-round agent-streaming';
-      content.replaceChildren(round);
-    }
-    round.textContent = text;
-  }
-  return true;
-}
-
-function finalizeInterjectionItem(item) {
-  if (!item) return;
-  item.streaming = false;
-  item.status = '';
-  item.completedAt = Number(item.completedAt) || Date.now();
-  clearInterjectionItemTicker(item);
-  syncInterjectionItemElapsed(item);
-  updateInterjectionStreamItem(item, { renderFinalMarkdown: true });
-}
-
-function createInterjectionMessageElement(item) {
-  const role = item.role === 'user' ? 'user' : (item.role === 'system' ? 'assistant auxiliary-dialogue-system' : 'assistant');
-  const message = document.createElement('div');
-  message.className = `msg ${role}`;
-  const body = document.createElement('div');
-  body.className = 'msg-body agent-output';
-  if (item.role === 'user') {
-    body.className = 'msg-body';
-    body.textContent = String(item.text || '');
-    item.ui = { message, body };
-  } else if (item.role === 'system') {
-    body.appendChild(buildProgressNoteElement(item.text));
-    item.ui = { message, body };
-  } else {
-    renderInterjectionAgentItem(body, item);
-    item.ui.message = message;
-  }
-  message.appendChild(body);
-  return message;
-}
-
-function appendInterjectionItem(runCtx, item) {
-  const transcript = $('#interjectionTranscript');
-  const thread = interjectionThreadFor(runCtx);
-  if (!transcript || !thread || !item) return false;
-  const itemIndex = thread.items.indexOf(item);
-  const renderedRunId = String(transcript.dataset.interjectionRunId || '');
-  const renderedCount = Number(transcript.dataset.interjectionItemCount || 0);
-  if (renderedRunId !== String(thread.runId || runCtx?.runId || '') || renderedCount !== itemIndex) {
-    renderInterjectionTranscript(runCtx);
-    return true;
-  }
-  transcript.querySelector('.auxiliary-dialogue-empty')?.remove();
-  transcript.appendChild(createInterjectionMessageElement(item));
-  transcript.dataset.interjectionRunId = String(thread.runId || runCtx?.runId || '');
-  transcript.dataset.interjectionItemCount = String(thread.items.length);
-  const scroll = $('#interjectionScroll');
-  if (scroll) scroll.scrollTop = scroll.scrollHeight;
-  return true;
-}
-
-function renderInterjectionTranscript(runCtx = currentInterjectionRun()) {
-  const transcript = $('#interjectionTranscript');
-  if (!transcript) return;
-  const thread = interjectionThreadFor(runCtx);
-  const items = thread?.items || [];
-  if (!items.length) {
-    transcript.innerHTML = `<div class="auxiliary-dialogue-empty" aria-hidden="true">
-      <img class="auxiliary-dialogue-logo auxiliary-dialogue-logo-light" src="assets/logo.png" alt="">
-      <img class="auxiliary-dialogue-logo auxiliary-dialogue-logo-dark" src="assets/logo-light.png" alt="">
-      <span>Yan Agent工作期间，提问以辅助工作</span>
-    </div>`;
-    transcript.dataset.interjectionRunId = String(runCtx?.runId || '');
-    transcript.dataset.interjectionItemCount = '0';
-    return;
-  }
-  for (const item of items) clearInterjectionItemTicker(item);
-  transcript.replaceChildren();
-  for (const item of items) {
-    transcript.appendChild(createInterjectionMessageElement(item));
-  }
-  transcript.dataset.interjectionRunId = String(thread?.runId || runCtx?.runId || '');
-  transcript.dataset.interjectionItemCount = String(items.length);
-  const scroll = $('#interjectionScroll');
-  if (scroll) scroll.scrollTop = scroll.scrollHeight;
-}
-
-function syncInterjectionUi(options = {}) {
-  if (options.defer) {
-    if (interjectionUiTimer) return;
-    interjectionUiTimer = setTimeout(() => {
-      interjectionUiTimer = 0;
-      syncInterjectionUi();
-    }, 80);
-    return;
-  }
-  const runCtx = currentInterjectionRun();
-  const active = !!runCtx?.openCodeSessionId;
-  const thread = interjectionThreadFor(runCtx);
-  const panel = $('#rs-interjection');
-  if (panel) panel.dataset.state = active ? 'active' : 'idle';
-  $$('[data-rs-open-tool="interjection"]').forEach(button => {
-    button.title = '临时对话';
-    button.setAttribute('aria-label', '临时对话');
-  });
-  const tab = $('[data-rs-tab="interjection"]');
-  if (tab) {
-    tab.removeAttribute('data-state');
-    tab.title = '临时对话';
-  }
-  const input = $('#interjectionInput');
-  if (input) {
-    input.disabled = !active || !!thread?.pending;
-    input.placeholder = active ? '询问状态，或引导 Agent 接下来的工作…' : '当前任务未在工作';
-  }
-  syncInterjectionSendButton(runCtx, thread);
-  const transcript = $('#interjectionTranscript');
-  const expectedRunId = String(thread?.runId || runCtx?.runId || '');
-  const expectedItemCount = String((thread?.items || []).length);
-  if (panel?.classList.contains('active') && transcript
-    && (transcript.dataset.interjectionRunId !== expectedRunId
-      || transcript.dataset.interjectionItemCount !== expectedItemCount)) {
-    renderInterjectionTranscript(runCtx);
-  }
-}
-
-function boundedInterjectionText(value, limit = 900) {
-  const text = stringifyOpenCodeValue(value);
-  return text.length > limit ? `${text.slice(-limit)}…` : text;
-}
-
-function buildInterjectionSnapshot(runCtx) {
-  const capturedAt = Date.now();
-  const timeline = Array.isArray(runCtx?.activeAgentRun?.timeline) ? runCtx.activeAgentRun.timeline : [];
-  const calls = new Map();
-  for (const item of timeline) {
-    if (item.type === 'tool_call') {
-      calls.set(String(item.callId || item.openCodeKey || calls.size), {
-        name: String(item.name || 'tool'),
-        status: 'running',
-        startedAt: Number(item.startedAt) || null,
-        input: boundedInterjectionText(item.args, 700)
-      });
-    } else if (item.type === 'tool_result') {
-      const key = String(item.callId || item.openCodeKey || '');
-      const call = calls.get(key) || { name: String(item.name || 'tool') };
-      call.status = item.ok === false ? 'error' : 'completed';
-      call.completedAt = Number(item.completedAt) || null;
-      call.outputTail = boundedInterjectionText(item.output, 900);
-      calls.set(key, call);
-    }
-  }
-  const controller = getAgentBrowserController(runCtx?.runId);
-  const webview = controller?.webview;
-  return {
-    runId: String(runCtx?.runId || ''),
-    currentRequest: String(runCtx?.currentRequest || ''),
-    phase: String(runCtx?.openCodePhase || 'work'),
-    capturedAt,
-    elapsedMs: Math.max(0, capturedAt - (Number(runCtx?.startedAt) || capturedAt)),
-    lastEventAt: Number(runCtx?.openCodeLastEventAt) || Number(runCtx?.startedAt) || Date.now(),
-    lastEventAgeMs: Math.max(0, capturedAt - (Number(runCtx?.openCodeLastEventAt) || Number(runCtx?.startedAt) || capturedAt)),
-    active: !!runCtx && !runCtx.shouldAbort,
-    tools: [...calls.values()].slice(-16),
-    todos: (Array.isArray(runCtx?.agentState?.todos) ? runCtx.agentState.todos : []).slice(-16).map(todo => ({
-      text: String(todo.text || ''), done: !!todo.done, inProgress: !!todo.inProgress
-    })),
-    browser: controller ? {
-      url: String(controller.currentUrl || webview?.getURL?.() || ''),
-      title: String(webview?.getTitle?.() || ''),
-      loading: !!controller.waitingForLoad,
-      agentControlActive: !!controller.agentControlActive
-    } : null
-  };
-
-}
-
-function interjectionResultSystemNotice(result = {}) {
-  if (result?.hardCancelled) return { role: 'system', text: '已按明确的硬取消请求中止主任务。' };
-  if (result?.delivered) {
-    return {
-      role: 'system',
-      text: result.requestFinish ? '引导已送达主 Agent，将正常收尾。' : '引导已送达主 Agent，当前动作不会被打断。'
-    };
-  }
-  if (result?.ok && result.kind === 'check') return { role: 'system', text: '本条按状态询问回答，未转告主 Agent。' };
-  if (!result?.ok && result?.error) return { role: 'system', text: String(result.error) };
-  return null;
-}
-
-async function sendInterjection() {
-  const runCtx = currentInterjectionRun();
-  const inputEl = $('#interjectionInput');
-  const text = String(inputEl?.value || inputEl?.textContent || '').trim();
-  if (!runCtx || !inputEl || !text || !api.openCodeInterject) return;
-  const thread = interjectionThreadFor(runCtx);
-  if (!thread || thread.pending) return;
-  const history = thread.items
-    .filter(item => (item.role === 'user' || item.role === 'agent') && String(item.text || '').trim())
-    .slice(-12)
-    .map(item => ({
-      role: item.role === 'agent' ? 'assistant' : 'user',
-      content: String(item.text || '').trim()
-    }));
-  const requestToken = Symbol('auxiliary-dialogue');
-  const requestId = createInterjectionRequestId();
-  const userItem = { role: 'user', text };
-  const agentItem = {
-    role: 'agent',
-    text: '',
-    status: '辅助 Agent 正在读取主任务状态',
-    streaming: true,
-    requestId,
-    startedAt: Date.now()
-  };
-  thread.pending = true;
-  thread.requestToken = requestToken;
-  thread.requestId = requestId;
-  thread.items.push(userItem);
-  appendInterjectionItem(runCtx, userItem);
-  thread.items.push(agentItem);
-  appendInterjectionItem(runCtx, agentItem);
-  interjectionRequests.set(requestId, { runCtx, thread, item: agentItem, requestToken });
-  inputEl.value = '';
-  inputEl.textContent = '';
-  inputEl.style.height = '';
-  syncInterjectionUi();
-  try {
-    const result = await api.openCodeInterject({
-      runId: runCtx.runId,
-      requestId,
-      text,
-      history,
-      snapshot: buildInterjectionSnapshot(runCtx)
-    });
-    if (thread.requestToken !== requestToken) return;
-    if (result?.reply && !agentItem.text) agentItem.text = String(result.reply);
-    finalizeInterjectionItem(agentItem);
-    const systemItem = interjectionResultSystemNotice(result);
-    if (systemItem) {
-      thread.items.push(systemItem);
-      appendInterjectionItem(runCtx, systemItem);
-    }
-  } catch (error) {
-    if (thread.requestToken !== requestToken) return;
-    if (!agentItem.text) agentItem.text = error?.message || '临时对话发送失败。';
-    finalizeInterjectionItem(agentItem);
-  } finally {
-    if (thread.requestToken === requestToken) {
-      thread.pending = false;
-      thread.stopping = false;
-      thread.requestToken = null;
-      thread.requestId = null;
-      interjectionRequests.delete(requestId);
-      syncInterjectionUi();
-      updateInterjectionSendState();
-    }
-  }
-}
-
-function stopInterjection() {
-  const runCtx = currentInterjectionRun();
-  const thread = interjectionThreadFor(runCtx);
-  if (!thread?.pending || thread.stopping) return;
-  const requestId = String(thread.requestId || '');
-  thread.stopping = true;
-  syncInterjectionUi();
-  void api.openCodeCancelInterjection?.({ runId: runCtx?.runId, requestId }).then(result => {
-    if (result?.ok || !thread.pending || thread.requestId !== requestId) return;
-    thread.stopping = false;
-    const systemItem = { role: 'system', text: String(result?.error || '未能中止本次临时对话。') };
-    thread.items.push(systemItem);
-    appendInterjectionItem(runCtx, systemItem);
-    syncInterjectionUi();
-  }).catch(error => {
-    if (!thread.pending || thread.requestId !== requestId) return;
-    thread.stopping = false;
-    const systemItem = { role: 'system', text: error?.message || '未能中止本次临时对话。' };
-    thread.items.push(systemItem);
-    appendInterjectionItem(runCtx, systemItem);
-    syncInterjectionUi();
-  });
-}
-
-function handleInterjectionStreamEvent(detail = {}) {
-  const requestId = String(detail.requestId || '');
-  const request = interjectionRequests.get(requestId);
-  if (!request || String(detail.runId || '') !== String(request.runCtx?.runId || '')) return;
-  const event = detail.event || {};
-  const data = event.data || {};
-  const item = request.item;
-  if (event.type === 'status') {
-    item.status = String(data.message || '临时 Agent 正在处理…');
-  } else if (event.type === 'text.delta') {
-    item.status = '';
-    item.text += String(data.delta || '');
-  } else if (event.type === 'completed') {
-    finalizeInterjectionItem(item);
-  } else if (event.type === 'cancelled') {
-    finalizeInterjectionItem(item);
-  } else if (event.type === 'error') {
-    finalizeInterjectionItem(item);
-    if (!item.text) item.text = String(data.message || '临时对话发送失败。');
-  }
-  if (request.thread.requestToken === request.requestToken) {
-    updateInterjectionStreamItem(item, { renderFinalMarkdown: !item.streaming });
-    syncInterjectionUi();
-  }
-}
-
-function syncInterjectionSendButton(runCtx = currentInterjectionRun(), thread = interjectionThreadFor(runCtx)) {
-  const button = $('#interjectionSend');
-  if (!button) return;
-  syncConversationSubmitButton(button, {
-    active: !!thread?.pending,
-    stopping: !!thread?.stopping,
-    sendDisabled: !runCtx || !String($('#interjectionInput')?.value || '').trim(),
-    sendTitle: '发送临时对话',
-    stopTitle: '中止临时对话'
-  });
-}
-
-function updateInterjectionSendState() {
-  const inputEl = $('#interjectionInput');
-  if (!inputEl) return;
-  syncInterjectionSendButton();
-}
+// Side Chat shares the composer and Agent renderer; state lives in side-chat.js.
 
 function getRunCtx(sessionId) {
   return state.activeRuns.get(sessionId)?.runCtx;
@@ -651,6 +233,7 @@ function isAgentStateForCurrentSession(agentState) {
 
 function syncCurrentSessionAgentUi(session = state.currentSession) {
   if (!session || state.currentSession?.id !== session.id) return;
+  window.YanBackgroundBash?.refresh();
   const agentState = getSessionAgentState(session);
   renderSubagentUi();
   renderTodos(agentState);
@@ -664,9 +247,24 @@ function canStartRun() {
 }
 
 // 切换会话时，旧会话的任务停止 DOM 渲染（任务继续后台运行，互不影响）
+function collapseRunWorkLog(header) {
+  if (!header) return;
+  // Marked as touched so the running task does not re-expand itself; the user
+  // can still open it manually.
+  header.dataset.workToggleTouched = 'true';
+  header.dataset.workExpanded = 'false';
+  syncAgentWorkVisibility(header);
+}
+
 function pauseUiForSession(sessionId) {
   const entry = state.activeRuns.get(sessionId);
-  if (entry) entry.runCtx.ui = false;
+  if (!entry) return;
+  entry.runCtx.ui = false;
+  // Leaving a running task hides its work log: the task keeps running, but its
+  // expanded step list must not stay open (or keep being rebuilt) while another
+  // task is in use. The choice also applies when the task is reopened.
+  entry.runCtx.workProcessHidden = true;
+  collapseRunWorkLog(entry.assistantEl?.querySelector?.('.agent-run-header'));
 }
 
 function bindActiveRunUi(sessionId) {
@@ -679,6 +277,9 @@ function bindActiveRunUi(sessionId) {
   const assistantEl = appendMessage('assistant', '');
   entry.assistantEl = assistantEl;
 
+  // Flush any deltas buffered while this task was off screen, so the re-bound
+  // view shows the complete tail instead of the last rendered frame.
+  flushOpenCodeStreamDeltas(runCtx);
   const timeline = [...(runCtx.activeAgentRun?.timeline || [])];
   if (runCtx.streamingReasoning) {
     timeline.push({ type: 'thinking', content: runCtx.streamingReasoning, streaming: true });
@@ -701,6 +302,7 @@ function bindActiveRunUi(sessionId) {
     timeline
   };
   renderAgentRunBody(assistantEl.querySelector('.msg-body'), activeSnapshot, runCtx.partialContent || '');
+  if (runCtx.workProcessHidden) collapseRunWorkLog(assistantEl.querySelector('.agent-run-header'));
   if (runCtx.shouldAbort) applyAbortRunUi(sessionId);
   showTyping(false);
   return assistantEl;
@@ -753,7 +355,7 @@ function syncPetFocusedSession(session = state.currentSession) {
   });
 }
 
-function startPetSupervision(runCtx, session, initialMessage = '回包中') {
+function startPetSupervision(runCtx, session, initialMessage = 'Yan Agent is starting up') {
   if (!runCtx?.sessionId) return;
   runCtx.sessionRef = session || runCtx.sessionRef;
   const monitor = {
@@ -1010,6 +612,7 @@ const ICONS = {
   robot: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>',
   user: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
   copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  quote: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></svg>',
   speaker: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
   edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
@@ -1048,13 +651,6 @@ const MCP_ARROW_UP_RIGHT_ICON = '<svg width="17" height="17" viewBox="0 0 24 24"
 
 let skillMarketItems = [];
 let installedSkillCatalog = [];
-let skillMarketSearch = '';
-let skillSearchOpen = false;
-let skillFilterOpen = false;
-let mcpMarketSearch = '';
-let mcpSearchOpen = false;
-let mcpFilterOpen = false;
-let mcpMarketFilter = 'all';
 let mcpDetailId = '';
 let mcpDetailRenderSeq = 0;
 // A crashed MCP answers every tools/list probe by crashing again. The crash
@@ -1073,12 +669,13 @@ const SKILL_LOGO_FALLBACK = 'assets/skill-logos/github.png';
 
 function skillLogoPath(skill = {}) {
   const logo = String(skill.logo || '').trim();
-  return /^(?:assets\/skill-logos\/[a-z0-9._-]+|assets\/logo-light\.png)$/i.test(logo)
+  return /^(?:assets\/skill-logos\/[a-z0-9._-]+|assets\/provider-logos\/(?:codex|claude|reasonix)\.svg|assets\/logo-light\.png)$/i.test(logo)
     ? logo
     : SKILL_LOGO_FALLBACK;
 }
 
 function skillLogoHtml(skill) {
+  if (skill?.logoDark) return `<img class="skill-logo-image for-light" data-skill-logo src="${escapeAttr(skillLogoPath(skill))}" alt="" aria-hidden="true" draggable="false"><img class="skill-logo-image for-dark" data-skill-logo src="${escapeAttr(skillLogoPath({ logo: skill.logoDark }))}" alt="" aria-hidden="true" draggable="false">`;
   return `<img class="skill-logo-image" data-skill-logo src="${escapeAttr(skillLogoPath(skill))}" alt="" aria-hidden="true" draggable="false">`;
 }
 
@@ -1095,18 +692,16 @@ function bindSkillLogoFallbacks(root) {
 // Init
 // ============================================================
 async function init() {
+  performance.mark('yan-init-start');
   state.config = await api.getConfig();
-  await refreshSkillPrompts();
 
   applyTheme(state.config.theme);
   applyLanguage(state.config.language);
   applyReadingFont(state.config.readingFont);
+  applyAppearance(state.config.appearance);
   applyWallpaperConfig(state.config);
-  syncUserNameUi();
   renderModelBadge();
-  void primeMediaModelLabels();
-  await syncPetWindowButton();
-  await refreshSessions();
+  await Promise.all([refreshSkillPrompts(), syncPetWindowButton(), refreshSessions()]);
   await hydrateQueuedTurns();
   const recoveredTurns = await listRecoveredYanCoreTurns();
   // Replay interrupted Turns from the Core journal before the first session
@@ -1119,7 +714,6 @@ async function init() {
   // Reconnect to runs that survived a renderer reload.
   await reconcileOpenCodeActiveRuns().catch(error => console.warn('[opencode-sync]', error));
   updateGreeting();
-  setInterval(updateGreeting, 60000);
 
   // 请求通知权限（任务完成时推送 Windows 通知）
   if (window.Notification && Notification.permission === 'default') {
@@ -1128,22 +722,6 @@ async function init() {
 
   bindUI();
   parkSettingsOverlay();
-  window.YanUnderstandAnything?.init({
-    api,
-    hooks: {
-      getWorkspace: () => state.currentSession?.workspace || state.config?.workspace || '',
-      toast,
-      closeBrowser: closeBrowserPanel,
-      setRightSidebarOpen,
-      onClose: () => {
-        if (currentWindowView !== 'project-map') return;
-        currentWindowView = 'main';
-        showMainPage('chat');
-        setLeftSidebarOpen(mainSidebarWasOpen);
-        syncSidebarAccessibility();
-      }
-    }
-  });
 
   api.onMcpStatus?.(({ id, status, code }) => {
     if (status === 'crashed') {
@@ -1158,12 +736,19 @@ async function init() {
 
   api.onWorkspaceChanged?.((detail) => {
     scheduleRightSidebarRefresh(detail);
-    window.YanUnderstandAnything?.handleWorkspaceChanged(detail);
+    // A workspace switch changes the kernel config signature; prewarm it so the
+    // next task does not pay the restart cost on its first turn.
+    prewarmAgentKernel(true);
   });
 
-  api.onSkillsChanged?.(async () => {
+  api.onSkillsChanged?.(async (detail = {}) => {
     await refreshInstalledSkillCatalog();
-    if (currentMainPage === 'skills') await renderSkillMarket();
+    if (currentMainPage === 'skills') {
+      if (detail.reason === 'enabled' && skillMarketDetailId) {
+        skillMarketAllCatalog = await api.getSkillCatalog();
+        syncSkillDetailToggles();
+      } else await renderSkillMarket();
+    }
   });
 
   api.onPetVisibility?.(({ visible }) => updatePetWindowButton(!!visible));
@@ -1227,15 +812,26 @@ async function init() {
   for (const queued of state.queuedTurns.values()) {
     scheduleQueuedTurnDispatch(queued.sessionRef);
   }
-  if (recoveredTurns.length) {
-    toast(recoveredRunCount
-      ? `已从运行日志恢复 ${recoveredRunCount} 个中断任务的工作内容，可重新发送继续处理`
-      : `上次运行中有 ${recoveredTurns.length} 个任务被中断，可重新发送继续处理`);
+  // Recovery candidates also include old aborted turns without replayable
+  // journals. They are not new interruptions and must not announce themselves
+  // on every launch. Only report work actually restored during this startup.
+  if (recoveredRunCount > 0) {
+    toast(`已从运行日志恢复 ${recoveredRunCount} 个中断任务的工作内容，可重新发送继续处理`);
   }
 
   showMainPage('chat');
   quickInputHandlerReady = true;
   void consumeQuickInputPrompt();
+  await window.YanTaskLinks.initialize();
+  window.__YAN_APP_READY__ = true;
+  performance.mark('yan-init-ready');
+  performance.measure('yan-init', 'yan-init-start', 'yan-init-ready');
+  api.windowUiReady?.();
+  // Optional catalogs and kernel prewarming must not contend with initial UI.
+  setTimeout(() => {
+    void primeMediaModelLabels();
+    prewarmAgentKernel();
+  }, 300);
 }
 
 async function openTaskFromPet(sessionId) {
@@ -1251,31 +847,16 @@ async function openTaskFromPet(sessionId) {
 }
 
 // ============================================================
-// Greeting (time-based)
+// Greeting (workspace-aware)
 // ============================================================
-function normalizeUserName(value) {
-  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 32) || 'Yanxi';
-}
-
-function syncUserNameUi() {
-  const userName = normalizeUserName(state.config?.userName);
-  const input = $('#userNameInput');
-  if (input && document.activeElement !== input) input.value = userName;
-  updateGreeting();
-}
-
 function updateGreeting() {
-  const h = new Date().getHours();
-  let part = 'evening';
-  if (h < 12) part = 'morning';
-  else if (h < 18) part = 'afternoon';
   const el = $('#greeting');
-  const activeNameInput = document.activeElement?.matches?.('#userNameInput')
-    ? document.activeElement
-    : null;
-  const editingName = activeNameInput?.value || '';
-  const userName = normalizeUserName(editingName || state.config?.userName);
-  if (el) el.textContent = `Good ${part}, ${userName}`;
+  if (!el) return;
+  const workspace = String(state.currentSession?.workspace || '').trim();
+  const label = workspace ? workspaceGroupLabel(workspace) : '';
+  el.textContent = label && label !== 'blank'
+    ? `你想让我们在${label}中构建什么？`
+    : '我们要构建什么？';
 }
 
 // ============================================================
@@ -1292,10 +873,12 @@ function resolveEffectiveTheme(theme) {
 function applyTheme(theme) {
   const effective = resolveEffectiveTheme(theme);
   document.documentElement.setAttribute('data-theme', effective);
+  api.windowBackground?.(effective === 'light' ? '#ffffff' : '#101011');
   if ($('#app')?.classList.contains('wallpaper-enabled')) void applyWallpaperCompat();
   globalThis.YanReviewEditor?.setTheme(effective);
   updateThemeToggleIcon(theme);
   updateThemeSegmented(theme);
+  $$('.appearance-theme-card').forEach(button => button.setAttribute('aria-checked', String(button.dataset.themeChoice === (theme || 'dark'))));
   // The migrated review view is an isolated document, so it cannot inherit
   // the parent theme live. Rebuild it when the user changes theme while the
   // Review tab is open; the generated page will receive the fresh Yan tokens.
@@ -1308,18 +891,7 @@ function applyTheme(theme) {
 
 function updatePetWindowButton(visible) {
   const isVisible = !!visible;
-  const button = $('#petWindowToggle');
-  if (button) {
-    button.classList.toggle('active', isVisible);
-    button.setAttribute('aria-pressed', isVisible ? 'true' : 'false');
-    button.setAttribute('aria-label', isVisible ? '关闭桌宠' : '打开桌宠');
-    button.title = isVisible ? '关闭桌宠' : '打开桌宠';
-  }
-  const generalToggle = $('#generalPetToggle');
-  if (generalToggle) generalToggle.checked = isVisible;
-  const picker = $('#generalPetPicker');
-  if (picker) picker.hidden = !isVisible;
-  if (!isVisible) setGeneralPetPickerOpen(false);
+  syncPetSettingsVisibility(isVisible);
   if (state.config?.pet) state.config.pet.enabled = isVisible;
 }
 
@@ -1351,19 +923,8 @@ function updateThemeSegmented(theme) {
   if (control) control.title = toggle.checked ? '切换到浅色主题' : '切换到深色主题';
 }
 
-function normalizeUiLanguage(language) {
-  return String(language || '').trim().toLowerCase() === 'en' ? 'en' : 'zh-CN';
-}
-
-function updateLanguageSegmented(language) {
-  const group = $('#languageSegmented');
-  if (!group) return;
-  const value = normalizeUiLanguage(language);
-  group.querySelectorAll('.general-segment-btn').forEach(btn => {
-    const active = btn.dataset.lang === value;
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-checked', String(active));
-  });
+function normalizeUiLanguage() {
+  return 'zh-CN';
 }
 
 function applyLanguage(language) {
@@ -1372,7 +933,6 @@ function applyLanguage(language) {
   document.documentElement.dataset.language = value;
   document.body?.setAttribute('data-language', value);
   window.YanI18n?.apply(value, document);
-  updateLanguageSegmented(value);
   return value;
 }
 
@@ -1395,12 +955,13 @@ function applyReadingFont(value) {
   const font = normalizeReadingFont(value);
   document.documentElement.dataset.readingFont = font;
   updateReadingFontSegmented(font);
+  if (state.config) applyAppearance(state.config.appearance);
   return font;
 }
 
 async function refreshSessions() {
   state.sessions = await api.listSessions();
-  const blanks = state.sessions.filter(isBlankUnassignedNewChat);
+  const blanks = state.sessions.filter(session => isBlankUnassignedNewChat(session) && !state.composerDrafts.has(String(session.id)));
   if (blanks.length > 1) {
     const currentBlank = blanks.find(session => session.id === state.currentSession?.id);
     const keepId = currentBlank?.id || blanks[0].id;
@@ -1472,6 +1033,7 @@ async function hydrateQueuedTurns() {
         text: String(intent.prompt || ''),
         attachments: Array.isArray(intent.attachments) ? intent.attachments.map(item => ({ ...item })) : [],
         skillCalls: Array.isArray(intent.skillCalls) ? intent.skillCalls.map(item => ({ ...item })) : [],
+        pluginCalls: Array.isArray(intent.selectedPlugins) ? intent.selectedPlugins : [],
         modelSelection: intent.modelSelection && typeof intent.modelSelection === 'object' ? { ...intent.modelSelection } : getAgentModelSelection(),
         queuedAt: Number(record.createdAt) || Date.now()
       });
@@ -1485,7 +1047,7 @@ async function listRecoveredYanCoreTurns() {
   try {
     const snapshot = await invokeYanCore('yanCoreGetState', {});
     return Object.values(snapshot?.turns && typeof snapshot.turns === 'object' ? snapshot.turns : {})
-      .filter(turn => turn?.status === 'recovering');
+      .filter(turn => !turn?.recovery?.replayedAt && (turn?.status === 'recovering' || (turn?.status === 'aborted' && turn.recovery)));
   } catch (error) {
     console.warn('[yan-core] recovery state read failed:', error);
     return [];
@@ -1553,15 +1115,19 @@ function isBlankUnassignedNewChat(session) {
   return isBlankNewChat(session) && !String(session.workspace || '').trim();
 }
 
-function syncCurrentSessionWorkspace(workspace) {
-  if (!state.currentSession) return;
-  state.currentSession.workspace = workspace || '';
-  syncAgentBrowserVisibility();
+function revealWorkspaceInSidebar(workspace) {
   const key = workspaceGroupKey(workspace);
   if (workspaceSidebarMeta[key]?.hidden) {
     workspaceSidebarMeta[key] = { ...workspaceSidebarMeta[key], hidden: false };
     saveWorkspaceSidebarMeta();
   }
+}
+
+function syncCurrentSessionWorkspace(workspace) {
+  if (!state.currentSession) return;
+  state.currentSession.workspace = workspace || '';
+  syncAgentBrowserVisibility();
+  revealWorkspaceInSidebar(workspace);
   const summary = state.sessions.find(session => session.id === state.currentSession.id);
   if (summary) summary.workspace = workspace || '';
   renderSessionList();
@@ -1699,6 +1265,7 @@ function bindGenericConfirmDialog() {
 let sidebarContextMenu = null;
 
 function closeSidebarContextMenu() {
+  window.YanTaskMenu?.close();
   sidebarContextMenu?.remove();
   sidebarContextMenu = null;
   document.querySelectorAll('[data-workspace-menu-toggle], [data-session-menu-toggle]').forEach(button => {
@@ -1709,11 +1276,19 @@ function closeSidebarContextMenu() {
 function openSidebarContextMenu(anchor, items) {
   closeSidebarContextMenu();
   const menu = document.createElement('div');
-  menu.className = 'sidebar-context-menu';
+  menu.className = 'sidebar-context-menu task-context-menu workspace-context-menu';
   menu.setAttribute('role', 'menu');
   items.forEach(item => {
+    if (item.separator) {
+      const separator = document.createElement('div');
+      separator.className = 'task-context-separator';
+      separator.setAttribute('role', 'separator');
+      menu.appendChild(separator);
+      return;
+    }
     const button = document.createElement('button');
     button.type = 'button';
+    button.setAttribute('role', 'menuitem');
     button.className = `sidebar-context-menu-item${item.danger ? ' danger' : ''}`;
     button.innerHTML = `${item.icon || ''}<span>${escapeHtml(item.label)}</span>`;
     button.addEventListener('click', async event => {
@@ -1739,7 +1314,7 @@ function openSidebarContextMenu(anchor, items) {
 }
 
 document.addEventListener('pointerdown', event => {
-  if (event.target.closest('.sidebar-context-menu, [data-workspace-menu-toggle], [data-session-menu-toggle]')) return;
+  if (event.target.closest('.sidebar-context-menu, [data-workspace-menu-toggle], [data-session-menu-toggle], #taskBarMoreBtn')) return;
   closeSidebarContextMenu();
 });
 window.addEventListener('resize', closeSidebarContextMenu);
@@ -1782,7 +1357,18 @@ function trackSessionTitleOverflow(list) {
   scheduleSessionTitleOverflowSync(list);
 }
 
-window.addEventListener('resize', () => scheduleSessionTitleOverflowSync());
+// One resize entry point for the session-scaled layout passes. Restoring a
+// minimized window fires 'resize' without a size change; skip those frames.
+let lastViewportSize = { w: window.innerWidth, h: window.innerHeight };
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  if (!w || !h || (w === lastViewportSize.w && h === lastViewportSize.h)) return;
+  lastViewportSize = { w, h };
+  scheduleSessionTitleOverflowSync();
+  scheduleRightSidebarTabLayoutSync();
+  scheduleTurnScaleUpdate();
+  scheduleComposerGrow();
+});
 
 function normalizeWorkspaceUiPath(workspace) {
   const value = String(workspace || '').trim().split('\\').join('/');
@@ -1843,7 +1429,22 @@ async function performSessionDeletionFromSidebar(id) {
   }
   const result = await api.deleteSession(id, confirmed);
   if (result?.ok === false) {
-    toast(result.error || '删除失败');
+    if (result.deletionPending) {
+      state.composerDrafts.delete(String(id));
+      state.queuedTurns.delete(String(id));
+      if (state.currentSession?.id === id) {
+        state.currentSession = null;
+        restoreComposerDraftForSession('');
+        clearMessages();
+      }
+      await refreshSessions();
+      if (!state.currentSession) {
+        if (state.sessions.length) await loadSession(state.sessions[0].id);
+        else await newSession();
+      }
+      await window.YanArchiveSettings?.refresh();
+    }
+    toast((result.error || '删除失败') + (result.deletionPending ? ' 可在设置的归档聊天中重试永久删除。' : ''), { error: true });
     return;
   }
   await clearYanCoreQueuedIntentsForThread(id, 'session_removed');
@@ -1866,26 +1467,8 @@ async function performSessionDeletionFromSidebar(id) {
   toast(result.replacedLast ? '已移除任务，已新建空白任务' : '已移除任务');
 }
 
-// Hint below the composer: shown while the CURRENT task is still a brand-new
-// blank task, and removed the moment that task stops being new — independent of
-// how many other tasks the profile already has.
-function updateGuideHint(isNewTask) {
-  const hint = $('#guideHint');
-  if (!hint) return;
-  const show = isNewTask === undefined
-    ? $('#pageChat')?.classList.contains('empty') === true
-    : !!isNewTask;
-  hint.classList.toggle('hidden', !show);
-}
-
-function renderSessionList() {
-  updateGuideHint();
-  const list = $('#sessionList');
+function getVisibleProjectGroups() {
   const groups = new Map();
-  const pinnedSessions = state.sessions
-    .filter(session => !!session.pinned)
-    .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
-
   state.sessions.forEach(session => {
     const workspace = String(session.workspace || '').trim();
     const key = workspaceGroupKey(session);
@@ -1895,21 +1478,43 @@ function renderSessionList() {
       workspace,
       label,
       sessions: [],
+      running: false,
       latest: 0,
       pinned: !!workspaceSidebarMeta[key]?.pinned
     });
     const group = groups.get(key);
+    group.running ||= isSessionRunning(session.id);
     if (!session.pinned) group.sessions.push(session);
     group.latest = Math.max(group.latest, Number(session.updatedAt) || 0);
   });
 
-  const visibleGroups = [...groups.values()]
+  return [...groups.values()]
     .filter(group => !workspaceSidebarMeta[group.key]?.hidden)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return b.latest - a.latest;
     });
 
+}
+
+function renderProjectHeader(group, { review = false } = {}) {
+  const collapsed = collapsedWorkspaceGroups.has(group.key);
+  const meta = workspaceSidebarMeta[group.key] || {};
+  const groupDead = group.sessions.some(session => session.workspaceMissing === true);
+  return `<div class="workspace-header${review ? ' code-review-project-row' : ''}" ${review ? `data-code-review-workspace="${escapeAttr(group.workspace)}" role="button" tabindex="0"` : `data-workspace-toggle="${escapeAttr(group.key)}" tabindex="0"`} title="${escapeAttr(group.workspace || '未选择工作区')}"${groupDead ? ' data-dead-workspace="true"' : ''}>
+    <span class="workspace-icon" data-workspace-folder-state="${collapsed ? 'closed' : 'open'}">${collapsed ? ICONS.folder : ICONS.folderOpen}</span>
+    <span class="workspace-name">${escapeHtml(group.label)}</span>
+    ${!review && meta.pinned ? `<button type="button" class="workspace-pin" data-workspace-pin-toggle="${escapeAttr(group.key)}" title="取消置顶工作区" aria-label="取消置顶工作区">${ICONS.pin}</button>` : ''}
+    ${review ? '' : `<button type="button" class="workspace-more-btn ${group.running ? 'has-running-task' : ''}" data-workspace-menu-toggle="${escapeAttr(group.key)}" aria-label="${group.running ? '工作区有任务正在运行，打开工作区操作' : '工作区操作'}" aria-expanded="false">${group.running ? '<span class="session-spinner workspace-spinner" aria-hidden="true"></span>' : ''}<span class="workspace-more-label" aria-hidden="true">⋯</span></button>`}
+  </div>`;
+}
+
+function renderSessionList() {
+  const list = $('#sessionList');
+  const visibleGroups = getVisibleProjectGroups();
+  const pinnedSessions = state.sessions
+    .filter(session => !!session.pinned)
+    .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
   if (visibleGroups.length === 0 && pinnedSessions.length === 0) {
     list.innerHTML = '<div class="session-empty">暂无对话 · 点击上方开始</div>';
     trackSessionTitleOverflow(list);
@@ -1928,7 +1533,10 @@ function renderSessionList() {
             <span class="session-title-copy" aria-hidden="true">${escapeHtml(displaySessionTitle(session.title))}</span>
           </span>
         </span>
-        <button type="button" class="session-more-btn" data-session-menu-toggle="${escapeAttr(session.id)}" aria-label="任务操作" aria-expanded="false">⋯</button>
+        <span class="session-actions-pill">
+          <button type="button" class="session-action-btn" data-session-pin-toggle="${escapeAttr(session.id)}" aria-pressed="${session.pinned ? 'true' : 'false'}" title="${session.pinned ? '取消置顶' : '置顶任务'}" aria-label="${session.pinned ? '取消置顶' : '置顶任务'}">${ICONS.pin}</button>
+          <button type="button" class="session-action-btn" data-session-archive="${escapeAttr(session.id)}" title="归档任务" aria-label="归档任务">${window.YanArchiveSettings?.icon || ''}</button>
+        </span>
       </div>`;
   };
 
@@ -1940,22 +1548,17 @@ function renderSessionList() {
     : '';
 
   const allProjectsCollapsed = visibleGroups.length > 0 && visibleGroups.every(group => collapsedWorkspaceGroups.has(group.key));
-  const projectToggleIcon = allProjectsCollapsed
-    ? '<svg class="project-toggle-icon is-expand" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H20.5C20.77614 3 21 3.22386 21 3.5V10M14 10L20.4 3.6M10 21H3.5C3.22386 21 3 20.77614 3 20.5V14M10 14L3.6 20.4"/></svg>'
-    : '<svg class="project-toggle-icon is-collapse" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10H14.5C14.22386 10 14 9.77614 14 9.5V3M14.6 9.4L21 3M3 14H9.5C9.77614 14 10 14.22386 10 14.5V21M9.4 14.6L3 21"/></svg>';
+  const projectsToggleIcon = `<svg class="project-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${allProjectsCollapsed ? 'M6 9L12 15L18 9' : 'M9 6L15 12L9 18'}"/></svg>`;
   const projectsMarkup = visibleGroups.length
     ? `<section class="sidebar-list-section projects-section">
         <div class="sidebar-list-section-header project-section-header">
           <span class="sidebar-list-section-label">项目</span>
           <div class="project-section-actions" aria-label="项目视图操作">
-            <button type="button" class="project-section-action" data-project-view-action="toggle" title="${allProjectsCollapsed ? '展开所有工作区' : '折叠所有工作区'}" aria-label="${allProjectsCollapsed ? '展开所有工作区' : '折叠所有工作区'}">
-              ${projectToggleIcon}
-            </button>
+            <button type="button" class="project-section-action" data-project-view-action="${allProjectsCollapsed ? 'expand' : 'collapse'}" title="${allProjectsCollapsed ? '展开所有工作区' : '折叠所有工作区'}" aria-label="${allProjectsCollapsed ? '展开所有工作区' : '折叠所有工作区'}">${projectsToggleIcon}</button>
           </div>
         </div>
         <div class="workspace-groups">${visibleGroups.map(group => {
     const collapsed = collapsedWorkspaceGroups.has(group.key);
-    const meta = workspaceSidebarMeta[group.key] || {};
     const groupDead = group.sessions.some(session => session.workspaceMissing === true);
     const tasks = [...group.sessions]
       .sort((a, b) => {
@@ -1966,12 +1569,7 @@ function renderSessionList() {
 
     return `
       <section class="workspace-group ${collapsed ? 'is-collapsed' : ''} ${groupDead ? 'is-dead-workspace' : ''}" data-workspace-group="${escapeAttr(group.key)}">
-        <div class="workspace-header" data-workspace-toggle="${escapeAttr(group.key)}" title="${escapeAttr(group.workspace || '未选择工作区')}" tabindex="0"${groupDead ? ' data-dead-workspace="true"' : ''}>
-          <span class="workspace-icon" data-workspace-folder-state="${collapsed ? 'closed' : 'open'}">${collapsed ? ICONS.folder : ICONS.folderOpen}</span>
-          <span class="workspace-name">${escapeHtml(group.label)}</span>
-          ${meta.pinned ? `<button type="button" class="workspace-pin" data-workspace-pin-toggle="${escapeAttr(group.key)}" title="取消置顶工作区" aria-label="取消置顶工作区">${ICONS.pin}</button>` : ''}
-          <button type="button" class="workspace-more-btn" data-workspace-menu-toggle="${escapeAttr(group.key)}" aria-label="工作区操作" aria-expanded="false">⋯</button>
-        </div>
+        ${renderProjectHeader(group)}
         <div class="workspace-task-list">${tasks}</div>
       </section>`;
         }).join('')}</div>
@@ -1984,11 +1582,10 @@ function renderSessionList() {
   list.querySelectorAll('[data-project-view-action]').forEach(button => {
     button.addEventListener('click', event => {
       event.stopPropagation();
-      const action = button.dataset.projectViewAction;
-      const shouldExpand = visibleGroups.some(group => !collapsedWorkspaceGroups.has(group.key));
+      const collapseAll = button.dataset.projectViewAction === 'collapse';
       visibleGroups.forEach(group => {
-        if (action === 'toggle' && shouldExpand) collapsedWorkspaceGroups.add(group.key);
-        else if (action === 'toggle') collapsedWorkspaceGroups.delete(group.key);
+        if (collapseAll) collapsedWorkspaceGroups.add(group.key);
+        else collapsedWorkspaceGroups.delete(group.key);
       });
       saveCollapsedWorkspaceGroups();
       renderSessionList();
@@ -2019,6 +1616,7 @@ function renderSessionList() {
       toggle();
     });
     header.addEventListener('keydown', event => {
+      if (event.target.closest('[data-workspace-menu-toggle]')) return;
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         toggle();
@@ -2034,7 +1632,7 @@ function renderSessionList() {
       if (!group) return;
       const meta = workspaceSidebarMeta[key] || {};
       const items = [{
-        label: meta.pinned ? '取消置顶工作区' : '置顶工作区',
+        label: meta.pinned ? '取消置顶' : '置顶',
         icon: ICONS.pin,
         onSelect: () => {
           workspaceSidebarMeta[key] = { ...meta, pinned: !meta.pinned, hidden: false };
@@ -2042,18 +1640,18 @@ function renderSessionList() {
           renderSessionList();
         }
       }];
+      items.push({ label: '归档聊天', icon: window.YanArchiveSettings.icon, onSelect: () => window.YanArchiveSettings.archive(state.sessions.filter(item => (item.workspace || '') === (group.workspace || '')).map(item => item.id)) });
       if (group.workspace) {
-        items.push({
+        items.push({ separator: true }, {
           label: '在资源管理器中打开',
-          icon: ICONS.folder,
+          icon: ICONS.folderOpen,
           onSelect: async () => {
             const result = await api.openWorkspaceInExplorer?.(group.workspace);
             if (result?.ok === false) toast(result.error || '打开工作区失败');
           }
-        }, {
-          label: '移除工作区',
-          icon: ICONS.trash,
-          danger: true,
+        }, { separator: true }, {
+          label: '移除项目',
+          icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
           onSelect: async () => {
             const confirmed = await requestWorkspaceRemovalConfirmation(group);
             if (!confirmed) return;
@@ -2068,28 +1666,31 @@ function renderSessionList() {
     });
   });
 
-  list.querySelectorAll('[data-session-menu-toggle]').forEach(button => {
+  list.querySelectorAll('[data-session-pin-toggle]').forEach(button => {
     button.addEventListener('click', event => {
       event.stopPropagation();
-      const id = button.dataset.sessionMenuToggle || '';
-      const session = state.sessions.find(item => item.id === id);
-      if (!session) return;
-      openSidebarContextMenu(button, [{
-        label: session.pinned ? '取消置顶任务' : '置顶任务',
-        icon: ICONS.pin,
-        onSelect: () => toggleSessionPinnedFromSidebar(session)
-      }, {
-        label: '移除任务',
-        icon: ICONS.trash,
-        danger: true,
-        onSelect: () => deleteSessionFromSidebar(id)
-      }]);
+      const session = state.sessions.find(item => item.id === button.dataset.sessionPinToggle);
+      if (session) toggleSessionPinnedFromSidebar(session);
+    });
+  });
+
+  list.querySelectorAll('[data-session-archive]').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      const id = button.dataset.sessionArchive || '';
+      if (id) window.YanArchiveSettings?.archive([id]);
     });
   });
 
   list.querySelectorAll('.session-item').forEach(el => {
+    el.classList.toggle('is-unread', window.YanTaskMenu?.isUnread(el.dataset.id));
+    el.addEventListener('contextmenu', event => {
+      event.preventDefault();
+      const session = state.sessions.find(item => item.id === el.dataset.id);
+      if (session) window.YanTaskMenu.open(el, session);
+    });
     el.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-session-menu-toggle]')) return;
+      if (e.target.closest('.session-action-btn')) return;
       switchSidebarNav('tasks');
       const summary = state.sessions.find(session => session.id === el.dataset.id);
       if (summary?.workspaceMissing) {
@@ -2140,9 +1741,10 @@ async function confirmDeadWorkspaceCleanup(summary) {
 
 let newSessionPromise = null;
 
-async function newSession() {
+async function newSession(options = {}) {
+  window.YanVoiceInput?.cancel();
   if (newSessionPromise) return newSessionPromise;
-  newSessionPromise = createOrActivateNewSession();
+  newSessionPromise = createOrActivateNewSession(options);
   try {
     return await newSessionPromise;
   } finally {
@@ -2150,21 +1752,24 @@ async function newSession() {
   }
 }
 
-async function createOrActivateNewSession() {
+async function createOrActivateNewSession({ standalone = false, forceNew = false } = {}) {
   cancelPromptOptimization({ announce: false });
   closeModelPicker();
   closeReasoningPicker();
+  const runtime = 'agent';
   switchSidebarNav('tasks');
   // A new task inherits the current task's home: a blank task stays blank, a
   // task inside workspace A opens the next task inside A.
-  const inheritedWorkspace = String(state.currentSession?.workspace || '').trim();
+  const inheritedWorkspace = standalone ? '' : String(state.currentSession?.workspace || '').trim();
+  const reusableDraft = session => isBlankNewChat(session);
   const existing = inheritedWorkspace
     ? state.sessions.find(session => (
-        isBlankNewChat(session)
+        reusableDraft(session)
+       
         && String(session.workspace || '').trim() === inheritedWorkspace
       ))
-    : state.sessions.find(isBlankUnassignedNewChat);
-  if (existing) {
+    : state.sessions.find(session => reusableDraft(session) && !String(session.workspace || '').trim());
+  if (existing && !forceNew) {
     if (state.currentSession?.id !== existing.id) {
       if (state.currentSession?.id) pauseUiForSession(state.currentSession.id);
       await loadSession(existing.id);
@@ -2176,12 +1781,15 @@ async function createOrActivateNewSession() {
     pauseUiForSession(state.currentSession.id);
   }
   showSessionLoading('正在创建新对话…');
-  const s = await api.createSession(Boolean(inheritedWorkspace), inheritedWorkspace);
+  const s = await api.createSession(forceNew || Boolean(inheritedWorkspace), inheritedWorkspace);
   if (!s) {
     showSessionLoading('无法创建新对话');
     return null;
   }
+  s.runtime = runtime;
+  await initializeSessionModel(s);
   state.currentSession = s;
+  revealWorkspaceInSidebar(s.workspace);
   syncAgentBrowserVisibility();
   syncPetFocusedSession(s);
   restoreComposerDraftForSession(s.id);
@@ -2192,12 +1800,15 @@ async function createOrActivateNewSession() {
     : await api.setConfig({ workspace: '' });
   await renderRightSidebarReview({ force: true });
   syncCurrentSessionAgentUi(s);
+  renderModelBadge();
   updateTaskBar();
   updateSendState();
   await refreshSessions();
+  window.YanPromptSuggestions?.onSessionOpened?.(s);
 }
 
 async function loadSession(id) {
+  window.YanVoiceInput?.cancel();
   cancelPromptOptimization({ announce: false });
   const summary = state.sessions.find(session => session.id === String(id));
   if (summary?.workspaceMissing) {
@@ -2220,7 +1831,10 @@ async function loadSession(id) {
     return;
   }
   markSessionLoadBaseline(s);
+  window.YanTaskMenu?.markRead(s.id);
+  await initializeSessionModel(s);
   state.currentSession = s;
+  revealWorkspaceInSidebar(s.workspace);
   syncAgentBrowserVisibility();
   syncPetFocusedSession(s);
   if (!previousSessionId || switchingSessions) restoreComposerDraftForSession(s.id);
@@ -2236,9 +1850,11 @@ async function loadSession(id) {
   if (runCtx) bindActiveRunUi(s.id);
   else showTyping(false);
   await renderRightSidebarReview({ force: true });
+  renderModelBadge();
   updateTaskBar();
   updateSendState();
   renderSessionList();
+  window.YanPromptSuggestions?.onSessionOpened?.(state.currentSession);
 }
 
 async function saveCurrentSession(session = state.currentSession) {
@@ -2271,7 +1887,6 @@ function displaySessionTitle(title) {
 // Sidebar toggle
 // ============================================================
 $('#sidebarToggle').addEventListener('click', () => {
-  if (currentWindowView !== 'main') return;
   setLeftSidebarOpen($('#app').classList.contains('sidebar-hidden'));
 });
 
@@ -2328,16 +1943,25 @@ function followSessionEntryBottom() {
 
 function clearMessages() {
   stopSessionEntryFollow?.();
+  window.YanAgentShell?.clearFoldedMessages();
   historyPrependToken++;
   $('#messages').innerHTML = '';
   invalidateConversationTurns();
   renderTurnScaleNavigation();
 }
 
+function resetChatScrollResumeUi() {
+  const host = document.getElementById('chatScrollResumeHost');
+  if (!host) return;
+  host.classList.add('hidden');
+  host.dataset.runState = 'done';
+}
+
 // Session switching is asynchronous: replace the previous conversation with a
 // loading placeholder immediately, so a slow getSession/createSession can never
 // leave the previous task on screen while the switch is pending.
 function showSessionLoading(label = '正在打开任务…') {
+  resetChatScrollResumeUi();
   stopSessionEntryFollow?.();
   historyPrependToken++;
   const wrap = $('#messages');
@@ -2360,7 +1984,8 @@ function buildHistoryMessageElement(message, index) {
     message.duration,
     message.agentRun,
     message.skillCalls || message.skillCall,
-    message.mediaAssets?.length ? message.mediaAssets : message.media
+    (message.mediaAssets?.length ? message.mediaAssets : message.media),
+    message.pluginCalls || []
   );
   if (message.role === 'user' && message.modelSwitchNotice) {
     appendModelSwitchNoticeElement(message.modelSwitchNotice, { animate: false });
@@ -2614,7 +2239,9 @@ function appendModelSwitchNoticeElement(text, { animate = true } = {}) {
 
 function setEmptyState(empty) {
   $('#pageChat').classList.toggle('empty', empty);
-  updateGuideHint(empty);
+  $('#chatMainColumn').classList.toggle('empty', empty);
+  window.YanAgentShell?.sync(empty);
+  syncRightDock();
   scheduleTurnScaleUpdate();
 }
 
@@ -2649,7 +2276,7 @@ function getConversationTurns() {
         index: turns.length,
         userEl: element,
         assistantEl: null,
-        userText: element.querySelector('.msg-body')?.textContent?.replace(/\s+/g, ' ').trim() || '（没有文字内容）',
+        userText: (element.querySelector('.user-message-content') || element.querySelector('.msg-body'))?.textContent?.replace(/\s+/g, ' ').trim() || '（没有文字内容）',
         assistantText: '（Agent 尚未回复）'
       };
       turns.push(currentTurn);
@@ -2682,7 +2309,7 @@ function showTurnScalePreview(turn) {
   const nav = $('#turnScaleNav');
   const preview = $('#turnScalePreview');
   if (!nav || !preview || !turn) return;
-  const userText = turn.userEl?.querySelector('.msg-body')?.textContent?.replace(/\s+/g, ' ').trim() || turn.userText;
+  const userText = (turn.userEl?.querySelector('.user-message-content') || turn.userEl?.querySelector('.msg-body'))?.textContent?.replace(/\s+/g, ' ').trim() || turn.userText;
   const assistantText = turn.assistantEl?.querySelector('.msg-body')?.textContent?.replace(/\s+/g, ' ').trim() || '（Agent 尚未回复）';
   clearTurnScaleFocus();
   turn.userEl?.classList.add('turn-focus');
@@ -2818,8 +2445,7 @@ function scheduleTurnScaleUpdate() {
 // Sidebar navigation & main pages
 // ============================================================
 let currentMainPage = 'chat';
-let currentWindowView = 'main';
-let mainSidebarWasOpen = true;
+let currentPluginPage = 'packages';
 let activeRightSidebarTab = null;
 const openRightSidebarTabs = [];
 const SUBAGENT_UI_NAMES = window.YanSubagentWorkflow?.NAMES || {};
@@ -2882,8 +2508,9 @@ function updateSubagentWorkflow(runCtx, event, deferEffects) {
     if (!deferEffects) scheduleOpenCodeRender(runCtx);
   }
   if (state.currentSession?.id === runCtx.sessionId) {
-    if (update.created && !runCtx.replayingSubagents) subagentPanel.open();
+    if (update.created && !runCtx.replayingSubagents && state.config?.general?.expandSubagentPanel !== false) subagentPanel.open();
     else subagentPanel.schedule();
+    if (!$('#taskGitPanel')?.classList.contains('hidden')) renderTaskGitAgentSections();
   }
   return true;
 }
@@ -2912,46 +2539,28 @@ const mediaStudioState = {
 // Tool selection belongs to the task, not to the shared task-bar component.
 const taskToolSelections = new Map();
 let vsCodeStatus = { available: false, executable: '', iconDataUrl: '' };
-let skillMarketFilter = 'all';
 let skillMarketCatalog = [];
 let skillMarketAllCatalog = [];
 let skillMarketDetailId = '';
 
-function getSkillMarketFilterOptions() {
-  return [
-    { id: 'all', label: '全部' },
-    ...Object.entries(SKILL_TAG_LABELS).map(([id, label]) => ({ id, label })),
-    { id: 'personal', label: '个人' }
-  ];
-}
-
 function syncSidebarAccessibility() {
   const settingsMode = $('#app')?.classList.contains('settings-mode');
-  const restricted = currentWindowView !== 'main';
-  if (restricted) $('#app')?.classList.add('sidebar-hidden');
-  else if (settingsMode) $('#app')?.classList.remove('sidebar-hidden');
-  const leftOpen = !restricted && !$('#app').classList.contains('sidebar-hidden');
+  if (settingsMode) $('#app')?.classList.remove('sidebar-hidden');
+  const leftOpen = !$('#app').classList.contains('sidebar-hidden');
   const chatPage = currentMainPage === 'chat';
-  const rightOpen = !settingsMode && !restricted && chatPage && !$('#app').classList.contains('rs-hidden');
+  const rightOpen = !settingsMode && (chatPage || $('#app').classList.contains('pr-diff-open')) && !$('#app').classList.contains('rs-hidden');
   $('#sidebar')?.toggleAttribute('inert', !leftOpen);
   $('#rightSidebar')?.toggleAttribute('inert', !rightOpen);
   $('#sidebarToggle')?.setAttribute('aria-expanded', String(leftOpen));
-  $('#sidebarToggle')?.toggleAttribute('disabled', restricted || settingsMode);
+  $('#sidebarToggle')?.toggleAttribute('disabled', settingsMode);
   if ($('#sidebarToggle')) {
-    $('#sidebarToggle').title = restricted
-      ? '当前视图固定隐藏侧边栏'
-      : settingsMode ? '设置页固定显示侧边栏' : '切换侧边栏 (Ctrl+B)';
+    $('#sidebarToggle').title = settingsMode ? '设置页固定显示侧边栏' : '切换侧边栏 (Ctrl+B)';
   }
   const rightSidebarFocusButton = $('#rightSidebarFocusBtn');
   const rightSidebarFocusUnavailable = !rightOpen;
   rightSidebarFocusButton?.toggleAttribute('disabled', rightSidebarFocusUnavailable);
   rightSidebarFocusButton?.setAttribute('aria-disabled', String(rightSidebarFocusUnavailable));
   syncRightDock();
-  $$('.window-view-option').forEach(button => {
-    const active = button.dataset.windowView === currentWindowView;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
 }
 
 // The right dock replaces the old floating toggle: panel tools joined in
@@ -2960,19 +2569,22 @@ function syncRightDock() {
   const dock = $('#rightDock');
   if (!dock) return;
   const settingsMode = $('#app')?.classList.contains('settings-mode');
-  const restricted = currentWindowView !== 'main';
   const chatPage = currentMainPage === 'chat';
-  const visible = !restricted && !settingsMode && chatPage && !!state.currentSession && !browserFocusMode;
+  const visible = !settingsMode && chatPage && !!state.currentSession && !browserFocusMode && !$('#pageChat').classList.contains('empty');
   dock.classList.toggle('hidden', !visible);
   if (!visible) return;
   const rightOpen = !$('#app').classList.contains('rs-hidden');
   const activeTab = getActiveRightSidebarTab();
-  $('#rightDockClose')?.classList.toggle('hidden', !(rightOpen && activeTab));
-  $$('.rs-dock-btn').forEach(button => {
-    const active = rightOpen && activeTab?.type === button.dataset.rsDockTool;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
+  const launch = $('#rightDockLaunch');
+  if (launch) {
+    const expanded = !!(rightOpen && activeTab);
+    launch.innerHTML = expanded
+      ? '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m10 8 4 4-4 4"/></svg>'
+      : '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M12 8v8"/></svg>';
+    launch.title = expanded ? '隐藏侧边面板' : '打开侧边面板';
+    launch.setAttribute('aria-label', launch.title);
+    launch.setAttribute('aria-expanded', String(expanded));
+  }
 }
 
 function notifySidebarLayoutChanged() {
@@ -2996,7 +2608,6 @@ function runSidebarTransition(kind, update) {
 }
 
 function setLeftSidebarOpen(open) {
-  if (currentWindowView !== 'main') open = false;
   const currentlyOpen = !$('#app').classList.contains('sidebar-hidden');
   if (currentlyOpen === !!open) {
     syncSidebarAccessibility();
@@ -3008,8 +2619,7 @@ function setLeftSidebarOpen(open) {
 }
 
 function setRightSidebarOpen(open) {
-  const rightSidebarAllowed = currentWindowView === 'main'
-    && currentMainPage === 'chat'
+  const rightSidebarAllowed = (currentMainPage === 'chat' || (currentMainPage === 'code-review' && $('#app').classList.contains('pr-diff-open')))
     && !$('#app')?.classList.contains('settings-mode');
   if (open && !rightSidebarAllowed) {
     syncSidebarAccessibility();
@@ -3032,26 +2642,57 @@ function closeRightSidebar() {
 }
 
 function showMainPage(page) {
-  // The titlebar owns the world view. Background task/workspace updates can
-  // refresh chat data, but must not replace the surface the user is watching.
-  if (currentWindowView === 'work-gui' && page !== 'work-gui') return;
+  if (page !== 'code-review') window.YanCodeReview?.closeDiff();
+  if (page !== 'chat') window.YanVoiceInput?.cancel();
+  if (page === 'plugins') page = currentPluginPage;
+  if (['skills', 'mcp', 'packages', 'agents'].includes(page)) currentPluginPage = page;
   currentMainPage = page;
+  const customization = ['skills', 'mcp', 'packages', 'agents'].includes(page);
+  const codeReview = page === 'code-review';
+  $('#customizationSidebarNav').classList.toggle('hidden', !customization);
+  $('#agentSidebarNav').classList.toggle('hidden', customization || codeReview);
+  $('#sidebarTasksPanel').classList.toggle('hidden', customization || codeReview);
+  $('#codeReviewSidebarPanel')?.classList.toggle('hidden', !codeReview);
+  $('.sidebar-brand-name').textContent = customization ? '扩展' : codeReview ? '代码审查' : 'Yan Agent';
+  $('.sidebar-brand').setAttribute('aria-label', customization ? '扩展' : codeReview ? '代码审查' : 'Yan Agent');
+  $$('.app-rail-button[data-nav]').forEach(btn => {
+    const active = btn.dataset.nav === (page === 'chat' ? 'tasks' : ['skills', 'mcp', 'packages', 'agents'].includes(page) ? 'plugins' : page);
+    btn.classList.toggle('active', active);
+    if (active) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
   $('#pageChat').classList.toggle('hidden', page !== 'chat');
+  $('#pageCodeReview')?.classList.toggle('hidden', !codeReview);
+  $('#pagePlugins').classList.toggle('hidden', !['skills', 'mcp', 'packages', 'agents'].includes(page));
+  $$('[data-plugin-page]').forEach(button => {
+    const selected = button.dataset.pluginPage === currentPluginPage;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
   $('#pageSkills').classList.toggle('hidden', page !== 'skills');
   $('#pageMcp').classList.toggle('hidden', page !== 'mcp');
-  $('#pageWorkGui')?.classList.toggle('hidden', page !== 'work-gui');
-  // The cloud-sea world only animates while its page is visible.
-  if (page === 'work-gui') window.YanWorkGui?.open?.();
-  else window.YanWorkGui?.close?.();
+  $('#pagePluginPackages').classList.toggle('hidden', page !== 'packages');
+  if (page === 'packages') window.YanPluginsPage?.show();
+  $('#pageAgents').classList.toggle('hidden', page !== 'agents');
+  if (page === 'agents') window.YanAgentsPage?.show();
   $('#pagePhotoVideo')?.classList.toggle('hidden', page !== 'photo-video');
   if (page !== 'chat') closeTaskActionsMenu();
-  closeBrowserPanel();
-  if (page !== 'chat') window.YanUnderstandAnything?.close();
+  if (page !== 'chat') closeBrowserPanel();
 
   if (page !== 'chat') closeRightSidebar();
 
   if (page === 'skills') renderSkillMarket();
   if (page === 'mcp') renderMcpPage();
+  if (codeReview) renderCodeReviewProjects();
+  window.YanCodeReview?.showPage();
+  if (page === 'chat' && (!$('#messages .msg') && state.currentSession?.messages?.length)) {
+    setEmptyState(!(state.currentSession?.messages || []).length);
+    renderMessages(state.currentSession?.messages || []);
+    bindActiveRunUi(state.currentSession?.id);
+    updateTaskBar();
+  }
+  scheduleComposerGrow();
   syncSidebarAccessibility();
 }
 
@@ -3332,83 +2973,81 @@ function bindMediaStudio() {
   $('#mediaSourceRemove')?.addEventListener('click', clearMediaSourceImage);
   $('#mediaGenerateButton')?.addEventListener('click', () => { void runMediaGeneration(); });
   $('#mediaImageResult')?.addEventListener('click', () => {
-    if (mediaStudioState.resultAssetId) api.openGeneratedImage(mediaStudioState.resultAssetId);
+    if (mediaStudioState.resultAssetId) window.yanImageOverlay.open({ assetId: mediaStudioState.resultAssetId });
   });
-  $('#mediaManageModels')?.addEventListener('click', async () => {
-    await showWindowView('main');
+  $('#mediaManageModels')?.addEventListener('click', () => {
     openSettings('api');
   });
   setMediaStudioMode('image');
 }
 
-async function showWindowView(view) {
-  if (!$('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
-  const next = ['main', 'project-map', 'work-gui'].includes(view) ? view : 'main';
-  if (next === currentWindowView && next !== 'project-map') {
-    syncSidebarAccessibility();
-    return;
-  }
-
-  if (next === 'project-map') {
-    const workspace = state.currentSession?.workspace || state.config?.workspace || '';
-    if (!workspace) {
-      toast('请先选择工作区');
-      syncSidebarAccessibility();
-      return;
-    }
-    if (currentWindowView === 'main') mainSidebarWasOpen = !$('#app').classList.contains('sidebar-hidden');
-    currentWindowView = 'project-map';
-    syncSidebarAccessibility();
-    setLeftSidebarOpen(false);
-    showMainPage('chat');
-    await window.YanUnderstandAnything?.open?.(workspace);
-    if (currentWindowView !== 'project-map') return;
-    if (!window.YanUnderstandAnything?.isOpen?.()) {
-      currentWindowView = 'main';
-      showMainPage('chat');
-      setLeftSidebarOpen(mainSidebarWasOpen);
-      syncSidebarAccessibility();
-    }
-    return;
-  }
-
-  if (currentWindowView === 'main') mainSidebarWasOpen = !$('#app').classList.contains('sidebar-hidden');
-  currentWindowView = next;
-  if (next === 'work-gui') {
-    syncSidebarAccessibility();
-    setLeftSidebarOpen(false);
-    showMainPage(next);
-    syncSidebarAccessibility();
-    return;
-  }
-
-  currentWindowView = 'main';
-  window.YanUnderstandAnything?.close?.();
-  showMainPage('chat');
-  setLeftSidebarOpen(mainSidebarWasOpen);
-  syncSidebarAccessibility();
-}
-
-$$('.window-view-option').forEach(button => {
-  button.addEventListener('click', () => { void showWindowView(button.dataset.windowView); });
-});
-
 function switchSidebarNav(nav) {
   if (!$('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
-  $$('.sidebar-nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === nav));
-  // 任务列表在能力页保持可见，用户可以从 Skill/MCP/自动化直接返回当前任务。
-  $('#sidebarTasksPanel').classList.remove('hidden');
-  if (nav === 'tasks') {
-    showMainPage('chat');
-  } else {
-    showMainPage(nav);
+  if (aboutPageLayer && !aboutPageLayer.classList.contains('hidden')) closeAbout();
+  window.YanRemoteControl?.close();
+  const pluginPage = ['plugins', 'skills', 'mcp', 'packages', 'agents'].includes(nav);
+  if (nav === 'tasks' || nav === 'code-review' || nav === 'plugins' || (pluginPage && !['skills', 'mcp', 'packages', 'agents'].includes(currentMainPage))) setLeftSidebarOpen(true);
+  if (nav === 'tasks') showMainPage('chat');
+  else if (nav === 'code-review') showMainPage('code-review');
+  else showMainPage(nav);
+}
+
+function codeReviewWorkspaceRows() {
+  return getVisibleProjectGroups().filter(group => group.workspace);
+}
+
+let codeReviewRenderVersion = 0;
+let codeReviewProjectsLoaded = false;
+let codeReviewProjectsLoading = false;
+
+async function renderCodeReviewProjects({ force = false } = {}) {
+  const list = $('#codeReviewProjectList');
+  if (!list) return;
+  if (!force && (codeReviewProjectsLoaded || codeReviewProjectsLoading)) {
+    window.YanCodeReview?.syncSelection();
+    return;
   }
+  codeReviewProjectsLoading = true;
+  const version = ++codeReviewRenderVersion;
+  const groups = codeReviewWorkspaceRows();
+  list.innerHTML = '<div class="session-empty">正在加载项目…</div>';
+  const checks = await Promise.all(groups.map(async group => {
+    try { const response = await api.gitStatus(group.workspace); return response?.status?.isRepository === true; } catch { return false; }
+  }));
+  if (version !== codeReviewRenderVersion) return;
+  codeReviewProjectsLoading = false;
+  codeReviewProjectsLoaded = true;
+  const repositories = groups.filter((_group, index) => checks[index]);
+  list.innerHTML = repositories.length
+    ? repositories.map(group => `<section class="workspace-group" data-workspace-group="${escapeAttr(group.key)}">${renderProjectHeader(group, { review: true })}</section>`).join('')
+    : '<div class="session-empty">暂无 Git 项目</div>';
+  list.querySelectorAll('[data-code-review-workspace]').forEach(row => {
+    const select = () => window.YanCodeReview?.select(row.dataset.codeReviewWorkspace);
+    row.addEventListener('click', select);
+    row.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); }
+    });
+  });
+  window.YanCodeReview?.syncSelection();
+  if (force) toast('项目列表已刷新');
 }
 
 $('#newTaskNavBtn').addEventListener('click', newSession);
 
-$$('.sidebar-nav-item[data-nav]').forEach(btn => {
+$$('.app-rail-button[data-nav]').forEach(btn => {
   btn.addEventListener('click', () => switchSidebarNav(btn.dataset.nav));
+});
+
+$$('[data-plugin-page]').forEach(btn => {
+  btn.addEventListener('click', () => switchSidebarNav(btn.dataset.pluginPage));
+  btn.addEventListener('keydown', event => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = $$('[data-plugin-page]');
+    const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (buttons.indexOf(btn) + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+    buttons[index].click();
+    buttons[index].focus();
+  });
 });
 
 async function refreshSkillPrompts() {
@@ -3474,7 +3113,7 @@ function skillMarketChildren(skillId) {
 }
 
 function isManagedSkill(skill) {
-  return ['builtin', 'bundled', 'Yan Agent'].includes(String(skill?.source || ''));
+  return ['builtin', 'bundled', 'Yan Agent', 'plugin'].includes(String(skill?.source || ''));
 }
 
 function setSkillActionButtonState(button, state, detail = '') {
@@ -3497,22 +3136,20 @@ function setSkillActionButtonState(button, state, detail = '') {
 
 async function renderSkillMarket() {
   const grid = $('#skillMarketGrid');
-  const filterMenu = $('#skillFilterMenu');
-  const filterToggle = $('#skillFilterToggle');
-  const filterLabel = $('#skillFilterLabel');
-  const searchPopover = $('#skillSearchPopover');
-  const searchToggle = $('#skillSearchToggle');
   if (!grid) return;
 
   await loadSkillMarketItems();
   const market = skillMarketItems;
-  const installedSkills = await api.listSkills();
+  let installedSkills = await api.listSkills();
   let allCatalog = installedSkills;
   try {
     allCatalog = await api.getSkillCatalog?.() || installedSkills;
   } catch {
     allCatalog = installedSkills;
   }
+  // Management keeps disabled skills available for re-enabling; the composer
+  // uses skills:list, which contains only enabled skills.
+  installedSkills = allCatalog.filter(skill => !skill.hidden);
   const installedIds = new Set(installedSkills.map(s => s.id));
   const installedById = new Map(installedSkills.map(s => [s.id, s]));
   const catalogById = new Map(market.map(skill => {
@@ -3529,74 +3166,30 @@ async function renderSkillMarket() {
     ...catalog.map(skill => [normalizeSkillMarketId(skill.id), skill])
   ]).values()];
 
-  const filterOptions = getSkillMarketFilterOptions();
-  if (!filterOptions.some(option => option.id === skillMarketFilter)) skillMarketFilter = 'all';
-  const activeFilter = filterOptions.find(option => option.id === skillMarketFilter) || filterOptions[0];
-  if (filterLabel) filterLabel.textContent = activeFilter.label;
-  if (filterToggle) {
-    filterToggle.setAttribute('aria-expanded', skillFilterOpen ? 'true' : 'false');
-  }
-  if (filterMenu) {
-    filterMenu.classList.toggle('hidden', !skillFilterOpen);
-    filterMenu.innerHTML = filterOptions.map(option => {
-      const selected = option.id === skillMarketFilter;
-      return `
-        <button type="button" class="skill-filter-option" data-filter="${escapeAttr(option.id)}" role="option" aria-selected="${selected ? 'true' : 'false'}">
-          <span>${escapeHtml(option.label)}</span>
-        </button>`;
-    }).join('');
-    filterMenu.querySelectorAll('[data-filter]').forEach(button => {
-      button.addEventListener('click', () => {
-        skillMarketFilter = button.dataset.filter || 'all';
-        skillFilterOpen = false;
-        void renderSkillMarket();
-      });
-    });
-  }
-  if (searchPopover) searchPopover.classList.toggle('hidden', !skillSearchOpen);
-  if (searchToggle) searchToggle.setAttribute('aria-expanded', skillSearchOpen ? 'true' : 'false');
-
-  let items;
-  if (skillMarketFilter === 'all') items = catalog;
-  else if (skillMarketFilter === 'personal') {
-    items = sortSkillsByCategory(installedSkills.filter(skill => !isManagedSkill(skill)));
-  }
-  else items = catalog.filter(s => s.tags?.includes(skillMarketFilter));
-
-  const q = skillMarketSearch.trim().toLowerCase();
-  const filtered = q
-    ? items.filter(s =>
-      s.id.toLowerCase().includes(q) ||
-      s.name.toLowerCase().includes(q) ||
-      (s.desc || '').toLowerCase().includes(q)
-    )
-    : items;
+  const items = catalog;
 
   const renderCard = (s) => {
     const installed = installedIds.has(s.id);
     const installedRecord = installedById.get(s.id) || null;
     const managed = isManagedSkill(installedRecord || s);
-    const removable = installed && !managed;
-    return `
-      <article class="skill-card" data-market-id="${escapeAttr(s.id)}" data-skill-open="${escapeAttr(s.id)}" role="button" tabindex="0" aria-label="查看 ${escapeAttr(s.name)} 的 Skill 详情">
-        <div class="skill-card-logo">${skillLogoHtml(s)}</div>
-        <div class="skill-card-primary">
-          <div class="skill-card-name-row">
-            <span class="skill-card-name">${escapeHtml(s.name)}</span>
-          </div>
-          <p class="skill-card-desc">${escapeHtml(s.desc || '暂无说明')}</p>
-        </div>
-        <div class="skill-card-actions">
-          ${removable ? `<button type="button" class="capability-circle-btn skill-action-btn is-delete" data-skill-action="remove" data-state="delete" title="删除 ${escapeAttr(s.name)}" aria-label="删除 ${escapeAttr(s.name)}">${CAPABILITY_ACTION_ICONS.trash}</button>` : ''}
-          ${installed
-            ? `<button type="button" class="capability-circle-btn skill-action-btn skill-open-detail-btn" data-skill-action="open" title="打开 ${escapeAttr(s.name)}" aria-label="打开 ${escapeAttr(s.name)}">${MCP_ARROW_UP_RIGHT_ICON}</button>`
-            : `<button type="button" class="capability-circle-btn skill-action-btn is-install" data-skill-action="install" data-state="install" title="安装 ${escapeAttr(s.name)}" aria-label="安装 ${escapeAttr(s.name)}">${CAPABILITY_ACTION_ICONS.download}</button>`}
-        </div>
-      </article>`;
+    const origin = String((installedRecord || s).origin || '');
+    // Project Skills come from the workspace's own load source, not the Yan
+    // store, so they are never deletable from the market.
+    const removable = installed && !managed && origin !== 'project';
+    return window.YanCapabilityTemplates.card({
+      attributes: `data-market-id="${escapeAttr(s.id)}" data-skill-open="${escapeAttr(s.id)}"`,
+      name: s.name, description: s.desc, logo: skillLogoHtml(s),
+      label: `查看 ${s.name} 的 Skill 详情`,
+      badge: origin === 'project' ? '<span class="skill-origin-pill">项目来源</span>' : '',
+      actions: `${removable ? `<button type="button" class="capability-circle-btn skill-action-btn is-delete" data-skill-action="remove" data-state="delete" title="删除 ${escapeAttr(s.name)}" aria-label="删除 ${escapeAttr(s.name)}">${CAPABILITY_ACTION_ICONS.trash}</button>` : ''}
+        ${installed
+          ? `<button type="button" class="capability-circle-btn skill-action-btn skill-open-detail-btn" data-skill-action="open" title="打开 ${escapeAttr(s.name)}" aria-label="打开 ${escapeAttr(s.name)}">${MCP_ARROW_UP_RIGHT_ICON}</button>`
+          : `<button type="button" class="capability-circle-btn skill-action-btn is-install" data-skill-action="install" data-state="install" title="安装 ${escapeAttr(s.name)}" aria-label="安装 ${escapeAttr(s.name)}">${CAPABILITY_ACTION_ICONS.download}</button>`}`
+    });
   };
 
   const groups = new Map();
-  filtered.forEach(skill => {
+  items.forEach(skill => {
     const groupId = skillMarketGroupId(skill);
     if (!groups.has(groupId)) groups.set(groupId, []);
     groups.get(groupId).push(skill);
@@ -3608,28 +3201,13 @@ async function renderSkillMarket() {
     return (leftRank < 0 ? categoryOrder.length : leftRank) - (rightRank < 0 ? categoryOrder.length : rightRank);
   });
 
-  grid.innerHTML = filtered.length ? orderedGroups.map(([groupId, groupSkills]) => {
-    return `
-      <section class="skill-market-group" data-skill-group="${escapeAttr(groupId)}" aria-labelledby="skill-group-${escapeAttr(groupId)}">
-        <header class="skill-market-group-head">
-          <div class="skill-market-group-title">
-            <h3 id="skill-group-${escapeAttr(groupId)}">${escapeHtml(skillMarketGroupLabel(groupId))}</h3>
-            <p>${escapeHtml(skillMarketGroupDescription(groupId))}</p>
-          </div>
-        </header>
-        <div class="skill-group-grid">${groupSkills.map(renderCard).join('')}</div>
-      </section>`;
-  }).join('') : `
-    <div class="workbench-empty">
-      <span class="workbench-empty-mark" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
-      </span>
-      <div class="workbench-empty-copy">
-        <strong>${q ? '没有匹配的 Skill' : '这个分类暂时为空'}</strong>
-        <span>${q ? '换一个关键词，或清除搜索查看完整目录。' : '返回全部分类继续浏览。'}</span>
-      </div>
-      <button type="button" class="ghost-btn workbench-empty-action" data-skill-empty-reset>${q ? '清除搜索' : '查看全部'}</button>
-    </div>`;
+  grid.innerHTML = items.length ? orderedGroups.map(([groupId, groupSkills]) => {
+    return window.YanCapabilityTemplates.group({
+      id: `skill-group-${groupId}`, attributes: `data-skill-group="${escapeAttr(groupId)}"`,
+      name: skillMarketGroupLabel(groupId), description: skillMarketGroupDescription(groupId),
+      cards: groupSkills.map(renderCard).join('')
+    });
+  }).join('') : '<div class="workbench-empty"><div class="workbench-empty-copy"><strong>暂无可用技能</strong><span>可创建个人 Skill 添加技能。</span></div></div>';
   bindSkillLogoFallbacks(grid);
 
   grid.querySelectorAll('[data-skill-open]').forEach(card => {
@@ -3643,14 +3221,6 @@ async function renderSkillMarket() {
       event.preventDefault();
       open();
     });
-  });
-
-  grid.querySelector('[data-skill-empty-reset]')?.addEventListener('click', () => {
-    skillMarketSearch = '';
-    skillMarketFilter = 'all';
-    const search = $('#skillMarketSearch');
-    if (search) search.value = '';
-    renderSkillMarket();
   });
 
   grid.querySelectorAll('.skill-action-btn').forEach(btn => {
@@ -3700,6 +3270,16 @@ async function renderSkillMarket() {
   }
 }
 
+function syncSkillDetailToggles() {
+  document.querySelectorAll('#skillDetailContent [data-skill-toggle]').forEach(toggle => {
+    const record = skillMarketAllCatalog.find(skill => normalizeSkillMarketId(skill.id) === normalizeSkillMarketId(toggle.dataset.skillToggle));
+    if (!record || toggle.getAttribute('aria-busy') === 'true') return;
+    toggle.checked = record.enabled !== false;
+    const parent = skillMarketAllCatalog.find(skill => normalizeSkillMarketId(skill.id) === normalizeSkillMarketId(record.parentSkillId));
+    toggle.disabled = parent?.enabled === false;
+  });
+}
+
 function renderSkillDetail(skillId, installedById = new Map()) {
   const detail = $('#skillDetailView');
   const overview = $('#skillMarketOverview');
@@ -3718,66 +3298,94 @@ function renderSkillDetail(skillId, installedById = new Map()) {
   const installed = installedById.has(skill.id) || skill.installed === true;
   const installedRecord = installedById.get(skill.id) || skill;
   const managed = isManagedSkill(installedRecord);
-  const removable = installed && !managed;
+  const skillOrigin = String(installedRecord.origin || skill.origin || '');
+  const removable = installed && !managed && skillOrigin !== 'project';
   const children = skillMarketChildren(skill.id);
-  const sourceLabel = managed ? 'Yan Agent' : (skill.repo || skill.source || '本地安装');
-  const groupId = skillMarketGroupId(skill);
-  const userSkillDirectory = installed && !managed && !!skill.runtimeDirectory;
-  const explorerAction = userSkillDirectory
-    ? `<button type="button" class="skill-open-directory-btn" data-detail-action="open-directory" title="在文件资源管理器中打开 Skill 目录" aria-label="在文件资源管理器中打开 Skill 目录">
-        <span>在</span>
-        <img src="assets/file-explorer.png" alt="" aria-hidden="true" />
-        <span>资源管理器中打开</span>
+  const explorerAction = installed
+    ? `<button type="button" class="plugin-directory icon-btn" data-detail-action="open-directory" title="在资源管理器中打开" aria-label="在资源管理器中打开">
+        <img src="assets/windows-explorer.png" alt="" aria-hidden="true" />
       </button>`
     : '';
-  const backAction = `<button type="button" class="skill-detail-back" data-detail-action="back" title="返回 Skill 市场" aria-label="返回 Skill 市场">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-    <span>返回 Skill 市场</span>
-  </button>`;
   const primaryAction = removable
     ? `<button type="button" class="capability-circle-btn skill-action-btn is-delete" data-detail-action="remove" data-skill-action="remove" data-state="delete" title="删除 ${escapeAttr(skill.name)}" aria-label="删除 ${escapeAttr(skill.name)}">${CAPABILITY_ACTION_ICONS.trash}</button>`
     : installed
       ? ''
       : `<button type="button" class="skill-detail-install" data-detail-action="install" data-skill-action="install">安装 Skill</button>`;
-  const action = `${backAction}${primaryAction}`;
-
+  const toggleHtml = record => `<input type="checkbox" role="switch" class="switch" data-skill-toggle="${escapeAttr(record.id)}" title="启用 ${escapeAttr(record.name || record.id)}" aria-label="启用 ${escapeAttr(record.name || record.id)}" ${record.enabled !== false ? 'checked' : ''}>`;
   content.innerHTML = `
-    <header class="skill-detail-head">
-      <div class="skill-detail-logo">${skillLogoHtml(skill)}</div>
-      <div class="skill-detail-heading">
-        <div class="skill-card-name-row">
-          <span class="skill-detail-group-pill">${escapeHtml(skillMarketGroupLabel(groupId))}</span>
-          <span class="skill-status-pill ${installed ? 'is-installed' : 'is-available'}">${installed ? '已安装' : '未安装'}</span>
-        </div>
-        <h1 id="skillDetailTitle">${escapeHtml(skill.name || skill.id)}</h1>
-        <p>${escapeHtml(skill.desc || '暂无说明')}</p>
-        <span class="skill-detail-source">${escapeHtml(sourceLabel)}</span>
-      </div>
-      <div class="skill-detail-actions">${explorerAction}${action}</div>
-    </header>
-    <section class="skill-detail-section" aria-labelledby="skillDetailPartsTitle">
-      <div class="skill-detail-section-head">
-        <div>
-          <h2 id="skillDetailPartsTitle">包含的 Skill</h2>
-          <p>${children.length ? '以下模块会随该能力一起提供。' : '这是一个独立 Skill，没有额外的子模块。'}</p>
-        </div>
-      </div>
-      ${children.length ? `<div class="skill-detail-list">${children.map(child => `
-        <article class="skill-detail-row">
-          <div class="skill-detail-row-logo">${skillLogoHtml(child)}</div>
-          <div class="skill-detail-row-copy">
-            <strong>${escapeHtml(child.name || child.id)}</strong>
+    ${window.YanCapabilityTemplates.compactDetailHead({
+      titleId: 'skillDetailTitle', name: skill.name || skill.id, description: skill.desc,
+      logo: skillLogoHtml(skill), actions: `${installed ? toggleHtml(installedRecord) : ''}${primaryAction}`, actionLabel: '技能操作', afterTitle: explorerAction,
+      closeAttribute: 'data-detail-action', closeLabel: '关闭技能详情'
+    })}
+    ${window.YanSkillExamples.render(skill)}
+    ${children.length ? `<section class="plugin-skills-section skill-children-section" aria-labelledby="skillDetailPartsTitle">
+      <h2 id="skillDetailPartsTitle">子技能 <span>${children.length}</span></h2>
+      <div class="plugin-skill-list">${children.map(child => `
+        <article class="plugin-skill-row skill-child-row">
+          <div class="plugin-skill-logo">${skillLogoHtml(child)}</div>
+          <div class="plugin-skill-copy">
+            <h3>${escapeHtml(child.name || child.id)}</h3>
             <p>${escapeHtml(child.desc || '随父级能力提供的运行模块。')}</p>
-            <span>${escapeHtml(child.id)}</span>
           </div>
-          <span class="skill-status-pill ${installedById.has(child.id) || child.installed === true ? 'is-installed' : 'is-available'}">${installedById.has(child.id) || child.installed === true ? '已安装' : '未安装'}</span>
-        </article>`).join('')}</div>` : `
-        <div class="skill-detail-empty">当前能力直接提供完整功能，不需要额外的子 Skill。</div>`}
+          ${toggleHtml(child)}
+        </article>`).join('')}</div>
+    </section>` : ''}
+    <section class="skill-document-section" aria-labelledby="skillDetailDocumentTitle">
+      <h2 id="skillDetailDocumentTitle">Skill.md<button type="button" class="icon-btn skill-document-copy" title="复制 Skill.md" aria-label="复制 Skill.md" disabled>${ICONS.copy}</button></h2>
+      <article id="skillDetailMarkdown" class="msg-body skill-document-markdown" aria-busy="true"><p role="status">正在读取 Skill.md…</p></article>
     </section>`;
 
   overview.classList.add('hidden');
   detail.classList.remove('hidden');
   bindSkillLogoFallbacks(content);
+  window.YanSkillExamples.bind(content, skill);
+  const markdown = content.querySelector('#skillDetailMarkdown');
+  const copyButton = content.querySelector('.skill-document-copy');
+  let rawDocument = '';
+  copyButton.addEventListener('click', async () => {
+    try {
+      await copyMarkdownCode(rawDocument);
+      toast('已复制 Skill.md');
+    } catch { toast('复制失败，请重试'); }
+  });
+  syncSkillDetailToggles();
+  content.querySelectorAll('[data-skill-toggle]').forEach(toggle => {
+    toggle.addEventListener('change', async () => {
+      const previous = !toggle.checked;
+      toggle.disabled = true;
+      toggle.setAttribute('aria-busy', 'true');
+      try {
+        const result = await api.setSkillEnabled(toggle.dataset.skillToggle, toggle.checked);
+        if (!result?.ok) throw new Error(result?.error || '技能开关更新失败');
+        toggle.checked = result.enabled;
+        await refreshInstalledSkillCatalog();
+        skillMarketAllCatalog = await api.getSkillCatalog();
+      } catch (error) {
+        toggle.checked = previous;
+        toast(error.message || String(error));
+      } finally {
+        toggle.removeAttribute('aria-busy');
+        toggle.disabled = false;
+        if (toggle.isConnected) syncSkillDetailToggles();
+      }
+    });
+  });
+  void (async () => {
+    try {
+      const result = await api.readSkillDocument(skill.id);
+      if (!markdown.isConnected || normalizeSkillMarketId(skillMarketDetailId) !== id) return;
+      if (!result?.ok) throw new Error(result?.error || '无法读取 Skill.md');
+      rawDocument = result.document ?? result.markdown ?? '';
+      copyButton.disabled = false;
+      markdown.innerHTML = result.markdown?.trim() ? renderMarkdown(result.markdown, { softBreaks: true }) : '<p>此技能暂无正文。</p>';
+    } catch (error) {
+      if (!markdown.isConnected || normalizeSkillMarketId(skillMarketDetailId) !== id) return;
+      markdown.innerHTML = `<p role="status">${escapeHtml(error.message || String(error))}</p>`;
+    } finally {
+      if (markdown.isConnected) markdown.setAttribute('aria-busy', 'false');
+    }
+  })();
   content.querySelectorAll('[data-detail-action]').forEach(btn => {
     btn.addEventListener('click', async event => {
       event.stopPropagation();
@@ -3900,71 +3508,7 @@ $('#skillImportConfirmBtn')?.addEventListener('click', async () => {
     toast('JSON 解析失败');
   }
 });
-$('#skillMarketSearch')?.addEventListener('input', (e) => {
-  skillMarketSearch = e.target.value || '';
-  void renderSkillMarket();
-});
-$('#skillSearchToggle')?.addEventListener('click', () => {
-  skillSearchOpen = !skillSearchOpen;
-  if (skillSearchOpen) {
-    skillFilterOpen = false;
-    void renderSkillMarket();
-    requestAnimationFrame(() => $('#skillMarketSearch')?.focus());
-  } else {
-    void renderSkillMarket();
-  }
-});
-$('#skillFilterToggle')?.addEventListener('click', () => {
-  skillFilterOpen = !skillFilterOpen;
-  if (skillFilterOpen) skillSearchOpen = false;
-  void renderSkillMarket();
-});
-$('#mcpMarketSearch')?.addEventListener('input', (e) => {
-  mcpMarketSearch = e.target.value || '';
-  void renderMcpPage();
-});
-$('#mcpSearchToggle')?.addEventListener('click', () => {
-  mcpSearchOpen = !mcpSearchOpen;
-  if (mcpSearchOpen) mcpFilterOpen = false;
-  void renderMcpPage();
-  if (mcpSearchOpen) requestAnimationFrame(() => $('#mcpMarketSearch')?.focus());
-});
-$('#mcpFilterToggle')?.addEventListener('click', () => {
-  mcpFilterOpen = !mcpFilterOpen;
-  if (mcpFilterOpen) mcpSearchOpen = false;
-  void renderMcpPage();
-});
-document.addEventListener('click', event => {
-  if (!event.target.closest('#skillSearchToggle, #skillSearchPopover') && skillSearchOpen) {
-    skillSearchOpen = false;
-    void renderSkillMarket();
-  }
-  if (!event.target.closest('#skillFilterPicker') && skillFilterOpen) {
-    skillFilterOpen = false;
-    void renderSkillMarket();
-  }
-  if (!event.target.closest('#mcpSearchToggle, #mcpSearchPopover') && mcpSearchOpen) {
-    mcpSearchOpen = false;
-    void renderMcpPage();
-  }
-  if (!event.target.closest('#mcpFilterPicker') && mcpFilterOpen) {
-    mcpFilterOpen = false;
-    void renderMcpPage();
-  }
-});
-document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape') return;
-  if (skillSearchOpen || skillFilterOpen) {
-    skillSearchOpen = false;
-    skillFilterOpen = false;
-    void renderSkillMarket();
-  }
-  if (mcpSearchOpen || mcpFilterOpen) {
-    mcpSearchOpen = false;
-    mcpFilterOpen = false;
-    void renderMcpPage();
-  }
-});
+
 $('#skillImportInput')?.addEventListener('change', (e) => {
   const file = e.target.files?.[0];
   pendingSkillImportFile = file || null;
@@ -4002,322 +3546,45 @@ function closeCapabilityDrawer(dialogId) {
   if (dialog?.open) dialog.close();
 }
 
-const MCP_CREATE_STEP_FIELDS = Object.freeze({
-  2: { local: 'mcpNewCmd', remote: 'mcpNewUrl' },
-  3: { local: 'mcpNewArgs', remote: 'mcpNewHeaders' }
-});
-const MCP_CREATE_STEP_DESCRIPTIONS = Object.freeze({
-  1: '先给这个 MCP 服务起一个容易识别的名称，并选择连接方式。',
-  local: {
-    2: '填写用于启动 MCP 服务的本机命令。',
-    3: '补充命令参数，然后测试连接或直接创建。'
-  },
-  remote: {
-    2: '填写远程 MCP 服务的 Streamable HTTP 地址。',
-    3: '可选：补充请求头（API Key 等），然后测试连接或直接创建。'
-  }
-});
-let mcpCreateStep = 1;
-let mcpCreateTransport = 'local';
 
-function setMcpCreateTransport(value) {
-  mcpCreateTransport = String(value || '').toLowerCase() === 'remote' ? 'remote' : 'local';
-  const dialog = $('#mcpCreateDialog');
-  dialog?.querySelectorAll('[data-mcp-transport]').forEach(button => {
-    const active = button.dataset.mcpTransport === mcpCreateTransport;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-checked', active ? 'true' : 'false');
-  });
-  dialog?.querySelectorAll('[data-mcp-field]').forEach(field => {
-    field.hidden = field.dataset.mcpField !== mcpCreateTransport;
-  });
+const MCP_INSTALL_PROMPT_PREFIX = 'Install an MCP server with';
+
+async function openMcpInstallerComposer() {
+  await newSession();
+  const installer = installedSkillPickerItems().find(skill => (
+    String(skill?.id || '').toLowerCase() === 'mcp-puller'
+  )) || {
+    id: 'mcp-puller',
+    name: 'MCP-Puller',
+    desc: 'Install an MCP server from a repo, README, or command',
+    tags: ['integration'],
+    logo: 'assets/skill-logos/github.png'
+  };
+  setComposerSkills([installer]);
+  input.value = MCP_INSTALL_PROMPT_PREFIX;
+  autoGrow();
+  updateSendState();
+  input.focus({ preventScroll: true });
+  setComposerCaretByTextOffset(MCP_INSTALL_PROMPT_PREFIX.length);
 }
 
-function setMcpWizardFieldError(fieldId, message = '') {
-  const field = $('#' + fieldId);
-  if (!field) return;
-  const hintId = field.getAttribute('aria-describedby');
-  const hint = hintId ? $('#' + hintId) : null;
-  if (message) field.setAttribute('aria-invalid', 'true');
-  else field.removeAttribute('aria-invalid');
-  if (hint) {
-    hint.textContent = message || hint.dataset.defaultMessage || '';
-    hint.classList.toggle('is-error', Boolean(message));
-  }
-}
-
-function renderMcpCreateStep(step = mcpCreateStep, { focus = true } = {}) {
-  mcpCreateStep = Math.max(1, Math.min(3, Number(step) || 1));
-  const dialog = $('#mcpCreateDialog');
-  if (dialog) dialog.dataset.step = String(mcpCreateStep);
-  dialog?.querySelectorAll('[data-mcp-step]').forEach(page => {
-    const active = Number(page.dataset.mcpStep) === mcpCreateStep;
-    page.hidden = !active;
-    page.setAttribute('aria-hidden', active ? 'false' : 'true');
-  });
-  const progress = $('#mcpWizardProgress');
-  if (progress) progress.textContent = `${mcpCreateStep} / 3`;
-  const description = $('#mcpWizardDescription');
-  if (description) {
-    description.textContent = mcpCreateStep === 1
-      ? MCP_CREATE_STEP_DESCRIPTIONS[1]
-      : MCP_CREATE_STEP_DESCRIPTIONS[mcpCreateTransport][mcpCreateStep];
-  }
-  const backButton = $('#mcpWizardBackBtn');
-  if (backButton) {
-    const label = mcpCreateStep === 1 ? '关闭' : '返回上一页';
-    backButton.title = label;
-    backButton.setAttribute('aria-label', label);
-  }
-  const nextButton = $('#mcpWizardNextBtn');
-  if (nextButton) nextButton.hidden = mcpCreateStep === 3;
-  const actions = dialog?.querySelector('.mcp-create-actions');
-  if (actions) actions.hidden = mcpCreateStep !== 3;
-  setMcpCreateTransport(mcpCreateTransport);
-  if (focus) {
-    const fieldId = mcpCreateStep === 1
-      ? 'mcpNewName'
-      : MCP_CREATE_STEP_FIELDS[mcpCreateStep][mcpCreateTransport];
-    requestAnimationFrame(() => $('#' + fieldId)?.focus());
-  }
-}
-
-function parseMcpHeaders(value) {
-  const headers = {};
-  const invalid = [];
-  String(value || '').split(/\r?\n/).forEach((line, index) => {
-    const text = line.trim();
-    if (!text) return;
-    const colon = text.indexOf(':');
-    if (colon <= 0) {
-      invalid.push(index + 1);
-      return;
-    }
-    const key = text.slice(0, colon).trim();
-    if (!key) {
-      invalid.push(index + 1);
-      return;
-    }
-    headers[key] = text.slice(colon + 1).trim();
-  });
-  return { headers, invalid };
-}
-
-function validateMcpCreateStep(step = mcpCreateStep) {
-  if (step === 1) {
-    const field = $('#mcpNewName');
-    if (String(field?.value || '').trim()) {
-      setMcpWizardFieldError('mcpNewName');
-      return true;
-    }
-    setMcpWizardFieldError('mcpNewName', '请输入 MCP 名称后继续');
-    field?.focus();
-    return false;
-  }
-  if (step === 2) {
-    const remote = mcpCreateTransport === 'remote';
-    const fieldId = remote ? 'mcpNewUrl' : 'mcpNewCmd';
-    const field = $('#' + fieldId);
-    const value = String(field?.value || '').trim();
-    if (!value) {
-      setMcpWizardFieldError(fieldId, remote ? '请输入远程服务地址后继续' : '请输入启动命令后继续');
-      field?.focus();
-      return false;
-    }
-    if (remote && !/^https?:\/\//i.test(value)) {
-      setMcpWizardFieldError('mcpNewUrl', '地址必须以 http:// 或 https:// 开头');
-      field?.focus();
-      return false;
-    }
-    setMcpWizardFieldError(fieldId);
-    return true;
-  }
-  if (step === 3 && mcpCreateTransport === 'remote') {
-    const { invalid } = parseMcpHeaders($('#mcpNewHeaders')?.value || '');
-    if (invalid.length) {
-      setMcpWizardFieldError('mcpNewHeaders', `第 ${invalid[0]} 行需要 Key: Value 形式`);
-      return false;
-    }
-    setMcpWizardFieldError('mcpNewHeaders');
-  }
-  return true;
-}
-
-function openMcpCreateWizard() {
-  setMcpCreateButtonState('idle');
-  setMcpCreateTestButtonState('idle');
-  setMcpWizardFieldError('mcpNewName');
-  setMcpWizardFieldError('mcpNewCmd');
-  setMcpWizardFieldError('mcpNewUrl');
-  setMcpWizardFieldError('mcpNewHeaders');
-  mcpCreateTransport = 'local';
-  renderMcpCreateStep(1, { focus: false });
-  openCapabilityDialog('mcpCreateDialog', 'mcpNewName');
-}
-
-$('#mcpOpenCreateBtn')?.addEventListener('click', openMcpCreateWizard);
-$('#mcpCloseCreateBtn')?.addEventListener('click', () => closeCapabilityDialog('mcpCreateDialog'));
-$('#mcpWizardBackBtn')?.addEventListener('click', () => {
-  if (mcpCreateStep === 1) {
-    closeCapabilityDialog('mcpCreateDialog');
-    return;
-  }
-  renderMcpCreateStep(mcpCreateStep - 1);
-});
-$('#mcpWizardNextBtn')?.addEventListener('click', () => {
-  if (!validateMcpCreateStep()) return;
-  renderMcpCreateStep(mcpCreateStep + 1);
-});
-['mcpNewName', 'mcpNewCmd', 'mcpNewUrl', 'mcpNewArgs', 'mcpNewHeaders'].forEach(fieldId => {
-  const field = $('#' + fieldId);
-  field?.addEventListener('input', () => {
-    setMcpWizardFieldError(fieldId);
-    setMcpCreateButtonState('idle');
-    setMcpCreateTestButtonState('idle');
-  });
-  field?.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' || mcpCreateStep >= 3) return;
-    if (field.tagName === 'TEXTAREA') return;
-    event.preventDefault();
-    $('#mcpWizardNextBtn')?.click();
+$('#mcpOpenCreateBtn')?.addEventListener('click', () => {
+  void openMcpInstallerComposer().catch(error => {
+    console.error('[mcp-install]', error);
+    toast(`打开 MCP 安装失败：${error?.message || error}`);
   });
 });
-$('#mcpCreateDialog')?.addEventListener('click', event => {
-  const target = event.target instanceof Element ? event.target.closest('[data-mcp-transport]') : null;
-  if (!target) return;
-  setMcpCreateTransport(target.dataset.mcpTransport);
-  setMcpCreateButtonState('idle');
-  setMcpCreateTestButtonState('idle');
-  renderMcpCreateStep(mcpCreateStep, { focus: false });
-});
-['skillImportDialog', 'mcpCreateDialog'].forEach(id => {
+['skillImportDialog'].forEach(id => {
   const dialog = $('#' + id);
   dialog?.addEventListener('click', e => {
     if (e.target === dialog) dialog.close();
   });
 });
 
-function setMcpTestButtonState(button, state, detail = '') {
-  if (!button) return;
-  const serverName = button.closest('.mcp-card')?.querySelector('.skill-card-name, .mgmt-row-title')?.textContent?.trim() || 'MCP';
-  const unavailable = button.dataset.unavailable === 'true';
-  const icon = CAPABILITY_ACTION_ICONS[state] || CAPABILITY_ACTION_ICONS.test;
-  const labels = {
-    idle: `测试 ${serverName} 连接`,
-    loading: `正在测试 ${serverName}`,
-    success: `重新测试 ${serverName}，上次连接成功`,
-    error: `重新测试 ${serverName}，上次连接失败`
-  };
-  const message = detail || labels[state] || labels.idle;
-  button.dataset.testState = state;
-  button.innerHTML = icon;
-  button.title = message;
-  button.setAttribute('aria-label', message);
-  button.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
-  button.disabled = unavailable || state === 'loading';
-  const live = button.parentElement?.querySelector('[data-test-result]');
-  if (live) live.textContent = message;
-}
-
-function setMcpCreateTestButtonState(state, detail = '') {
-  const button = $('#mcpTestCreateBtn');
-  if (!button) return;
-  const labels = {
-    idle: '测试连接',
-    loading: detail || '正在测试连接',
-    success: detail || '连接成功，点击重新测试',
-    error: detail || '连接失败，点击重新测试'
-  };
-  const message = labels[state] || detail || labels.idle;
-  button.dataset.testState = state;
-  button.innerHTML = state === 'idle'
-    ? CAPABILITY_ACTION_ICONS.test
-    : (CAPABILITY_ACTION_ICONS[state] || CAPABILITY_ACTION_ICONS.test);
-  button.title = message;
-  button.setAttribute('aria-label', message);
-  button.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
-  button.disabled = state === 'loading';
-  const status = $('#mcpCreateStatus');
-  if (status) {
-    status.textContent = state === 'idle' ? '' : message;
-    status.dataset.state = state;
-  }
-}
-
-function setMcpCreateButtonState(state, detail = '') {
-  const button = $('#mcpAddBtn');
-  if (!button) return;
-  const icon = state === 'idle'
-    ? '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
-    : (CAPABILITY_ACTION_ICONS[state] || CAPABILITY_ACTION_ICONS.plus);
-  const labels = {
-    idle: '添加 MCP 服务',
-    loading: '正在添加 MCP 服务',
-    success: 'MCP 服务已添加',
-    error: detail || '添加 MCP 失败'
-  };
-  const message = detail || labels[state] || labels.idle;
-  button.dataset.state = state;
-  button.innerHTML = icon;
-  button.title = message;
-  button.setAttribute('aria-label', message);
-  button.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
-  button.disabled = state === 'loading' || state === 'success';
-  const status = $('#mcpCreateStatus');
-  if (status) {
-    status.textContent = state === 'idle' ? '' : message;
-    status.dataset.state = state;
-  }
-}
-
 async function renderMcpPage() {
   const list = $('#mcpPageList');
   if (!list) return;
   const servers = await api.mcpList();
-  const filterOptions = [
-    { id: 'all', label: '全部' },
-    { id: 'user', label: '用户自行安装' },
-    { id: 'native', label: '系统原生' },
-    { id: 'bundled', label: '自带' }
-  ];
-  if (!filterOptions.some(option => option.id === mcpMarketFilter)) mcpMarketFilter = 'all';
-  const activeFilter = filterOptions.find(option => option.id === mcpMarketFilter) || filterOptions[0];
-  const filterLabel = $('#mcpFilterLabel');
-  const filterToggle = $('#mcpFilterToggle');
-  const filterMenu = $('#mcpFilterMenu');
-  const searchPopover = $('#mcpSearchPopover');
-  const searchToggle = $('#mcpSearchToggle');
-  if (filterLabel) filterLabel.textContent = activeFilter.label;
-  if (filterToggle) filterToggle.setAttribute('aria-expanded', mcpFilterOpen ? 'true' : 'false');
-  if (filterMenu) {
-    filterMenu.classList.toggle('hidden', !mcpFilterOpen);
-    filterMenu.innerHTML = filterOptions.map(option => `
-      <button type="button" class="skill-filter-option" data-mcp-filter="${escapeAttr(option.id)}" role="option" aria-selected="${option.id === mcpMarketFilter ? 'true' : 'false'}">
-        <span>${escapeHtml(option.label)}</span>
-      </button>`).join('');
-    filterMenu.querySelectorAll('[data-mcp-filter]').forEach(button => {
-      button.addEventListener('click', () => {
-        mcpMarketFilter = button.dataset.mcpFilter || 'all';
-        mcpFilterOpen = false;
-        void renderMcpPage();
-      });
-    });
-  }
-  if (searchPopover) searchPopover.classList.toggle('hidden', !mcpSearchOpen);
-  if (searchToggle) searchToggle.setAttribute('aria-expanded', mcpSearchOpen ? 'true' : 'false');
-
-  const query = mcpMarketSearch.trim().toLowerCase();
-  const filtered = servers.filter(server => {
-    const category = !server.builtin ? 'user' : (server.systemManaged ? 'native' : 'bundled');
-    const matchesFilter = mcpMarketFilter === 'all'
-      || mcpMarketFilter === category;
-    if (!matchesFilter) return false;
-    if (!query) return true;
-    const haystack = [server.name, server.description, server.command, server.url, ...(server.args || []), server.runtime]
-      .map(value => String(value || '').toLowerCase()).join(' ');
-    return haystack.includes(query);
-  });
-
   if (!servers.length) {
     list.innerHTML = `
       <div class="workbench-empty workbench-empty-stage">
@@ -4330,37 +3597,14 @@ async function renderMcpPage() {
         </div>
         <button type="button" class="primary-btn workbench-empty-action" data-open-mcp-create>添加第一个服务</button>
       </div>`;
-    list.querySelector('[data-open-mcp-create]')?.addEventListener('click', openMcpCreateWizard);
-    return;
-  }
-
-  if (!filtered.length) {
-    list.innerHTML = `
-      <div class="workbench-empty">
-        <span class="workbench-empty-mark" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
-        </span>
-        <div class="workbench-empty-copy">
-          <strong>${query ? '没有匹配的 MCP 服务' : '这个分类暂时为空'}</strong>
-          <span>${query ? '换一个关键词，或清除搜索查看完整服务列表。' : '返回全部分类继续查看服务。'}</span>
-        </div>
-        <button type="button" class="ghost-btn workbench-empty-action" data-mcp-empty-reset>${query ? '清除搜索' : '查看全部'}</button>
-      </div>`;
-    list.querySelector('[data-mcp-empty-reset]')?.addEventListener('click', () => {
-      mcpMarketSearch = '';
-      mcpMarketFilter = 'all';
-      const search = $('#mcpMarketSearch');
-      if (search) search.value = '';
-      void renderMcpPage();
-    });
+    list.querySelector('[data-open-mcp-create]')?.addEventListener('click', () => { void openMcpInstallerComposer().catch(error => toast(`打开 MCP 安装失败：${error?.message || error}`)); });
     return;
   }
 
   const renderCard = (s) => {
-    const isNative = s.systemManaged === true;
     const isRemote = s.type === 'remote';
     return `
-    <article class="skill-card mcp-card mcp-market-card" data-id="${escapeAttr(s.id)}">
+    <article class="skill-card mcp-card mcp-market-card" data-id="${escapeAttr(s.id)}" role="button" tabindex="0" aria-label="打开 ${escapeAttr(s.name)}">
       <div class="skill-card-logo mcp-card-logo" aria-hidden="true">
         ${MCP_PACKAGE_PLUS_ICON}
       </div>
@@ -4369,10 +3613,7 @@ async function renderMcpPage() {
           <span class="skill-card-name">${escapeHtml(s.name)}</span>
         </div>
         <p class="skill-card-desc">${escapeHtml(s.description || '暂无说明')}</p>
-        ${isNative ? '' : `<div class="skill-card-meta mcp-card-meta">
-          ${isRemote ? '<span class="mcp-card-transport">HTTPS</span>' : ''}
-          <span class="mcp-card-state ${s.available === false ? 'is-unavailable' : (s.enabled ? 'is-enabled' : 'is-disabled')}">${s.available === false ? '不可用' : (s.enabled ? '已启用' : '已停用')}</span>
-        </div>`}
+        ${isRemote ? '<div class="skill-card-meta mcp-card-meta"><span class="mcp-card-transport">HTTPS</span></div>' : ''}
       </div>
       <div class="skill-card-actions mcp-card-actions">
         <button type="button" class="capability-circle-btn mcp-open-btn" data-mcp-act="open" title="打开 ${escapeAttr(s.name)}" aria-label="打开 ${escapeAttr(s.name)}">${MCP_ARROW_UP_RIGHT_ICON}</button>
@@ -4381,7 +3622,7 @@ async function renderMcpPage() {
   };
 
   const groups = new Map();
-  filtered.forEach(server => {
+  servers.forEach(server => {
     const groupId = !server.builtin ? 'user' : (server.systemManaged ? 'native' : 'bundled');
     if (!groups.has(groupId)) groups.set(groupId, []);
     groups.get(groupId).push(server);
@@ -4403,51 +3644,17 @@ async function renderMcpPage() {
       <div class="skill-group-grid">${groupServers.map(renderCard).join('')}</div>
     </section>`).join('');
 
-  list.querySelectorAll('[data-mcp-act]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const card = btn.closest('.mcp-card');
-      const id = card.dataset.id;
-      const act = btn.dataset.mcpAct;
-
-      if (act === 'open') {
-        mcpDetailId = id;
-        void renderMcpPage();
-      } else if (act === 'test') {
-        setMcpTestButtonState(btn, 'loading');
-        try {
-          await api.mcpStop(id);
-          const res = await api.mcpStart(id);
-          if (res.error) {
-            setMcpTestButtonState(btn, 'error', `连接失败：${res.error}`);
-          } else {
-            setMcpTestButtonState(btn, 'success', `连接成功，${res.tools?.length || 0} 个工具；点击重新测试`);
-          }
-        } catch (error) {
-          setMcpTestButtonState(btn, 'error', `连接失败：${error.message || error}`);
-        }
-      } else if (act === 'delete') {
-        await api.mcpRemove(id);
-        await renderMcpPage();
-      } else if (act === 'toggle') {
-        const servers = await api.mcpList();
-        const s = servers.find(x => x.id === id);
-        if (!s) return;
-        const enabled = !s.enabled;
-        btn.disabled = true;
-        btn.setAttribute('aria-busy', 'true');
-        try {
-          const updated = await api.mcpUpdate(id, { enabled });
-          if (!updated) throw new Error('MCP 配置更新失败');
-          if (!enabled) await api.mcpStop(id);
-          await renderMcpPage();
-        } catch (error) {
-          toast(error.message || String(error));
-          btn.checked = !!s.enabled;
-          btn.setAttribute('aria-checked', String(!!s.enabled));
-          btn.disabled = false;
-          btn.removeAttribute('aria-busy');
-        }
-      }
+  list.querySelectorAll('.mcp-market-card').forEach(card => {
+    const open = () => {
+      if (mcpDetailId === card.dataset.id) return;
+      mcpDetailId = card.dataset.id;
+      void renderMcpPage();
+    };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', event => {
+      if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      open();
     });
   });
 
@@ -4477,45 +3684,24 @@ async function renderMcpDetail(serverId, servers = []) {
     return;
   }
   const renderSeq = ++mcpDetailRenderSeq;
-  const backAction = `<button type="button" class="skill-detail-back" data-mcp-detail-action="back" title="返回 MCP 服务" aria-label="返回 MCP 服务">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-    <span>返回 MCP 服务</span>
-  </button>`;
   const isNative = server.systemManaged === true;
   const isRemote = server.type === 'remote';
-  const toggleLabel = isNative ? '始终启用' : (server.enabled ? '禁用' : '启用');
-  const toggleTitle = isNative ? '原生 MCP 始终由 Yan 启用' : `${toggleLabel} ${server.name}`;
+  const removable = !server.builtin && !server.systemManaged;
+  const toggleTitle = isNative ? '原生 MCP 始终由 Yan 启用' : `启用 ${server.name}`;
   const status = server.available === false ? '不可用' : (server.enabled ? '已启用' : '已停用');
-  const statusClass = server.available === false ? 'is-available' : (server.enabled ? 'is-installed' : 'is-available');
-  content.innerHTML = `
-    <header class="skill-detail-head mcp-detail-head">
-      <div class="skill-detail-logo mcp-detail-logo">${MCP_PACKAGE_PLUS_ICON}</div>
-      <div class="skill-detail-heading">
-        <div class="skill-card-name-row">
-          <span class="skill-detail-group-pill">MCP 服务</span>
-          <span class="skill-status-pill ${statusClass}">${status}</span>
-        </div>
-        <h1 id="mcpDetailTitle">${escapeHtml(server.name)}</h1>
-        <p>${escapeHtml(server.description || '暂无说明')}</p>
-        ${isRemote && server.url ? `<p class="mcp-detail-url">${escapeHtml(server.url)}</p>` : ''}
-      </div>
-      <div class="skill-detail-actions mcp-detail-actions">
-        <div class="mcp-detail-control-pill" role="group" aria-label="MCP 服务操作">
-          <button type="button" class="mcp-detail-control" data-mcp-detail-action="test" title="测试 ${escapeAttr(server.name)} 连接">测试连接</button>
-          <span class="mcp-detail-control-divider" aria-hidden="true"></span>
-          <button type="button" class="mcp-detail-control" data-mcp-detail-action="toggle" title="${escapeAttr(toggleTitle)}" ${isNative ? 'disabled aria-disabled="true"' : ''}>${toggleLabel}</button>
-        </div>
-        ${backAction}
-      </div>
-    </header>
-    <section class="skill-detail-section" aria-labelledby="mcpDetailToolsTitle">
-      <div class="skill-detail-section-head">
-        <div>
-          <h2 id="mcpDetailToolsTitle">包含的工具</h2>
-          <p>该 MCP 服务向 Yan 提供的具体工具。</p>
-        </div>
-      </div>
-      <div id="mcpDetailTools" class="skill-detail-list mcp-tool-list">
+  const actions = `<button type="button" class="ghost-btn mcp-detail-test" data-mcp-detail-action="test" title="测试 ${escapeAttr(server.name)} 连接">测试连接</button>
+    <input type="checkbox" role="switch" class="switch" data-mcp-detail-action="toggle" title="${escapeAttr(toggleTitle)}" aria-label="${escapeAttr(toggleTitle)}" ${server.enabled || isNative ? 'checked' : ''} ${isNative ? 'disabled' : ''}>
+    ${removable ? `<button type="button" class="capability-circle-btn skill-action-btn is-delete mcp-detail-delete" data-mcp-detail-action="delete" title="卸载 ${escapeAttr(server.name)}" aria-label="卸载 ${escapeAttr(server.name)}">${CAPABILITY_ACTION_ICONS.trash}</button>` : ''}`;
+  content.innerHTML = `${window.YanCapabilityTemplates.compactDetailHead({
+      titleId: 'mcpDetailTitle', name: server.name, description: server.description,
+      logo: MCP_PACKAGE_PLUS_ICON, actions, actionLabel: 'MCP 服务操作',
+      afterTitle: `<button type="button" class="plugin-directory icon-btn" data-mcp-detail-action="open-directory" title="${isRemote ? '在资源管理器中打开配置目录' : '在资源管理器中打开'}" aria-label="在资源管理器中打开"><img src="assets/windows-explorer.png" alt="" aria-hidden="true"></button>`,
+      closeAttribute: 'data-mcp-detail-action', closeLabel: '关闭 MCP 详情',
+      extra: `${isRemote && server.url ? `<p class="mcp-detail-url">${escapeHtml(server.url)}</p>` : ''}<span class="sr-only" id="mcpDetailState" role="status">${status}</span>`
+    })}
+    <section class="plugin-skills-section mcp-tools-section" aria-labelledby="mcpDetailToolsTitle">
+      <h2 id="mcpDetailToolsTitle">工具 <span id="mcpDetailToolCount"></span></h2>
+      <div id="mcpDetailTools" class="plugin-skill-list">
         <div class="skill-detail-empty">正在读取工具列表…</div>
       </div>
     </section>`;
@@ -4523,6 +3709,12 @@ async function renderMcpDetail(serverId, servers = []) {
     mcpDetailId = '';
     mcpDetailRenderSeq++;
     void renderMcpPage();
+  });
+  content.querySelector('[data-mcp-detail-action="open-directory"]')?.addEventListener('click', async () => {
+    try {
+      const result = await api.openMcpDirectory(server.id);
+      if (!result?.ok) toast(result?.error || '无法打开 MCP 目录');
+    } catch (error) { toast(error.message || String(error)); }
   });
   const detailTestButton = content.querySelector('[data-mcp-detail-action="test"]');
   detailTestButton?.addEventListener('click', async () => {
@@ -4551,24 +3743,52 @@ async function renderMcpDetail(serverId, servers = []) {
     }
   });
   const detailToggleButton = content.querySelector('[data-mcp-detail-action="toggle"]');
-  detailToggleButton?.addEventListener('click', async () => {
+  detailToggleButton?.addEventListener('change', async () => {
     if (isNative || detailToggleButton.disabled) return;
-    const latestServers = await api.mcpList();
-    const current = latestServers.find(item => item.id === server.id);
-    if (!current) return;
-    const enabled = !current.enabled;
+    const enabled = detailToggleButton.checked;
     detailToggleButton.disabled = true;
     detailToggleButton.setAttribute('aria-busy', 'true');
-    detailToggleButton.textContent = enabled ? '启用中…' : '禁用中…';
     try {
       const updated = await api.mcpUpdate(server.id, { enabled });
-      if (!updated) throw new Error('MCP 配置更新失败');
-      if (!enabled) await api.mcpStop(server.id);
-      await renderMcpPage();
+      if (!updated || updated.error) throw new Error(updated?.error || 'MCP 配置更新失败');
+      server.enabled = !!updated.enabled;
+      // mcpUpdate persists the setting and stops the old runtime. Keep the
+      // detail DOM and tool list intact so a toggle never starts another probe.
+      if (renderSeq === mcpDetailRenderSeq && mcpDetailId === server.id) {
+        content.querySelector('#mcpDetailState').textContent = server.enabled ? '已启用' : '已停用';
+      }
     } catch (error) {
+      toast(error.message || String(error));
+    } finally {
+      detailToggleButton.checked = !!server.enabled;
       detailToggleButton.disabled = false;
       detailToggleButton.removeAttribute('aria-busy');
-      detailToggleButton.textContent = current.enabled ? '禁用' : '启用';
+    }
+  });
+
+  const detailDeleteButton = content.querySelector('[data-mcp-detail-action="delete"]');
+  detailDeleteButton?.addEventListener('click', async () => {
+    const confirmed = await requestGenericConfirmation({
+      title: '卸载 MCP 服务？',
+      description: `确定卸载“${server.name}”？该 MCP 服务会从本机配置中移除。`,
+      confirmLabel: '卸载',
+      cancelLabel: '取消',
+      danger: true
+    });
+    if (!confirmed) return;
+    detailDeleteButton.disabled = true;
+    detailDeleteButton.setAttribute('aria-busy', 'true');
+    try {
+      const removed = await api.mcpRemove(server.id);
+      if (removed?.error) throw new Error(removed.error);
+      mcpProbeFailures.delete(server.id);
+      mcpDetailId = '';
+      mcpDetailRenderSeq++;
+      toast(`已卸载 ${server.name}`);
+      await renderMcpPage();
+    } catch (error) {
+      detailDeleteButton.disabled = false;
+      detailDeleteButton.removeAttribute('aria-busy');
       toast(error.message || String(error));
     }
   });
@@ -4599,16 +3819,17 @@ async function renderMcpDetail(serverId, servers = []) {
     return;
   }
   mcpProbeFailures.delete(server.id);
+  content.querySelector('#mcpDetailToolCount').textContent = String(tools.length);
   toolsContainer.innerHTML = tools.length ? tools.map(tool => {
     const ui = mcpDetailToolUi(server, tool);
     const description = mcpDetailToolDescription(server, tool);
     return `
-    <article class="skill-detail-row mcp-tool-row">
-      <div class="skill-detail-row-logo mcp-tool-logo" data-icon="${escapeAttr(ui.iconKey)}" aria-hidden="true">
+    <article class="plugin-skill-row mcp-tool-row">
+      <div class="plugin-skill-logo mcp-tool-logo" data-icon="${escapeAttr(ui.iconKey)}" aria-hidden="true">
         ${ui.icon}
       </div>
-      <div class="skill-detail-row-copy">
-        <strong>${escapeHtml(tool.name || '未命名工具')}</strong>
+      <div class="plugin-skill-copy">
+        <h3>${escapeHtml(tool.name || '未命名工具')}</h3>
         <p>${escapeHtml(description)}</p>
       </div>
     </article>`;
@@ -4629,12 +3850,6 @@ function formatTokenCount(n) {
   if (num >= 10_000) return Math.round(num / 1000) + 'K';
   if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(num);
-}
-
-function formatThroughput(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num) || num <= 0) return '';
-  return `${Math.max(1, Math.round(num)).toLocaleString()} token/s`;
 }
 
 function getAgentRunCacheStats(agentRun) {
@@ -4670,7 +3885,7 @@ function normalizeSkillCalls(value) {
   }, []);
 }
 
-function appendMessage(role, content, attachments = [], animate = true, msgIndex = -1, ts = null, duration = null, agentRun = null, skillCalls = [], media = null) {
+function appendMessage(role, content, attachments = [], animate = true, msgIndex = -1, ts = null, duration = null, agentRun = null, skillCalls = [], media = null, pluginCalls = []) {
   const wrap = $('#messages');
   const el = document.createElement('div');
   el.className = `msg ${role}`;
@@ -4695,14 +3910,15 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
     ).join('')}</span>`
     : '';
 
+  const pluginHtml = role === 'user' ? (window.YanComposerPlugins?.messageHtml(pluginCalls) || '') : '';
   let bodyHtml;
   if (role === 'assistant') {
     bodyHtml = '<div class="msg-body agent-output"></div>';
   } else {
-    bodyHtml = `<div class="msg-body">${skillHtml}${attHtml}${escapeHtml(content)}</div>`;
+    bodyHtml = `<div class="msg-body">${skillHtml}${pluginHtml}${attHtml}${renderUserMessageText(content)}</div>`;
   }
 
-  const hasContent = !!(content || agentRun || selectedSkillCalls.length || media);
+  const hasContent = !!(content || agentRun || selectedSkillCalls.length || pluginHtml || media);
   let actionsHtml = '';
   if (hasContent && role === 'user') {
     actionsHtml = `
@@ -4715,6 +3931,9 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
   }
 
   el.innerHTML = avatar + bodyHtml + actionsHtml;
+  el.querySelectorAll('[data-preview-path]').forEach(node => {
+    node.yanAttachment = attachments.find(item => item.path === node.dataset.previewPath);
+  });
   wrap.appendChild(el);
   bindSkillLogoFallbacks(el);
 
@@ -4737,6 +3956,7 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
     btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, el));
   });
   if (role === 'assistant') bindAgentWorkToggle(el);
+  if (role === 'user') { syncUserMessageEditAvailability(); window.YanAgentShell?.foldUserMessage(el); }
 
   invalidateConversationTurns();
   if (!suppressChatAutoScroll && (role === 'assistant' || (role === 'user' && animate))) {
@@ -4744,6 +3964,14 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
   }
   scrollChatToBottom();
   return el;
+}
+
+// 用户消息里的 **加粗** / *斜体* 在转义后还原为语义标签，让输入框里的
+// 富文本格式在发送后仍然可见（默认仍是纯文本，只有成对标记才生效）。
+function renderInlineEmphasis(escapedText) {
+  return String(escapedText ?? '')
+    .replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^\n*]+?)\*/g, '<em>$1</em>');
 }
 
 function formatDuration(ms) {
@@ -4789,6 +4017,16 @@ async function handleMessageAction(action, el) {
       toast('已复制到剪贴板');
     } catch { toast('复制失败'); }
   } else if (action === 'edit') {
+    // 撤回重发会删除该消息之后的全部轮次，因此只允许作用在最后一轮用户消息上；
+    // 且该轮必须是被用户主动中止的，正常完成或报错结束都不再提供重发。
+    if (isCurrentSessionExecutionActive()) {
+      toast('当前任务正在运行，结束后才能撤回重发');
+      return;
+    }
+    if (!canResendLastTurn(msgIndex, msgs)) {
+      toast('仅用户中止的最后一轮可以撤回重发');
+      return;
+    }
     // 撤回重写：把内容填回输入框，删除该消息及之后所有消息
     input.value = msg.content || '';
     const restoredSkills = normalizeSkillCalls(msg.skillCalls || msg.skillCall).map(skill =>
@@ -4796,6 +4034,7 @@ async function handleMessageAction(action, el) {
     );
     setComposerSkills(restoredSkills);
     setComposerSubagents(msg.subagentRoles || msg.subagents || []);
+    window.YanComposerPlugins?.set(msg.pluginCalls || []);
     msgs.splice(msgIndex);
     let found = false;
     $$('#messages .msg').forEach(m => {
@@ -4805,6 +4044,7 @@ async function handleMessageAction(action, el) {
     await saveCurrentSession();
     if (msgs.length === 0) setEmptyState(true);
     renderTurnScaleNavigation();
+    syncUserMessageEditAvailability();
     autoGrow();
     updateSendState();
     input.focus();
@@ -4814,6 +4054,171 @@ async function handleMessageAction(action, el) {
   } else if (action === 'rollback') {
     await rollbackMessageRun(msg, el);
   }
+}
+
+// ============================================================
+// 正文划词工具条：左键选中 Agent/用户正文后可直接复制或加入输入框
+// ============================================================
+let selectionToolbarEl = null;
+let selectionToolbarText = '';
+let selectionToolbarRange = null;
+let selectionToolbarScrollFrame = 0;
+
+function textSelectionToolbar() {
+  if (selectionToolbarEl?.isConnected) return selectionToolbarEl;
+  const bar = document.createElement('div');
+  bar.id = 'textSelectionToolbar';
+  bar.className = 'text-selection-toolbar hidden';
+  bar.setAttribute('role', 'toolbar');
+  bar.setAttribute('aria-label', '选中文本操作');
+  bar.innerHTML = `<button type="button" class="text-selection-action" data-selection-action="quote">${ICONS.quote}<span>添加到对话</span></button><button type="button" class="text-selection-action" data-selection-action="side-chat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/><path d="M17.5 9.5h1M17.5 12.5h1"/></svg><span>在侧边聊天中提问</span></button><button type="button" class="text-selection-action" data-selection-action="copy">${ICONS.copy}<span>复制选中</span></button>`;
+  // 按下工具条时不能清掉当前选区，否则复制会拿到空字符串。
+  bar.addEventListener('mousedown', event => event.preventDefault());
+  bar.addEventListener('click', event => {
+    const action = event.target.closest('[data-selection-action]')?.dataset.selectionAction;
+    if (action) void runTextSelectionAction(action);
+  });
+  document.body.appendChild(bar);
+  selectionToolbarEl = bar;
+  return bar;
+}
+
+function hideTextSelectionToolbar() {
+  if (selectionToolbarScrollFrame) {
+    cancelAnimationFrame(selectionToolbarScrollFrame);
+    selectionToolbarScrollFrame = 0;
+  }
+  selectionToolbarRange = null;
+  selectionToolbarEl?.classList.add('hidden');
+}
+
+// 任务运行时会持续自动滚动，划词面板必须跟随选区，而不是一滚动就消失；
+// 只有选区滚出视口或节点被移除时才隐藏。
+function repositionTextSelectionToolbar() {
+  if (!selectionToolbarRange || !selectionToolbarEl || selectionToolbarEl.classList.contains('hidden')) return;
+  if (selectionToolbarScrollFrame) return;
+  selectionToolbarScrollFrame = requestAnimationFrame(() => {
+    selectionToolbarScrollFrame = 0;
+    const range = selectionToolbarRange;
+    if (!range || !range.startContainer?.isConnected) { hideTextSelectionToolbar(); return; }
+    const rect = range.getBoundingClientRect();
+    if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) { hideTextSelectionToolbar(); return; }
+    positionTextSelectionToolbar(rect);
+  });
+}
+
+function selectionMessageBody(range) {
+  const node = range.commonAncestorContainer;
+  const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+  const body = element?.closest?.('.msg .msg-body');
+  if (!body) return null;
+  if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return null;
+  return body;
+}
+
+function handleMessageSelectionEnd(event) {
+  if (event.button !== 0) return;
+  if (event.target?.closest?.('#textSelectionToolbar')) return;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) { hideTextSelectionToolbar(); return; }
+  const range = selection.getRangeAt(0);
+  const text = String(selection.toString() || '').trim();
+  if (!text || !selectionMessageBody(range)) { hideTextSelectionToolbar(); return; }
+  selectionToolbarText = text;
+  selectionToolbarRange = range;
+  positionTextSelectionToolbar(range.getBoundingClientRect());
+}
+
+function positionTextSelectionToolbar(rect) {
+  const bar = textSelectionToolbar();
+  bar.classList.remove('hidden');
+  const width = bar.offsetWidth;
+  const height = bar.offsetHeight;
+  const gap = 8;
+  let left = rect.left + (rect.width / 2) - (width / 2);
+  let top = rect.top - height - gap;
+  if (top < 8) top = rect.bottom + gap;
+  left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+  top = Math.max(8, Math.min(top, window.innerHeight - height - 8));
+  bar.style.left = `${Math.round(left)}px`;
+  bar.style.top = `${Math.round(top)}px`;
+}
+
+async function runTextSelectionAction(action) {
+  const text = selectionToolbarText;
+  hideTextSelectionToolbar();
+  if (!text) return;
+  if (action === 'copy') {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('已复制选中内容');
+    } catch { toast('复制失败'); }
+    return;
+  }
+  if (action === 'side-chat') { askSelectionInSideChat(text); return; }
+  const quoted = text.split(/\r?\n/).map(line => `> ${line}`).join('\n');
+  insertComposerPlainText(`${quoted}\n`);
+  input.focus({ preventScroll: true });
+  toast('已添加到对话输入框');
+}
+
+function bindTextSelectionToolbar() {
+  document.addEventListener('mouseup', handleMessageSelectionEnd);
+  document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    hideTextSelectionToolbar();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') hideTextSelectionToolbar();
+  });
+  document.addEventListener('scroll', repositionTextSelectionToolbar, true);
+  window.addEventListener('resize', hideTextSelectionToolbar);
+}
+
+// 撤回重发只对最后一轮用户消息开放，且该轮必须是被用户主动中止的：
+// 正常完成与报错结束都不再提供重发入口，更早的轮次会连带删除后续对话。
+function lastUserMessageIndex(messages = state.currentSession?.messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i]?.role === 'user') return i;
+  }
+  return -1;
+}
+
+// 与 renderAgentRunHeader 对“用户手动中止输出”的判定保持一致：恢复自上次
+// 应用退出的中断不算用户中止。
+function messageEndedByUserAbort(message) {
+  const run = message?.agentRun;
+  if (run) return run.status === 'interrupted' && run.recoveredAfterRestart !== true;
+  return /已中止媒体生成|用户手动中止输出/.test(String(message?.content || ''));
+}
+
+function lastTurnEndedByUserAbort(messages = state.currentSession?.messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const start = lastUserMessageIndex(list);
+  if (start < 0) return false;
+  return list.slice(start + 1).some(message => (
+    message?.role === 'assistant' && messageEndedByUserAbort(message)
+  ));
+}
+
+function canResendLastTurn(msgIndex, messages = state.currentSession?.messages) {
+  return Number.isInteger(msgIndex)
+    && msgIndex >= 0
+    && msgIndex === lastUserMessageIndex(messages)
+    && lastTurnEndedByUserAbort(messages);
+}
+
+// 不能重发时不显示撤回按钮，避免留下一个点了没反应的入口。
+function syncUserMessageEditAvailability() {
+  const lastIndex = lastUserMessageIndex();
+  const allowed = lastTurnEndedByUserAbort();
+  $$('#messages .msg.user').forEach(element => {
+    const button = element.querySelector('.msg-action-btn[data-act="edit"]');
+    if (!button) return;
+    button.classList.toggle('hidden', !(allowed && Number(element.dataset.msgIndex) === lastIndex));
+  });
 }
 
 // ============================================================
@@ -5068,6 +4473,13 @@ function renderTtsSettings(cfg = state.config || {}) {
   const menu = $('#ttsVoicePickerMenu');
   const tts = cfg?.tts || {};
   const voice = String(tts.voice || SPEECH_DEFAULT_VOICE);
+  const voiceSelect = settingsOverlay.querySelector('#ttsVoice');
+  if (voiceSelect) {
+    if (!voiceSelect.options.length) voiceSelect.replaceChildren(...TTS_VOICE_OPTIONS.map(option => new Option(option.label, option.id)));
+    if (![...voiceSelect.options].some(option => option.value === voice)) voiceSelect.add(new Option(voice, voice));
+    voiceSelect.value = voice;
+    window.YanAppearanceControls?.sync();
+  }
   if (menu && !menu.querySelector('[data-tts-voice]')) {
     menu.innerHTML = TTS_VOICE_OPTIONS
       .map(option => `<button class="tts-voice-picker-option" type="button" role="option" data-tts-voice="${escapeAttr(option.id)}" aria-selected="false"><span>${escapeHtml(option.label)}</span><span class="tts-voice-picker-check" aria-hidden="true">✓</span></button>`)
@@ -5107,6 +4519,22 @@ async function previewTtsVoice() {
 }
 
 function bindTtsSettings() {
+  const voiceSelect = settingsOverlay.querySelector('#ttsVoice');
+  if (voiceSelect && !voiceSelect.dataset.bound) {
+    voiceSelect.dataset.bound = 'true';
+    voiceSelect.addEventListener('change', async () => {
+      voiceSelect.disabled = true;
+      window.YanAppearanceControls?.sync();
+      try {
+        state.config = await api.setConfig({ tts: { voice: voiceSelect.value } });
+      } catch (error) {
+        toast(`朗读音色保存失败：${error.message}`);
+      } finally {
+        voiceSelect.disabled = false;
+        renderTtsSettings(state.config);
+      }
+    });
+  }
   const range = $('#ttsRateRange');
   if (range && range.dataset.bound !== 'true') {
     range.dataset.bound = 'true';
@@ -5241,9 +4669,14 @@ function beginChatAutoFollow(sessionId = currentChatSessionId()) {
   }
 }
 
-function pauseChatAutoFollowFromWheel() {
+function pauseChatAutoFollowFromWheel(event) {
   const sessionId = currentChatSessionId();
   if (!sessionId || !state.activeRuns.has(sessionId)) return;
+  // Only an upward wheel means "leave the live edge". A downward wheel — or one
+  // already sitting at the bottom — must not park the back-to-latest button,
+  // otherwise it stays on screen even though the view is at the very bottom.
+  if (Number(event?.deltaY || 0) >= 0) return;
+  if (isChatNearBottom(80)) return;
   chatAutoFollowBySession.set(sessionId, false);
   if (chatAutoFollowFrame) cancelAnimationFrame(chatAutoFollowFrame);
   chatAutoFollowFrame = 0;
@@ -5283,36 +4716,40 @@ let promptOptimizationRun = null;
 let promptOptimizationUndo = null;
 const COMPOSER_SKILL_TOKEN_SELECTOR = '[data-composer-skill-id]';
 const COMPOSER_SUBAGENT_TOKEN_SELECTOR = '[data-composer-subagent-id]';
-const COMPOSER_TOKEN_SELECTOR = `${COMPOSER_SKILL_TOKEN_SELECTOR}, ${COMPOSER_SUBAGENT_TOKEN_SELECTOR}`;
+const COMPOSER_TOKEN_SELECTOR = `${COMPOSER_SKILL_TOKEN_SELECTOR}, ${COMPOSER_SUBAGENT_TOKEN_SELECTOR}, [data-composer-plugin-id]`;
 let composerLastCaretTextOffset = 0;
 let composerSkillQueryAnchor = null;
 let composerSkillQueryEnd = null;
 let composerSkillQuery = '';
 let composerSkillTriggerOffset = null;
-let composerSubagentQueryAnchor = null;
-let composerSubagentQueryEnd = null;
-let composerSubagentQuery = '';
-let composerSubagentTriggerOffset = null;
 let composerTextCache = '';
 let composerTextCacheValid = false;
 let composerIsComposing = false;
 let composerCompositionCommitTimer = 0;
-let composerKernelPrewarmAt = 0;
-let composerPromptStartedWithSlash = false;
+let composerKernelPrewarmAt = 0, composerKernelPrewarmKey = '';
+
+function prewarmAgentKernel(force = false) {
+  const now = Date.now();
+  const session = state.currentSession;
+  const key = session ? session.id : String(state.config?.workspace || '');
+  // Throttle per target: a previous workspace's prewarm must not swallow this one.
+  if (!force && key === composerKernelPrewarmKey && now - composerKernelPrewarmAt < 60_000) return;
+  composerKernelPrewarmAt = now;
+  composerKernelPrewarmKey = key;
+  void api.openCodePrewarm?.(session ? { workspace: session.workspace || '', yanSessionId: session.id } : { workspace: state.config?.workspace || '' }).catch(error => console.warn('[opencode-prewarm]', error));
+}
 
 function prewarmComposerKernel(event) {
   if (event && event.isTrusted === false) return;
-  const now = Date.now();
-  if (now - composerKernelPrewarmAt < 60_000) return;
-  composerKernelPrewarmAt = now;
-  void api.openCodePrewarm?.().catch(error => console.warn('[opencode-prewarm]', error));
+  prewarmAgentKernel();
 }
 
-function composerNodeText(node) {
+function composerNodeText(node, stopAt = null) {
   if (!node) return '';
   const parts = [];
   let length = 0;
   let lastCharacter = '';
+  let stopped = false;
 
   const append = value => {
     if (!value) return;
@@ -5321,9 +4758,10 @@ function composerNodeText(node) {
     lastCharacter = value.at(-1) || lastCharacter;
   };
   const visit = current => {
-    if (!current) return;
+    if (!current || stopped) return;
     if (current.nodeType === Node.TEXT_NODE) {
-      append(current.nodeValue || '');
+      append(current === stopAt?.node ? (current.nodeValue || '').slice(0, stopAt.offset) : current.nodeValue || '');
+      if (current === stopAt?.node) stopped = true;
       return;
     }
     if (current.nodeType !== Node.ELEMENT_NODE && current.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
@@ -5333,15 +4771,24 @@ function composerNodeText(node) {
       return;
     }
 
+    // WYSIWYG bold/italic is serialized back to Markdown so the formatted text
+    // reaches the model (and the sent message) instead of being flattened.
+    const marker = current.nodeType === Node.ELEMENT_NODE ? composerFormatMarker(current.tagName) : '';
+    const marked = marker && (current.textContent || '').length > 0 ? marker : '';
+    if (marked) append(marked);
     const localStart = length;
     const children = current.childNodes || [];
     for (let index = 0; index < children.length; index++) {
+      if (current === stopAt?.node && index === stopAt.offset) { stopped = true; break; }
       const child = children[index];
       const isBlock = child.nodeType === Node.ELEMENT_NODE && (child.tagName === 'DIV' || child.tagName === 'P');
       if (isBlock && length > localStart && lastCharacter !== '\n') append('\n');
       visit(child);
+      if (stopped) break;
       if (isBlock && index < children.length - 1 && lastCharacter !== '\n') append('\n');
     }
+    if (current === stopAt?.node) stopped = true;
+    if (marked && !stopped) append(marked);
   };
 
   visit(node);
@@ -5369,7 +4816,6 @@ function setComposerText(value, { preserveSkills = true } = {}) {
   if (text) input.append(document.createTextNode(text));
   composerTextCache = text;
   composerTextCacheValid = true;
-  composerPromptStartedWithSlash = text.startsWith('/');
   bindSkillLogoFallbacks(input);
 }
 
@@ -5383,30 +4829,42 @@ function composerSelectionInside() {
 function getComposerCaretTextOffset() {
   const range = composerSelectionInside();
   if (!range) return composerLastCaretTextOffset;
-  const prefix = document.createRange();
-  prefix.selectNodeContents(input);
-  prefix.setEnd(range.endContainer, range.endOffset);
-  return composerNodeText(prefix.cloneContents()).length;
+  return composerNodeText(input, { node: range.endContainer, offset: range.endOffset }).length;
 }
 
 function composerTextPoint(offset) {
   const target = Math.max(0, Number(offset) || 0);
-  const walker = document.createTreeWalker(input, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      return node.parentElement?.closest(COMPOSER_TOKEN_SELECTOR)
-        ? NodeFilter.FILTER_REJECT
-        : NodeFilter.FILTER_ACCEPT;
+  let consumed = 0, last = '', point = null;
+  const boundary = (node, after = false) => ({ node: node.parentNode, offset: Array.prototype.indexOf.call(node.parentNode.childNodes, node) + Number(after) });
+  const consume = (text, before, after) => {
+    if (point) return;
+    if (target <= consumed + text.length) point = target <= consumed ? before : after;
+    consumed += text.length; if (text) last = text.at(-1);
+  };
+  const visit = node => {
+    if (point) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.nodeValue || '';
+      if (target <= consumed + text.length) point = { node, offset: Math.max(0, target - consumed) };
+      consumed += text.length; if (text) last = text.at(-1); return;
     }
-  });
-  let consumed = 0;
-  let node = walker.nextNode();
-  while (node) {
-    const length = node.nodeValue?.length || 0;
-    if (target <= consumed + length) return { node, offset: target - consumed };
-    consumed += length;
-    node = walker.nextNode();
-  }
-  return { node: input, offset: input.childNodes.length };
+    if (node.nodeType !== Node.ELEMENT_NODE || node.matches(COMPOSER_TOKEN_SELECTOR)) return;
+    if (node.matches('a.composer-link')) { consume(node.textContent || '', boundary(node), boundary(node, true)); return; }
+    if (node.tagName === 'BR') { consume('\n', boundary(node), boundary(node, true)); return; }
+    const marker = node.textContent ? composerFormatMarker(node.tagName) : '';
+    if (marker) consume(marker, boundary(node), { node, offset: 0 });
+    const start = consumed, children = [...node.childNodes];
+    for (const [index, child] of children.entries()) {
+      const block = child.nodeType === Node.ELEMENT_NODE && ['DIV', 'P'].includes(child.tagName);
+      if (block && consumed > start && last !== '\n') consume('\n', boundary(child), { node: child, offset: 0 });
+      visit(child);
+      if (block && index < children.length - 1 && last !== '\n') consume('\n', boundary(child, true), boundary(child, true));
+      if (point) break;
+    }
+    if (marker) consume(marker, { node, offset: node.childNodes.length }, boundary(node, true));
+  };
+  visit(input);
+  return point || { node: input, offset: input.childNodes.length };
 }
 
 function setComposerCaretByTextOffset(offset) {
@@ -5418,6 +4876,17 @@ function setComposerCaretByTextOffset(offset) {
   selection.removeAllRanges();
   selection.addRange(range);
   composerLastCaretTextOffset = Math.max(0, Number(offset) || 0);
+}
+
+function deleteComposerTextRange(start, end) {
+  if (end <= start) return;
+  const from = composerTextPoint(start), to = composerTextPoint(end);
+  const range = document.createRange();
+  range.setStart(from.node, from.offset);
+  range.setEnd(to.node, to.offset);
+  range.deleteContents();
+  input.normalize();
+  invalidateComposerTextCache();
 }
 
 Object.defineProperty(input, 'value', {
@@ -5478,8 +4947,9 @@ function removeSkillTokenBeforeCaret() {
   selection.addRange(range);
   syncComposerSkillsFromDom();
   syncComposerSubagentsFromDom();
+  window.YanComposerPlugins?.sync();
   refreshComposerSkillQuery();
-  refreshComposerSubagentQuery();
+  window.YanComposerPlugins?.refresh();
   updateSendState();
   return true;
 }
@@ -5491,17 +4961,12 @@ function isComposerSkillMenuOpen() {
 function syncComposerAfterInput() {
   syncComposerSkillsFromDom();
   syncComposerSubagentsFromDom();
+  window.YanComposerPlugins?.sync();
   const text = getComposerText();
-  const startsWithSlash = text.startsWith('/');
-  const shouldOpenWorkModes = startsWithSlash && !composerPromptStartedWithSlash;
-  const shouldCloseWorkModes = !startsWithSlash && composerPromptStartedWithSlash;
-  const mayContainLeadingCommand = /^[\/$￥\s]/u.test(text);
+  const mayContainLeadingCommand = /^[\/$\s]/u.test(text) || text.includes('/') || text.includes('$');
   const liveCaretOffset = mayContainLeadingCommand ? getComposerCaretTextOffset() : composerLastCaretTextOffset;
-  const prefix = text.slice(0, liveCaretOffset);
-  const shouldOpenSkillPicker = /^[\/\s]*\$$/u.test(prefix);
-  const shouldOpenSubagentPicker = /^[\/\s]*￥$/u.test(prefix);
-  composerPromptStartedWithSlash = startsWithSlash;
-  if (!text && !state.selectedSkills.length && !state.selectedSubagents.length) {
+  // Deleting content can leave <br> or empty blocks behind in Chromium.
+  if (!composerHasText(text) && !state.selectedSkills.length && !state.selectedSubagents.length && !state.selectedPlugins.length) {
     input.replaceChildren();
     composerTextCache = '';
     composerTextCacheValid = true;
@@ -5510,21 +4975,19 @@ function syncComposerAfterInput() {
     composerLastCaretTextOffset = getComposerCaretTextOffset();
   }
   refreshComposerSkillQuery(text, composerLastCaretTextOffset);
-  refreshComposerSubagentQuery(text, composerLastCaretTextOffset);
-  autoGrow();
+  window.YanComposerPlugins?.refresh(text, composerLastCaretTextOffset);
+  window.YanComposerConfig?.refresh(text, liveCaretOffset);
+  // Measure next frame, not inside the input event: the height read forces a
+  // synchronous layout and a paste/IME burst should collapse to one measure.
+  scheduleComposerGrow();
   updateSendState(text);
-  if (shouldOpenSkillPicker) {
-    composerLastCaretTextOffset = liveCaretOffset;
-    openComposerSkillView({ triggerOffset: liveCaretOffset - 1 });
-  } else if (shouldOpenSubagentPicker) {
-    composerLastCaretTextOffset = liveCaretOffset;
-    openComposerSubagentView({ triggerOffset: liveCaretOffset - 1 });
-  } else if (shouldOpenWorkModes) {
-    composerLastCaretTextOffset = getComposerCaretTextOffset();
-    openComposerWorkModeView();
-  } else if (shouldCloseWorkModes && $('#attachmentMenu')?.dataset.view === 'work-mode') {
-    setAttachmentMenuOpen(false);
-  }
+  linkifyComposerUrls();
+}
+
+function composerFormatMarker(tagName) {
+  if (tagName === 'B' || tagName === 'STRONG') return '**';
+  if (tagName === 'I' || tagName === 'EM') return '*';
+  return '';
 }
 
 input.addEventListener('compositionstart', () => {
@@ -5580,27 +5043,268 @@ input.addEventListener('paste', event => {
   if (!text || !insertComposerPlainText(text)) return;
   event.preventDefault();
   input.dispatchEvent(new Event('input', { bubbles: true }));
+  linkifyComposerUrls({ finish: true });
 });
 input.addEventListener('pointerup', () => {
   composerLastCaretTextOffset = getComposerCaretTextOffset();
   if (!$('#attachmentMenu')?.classList.contains('hidden')) {
-    if ($('#attachmentMenu')?.dataset.view === 'subagent') resetComposerSubagentQueryAnchor();
-    else resetComposerSkillQueryAnchor();
+    resetComposerSkillQueryAnchor();
   }
 });
+
+// ============================================================
+// 输入框富输入：URL 识别为可点击链接 + 选中文本的加粗/斜体药丸
+// ============================================================
+const COMPOSER_LINK_SELECTOR = 'a.composer-link';
+const COMPOSER_URL_TEST = /https?:\/\//i;
+const COMPOSER_URL_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？、）】》]+/gi;
+const COMPOSER_URL_TRAILING = /[.,;:!?，。；：！？、）】》：；]+$/u;
+const COMPOSER_LINK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18Z"/></svg>';
+const COMPOSER_FORMAT_ICONS = {
+  bold: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h8a4 4 0 0 1 0 8H6z"/><path d="M6 12h9a4 4 0 0 1 0 8H6z"/></svg>',
+  italic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>'
+};
+let composerFormatPillEl = null;
+let composerFormatRange = null;
+let composerFormatTimer = 0;
+
+function composerTextNodeIsExcluded(node, selector) {
+  return !!node?.parentElement?.closest?.(selector);
+}
+
+function renderUserMessageText(value) {
+  const text = String(value || '');
+  let html = '', cursor = 0;
+  for (const match of text.matchAll(new RegExp(COMPOSER_URL_PATTERN))) {
+    const url = normalizeComposerUrl(match[0]);
+    if (!url) continue;
+    html += renderInlineEmphasis(escapeHtml(text.slice(cursor, match.index)));
+    html += `<a class="composer-link user-message-link" href="${escapeAttr(url)}" data-yan-browser-link="${escapeAttr(url)}" rel="noreferrer"><span class="composer-link-icon" aria-hidden="true">${COMPOSER_LINK_ICON}</span><span class="composer-link-text">${escapeHtml(url)}</span></a>`;
+    cursor = match.index + url.length;
+  }
+  return html + renderInlineEmphasis(escapeHtml(text.slice(cursor)));
+}
+
+function normalizeComposerUrl(value) {
+  let url = value.replace(COMPOSER_URL_TRAILING, '');
+  const opening = { ')': '(', ']': '[', '}': '{' };
+  while (opening[url.at(-1)]) {
+    const close = url.at(-1), open = opening[close];
+    if (url.split(close).length <= url.split(open).length) break;
+    url = url.slice(0, -1).replace(COMPOSER_URL_TRAILING, '');
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname && ['http:', 'https:'].includes(parsed.protocol) ? url : '';
+  } catch { return ''; }
+}
+
+// A finished URL becomes a clickable chip; the URL the caret still sits in
+// stays plain text so typing is never interrupted mid-address.
+function linkifyComposerUrls({ finish = false } = {}) {
+  if (composerIsComposing) return;
+  const selection = window.getSelection();
+  const caret = composerSelectionInside();
+  if (selection && !selection.isCollapsed && caret) return;
+  const walker = document.createTreeWalker(input, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (composerTextNodeIsExcluded(node, COMPOSER_TOKEN_SELECTOR)) return NodeFilter.FILTER_REJECT;
+      if (composerTextNodeIsExcluded(node, COMPOSER_LINK_SELECTOR)) return NodeFilter.FILTER_REJECT;
+      return COMPOSER_URL_TEST.test(node.nodeValue || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const targets = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) targets.push(node);
+  if (!targets.length) return;
+  const caretNode = caret && caret.startContainer.nodeType === Node.TEXT_NODE ? caret.startContainer : null;
+  const caretOffset = caretNode ? caret.startOffset : -1;
+  const caretTextOffset = caret ? getComposerCaretTextOffset() : -1;
+  let changed = false;
+  for (const node of targets) {
+    const value = node.nodeValue || '';
+    COMPOSER_URL_PATTERN.lastIndex = 0;
+    const matches = [...value.matchAll(COMPOSER_URL_PATTERN)];
+    if (!matches.length) continue;
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    let matched = false;
+    for (const match of matches) {
+      const url = normalizeComposerUrl(match[0]);
+      if (!url) continue;
+      const start = match.index;
+      const end = start + url.length;
+      // Never convert the URL the caret is still typing: use the raw match span,
+      // not the punctuation-trimmed one, so a trailing "." being typed does not
+      // chop the link down to "https://example".
+      const rawEnd = start + match[0].length;
+      if (!finish && caretNode === node && caretOffset >= start && caretOffset <= rawEnd) continue;
+      if (start > cursor) fragment.append(document.createTextNode(value.slice(cursor, start)));
+      const anchor = document.createElement('a');
+      anchor.className = 'composer-link';
+      anchor.dataset.href = url;
+      anchor.href = url;
+      anchor.setAttribute('contenteditable', 'false');
+      anchor.setAttribute('rel', 'noreferrer');
+      anchor.setAttribute('draggable', 'false');
+      anchor.innerHTML = `<span class="composer-link-icon" aria-hidden="true">${COMPOSER_LINK_ICON}</span><span class="composer-link-text">${escapeHtml(url)}</span>`;
+      fragment.append(anchor);
+      cursor = end;
+      matched = true;
+    }
+    if (!matched) continue;
+    if (cursor < value.length) fragment.append(document.createTextNode(value.slice(cursor)));
+    node.replaceWith(fragment);
+    changed = true;
+  }
+  if (!changed) return;
+  invalidateComposerTextCache();
+  if (caretTextOffset >= 0) setComposerCaretByTextOffset(Math.min(caretTextOffset, getComposerText().length));
+}
+
+// Preserve only composer-owned formatting; never restore arbitrary HTML or token attributes.
+function composerDraftMarkup(root) {
+  const render = node => {
+    if (node.nodeType === Node.TEXT_NODE) return escapeHtml(node.nodeValue || '');
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return '';
+    if (node.nodeType === Node.ELEMENT_NODE && node.matches(COMPOSER_TOKEN_SELECTOR)) return '';
+    const children = [...node.childNodes].map(render).join('');
+    if (['B', 'STRONG', 'I', 'EM', 'DIV', 'P'].includes(node.tagName)) return `<${node.tagName.toLowerCase()}>${children}</${node.tagName.toLowerCase()}>`;
+    if (node.tagName === 'BR') return '<br>';
+    return children;
+  };
+  return [...root.childNodes].map(render).join('');
+}
+
+function composerFormatPill() {
+  if (composerFormatPillEl?.isConnected) return composerFormatPillEl;
+  const pill = document.createElement('div');
+  pill.id = 'composerFormatPill';
+  pill.className = 'composer-format-pill hidden';
+  pill.setAttribute('role', 'toolbar');
+  pill.setAttribute('aria-label', '选中文本格式');
+  pill.innerHTML = `<button type="button" class="composer-format-action" data-format="bold" title="加粗" aria-label="加粗">${COMPOSER_FORMAT_ICONS.bold}</button><button type="button" class="composer-format-action" data-format="italic" title="斜体" aria-label="斜体">${COMPOSER_FORMAT_ICONS.italic}</button>`;
+  // 按下药丸时不能清掉输入框选区，否则加粗/斜体会拿到空选区。
+  pill.addEventListener('mousedown', event => event.preventDefault());
+  pill.addEventListener('click', event => {
+    const format = event.target.closest('[data-format]')?.dataset.format;
+    if (format) applyComposerFormat(format);
+  });
+  document.body.appendChild(pill);
+  composerFormatPillEl = pill;
+  return pill;
+}
+
+function hideComposerFormatPill() {
+  if (composerFormatTimer) { clearTimeout(composerFormatTimer); composerFormatTimer = 0; }
+  composerFormatRange = null;
+  composerFormatPillEl?.classList.add('hidden');
+}
+
+function positionComposerFormatPill(rect) {
+  const pill = composerFormatPill();
+  pill.classList.remove('hidden');
+  const width = pill.offsetWidth, height = pill.offsetHeight, gap = 8;
+  let left = rect.left + rect.width / 2 - width / 2;
+  let top = rect.top - height - gap;
+  if (top < 8) top = rect.bottom + gap;
+  left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+  top = Math.max(8, Math.min(top, window.innerHeight - height - 8));
+  pill.style.left = `${Math.round(left)}px`;
+  pill.style.top = `${Math.round(top)}px`;
+}
+
+// 选中输入框文本后停顿 1s 才弹出，避免拖动选区时闪出一个跟手面板。
+function scheduleComposerFormatPill() {
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? composerSelectionInside() : null;
+  if (!range || selection.isCollapsed || !String(selection.toString() || '').trim()) {
+    hideComposerFormatPill();
+    return;
+  }
+  composerFormatRange = range.cloneRange();
+  if (composerFormatTimer) clearTimeout(composerFormatTimer);
+  composerFormatTimer = setTimeout(() => {
+    composerFormatTimer = 0;
+    const live = composerFormatRange;
+    if (!live?.startContainer?.isConnected) { hideComposerFormatPill(); return; }
+    positionComposerFormatPill(live.getBoundingClientRect());
+  }, 1000);
+}
+
+function applyComposerFormat(kind) {
+  const savedRange = composerFormatRange;
+  hideComposerFormatPill();
+  let range = composerSelectionInside();
+  if (!range || range.collapsed) range = savedRange;
+  if (!range || range.collapsed) return;
+  if ([...input.querySelectorAll(COMPOSER_TOKEN_SELECTOR)].some(token => range.intersectsNode(token))) return;
+  input.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  // Real WYSIWYG formatting: Chromium wraps the selection in <b>/<i>, which
+  // composerNodeText serializes back to ** / * for the outgoing message.
+  let applied = false;
+  try {
+    document.execCommand('styleWithCSS', false, false);
+    applied = document.execCommand(kind === 'italic' ? 'italic' : 'bold');
+  } catch { applied = false; }
+  if (!applied) {
+    if (!range.toString()) return;
+    const element = document.createElement(kind === 'italic' ? 'i' : 'b');
+    element.append(range.extractContents());
+    range.insertNode(element);
+    const after = document.createRange();
+    after.setStartAfter(element);
+    after.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(after);
+  }
+  invalidateComposerTextCache();
+  composerLastCaretTextOffset = composerSelectionInside() ? getComposerCaretTextOffset() : 0;
+  updateSendState();
+  captureComposerDraftForSession();
+}
+
+function bindComposerRichInput() {
+  input.addEventListener('click', event => {
+    const link = event.target.closest?.('a.composer-link');
+    if (!link) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const url = link.dataset.href || link.getAttribute('href') || '';
+    if (url) openBrowserUrlInNewTab(url);
+  });
+  document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount || selection.isCollapsed || !composerSelectionInside()) {
+      hideComposerFormatPill();
+      return;
+    }
+    scheduleComposerFormatPill();
+  });
+  document.addEventListener('mousedown', event => {
+    if (event.target.closest?.('#composerFormatPill')) return;
+    hideComposerFormatPill();
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') hideComposerFormatPill(); });
+  document.addEventListener('scroll', hideComposerFormatPill, true);
+  input.addEventListener('blur', event => {
+    if (event.relatedTarget?.closest?.('#composerFormatPill')) return;
+    hideComposerFormatPill(); linkifyComposerUrls({ finish: true });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Composer height: bounded auto-grow + manual drag handle
 // ---------------------------------------------------------------------------
 // Auto-grow follows the content but never takes over the chat column: the
-// ceiling is a fraction of the visible conversation area (and a hard cap), so
-// a pasted essay grows the composer to a readable size and then scrolls.
+// ceiling fits six visible text lines at the current font size, so a pasted
+// essay scrolls inside the editor instead of taking over the conversation.
 // Dragging the top grip pins an explicit height (persisted); double-clicking
 // the grip returns to pure auto-grow.
 const COMPOSER_HEIGHT_KEY = 'yan.composer.height';
-const COMPOSER_MAX_HEIGHT_RATIO = 0.45;
-const COMPOSER_ABS_MAX_HEIGHT = 480;
-const COMPOSER_ABS_MIN_CEILING = 220;
+const COMPOSER_MAX_VISIBLE_LINES = 6;
 const COMPOSER_JUMP_THRESHOLD = 240;
 let composerManualHeight = 0;
 let composerAppliedHeight = 0;
@@ -5611,16 +5315,13 @@ function composerMinHeight() {
   const composer = $('#composer');
   if (!composer) return 0;
   const min = Number.parseFloat(getComputedStyle(composer).minHeight);
-  return Number.isFinite(min) && min > 0 ? Math.round(min) : 88;
+  const snapshots = $('#composerSnapshots');
+  const snapshotHeight = snapshots && !snapshots.classList.contains('hidden') ? snapshots.offsetHeight + 6 : 0;
+  return (Number.isFinite(min) && min > 0 ? Math.round(min) : 88) + snapshotHeight;
 }
 
 function composerHeightCeiling() {
-  const host = $('#pageChat') || $('#chatMainColumn') || document.body;
-  const available = Math.max(0, Number(host?.clientHeight) || window.innerHeight || 800);
-  return Math.max(
-    COMPOSER_ABS_MIN_CEILING,
-    Math.min(COMPOSER_ABS_MAX_HEIGHT, Math.round(available * COMPOSER_MAX_HEIGHT_RATIO))
-  );
+  return window.YanAgentShell.composerCeiling(COMPOSER_MAX_VISIBLE_LINES, composerMinHeight());
 }
 
 function applyComposerHeight(height) {
@@ -5763,7 +5464,23 @@ composerResizeHandle?.addEventListener('keydown', event => {
   }
 });
 
-window.addEventListener('resize', scheduleComposerGrow);
+// The normal conversation fills the column behind the fixed composer. Track
+// the entire stage (attachments, queued turns and disclaimer included), so its
+// scrollable bottom space follows both auto-growth and manual input resizing.
+const chatComposerInsetObserver = new ResizeObserver(() => {
+  const stage = $('#composerStage');
+  const column = $('#chatMainColumn');
+  const sc = $('#chatScroll');
+  if (!stage || !column || !sc || !stage.getClientRects().length) return;
+  if ($('#app').classList.contains('browser-focus-mode') || $('#pageChat').classList.contains('empty')) return;
+  const inset = `${Math.ceil(stage.getBoundingClientRect().height)}px`;
+  if (column.style.getPropertyValue('--chat-composer-inset') === inset) return;
+  const atBottom = isChatNearBottom(2);
+  column.style.setProperty('--chat-composer-inset', inset);
+  if (atBottom) scrollChatToBottom({ instant: true, force: true });
+  syncChatAutoFollowUi();
+});
+if ($('#composerStage')) chatComposerInsetObserver.observe($('#composerStage'));
 
 try {
   const storedComposerHeight = Number(window.localStorage.getItem(COMPOSER_HEIGHT_KEY));
@@ -5856,14 +5573,22 @@ async function optimizeComposerPrompt() {
     return;
   }
 
+  if (!state.currentSession?.id) await newSession();
+  if (!state.currentSession?.id) return;
+
   const operation = {
     id: `prompt_opt_${Date.now().toString(36)}`,
     sessionId: state.currentSession?.id || '',
     original,
     cancelled: false,
-    runCtx: createRunCtx(`prompt-optimizer:${state.currentSession?.id || 'draft'}`, false, state.currentSession?.workspace || '')
+    runCtx: createRunCtx(state.currentSession.id, false, state.currentSession?.workspace || '')
   };
   operation.runCtx.utility = true;
+  const modelSelection = getAgentModelSelection();
+  if (modelSelection) {
+    setRunModelPresentation(operation.runCtx, modelSelection);
+    operation.runCtx.remoteModelSelection = modelSelection;
+  }
   promptOptimizationRun = operation;
   promptOptimizationUndo = null;
   setPromptOptimizationUi(operation, true);
@@ -5975,18 +5700,19 @@ function syncConversationSubmitButton(button, options = {}) {
 function updateSendState(composerText = getComposerText()) {
   const runCtx = isCurrentSessionResponding() ? getRunCtx(state.currentSession?.id) : null;
   const hasText = composerHasText(composerText);
-  const hasPayload = hasText || state.attachments.length > 0 || state.selectedSkills.length > 0 || state.selectedSubagents.length > 0;
+  const hasPayload = hasText || state.attachments.length > 0 || state.selectedSkills.length > 0 || state.selectedSubagents.length > 0 || state.selectedPlugins.length > 0;
   syncConversationSubmitButton(sendBtn, {
     active: !!runCtx,
     stopping: !!runCtx?.shouldAbort,
     queueing: !!runCtx && hasPayload,
     sendDisabled: !!promptOptimizationRun || !hasPayload,
     sendTitle: '发送',
-    queueTitle: state.queuedTurns.has(String(state.currentSession?.id || '')) ? '更新排队对话' : '排队发送',
+    queueTitle: state.config?.general?.followUpMode === 'guide' ? '引导当前运行' : state.queuedTurns.has(String(state.currentSession?.id || '')) ? '更新排队对话' : '排队发送',
     stopTitle: '中止任务'
   });
   syncQueuedTurnUi();
   updatePromptOptimizerButton(composerText, hasText);
+  $('#app')?.classList.toggle('agent-working', !!runCtx);
   syncBrowserFocusPromptStatus();
 }
 
@@ -5994,8 +5720,8 @@ sendBtn.addEventListener('click', () => {
   if (isCurrentSessionResponding()) {
     const hasPayload = composerHasText(getComposerText())
       || state.attachments.length > 0
-      || state.selectedSkills.length > 0 || state.selectedSubagents.length > 0;
-    if (hasPayload) queueCurrentComposerTurn();
+      || state.selectedSkills.length > 0 || state.selectedSubagents.length > 0 || state.selectedPlugins.length > 0;
+    if (hasPayload) void submitComposerFollowUp();
     else abortTask();
   } else {
     sendMessage();
@@ -6015,7 +5741,7 @@ function syncQueuedTurnUi() {
   host.classList.toggle('hidden', !queued);
   host.dataset.sessionId = queued ? sessionId : '';
   const detail = queued
-    ? [queued.text, ...(queued.attachments || []).map(item => item.name), ...(queued.skillCalls || []).map(item => `$${item.name || item.id}`), ...(queued.subagentRoles || []).map(id => `￥${SUBAGENT_ROLE_LABELS[id] || id}`)]
+    ? [queued.text, ...(queued.attachments || []).map(item => item.name), ...(queued.skillCalls || []).map(item => `$${item.name || item.id}`), ...(queued.subagentRoles || []).map(id => SUBAGENT_ROLE_LABELS[id] || id), ...(queued.pluginCalls || []).map(item => item.name || item.id)]
         .filter(Boolean)
         .join(' · ')
     : '';
@@ -6028,10 +5754,12 @@ function clearComposerPayload() {
   state.attachments = [];
   setComposerSkills([]);
   setComposerSubagents([]);
+  window.YanComposerPlugins?.set([]);
   renderAttachments();
   composerLastCaretTextOffset = 0;
   autoGrow();
   captureComposerDraftForSession(state.currentSession?.id);
+  window.YanPromptSuggestions?.clear?.();
 }
 
 function validateQueuedModelPayload(text, attachments, modelSelection) {
@@ -6051,17 +5779,100 @@ function validateQueuedModelPayload(text, attachments, modelSelection) {
   return true;
 }
 
-function queueCurrentComposerTurn() {
+// The composer follow-up and the queued-message "引导" shortcut inject the same
+// guidance text, so the running agent receives identical hints from both paths.
+function buildGuidanceText(payload = {}, workspace = '') {
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const skillCalls = Array.isArray(payload.skillCalls) ? payload.skillCalls : [];
+  const subagentRoles = Array.isArray(payload.subagentRoles) ? payload.subagentRoles : [];
+  const pluginCalls = Array.isArray(payload.pluginCalls) ? payload.pluginCalls : [];
+  return [String(payload.text || '').trim(),
+    ...attachments.map(item => `用户附加文件：${item.path || item.name}`),
+    window.YanImageEditContext?.(attachments, workspace || ''),
+    ...skillCalls.map(item => `用户选择技能：$${item.id || item.name}`),
+    ...subagentRoles.map(id => `用户选择子代理：${id}`),
+    ...pluginCalls.map(item => window.YanAgentCatalog.find(item.id) ? window.YanAgentCatalog.guidance(window.YanAgentCatalog.find(item.id)) : `用户明确选择插件：@${item.id}；请通过 plugins_inspect 和 plugins_activate 使用它。`)
+  ].filter(Boolean).join('\n');
+}
+
+async function submitComposerFollowUp() {
+  if (state.config?.general?.followUpMode !== 'guide') return queueCurrentComposerTurn();
+  const session = state.currentSession;
+  const run = getRunCtx(session?.id);
+  if (!run?.runId || run.shouldAbort || run.sendingGuidance) return;
+  syncComposerSkillsFromDom();
+  syncComposerSubagentsFromDom();
+  window.YanComposerPlugins?.sync();
+  const text = getComposerText().trim();
+  const guidance = buildGuidanceText({
+    text,
+    attachments: state.attachments,
+    skillCalls: state.selectedSkills,
+    subagentRoles: state.selectedSubagents.map(item => item.id),
+    pluginCalls: state.selectedPlugins
+  }, session.workspace || '');
+  if (!guidance || !await window.YanComposerPlugins.validate()) return;
+  run.sendingGuidance = true;
+  try {
+    const result = await api.openCodeInterject({ runId: run.runId, text: guidance, directGuidance: true });
+    if (!result?.ok || !result.delivered) throw new Error(result?.error || '引导未送达');
+    if (state.currentSession === session && getComposerText().trim() === text) clearComposerPayload();
+    const thread = interjectionThreadFor(run);
+    thread?.items.push({ role: 'user', text: guidance }, { role: 'system', text: '引导已送达当前运行。' });
+    syncInterjectionUi();
+    toast('引导已送达当前运行');
+  } catch (error) { toast(error.message); }
+  finally { run.sendingGuidance = false; updateSendState(); }
+}
+
+// Quick "引导" shortcut on the queued-message bar: deliver the queued payload as
+// direct guidance to the current run and drop it from the queue.
+async function guideCurrentQueuedTurn() {
+  const sessionId = String(state.currentSession?.id || '');
+  const queued = sessionId ? state.queuedTurns.get(sessionId) : null;
+  if (!queued) return;
+  const run = getRunCtx(sessionId);
+  if (!run?.runId || run.shouldAbort || run.sendingGuidance) return;
+  const session = queued.sessionRef || state.currentSession;
+  const guidance = buildGuidanceText(queued, session?.workspace || '');
+  if (!guidance) return;
+  run.sendingGuidance = true;
+  const guideButton = $('#queuedTurnGuide');
+  if (guideButton) guideButton.disabled = true;
+  try {
+    const result = await api.openCodeInterject({ runId: run.runId, text: guidance, directGuidance: true });
+    if (!result?.ok || !result.delivered) throw new Error(result?.error || '引导未送达');
+    state.queuedTurns.delete(sessionId);
+    void invokeYanCore('yanCoreDeleteIntent', queued.id, 'user_guided').catch(() => {});
+    const thread = interjectionThreadFor(run);
+    thread?.items.push({ role: 'user', text: guidance }, { role: 'system', text: '引导已送达当前运行。' });
+    syncInterjectionUi();
+    syncQueuedTurnUi();
+    toast('引导已送达当前运行');
+  } catch (error) { toast(error.message); }
+  finally {
+    run.sendingGuidance = false;
+    if (guideButton) guideButton.disabled = false;
+    updateSendState();
+  }
+}
+
+function queueCurrentComposerTurn(payload = null) {
   const sessionId = String(state.currentSession?.id || '');
   const runCtx = getRunCtx(sessionId);
   if (!sessionId || !runCtx || runCtx.shouldAbort) return false;
-  syncComposerSkillsFromDom();
-  syncComposerSubagentsFromDom();
-  const text = getComposerText().trim();
-  const attachments = state.attachments.map(item => ({ ...item }));
-  const skillCalls = state.selectedSkills.map(normalizeComposerSkill);
-  const subagentRoles = state.selectedSubagents.map(item => item.id);
-  if (!text && !attachments.length && !skillCalls.length && !subagentRoles.length) return false;
+  if (payload && state.queuedTurns.has(sessionId)) return false;
+  if (!payload) {
+    syncComposerSkillsFromDom();
+    syncComposerSubagentsFromDom();
+    window.YanComposerPlugins?.sync();
+  }
+  const text = payload ? payload.text : getComposerText().trim();
+  const attachments = (payload ? payload.attachments : state.attachments).map(item => ({ ...item }));
+  const skillCalls = payload ? [] : state.selectedSkills.map(normalizeComposerSkill);
+  const subagentRoles = payload ? [] : state.selectedSubagents.map(item => item.id);
+  const pluginCalls = payload ? [] : window.YanComposerPlugins.normalize(state.selectedPlugins);
+  if (!text && !attachments.length && !skillCalls.length && !subagentRoles.length && !pluginCalls.length) return false;
   const modelSelection = { ...getAgentModelSelection() };
   if (!validateQueuedModelPayload(text, attachments, modelSelection)) return false;
   const queuedId = createQueuedTurnId();
@@ -6072,6 +5883,7 @@ function queueCurrentComposerTurn() {
     attachments,
     skillCalls,
     subagentRoles,
+    pluginCalls,
     modelSelection,
     queuedAt: Date.now()
   };
@@ -6084,6 +5896,7 @@ function queueCurrentComposerTurn() {
       attachments,
       skillCalls,
       selectedSkills: skillCalls,
+      selectedPlugins: pluginCalls,
       subagentRoles,
       modelSelection,
       workMode: modelSelection.modelType || 'text',
@@ -6091,7 +5904,7 @@ function queueCurrentComposerTurn() {
   }).then(result => {
     if (!result?.ok) console.warn('[yan-core] queued intent persistence failed:', result?.error || 'unknown error');
   }).catch(error => console.warn('[yan-core] queued intent persistence failed:', error));
-  clearComposerPayload();
+  if (!payload) clearComposerPayload();
   syncQueuedTurnUi();
   updateSendState();
   return true;
@@ -6106,6 +5919,7 @@ function editCurrentQueuedTurn() {
   setComposerText(queued.text || '', { preserveSkills: false });
   setComposerSkills(queued.skillCalls || []);
   setComposerSubagents(queued.subagentRoles || []);
+  window.YanComposerPlugins?.set(queued.pluginCalls || []);
   state.attachments = (queued.attachments || []).map(item => ({ ...item }));
   renderAttachments();
   composerLastCaretTextOffset = getComposerText().length;
@@ -6126,6 +5940,7 @@ function removeCurrentQueuedTurn() {
   updateSendState();
 }
 
+$('#queuedTurnGuide')?.addEventListener('click', () => { void guideCurrentQueuedTurn(); });
 $('#queuedTurnEdit')?.addEventListener('click', editCurrentQueuedTurn);
 $('#queuedTurnRemove')?.addEventListener('click', removeCurrentQueuedTurn);
 
@@ -6314,9 +6129,9 @@ function abortSessionById(sessionId) {
   }
   dispatchRunCancel(runCtx);
   applyAbortRunUi(sessionId);
-  if (window.Notification && Notification.permission === 'granted' && state.currentSession?.id === sessionId) {
+  if (canNotifyGeneral('completion') && state.currentSession?.id === sessionId) {
     try {
-      new Notification('Yan Agent', { body: '任务已被中断', icon: 'assets/logo.png' });
+      new Notification('Yan Agent', { ...generalNotificationOptions(), body: '任务已被中断', icon: 'assets/logo.png' });
     } catch {}
   }
   if (state.currentSession?.id === sessionId) toast('任务已被中断');
@@ -6326,10 +6141,12 @@ function abortSessionById(sessionId) {
 
 function applyAbortRunUi(sessionId) {
   if (!sessionId) return;
+  window.YanPromptSuggestions?.clear?.();
   const entry = state.activeRuns.get(sessionId);
   if (!entry) return;
   const { assistantEl, runCtx } = entry;
   runCtx.abortedUiApplied = true;
+  clearResponseWatchdog(runCtx);
   if (runCtx.activeAgentRun) window.YanSubagentWorkflow.finalize(runCtx.activeAgentRun, 'interrupted');
   if (runCtx.agentState) runCtx.agentState.status = 'interrupted';
 
@@ -6396,11 +6213,6 @@ const COMPOSER_SKILL_SLOTS = Object.freeze([
   { ids: ['ponytail-audit'], group: '代码辅助', search: ['代码库精简审计', '仓库瘦身', '复杂度审计'] },
   { ids: ['yan-serena'], group: '代码辅助', search: ['Serena', '符号定位', '语义代码编辑', 'LSP'] },
   { ids: ['yan-codegraph'], group: '代码辅助', search: ['CodeGraph', '代码图', '调用链', '影响分析'] },
-  { ids: ['yan-understand-anything'], group: '代码辅助', search: ['Understand Anything', '项目理解', '代码地图'] },
-  { ids: ['greensock-gsap'], group: 'UI美化', search: ['GreenSock', 'GSAP', '网页动效', 'ScrollTrigger'] },
-  { ids: ['ui-ux-pro-max'], group: 'UI美化', search: ['UI UX Pro Max', 'uipro', '设计系统', 'UI设计', 'UX设计'] },
-  { ids: ['emil-motion'], group: 'UI美化', search: ['Emil Kowalski', '界面动效', 'Apple 交互', '动画审阅'] },
-  { ids: ['yan-react-bits'], group: 'UI美化', search: ['React Bits', '界面动效', '动画组件'] },
   { ids: ['awesome-design-md'], group: '网页设计', search: ['DESIGN.md', '品牌设计参考', '设计语言'] },
   { ids: ['yan-uiverse'], group: '网页设计', search: ['Uiverse', '网页组件', '静态网页'] },
   { ids: ['writing-for-agents'], group: 'Agent规则', search: ['Agent 文档', 'Skill 编写', 'AGENTS.md'] },
@@ -6466,16 +6278,19 @@ function captureComposerDraftForSession(sessionId = state.currentSession?.id) {
   if (!id) return;
   syncComposerSkillsFromDom();
   syncComposerSubagentsFromDom();
+  window.YanComposerPlugins?.sync();
   const text = getComposerText();
   const caretOffset = Math.min(text.length, getComposerCaretTextOffset());
   const draft = {
     text,
+    richInput: composerDraftMarkup(input),
     skills: state.selectedSkills.map(normalizeComposerSkill),
     subagents: state.selectedSubagents.map(item => item.id),
+    plugins: window.YanComposerPlugins?.normalize(state.selectedPlugins) || [],
     attachments: state.attachments.map(attachment => ({ ...attachment })),
     caretOffset: Math.max(0, Number(caretOffset) || 0)
   };
-  if (!draft.text && !draft.skills.length && !draft.subagents.length && !draft.attachments.length) {
+  if (!draft.text && !draft.skills.length && !draft.subagents.length && !draft.plugins.length && !draft.attachments.length) {
     state.composerDrafts.delete(id);
     return;
   }
@@ -6485,8 +6300,16 @@ function captureComposerDraftForSession(sessionId = state.currentSession?.id) {
 function restoreComposerDraftForSession(sessionId) {
   const draft = state.composerDrafts.get(String(sessionId || '')) || null;
   setComposerText(draft?.text || '', { preserveSkills: false });
+  if (draft?.richInput) {
+    const template = document.createElement('template'); template.innerHTML = draft.richInput;
+    input.innerHTML = composerDraftMarkup(template.content);
+    invalidateComposerTextCache();
+    if (getComposerText() !== draft.text) setComposerText(draft.text, { preserveSkills: false });
+  }
   setComposerSkills(draft?.skills || []);
   setComposerSubagents(draft?.subagents || []);
+  window.YanComposerPlugins?.set(draft?.plugins || []);
+  linkifyComposerUrls({ finish: true });
   state.attachments = (draft?.attachments || []).map(attachment => ({ ...attachment }));
   renderAttachments();
   composerLastCaretTextOffset = Math.min(
@@ -6496,10 +6319,6 @@ function restoreComposerDraftForSession(sessionId) {
   composerSkillQueryAnchor = null;
   composerSkillQueryEnd = null;
   composerSkillQuery = '';
-  composerSubagentQueryAnchor = null;
-  composerSubagentQueryEnd = null;
-  composerSubagentQuery = '';
-  composerSubagentTriggerOffset = null;
   autoGrow();
   updateSendState();
 }
@@ -6595,8 +6414,7 @@ function toggleComposerSkill(skill) {
     const textLength = text.length;
     const start = Math.min(textLength, Math.max(0, composerSkillQueryAnchor ?? composerLastCaretTextOffset));
     const end = Math.min(textLength, Math.max(start, composerSkillQueryEnd ?? start));
-    const nextText = `${text.slice(0, start)}${text.slice(end)}`;
-    setComposerText(nextText, { preserveSkills: true });
+    deleteComposerTextRange(start, end);
     setComposerSkills([...state.selectedSkills, normalizeComposerSkill(skill)]);
     composerLastCaretTextOffset = start;
   }
@@ -6769,8 +6587,26 @@ function getAgentModelConfigName(providerId = '', supplierId = '', cfg = state.c
   return String(supplier?.name || connection?.name || '').trim();
 }
 
-function getAgentModelSelection() {
-  const stored = state.config?.agentModel;
+function getAgentModelSelection(session = state.currentSession) {
+  const selection = getStoredAgentModelSelection(session);
+  const cfg = state.config;
+  // A task snapshot is historical data, not proof that its connection still
+  // exists. Keep the snapshot intact so restoring a connection can reuse it.
+  if (Array.isArray(cfg?.api?.connections)) {
+    const available = cfg.api.connections.some(connection =>
+      connection.providerId === selection.providerId
+      && connection.supplierId === selection.supplierId
+      && (cfg.api.enabledConnections || []).includes(connection.id)
+      && connection.modelFlags?.[selection.modelId]?.enabled !== false);
+    if (!available || !cfg.agentModel?.modelId) {
+      return { providerId: '', supplierId: '', modelId: '', modelType: 'text', name: '', configName: '', capabilities: {} };
+    }
+  }
+  return selection;
+}
+
+function getStoredAgentModelSelection(session = state.currentSession) {
+  const stored = session?.modelSelection || state.config?.agentModel;
   if (stored && String(stored.modelType || '') === 'text') {
     const storedProvider = String(stored.providerId || state.config?.api?.provider || '');
     const storedModelId = String(stored.modelId || stored.model || state.config?.api?.model || '');
@@ -6806,6 +6642,41 @@ function getAgentModelSelection() {
     ),
     capabilities: model?.capabilities || {}
   };
+}
+
+// Pin a task's model once. Legacy tasks recover their last executed model;
+// new tasks start from the global default without changing other tasks.
+async function initializeSessionModel(session) {
+  if (!session || session.modelSelection?.modelId) return;
+  const previous = getLastExecutedModelSelection(session);
+  const selection = previous?.modelType === 'text' ? previous : getAgentModelSelection(null);
+  if (!selection.modelId) return;
+  session.modelSelection = { ...selection, capabilities: selection.capabilities || {} };
+  session.reasoningMode = getReasoningSpeedMode(null);
+  await api.saveSession(buildSessionSavePayload(session));
+}
+
+async function selectTaskModel(model, session = state.currentSession) {
+  if (!session) throw new Error('请先创建任务');
+  const payload = await api.listQuickModels();
+  const available = (payload.models || []).find(item => item.modelType === 'text'
+    && item.providerId === model.providerId
+    && String(item.supplierId || '') === String(model.supplierId || '')
+    && item.id === model.id);
+  if (!available) throw new Error('所选模型已不可用，请重新选择');
+  const previous = session.modelSelection;
+  session.modelSelection = {
+    ...normalizeModelSelectionSnapshot({ ...available, modelId: available.id }),
+    capabilities: available.capabilities || {}
+  };
+  try {
+    const saved = await api.saveSession(buildSessionSavePayload(session));
+    if (saved?.error) throw new Error(saved.error);
+  } catch (error) {
+    session.modelSelection = previous;
+    throw error;
+  }
+  if (state.currentSession?.id === session.id) renderModelBadge();
 }
 
 function normalizeModelSelectionSnapshot(selection = {}) {
@@ -6887,29 +6758,26 @@ function getSelectedModelCapabilities() {
 
 function syncComposerWorkModeChoices() {
   const workMode = getCurrentWorkMode();
-  $$('#composerWorkModeView [data-work-mode]').forEach(option => {
+  $$('#composerAddMainView [data-work-mode]').forEach(option => {
     option.setAttribute('aria-checked', String(option.dataset.workMode === workMode));
   });
 }
 
 function resetComposerAddMenuView() {
+  window.YanComposerConfig?.hide();
+  window.YanComposerPlugins?.hide();
   const menu = $('#attachmentMenu');
   const mainView = $('#composerAddMainView');
-  const workModeView = $('#composerWorkModeView');
+  const workModeView = $('#composerConfigView');
   const skillView = $('#composerSkillView');
-  const subagentView = $('#composerSubagentView');
-  const workModeLauncher = $('#composerWorkModeAction');
+  const workModeLauncher = $('#composerConfigAction');
   const skillLauncher = $('#composerSkillAction');
-  const subagentLauncher = $('#composerSubagentAction');
   mainView?.classList.remove('hidden');
   workModeView?.classList.add('hidden');
   skillView?.classList.add('hidden');
-  subagentView?.classList.add('hidden');
   workModeLauncher?.setAttribute('aria-expanded', 'false');
   skillLauncher?.setAttribute('aria-expanded', 'false');
-  subagentLauncher?.setAttribute('aria-expanded', 'false');
   composerSkillTriggerOffset = null;
-  composerSubagentTriggerOffset = null;
   if (menu) {
     menu.style.removeProperty('height');
     delete menu.dataset.baseHeight;
@@ -6917,34 +6785,15 @@ function resetComposerAddMenuView() {
   }
 }
 
-function openComposerWorkModeView() {
-  const menu = $('#attachmentMenu');
-  const mainView = $('#composerAddMainView');
-  const workModeView = $('#composerWorkModeView');
-  const launcher = $('#composerWorkModeAction');
-  if (!menu || !mainView || !workModeView) return;
-  if (menu.classList.contains('hidden')) setAttachmentMenuOpen(true);
-  const baseHeight = menu.getBoundingClientRect().height;
-  menu.dataset.baseHeight = String(baseHeight);
-  menu.style.height = `${baseHeight}px`;
-  mainView.classList.add('hidden');
-  workModeView.classList.remove('hidden');
-  launcher?.setAttribute('aria-expanded', 'true');
-  menu.dataset.view = 'work-mode';
-  syncComposerWorkModeChoices();
-  requestAnimationFrame(() => {
-    menu.style.height = `${baseHeight * 0.8}px`;
-  });
-}
 
 function openComposerSkillView({ triggerOffset = null } = {}) {
+  window.YanComposerPlugins?.hide();
   const menu = $('#attachmentMenu');
   const mainView = $('#composerAddMainView');
-  const workModeView = $('#composerWorkModeView');
+  const workModeView = $('#composerConfigView');
   const skillView = $('#composerSkillView');
-  const subagentView = $('#composerSubagentView');
   const launcher = $('#composerSkillAction');
-  if (!menu || !mainView || !workModeView || !skillView || !subagentView) return;
+  if (!menu || !mainView || !workModeView || !skillView) return;
   if (menu.classList.contains('hidden')) setAttachmentMenuOpen(true);
   const baseHeight = Number(menu.dataset.baseHeight) || menu.getBoundingClientRect().height;
   menu.dataset.baseHeight = String(baseHeight);
@@ -6952,9 +6801,7 @@ function openComposerSkillView({ triggerOffset = null } = {}) {
   mainView.classList.add('hidden');
   workModeView.classList.add('hidden');
   skillView.classList.remove('hidden');
-  subagentView.classList.add('hidden');
-  $('#composerWorkModeAction')?.setAttribute('aria-expanded', 'false');
-  $('#composerSubagentAction')?.setAttribute('aria-expanded', 'false');
+  $('#composerConfigAction')?.setAttribute('aria-expanded', 'false');
   launcher?.setAttribute('aria-expanded', 'true');
   menu.dataset.view = 'skill';
   const caret = getComposerCaretTextOffset();
@@ -6974,17 +6821,6 @@ function openComposerSkillView({ triggerOffset = null } = {}) {
   });
 }
 
-function consumeComposerWorkModeSlash() {
-  const text = getComposerText();
-  if (!text.startsWith('/')) return;
-  const nextCaretOffset = Math.max(0, Math.min(text.length, composerLastCaretTextOffset) - 1);
-  setComposerText(text.slice(1), { preserveSkills: true });
-  composerLastCaretTextOffset = nextCaretOffset;
-  input.focus({ preventScroll: true });
-  setComposerCaretByTextOffset(nextCaretOffset);
-  autoGrow();
-  updateSendState();
-}
 
 function mountComposerToolbar() {
   const toolbar = document.querySelector('.composer-toolbar-controls');
@@ -6998,6 +6834,7 @@ function mountComposerToolbar() {
     document.querySelector('#accessModeWrap'),
     document.querySelector('#workModeIndicator'),
     document.querySelector('#modelPickerWrap'),
+    document.querySelector('#voiceMicButton'),
     document.querySelector('#sendBtn')
   ];
   controls.forEach(control => {
@@ -7018,7 +6855,7 @@ function setAttachmentMenuOpen(open) {
   const button = $('#attachBtn');
   if (!menu || !button) return;
   if (open && isModelPickerBusy()) return;
-  if (open) resetComposerAddMenuView();
+  if (open) { resetComposerAddMenuView(); syncComposerWorkModeChoices(); }
   menu.classList.toggle('hidden', !open);
   button.setAttribute('aria-expanded', open ? 'true' : 'false');
   menu.dataset.state = open ? 'ready' : 'idle';
@@ -7032,6 +6869,7 @@ function setAttachmentMenuOpen(open) {
   closeModelPicker();
   closeReasoningPicker();
   setAccessModeMenuOpen(false);
+  window.YanComposerPlugins?.open();
 
   requestAnimationFrame(() => {
     input.focus({ preventScroll: true });
@@ -7068,19 +6906,11 @@ $('#uploadFileAction').addEventListener('click', () => {
 });
 $('#attachmentMenu')?.addEventListener('click', async event => {
   event.stopPropagation();
-  if (event.target.closest('#composerWorkModeAction')) {
-    openComposerWorkModeView();
-    return;
-  }
   if (event.target.closest('#composerSkillAction')) {
-    openComposerSkillView();
+    window.YanComposerConfig?.openSkills();
     return;
   }
-  if (event.target.closest('#composerSubagentAction')) {
-    openComposerSubagentView();
-    return;
-  }
-  const option = event.target.closest('#composerWorkModeView [data-work-mode]');
+  const option = event.target.closest('#composerAddMainView [data-work-mode]');
   if (!option) return;
   const requestedMode = option.dataset.workMode;
   const nextMode = requestedMode === getCurrentWorkMode() ? 'normal' : requestedMode;
@@ -7088,7 +6918,6 @@ $('#attachmentMenu')?.addEventListener('click', async event => {
   option.setAttribute('aria-busy', 'true');
   try {
     await selectWorkMode(nextMode);
-    consumeComposerWorkModeSlash();
     syncComposerWorkModeChoices();
   } catch (error) {
     toast('工作方式切换失败：' + error.message);
@@ -7140,7 +6969,7 @@ $('#fileInput').addEventListener('change', async (e) => {
   }
   e.target.value = '';
 });
-async function addAttachment(file, { imageOnly = false } = {}) {
+async function addAttachment(file, { imageOnly = false, shouldAccept = () => true, snapshot = null } = {}) {
   const mimeType = inferImageMimeType(file);
   const isImage = !!mimeType;
   const capabilities = getSelectedModelCapabilities();
@@ -7158,7 +6987,9 @@ async function addAttachment(file, { imageOnly = false } = {}) {
   }
   try {
     const b64 = await fileToBase64(file);
+    if (!shouldAccept()) return;
     const meta = await api.uploadFile(file.name, b64, mimeType || file.type || '');
+    if (!shouldAccept()) return;
     if (meta?.error) {
       toast('上传失败：' + meta.error);
       return;
@@ -7168,7 +6999,8 @@ async function addAttachment(file, { imageOnly = false } = {}) {
       path: meta.path,
       size: meta.size,
       kind: isImage ? 'image' : 'file',
-      mimeType: mimeType || meta.mimeType || ''
+      mimeType: mimeType || meta.mimeType || '',
+      ...(snapshot ? { snapshot } : {})
     });
     renderAttachments();
     updateSendState();
@@ -7177,91 +7009,6 @@ async function addAttachment(file, { imageOnly = false } = {}) {
   }
 }
 
-function openComposerSubagentView({ triggerOffset = null } = {}) {
-  const menu = $('#attachmentMenu');
-  const mainView = $('#composerAddMainView');
-  const workModeView = $('#composerWorkModeView');
-  const skillView = $('#composerSkillView');
-  const subagentView = $('#composerSubagentView');
-  const launcher = $('#composerSubagentAction');
-  if (!menu || !mainView || !workModeView || !skillView || !subagentView) return;
-  if (menu.classList.contains('hidden')) setAttachmentMenuOpen(true);
-  const baseHeight = Number(menu.dataset.baseHeight) || menu.getBoundingClientRect().height;
-  menu.dataset.baseHeight = String(baseHeight);
-  menu.style.height = 'auto';
-  mainView.classList.add('hidden');
-  workModeView.classList.add('hidden');
-  skillView.classList.add('hidden');
-  subagentView.classList.remove('hidden');
-  $('#composerWorkModeAction')?.setAttribute('aria-expanded', 'false');
-  $('#composerSkillAction')?.setAttribute('aria-expanded', 'false');
-  launcher?.setAttribute('aria-expanded', 'true');
-  menu.dataset.view = 'subagent';
-  const caret = getComposerCaretTextOffset();
-  composerSubagentTriggerOffset = Number.isInteger(triggerOffset) ? triggerOffset : null;
-  const triggerPrefix = composerSubagentTriggerOffset == null ? '' : getComposerText().slice(0, composerSubagentTriggerOffset);
-  composerSubagentQueryAnchor = composerSubagentTriggerOffset == null ? caret : triggerPrefix.trimEnd().length;
-  composerSubagentQueryEnd = composerSubagentTriggerOffset == null ? caret : composerSubagentTriggerOffset + 1;
-  composerSubagentQuery = '';
-  renderSubagentCallList();
-  menu.style.height = 'auto';
-}
-
-function resetComposerSubagentQueryAnchor() {
-  const caret = getComposerCaretTextOffset();
-  composerSubagentQueryAnchor = caret;
-  composerSubagentQueryEnd = caret;
-  composerSubagentQuery = '';
-  composerSubagentTriggerOffset = null;
-  renderSubagentCallList();
-}
-
-function refreshComposerSubagentQuery(composerText, caretOffset) {
-  const menu = $('#attachmentMenu');
-  if (menu?.classList.contains('hidden') || menu?.dataset.view !== 'subagent') return;
-  const text = typeof composerText === 'string' ? composerText : getComposerText();
-  if (composerSubagentTriggerOffset != null && text[composerSubagentTriggerOffset] !== '￥') {
-    composerSubagentTriggerOffset = null;
-    setAttachmentMenuOpen(false);
-    return;
-  }
-  if (composerSubagentTriggerOffset == null) {
-    composerSubagentQuery = '';
-    composerSubagentQueryEnd = Math.max(0, Number(caretOffset) || 0);
-  } else {
-    const caret = Math.max(composerSubagentTriggerOffset + 1,
-      Math.min(text.length, Number.isFinite(Number(caretOffset)) ? Number(caretOffset) : getComposerCaretTextOffset()));
-    composerSubagentQuery = text.slice(composerSubagentTriggerOffset + 1, caret);
-    composerSubagentQueryEnd = caret;
-  }
-  renderSubagentCallList();
-}
-
-function renderSubagentCallList() {
-  const list = $('#composerSubagentMenuList');
-  if (!list || $('#attachmentMenu')?.classList.contains('hidden')) return;
-  const query = String(composerSubagentQuery || '').trim().toLocaleLowerCase();
-  const items = SUBAGENT_ROLE_IDS
-    .map(id => normalizeComposerSubagent(id))
-    .filter(item => !query || `${item.id} ${item.name} ${item.desc}`.toLocaleLowerCase().includes(query));
-  if (!items.length) {
-    list.innerHTML = '<div class="skill-call-empty">没有匹配的子代理</div>';
-    return;
-  }
-  list.innerHTML = items.map(role => {
-    const selected = state.selectedSubagents.some(item => item.id === role.id);
-    const icon = window.YanSubagentPanel?.iconFor?.(role.id) || '';
-    return `<button type="button" class="skill-call-item ${selected ? 'is-selected' : ''}" data-composer-subagent-choice="${escapeAttr(role.id)}" role="option" aria-selected="${selected}">
-      <span class="skill-call-icon subagent-call-icon" data-agent-role="${escapeAttr(role.id)}">${icon}</span>
-      <span class="skill-call-text"><span class="skill-call-name">${escapeHtml(role.name)}</span><span class="skill-call-desc">${escapeHtml(role.desc)}</span></span>
-      <span class="skill-call-selected" aria-hidden="true">${ICONS.check || '✓'}</span>
-    </button>`;
-  }).join('');
-  list.querySelectorAll('[data-composer-subagent-choice]').forEach(button => {
-    button.addEventListener('pointerdown', event => event.preventDefault());
-    button.addEventListener('click', () => toggleComposerSubagent(button.dataset.composerSubagentChoice));
-  });
-}
 
 function normalizeComposerSubagent(role) {
   const id = String(role?.id || role?.role || role || '').trim().toLowerCase();
@@ -7304,7 +7051,6 @@ function setComposerSubagents(roles) {
     input.prepend(fragment);
   }
   input.normalize();
-  renderSubagentCallList();
   updateSendState();
 }
 
@@ -7316,22 +7062,22 @@ function syncComposerSubagentsFromDom() {
   state.selectedSubagents = ids.map(id => normalizeComposerSubagent(id)).filter(Boolean);
 }
 
-function toggleComposerSubagent(role) {
-  const normalized = normalizeComposerSubagent(role);
-  if (!normalized) return;
-  const selected = state.selectedSubagents.some(item => item.id === normalized.id);
-  const next = selected
-    ? state.selectedSubagents.filter(item => item.id !== normalized.id)
-    : [...state.selectedSubagents, normalized];
-  const text = getComposerText();
-  const start = Math.min(text.length, Math.max(0, composerSubagentQueryAnchor ?? composerLastCaretTextOffset));
-  const end = Math.min(text.length, Math.max(start, composerSubagentQueryEnd ?? start));
-  setComposerText(`${text.slice(0, start)}${text.slice(end)}`, { preserveSkills: true });
-  setComposerSubagents(next);
-  composerLastCaretTextOffset = start;
-  input.focus({ preventScroll: true });
-  setComposerCaretByTextOffset(start);
-  setAttachmentMenuOpen(false);
+
+async function addReviewFileAttachment(workspace, relativePath) {
+  const base = String(workspace || '').replace(/[\\/]+$/, '');
+  const relative = String(relativePath || '').replace(/\\/g, '/');
+  if (!base || !relative || relative.startsWith('/') || /^[a-z]:/i.test(relative) || relative.split('/').includes('..')) return;
+  const sessionId = state.currentSession?.id;
+  const result = await api.inspectAttachmentPath(base + '/' + relative);
+  if (state.currentSession?.id !== sessionId || currentGitWorkspace() !== workspace) return;
+  if (!result?.ok || !result.isFile) { toast(result?.error || '该文件无法引用'); return; }
+  const key = value => String(value || '').replaceAll('\\', '/').toLowerCase();
+  if (!state.attachments.some(item => key(item.path) === key(result.path))) {
+    state.attachments.push({ name: result.name, path: result.path, size: result.size, kind: 'file', mimeType: '' });
+    renderAttachments();
+    updateSendState();
+  }
+  $('#composerInput')?.focus();
 }
 
 function addDirectoryAttachment(directoryPath) {
@@ -7447,23 +7193,21 @@ async function addDroppedAttachment(snapshot) {
 
 function renderAttachments() {
   const box = $('#attachments');
-  if (state.attachments.length === 0) {
+  window.YanAppSnapshot?.renderCards();
+  if (!state.attachments.some(attachment => !attachment.snapshot)) {
     box.classList.add('hidden');
     box.innerHTML = '';
     return;
   }
   box.classList.remove('hidden');
   const imageInputEnabled = !!getSelectedModelCapabilities().imageInput;
-  // The relay switch is a user decision: when it is off the images go to the
-  // main model, so the chip must not keep claiming the relay will read them.
-  const relayDisabled = state.config?.api?.visionRelayEnabled === false;
   box.innerHTML = state.attachments.map((a, i) => {
+    if (a.snapshot) return '';
     const image = isImageAttachmentMeta(a);
     const directory = a.kind === 'directory';
-    const relay = image && !imageInputEnabled && !relayDisabled;
-    const directModelRead = image && !imageInputEnabled && relayDisabled;
+    const relay = image && !imageInputEnabled;
     return `
-    <div class="attachment-chip ${image ? 'image' : ''} ${image && a.path ? 'is-previewable' : ''} ${directory ? 'directory' : ''} ${relay ? 'relay' : ''}" data-i="${i}" title="${relay ? '当前模型不支持图像输入，将由已配置的视觉中继读取' : (directModelRead ? '图片将直接发送给主模型读取' : (image && a.path ? '点击预览图片：' + escapeHtml(a.name) : escapeHtml(a.path || a.name)))}">
+    <div class="attachment-chip ${image ? 'image' : ''} ${image && a.path ? 'is-previewable' : ''} ${directory ? 'directory' : ''} ${relay ? 'relay' : ''}" data-i="${i}" title="${relay ? '当前模型不支持图像输入，将由“多模态链路”里指定的视觉中继模型读取' : (image && a.path ? '点击预览图片：' + escapeHtml(a.name) : escapeHtml(a.path || a.name))}">
       <span class="attachment-kind-icon">${directory ? ICONS.folder : (image ? ICONS.image : ICONS.file)}</span>
       <span>${escapeHtml(a.name)}</span>
       <button class="remove" data-i="${i}" title="移除">${ICONS.close}</button>
@@ -7488,16 +7232,14 @@ function renderAttachments() {
 function openAttachmentPreview(attachment = {}) {
   const filePath = String(attachment.path || '');
   if (!filePath) return;
-  api.previewImageFile(filePath).then(result => {
-    if (result?.error) toast(result.error);
-  }).catch(error => toast('无法打开图片：' + (error?.message || error)));
+  window.yanImageOverlay.open({ filePath, name: attachment.name, snapshot: attachment.snapshot });
 }
 
 $('#messages')?.addEventListener('click', event => {
   const target = event.target.closest('[data-preview-path]');
   if (!target) return;
   event.preventDefault();
-  openAttachmentPreview({
+  openAttachmentPreview(target.yanAttachment || {
     path: target.dataset.previewPath,
     name: target.dataset.previewName || ''
   });
@@ -7523,11 +7265,17 @@ composer.addEventListener('drop', async (e) => {
 // ============================================================
 async function sendMessage() {
   const text = input.value.trim();
+  if (/^\/review(?:\s|$)/i.test(text)) { await startGitReview(text); return; }
   syncComposerSubagentsFromDom();
-  if (!text && state.attachments.length === 0 && state.selectedSkills.length === 0 && state.selectedSubagents.length === 0) return;
+  window.YanComposerPlugins?.sync();
+  if (!text && state.attachments.length === 0 && state.selectedSkills.length === 0 && state.selectedSubagents.length === 0 && state.selectedPlugins.length === 0) return;
+  if (state.currentSession) {
+    revealWorkspaceInSidebar(state.currentSession.workspace);
+    renderSessionList();
+  }
   if (isCurrentSessionExecutionActive()) {
     if (getRunCtx(state.currentSession?.id)?.shouldAbort) toast('上一任务正在完成中止清理，请稍候');
-    else queueCurrentComposerTurn();
+    else await submitComposerFollowUp();
     return;
   }
   const attachments = state.attachments.slice();
@@ -7538,12 +7286,14 @@ async function sendMessage() {
     await submitMediaMessage(text, attachments, agentModel);
     return;
   }
+  if (!await window.YanComposerPlugins.validate()) return;
+  const pluginCalls = window.YanComposerPlugins.normalize(state.selectedPlugins);
   const skillCalls = state.selectedSkills.map(normalizeComposerSkill);
   const subagentRoles = state.selectedSubagents.map(item => item.id);
   // 清空输入区（不调 updateSendState，submitMessage 会立即设置停止按钮）
   clearComposerPayload();
 
-  await submitMessage(text, attachments, skillCalls, { modelSelection: agentModel, subagentRoles });
+  await submitMessage(text, attachments, skillCalls, { modelSelection: agentModel, subagentRoles, pluginCalls });
 }
 
 async function submitMediaMessage(text, attachments = [], modelSelection = {}, options = {}) {
@@ -7698,6 +7448,7 @@ async function submitMediaMessage(text, attachments = [], modelSelection = {}, o
     if (state.currentSession?.id === session.id) {
       showTyping(false);
       updateSendState();
+      syncUserMessageEditAvailability();
     }
     syncCurrentSessionAgentUi(session);
     renderSessionList();
@@ -7795,25 +7546,6 @@ const DELIVERY_AGREEMENT_STATUS = Object.freeze({
   checking: '交付协议认证中',
   verified: '已完成交付协议认证',
   failed: '交付协议认证出错'
-});
-
-const REASONING_SIDEPATH_NAME = 'Yan-Reasoning-Sidepath';
-const REASONING_SIDEPATH_BRIEF_NAME = 'Yan-Reasoning-Sidepath 简报';
-const REASONING_SIDEPATH_STATUS = Object.freeze({
-  pending: '·待提出',
-  cleared: '·已放行',
-  recorded: '·已记录',
-  blocked: '·写入已拦截',
-  degraded: '·已降级放行',
-  bypassed: '·已绕过补记'
-});
-const REASONING_SIDEPATH_STATE_TEXT = Object.freeze({
-  pending: '等待简报：首次写入前必须先提出侧路简报',
-  cleared: '简报已通过校验，写入放行',
-  recorded: '简报已记录',
-  blocked: '写入被门控拦截',
-  degraded: '拦截预算用尽后降级放行',
-  bypassed: '非权限写入绕过，已运行时补记'
 });
 
 function parseDeliveryAgreementFields(value) {
@@ -7923,61 +7655,6 @@ function setDeliveryAgreementVerification(runCtx, verification, data = {}) {
   upsertOpenCodeDeliveryAgreement(runCtx, item.contract, { verification, review: data.review || item.review || null });
 }
 
-// The reasoning side-path is a runtime protocol, but it renders like the other
-// timeline tools so the user can see what the side-path actually decided.
-function normalizeReasoningSidepathItem(state = {}, overrides = {}) {
-  const merged = { ...state, ...overrides };
-  const variant = merged.variant === 'brief' ? 'brief' : 'gate';
-  return {
-    ...merged,
-    type: 'reasoning_sidepath',
-    variant,
-    stage: merged.stage || 'work',
-    name: variant === 'brief' ? REASONING_SIDEPATH_BRIEF_NAME : REASONING_SIDEPATH_NAME,
-    openCodeKey: merged.openCodeKey || (variant === 'brief' ? 'reasoning-sidepath-brief' : 'reasoning-sidepath'),
-    mode: String(merged.mode || ''),
-    deliverable: String(merged.deliverable || ''),
-    task: String(merged.task || ''),
-    userIntent: String(merged.userIntent || ''),
-    understanding: String(merged.understanding || ''),
-    intentDelta: String(merged.intentDelta || ''),
-    ambiguities: Array.isArray(merged.ambiguities) ? merged.ambiguities.slice(0, 8) : [],
-    candidates: Array.isArray(merged.candidates) ? merged.candidates.slice(0, 6) : [],
-    verificationList: Array.isArray(merged.verificationList) ? merged.verificationList.slice(0, 8) : [],
-    blockedCount: Math.max(0, Number(merged.blockedCount) || 0),
-    blockedPermission: String(merged.blockedPermission || ''),
-    bypassFile: String(merged.bypassFile || ''),
-    degraded: merged.degraded === true,
-    bypassed: merged.bypassed === true,
-    status: REASONING_SIDEPATH_STATUS[merged.status] ? merged.status : 'pending'
-  };
-}
-
-function upsertReasoningSidepath(runCtx, patch = {}) {
-  if (!runCtx) return;
-  const previous = openCodeTimelineItem(runCtx, 'reasoning-sidepath') || {};
-  upsertOpenCodeTimeline(runCtx, 'reasoning-sidepath', normalizeReasoningSidepathItem({ ...previous, variant: 'gate' }, patch));
-}
-
-// The brief content is its own timeline entry: the opening card is the call /
-// gating marker, this one is the readable result.
-function upsertReasoningSidepathBrief(runCtx, brief = {}) {
-  if (!runCtx) return;
-  upsertOpenCodeTimeline(runCtx, 'reasoning-sidepath-brief', normalizeReasoningSidepathItem({
-    variant: 'brief',
-    status: 'recorded',
-    mode: String(brief.mode || ''),
-    deliverable: String(brief.deliverable || ''),
-    task: String(brief.task || ''),
-    userIntent: String(brief.userIntent || ''),
-    understanding: String(brief.understanding || ''),
-    intentDelta: String(brief.intentDelta || ''),
-    ambiguities: Array.isArray(brief.ambiguities) ? brief.ambiguities : [],
-    candidates: Array.isArray(brief.candidates) ? brief.candidates : [],
-    verificationList: Array.isArray(brief.verification) ? brief.verification : []
-  }));
-}
-
 function ensureDeliveryAgreementTimelineItem(timeline, contract, preferredIndex = 0, overrides = {}) {
   if (!Array.isArray(timeline) || !contract) return timeline;
   const normalized = normalizedDeliveryAgreement(contract);
@@ -8006,8 +7683,11 @@ function normalizeDeliveryAgreementTimeline(sourceTimeline = []) {
       ensureDeliveryAgreementTimelineItem(timeline, sourceItem.contract || {}, timeline.length, sourceItem);
       continue;
     }
-    if (sourceItem.type === 'reasoning_sidepath') {
-      timeline.push(normalizeReasoningSidepathItem(sourceItem));
+    // Stored sessions from earlier versions kept the intent line inside the
+    // narration text. Split it here so a reopen produces the same orb-led
+    // rendering as a fresh run, and the marker cannot be persisted again.
+    if (sourceItem.type === 'progress' && sourceItem.variant === 'reasoning-intent') {
+      if (hasVisibleOpenCodeText(sourceItem.content)) timeline.push(sourceItem);
       continue;
     }
     if (sourceItem.type === 'text') {
@@ -8017,7 +7697,17 @@ function normalizeDeliveryAgreementTimeline(sourceTimeline = []) {
         ? window.YanDeliveryContract.stripProtocolBlocks(extracted.text)
         : extracted.text;
       const content = splitTaggedThinkingText(withoutProtocols).text;
-      if (hasVisibleOpenCodeText(content)) timeline.push({ ...sourceItem, content });
+      const narration = splitIntentLines(content);
+      if (hasVisibleOpenCodeText(narration.intent)) {
+        timeline.push({
+          type: 'progress',
+          variant: 'reasoning-intent',
+          content: narration.intent,
+          stage: 'work',
+          openCodeKey: `reasoning-intent:${String(sourceItem.openCodeKey || `stored-${timeline.length}`)}`
+        });
+      }
+      if (hasVisibleOpenCodeText(narration.text)) timeline.push({ ...sourceItem, content: narration.text });
       continue;
     }
     if (!containsDsmlProtocolMarkup(sourceItem.content)) timeline.push(sourceItem);
@@ -8079,8 +7769,37 @@ function showOpenCodeModelWait(runCtx) {
   });
 }
 
+const RESPONSE_HARD_LIMIT_MS = 2 * 60_000;
+
+function clearResponseWatchdog(runCtx) {
+  if (!runCtx?.responseWatchdog) return;
+  clearTimeout(runCtx.responseWatchdog);
+  runCtx.responseWatchdog = null;
+}
+
+// The provider header timeout and this UI watchdog share one user setting
+// (agent.responseTimeoutMinutes, default 2 minutes).
+function responseHardLimitMs() {
+  const minutes = Number(state.config?.agent?.responseTimeoutMinutes);
+  const configured = Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : RESPONSE_HARD_LIMIT_MS;
+  return Math.max(1, Number(window.YAN_RESPONSE_HARD_LIMIT_MS) || Math.round(configured));
+}
+
+function armResponseWatchdog(runCtx, sessionId) {
+  clearResponseWatchdog(runCtx);
+  const limitMs = responseHardLimitMs();
+  runCtx.responseWatchdog = setTimeout(() => {
+    runCtx.responseWatchdog = null;
+    const entry = state.activeRuns.get(sessionId);
+    if (!entry || entry.runCtx !== runCtx || runCtx.responseStartedAt || runCtx.shouldAbort) return;
+    abortSessionById(sessionId);
+    toast(`Yan Agent ${Math.max(1, Math.round(limitMs / 60_000))} 分钟内未成功回包，已自动中止`, { error: true });
+  }, limitMs);
+}
+
 function markOpenCodeResponseStarted(runCtx) {
   if (!runCtx || runCtx.responseStartedAt) return false;
+  clearResponseWatchdog(runCtx);
   const responseStartedAt = Date.now();
   runCtx.responseStartedAt = responseStartedAt;
   runCtx.responseDurationMs = Math.max(
@@ -8106,12 +7825,29 @@ function upsertOpenCodeTextWithTaggedThinking(runCtx, key, value, streaming = tr
   const parsed = splitTaggedThinkingText(cleaned);
   const textKey = `text:${String(key || '')}`;
   const thinkingKey = `tagged-thinking:${String(key || '')}`;
-  if (hasVisibleOpenCodeText(parsed.text)) {
+  const intentKey = `reasoning-intent:${String(key || '')}`;
+  // The reasoning-intent line labels the stretch it reports on, so it is kept
+  // as its own timeline item: the projection either folds it into the owning
+  // thinking block or renders it under the same orb icon. The marker character
+  // never reaches an element.
+  const narration = splitIntentLines(parsed.text);
+  if (hasVisibleOpenCodeText(narration.intent)) {
+    upsertOpenCodeTimeline(runCtx, intentKey, {
+      type: 'progress',
+      variant: 'reasoning-intent',
+      content: narration.intent
+    });
+  } else {
+    removeOpenCodeTimeline(runCtx, intentKey);
+  }
+  if (hasVisibleOpenCodeText(narration.text)) {
     upsertOpenCodeTimeline(runCtx, textKey, {
       type: 'text',
-      content: parsed.text,
+      content: narration.text,
       streaming
     });
+  } else {
+    removeOpenCodeTimeline(runCtx, textKey);
   }
   if (hasVisibleOpenCodeText(parsed.thinking)) {
     upsertOpenCodeTimeline(runCtx, thinkingKey, {
@@ -8120,9 +7856,11 @@ function upsertOpenCodeTextWithTaggedThinking(runCtx, key, value, streaming = tr
       streaming
     });
   }
-  if (agreement.detected && !hasVisibleOpenCodeText(parsed.text)) removeOpenCodeTimeline(runCtx, textKey);
+  if (agreement.detected && !hasVisibleOpenCodeText(narration.text)) removeOpenCodeTimeline(runCtx, textKey);
   return {
     ...parsed,
+    text: narration.text,
+    intent: narration.intent,
     deliveryAgreement: agreement.contract,
     deliveryAgreementDetected: agreement.detected,
     deliveryAgreementIncomplete: agreement.incomplete
@@ -8344,10 +8082,12 @@ function flushOpenCodeStreamDeltas(runCtx) {
   const pending = [...runCtx.openCodeStreamAccumulators.values()];
   runCtx.openCodeStreamAccumulators.clear();
   let applied = false;
+  let appliedText = false;
   for (const acc of pending) {
     const delta = acc.chunks.join('');
     if (!delta) continue;
     applied = true;
+    if (acc.type === 'next-text' || (acc.type === 'part' && acc.kind === 'text')) appliedText = true;
     if (acc.type === 'part') applyOpenCodePartDelta(runCtx, acc.id, acc.kind, delta);
     else if (acc.type === 'next-text') applyOpenCodeNextTextDelta(runCtx, acc.id, delta);
     else applyOpenCodeNextReasoningDelta(runCtx, acc.id, delta);
@@ -8438,9 +8178,6 @@ function scheduleOpenCodeRender(runCtx, delay = 0) {
     : 0;
   const nextDelay = Math.max(Number(delay) || 0, cadenceDelay);
   if (document.hidden || nextDelay > 0) {
-    // requestAnimationFrame pauses while the window is hidden or minimized;
-    // fall back to a timer so the timeline keeps tracking the kernel and the
-    // UI is current the moment the window becomes visible again.
     runCtx.openCodeRenderTimer = setTimeout(() => {
       runCtx.openCodeRenderTimer = 0;
       renderOpenCodeRunNow(runCtx);
@@ -8459,7 +8196,7 @@ function scheduleOpenCodeRender(runCtx, delay = 0) {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   for (const entry of state.activeRuns.values()) {
-    if (entry?.runCtx) renderOpenCodeRunNow(entry.runCtx);
+    if (entry?.runCtx) scheduleOpenCodeRender(entry.runCtx);
   }
 });
 
@@ -8614,11 +8351,15 @@ function renderOpenCodeRunNow(runCtx) {
   if (runCtx.openCodeRenderFrame) cancelAnimationFrame(runCtx.openCodeRenderFrame);
   runCtx.openCodeRenderTimer = 0;
   runCtx.openCodeRenderFrame = 0;
+  // This run is not on screen (it belongs to another task): leave its stream
+  // buffered in the accumulators instead of flushing and rendering it every
+  // frame off screen. Clearing the timers above already stopped the loop; the
+  // re-bind flushes the buffered tail when the task comes back.
+  const body = getActiveAssistantBody(runCtx.sessionId);
+  if (!body) return;
   // 渲染前先把合帧缓冲里的流式增量落进时间线,保证渲染永不滞后于数据
   flushOpenCodeStreamDeltas(runCtx);
   runCtx.openCodeLastRenderAt = performance.now();
-  const body = getActiveAssistantBody(runCtx.sessionId);
-  if (!body) return;
   const agentRun = {
     ...runCtx.activeAgentRun,
     status: runCtx.shouldAbort ? 'interrupted' : 'working',
@@ -8649,6 +8390,9 @@ const SHELL_PERMISSION_ACTIONS = new Set(['bash', 'shell', 'command']);
 const USER_FILE_WRITE_PERMISSIONS = new Set(['edit']);
 const WORKSPACE_REQUIRED_MESSAGE = '请先选择工作区后，再执行需要写入磁盘的任务。';
 
+// P0/P3: shell grant scope and the risk verdict travel on the reply payload, so
+// main owns the persisted list and the audit record (single source of truth).
+// The renderer only reports what the user chose and what risk it was shown.
 async function handleOpenCodePermission(runCtx, event) {
   const data = event?.data || event?.properties || {};
   const requestId = String(data.id || data.requestID || '');
@@ -8661,6 +8405,8 @@ async function handleOpenCodePermission(runCtx, event) {
   const isShellPermission = SHELL_PERMISSION_ACTIONS.has(actionKey);
   let reply = 'reject';
   let stopForWorkspace = false;
+  let shellRisk = null;
+  let shellGrantToPersist = '';
   if (!runCtx.workspace && USER_FILE_WRITE_PERMISSIONS.has(actionKey)) {
     stopForWorkspace = true;
     runCtx.workspaceRequired = true;
@@ -8672,7 +8418,7 @@ async function handleOpenCodePermission(runCtx, event) {
     scheduleOpenCodeRender(runCtx);
   } else if (isShellPermission && accessMode === 'full') {
     reply = 'always';
-  } else if (isShellPermission && accessMode === 'delegate') {
+  } else if (isShellPermission) {
     const command = resources.join('\n')
       || String(data.metadata?.command || data.metadata?.cmd || data.metadata?.input || '')
       || stringifyOpenCodeValue(data.metadata)
@@ -8683,33 +8429,30 @@ async function handleOpenCodePermission(runCtx, event) {
     } catch (error) {
       console.warn('[opencode-permission-risk]', error);
     }
-    if (risk?.requiresApproval || risk?.level === 'high') {
+    // P0: a grant covers a command *prefix*, never the whole `bash` permission.
+    const grantPrefix = typeof risk?.prefix === 'string' ? risk.prefix : '';
+    const isHighRisk = Boolean(risk?.requiresApproval) || risk?.level === 'high';
+    shellRisk = { level: risk?.level || '', category: risk?.category || '', prefix: grantPrefix };
+    if (risk?.granted === true) reply = 'once';
+    else if (accessMode === 'delegate' && !isHighRisk) reply = 'once';
+    else {
       const { decision } = await requestAgentPermission({
         requestId,
-        title: '高危命令等待确认',
-        description: 'Agent 即将执行下列高危命令，是否允许：',
+        title: isHighRisk ? '高危命令等待确认' : '命令权限等待确认',
+        description: `Agent 即将执行下列${isHighRisk ? '高危' : ''}命令，是否允许：`,
         detail: command,
-        sessionId: runCtx.sessionId
+        sessionId: runCtx.sessionId,
+        allowAlways: Boolean(grantPrefix),
+        alwaysToast: grantPrefix ? `已记住命令前缀：${grantPrefix}` : ''
       }, runCtx);
       if (!decision) return;
-      reply = decision === 'deny' ? 'reject' : decision;
-    } else {
-      reply = 'once';
+      if (decision === 'always' && grantPrefix) {
+        shellGrantToPersist = grantPrefix;
+        reply = 'once';
+      } else {
+        reply = decision === 'deny' ? 'reject' : decision;
+      }
     }
-  } else if (isShellPermission) {
-    const command = resources.join('\n')
-      || String(data.metadata?.command || data.metadata?.cmd || data.metadata?.input || '')
-      || stringifyOpenCodeValue(data.metadata)
-      || action;
-    const { decision } = await requestAgentPermission({
-      requestId,
-      title: '命令权限等待确认',
-      description: 'Agent 即将执行下列命令，是否允许：',
-      detail: command,
-      sessionId: runCtx.sessionId
-    }, runCtx);
-    if (!decision) return;
-    reply = decision === 'deny' ? 'reject' : decision;
   } else if (accessMode === 'delegate' || accessMode === 'full') {
     reply = 'always';
   } else {
@@ -8729,7 +8472,9 @@ async function handleOpenCodePermission(runCtx, event) {
     result = await api.openCodeReplyPermission({
       runId: runCtx.runId,
       requestId,
-      reply
+      reply,
+      ...(shellRisk ? { permissionRisk: shellRisk } : {}),
+      ...(shellGrantToPersist ? { grantPrefix: shellGrantToPersist } : {})
     });
   } catch (error) {
     result = { ok: false, error: error?.message || String(error) };
@@ -8796,9 +8541,9 @@ function mapOpenCodeEventToPet(event, runCtx) {
 
   const data = event.data || event.properties || {};
   const part = data.part;
-  if (event.type === 'yan.opencode.started') return { type: 'phase', message: '回包中' };
+  if (event.type === 'yan.opencode.started') return { type: 'phase', message: 'Yan Agent is starting up' };
   if (event.type === 'yan.model.request.started') {
-    return { type: 'phase', message: Number(data.requestIndex) > 1 ? '起飞中' : '回包中' };
+    return { type: 'phase', message: Number(data.requestIndex) > 1 ? '起飞中' : 'Yan Agent is starting up' };
   }
   if (event.type === 'yan.opencode.reconnecting') {
     const attempt = Math.max(1, Number(data.attempt) || 1);
@@ -8965,6 +8710,7 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
   if (updateSubagentWorkflow(runCtx, event, deferEffects)) return;
   const data = event.data || event.properties || {};
   const part = data.part;
+
   if (
     event.type === 'message.part.delta'
     && data.field === 'text'
@@ -8983,7 +8729,16 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
   ) {
     markOpenCodeResponseStarted(runCtx);
   }
-  if (event.type === 'yan.opencode.started') {
+  if (event.type === 'yan.reasoning.summary') {
+    if (typeof data.key === 'string' && /^(reasoning|tagged-thinking):/.test(data.key)) {
+      const previous = openCodeTimelineItem(runCtx, data.key);
+      upsertOpenCodeTimeline(runCtx, data.key, {
+        type: 'thinking', content: previous?.content || String(data.content || ''), streaming: previous?.streaming ?? false,
+        summary: String(data.summary || ''), summaryStatus: data.summaryStatus,
+        summarySource: data.summarySource
+      });
+    }
+  } else if (event.type === 'yan.opencode.started') {
     runCtx.openCodePhase = 'work';
     runCtx.openCodeSessionId = String(data.sessionID || '');
     showOpenCodeModelWait(runCtx);
@@ -9046,7 +8801,7 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     runCtx.openCodePhase = 'interjection';
     upsertOpenCodeTimeline(runCtx, `interjection:${Number(data.count) || 1}`, {
       type: 'progress',
-      content: data.requestFinish ? '正在按临时对话中的要求收尾' : '正在处理临时对话消息'
+      content: data.requestFinish ? '正在按侧边聊天中的要求收尾' : '正在处理侧边聊天消息'
     });
   } else if (event.type === 'yan.interjection.processed') {
     runCtx.openCodePhase = runCtx.openCodePhaseBeforeInterjection || 'work';
@@ -9149,7 +8904,7 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     upsertOpenCodeTimeline(runCtx, 'goal-acceptance', {
       type: 'progress',
       content: data.guidanceHandled && !Number(data.changedFiles)
-        ? `Goal 第 ${round} 轮已应用临时对话引导，正在重新验收。`
+        ? `Goal 第 ${round} 轮已应用侧边聊天引导，正在重新验收。`
         : `Goal 第 ${round} 轮发现并修复了实际问题，正在进入下一轮验收。`
     });
   } else if (event.type === 'yan.goal.acceptance.passed') {
@@ -9167,23 +8922,6 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     });
   } else if (event.type === 'yan.delivery.contract.updated') {
     upsertOpenCodeDeliveryAgreement(runCtx, data.contract, { contractId: data.contractId, verification: 'recorded', review: null });
-  } else if (event.type === 'yan.sidepath.required') {
-    upsertReasoningSidepath(runCtx, { status: 'pending' });
-  } else if (event.type === 'yan.sidepath.brief') {
-    const brief = data.brief || {};
-    upsertReasoningSidepath(runCtx, { status: 'cleared' });
-    upsertReasoningSidepathBrief(runCtx, brief);
-  } else if (event.type === 'yan.sidepath.blocked') {
-    const previous = openCodeTimelineItem(runCtx, 'reasoning-sidepath') || {};
-    upsertReasoningSidepath(runCtx, {
-      blockedCount: Math.max(Number(previous.blockedCount) || 0, Number(data.attempt) || 0),
-      blockedPermission: String(data.permission || ''),
-      status: previous.status === 'recorded' ? 'recorded' : 'blocked'
-    });
-  } else if (event.type === 'yan.sidepath.degraded') {
-    upsertReasoningSidepath(runCtx, { degraded: true, status: 'degraded' });
-  } else if (event.type === 'yan.sidepath.bypassed') {
-    upsertReasoningSidepath(runCtx, { bypassed: true, bypassFile: String(data.file || ''), status: 'bypassed' });
   } else if (event.type === 'yan.delivery.acceptance.started') {
     setDeliveryAgreementVerification(runCtx, 'checking', data);
     runCtx.openCodePhase = 'delivery';
@@ -9236,6 +8974,24 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
         type: 'progress',
         content: `正文总结生成失败：${String(data.message || '模型未返回内容')}，沿用核对结论作为收尾。`
       });
+    }
+  } else if (event.type === 'yan.model.loop-warning') {
+    const key = `loop-warning:${data.id}`;
+    const duplicate = !!openCodeTimelineItem(runCtx, key);
+    upsertOpenCodeTimeline(runCtx, key, { type: 'progress', content: String(data.message || '疑似循环，任务仍在继续。') });
+    if (!duplicate && !runCtx.replayingHistory && state.config?.general?.loopNotification !== false
+      && Date.now() - Number(data.timestamp) < 30_000) {
+      toast(String(data.message || '疑似循环，任务仍在继续。'));
+      if (canNotifyGeneral('loop')) {
+        const notice = new Notification('Yan Agent · 疑似循环', {
+          ...generalNotificationOptions(), body: String(data.message), icon: 'assets/logo.png'
+        });
+        notice.onclick = () => {
+          window.focus();
+          if (runCtx.sessionId && state.currentSession?.id !== runCtx.sessionId) void loadSession(runCtx.sessionId);
+          notice.close();
+        };
+      }
     }
   } else if (event.type === 'yan.opencode.event-error') {
     runCtx.openCodeError = String(data.message || '内核事件流出现异常');
@@ -9555,12 +9311,15 @@ function openCodeResultToAgentRun(result, runCtx) {
       if (item.type === 'delivery_contract' && item.verification === 'checking') item.verification = 'recorded';
     }
   }
+  // The completion payload is the same text the stream delivered, so the intent
+  // line is stripped here too: finalized content, the copy button and the
+  // persisted message all read the delivered answer without the marker.
   const resultText = containsDsmlProtocolMarkup(resultAgreement.text)
     ? ''
-    : splitTaggedThinkingText(resultAgreement.text).text.trim();
+    : splitIntentLines(splitTaggedThinkingText(resultAgreement.text).text).text.trim();
   const partialText = containsDsmlProtocolMarkup(partialAgreement.text)
     ? ''
-    : splitTaggedThinkingText(partialAgreement.text).text.trim();
+    : splitIntentLines(splitTaggedThinkingText(partialAgreement.text).text).text.trim();
   const summaryStarted = result.status === 'done'
     && !runCtx.workspaceRequired
     && !!resultText;
@@ -9604,8 +9363,11 @@ function openCodeResultToAgentRun(result, runCtx) {
     ? result.reviewSummary
     : null;
   const rawReviewSummary = completedReviewSummary
-    ? mergeReviewSummaries(runCtx.liveReviewSummary, completedReviewSummary)
-    : runCtx.liveReviewSummary;
+    ? completedReviewSummary
+    : (Array.isArray(result.changes) ? { files: result.changes } : runCtx.liveReviewSummary);
+  // The completed snapshot is authoritative, including an empty result.
+  // Keeping the live union resurrects runtime noise and edits later reverted.
+  runCtx.liveReviewSummary = rawReviewSummary;
   const changes = (rawReviewSummary?.files || result.changes || []).map(file => ({
     path: file.path || file.file || '',
     additions: Number(file.additions) || 0,
@@ -9790,7 +9552,7 @@ function initOpenCodeRunState(runCtx) {
     }]
   };
   rebuildOpenCodeTimelineIndex(runCtx);
-  interjectionThreadFor(runCtx, true);
+  interjectionThreadFor(runCtx);
   syncInterjectionUi();
 }
 
@@ -9859,12 +9621,15 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
     try {
       const start = await api.openCodeStartRun({
         runId: openCodeRunId,
+        modelSelection: runCtx.remoteModelSelection,
+        reasoningMode: runCtx.remoteReasoningMode,
         yanSessionId: session.id,
         openCodeSessionId: session.openCodeSessionId || '',
         title: session.title || latestUserMessage.content || 'Yan task',
         prompt: String(latestUserMessage.content || ''),
         attachments: latestUserMessage.attachments || [],
         selectedSkills: normalizeSkillCalls(latestUserMessage.skillCalls || latestUserMessage.skillCall),
+        selectedPlugins: latestUserMessage.pluginCalls || [],
         subagentRoles: Array.isArray(latestUserMessage.subagentRoles) ? latestUserMessage.subagentRoles : [],
         history: (session.messages || []).slice(0, -1).map(message => {
           let mediaAssets = Array.isArray(message.mediaAssets)
@@ -9949,6 +9714,8 @@ async function persistResumedOpenCodeRunOnce(session, runCtx, result) {
 
   const entry = state.activeRuns.get(session.id);
   const assistantEl = entry?.assistantEl;
+  // Clear the resumed run before deriving the composer's stop/send state.
+  state.activeRuns.delete(session.id);
   if (state.currentSession?.id === session.id) {
     state.currentSession = session;
     if (assistantEl) {
@@ -9963,9 +9730,9 @@ async function persistResumedOpenCodeRunOnce(session, runCtx, result) {
     updateTaskBar();
     updateSendState();
   }
-  state.activeRuns.delete(session.id);
   syncChatAutoFollowUi(currentChatSessionId());
   scheduleQueuedTurnDispatch(session);
+  if (agentRun?.status !== 'error' && agentRun?.status !== 'interrupted') window.YanPromptSuggestions?.onRunSettled?.(session);
   const petStatus = agentRun?.status === 'interrupted'
     ? 'paused'
     : (agentRun?.status === 'error' ? 'error' : 'completed');
@@ -10074,7 +9841,7 @@ async function reconcileOpenCodeActiveRuns() {
 // a Turn that died with the previous process can be replayed from disk and
 // persisted into its session instead of vanishing from the UI.
 // ---------------------------------------------------------------------------
-const OPEN_CODE_RECOVERY_NOTE = '此回复由 Yan Core 运行日志恢复：应用退出前模型已产生的正文、工具调用与进度都保留在这里。';
+const OPEN_CODE_RECOVERY_NOTE = '此回复由 Yan Core 运行日志恢复：应用退出前可恢复的正文、工具调用与进度保留在这里。';
 let openCodeCoreRecoveryStarted = false;
 
 async function recoverInterruptedOpenCodeRuns(recoveredTurns) {
@@ -10120,33 +9887,31 @@ async function recoverInterruptedOpenCodeRun(descriptor = {}) {
     await settleRecoveredOpenCodeRun(runId, sessionId);
     return false;
   }
-  // Tail window is enough to locate the interrupted turn; session:save
-  // re-attaches the stored head exactly like a normal tail save.
-  const session = await api.getSession(sessionId, { messageLimit: MESSAGE_LOAD_LIMIT });
+  // Load all turns: an interrupted turn can precede later user messages.
+  const session = await api.getSession(sessionId);
   if (!session || !Array.isArray(session.messages)) return false;
   markSessionLoadBaseline(session);
   // Another recovery attempt (or a later run) already persisted this Turn.
-  if (session.messages.some(message => message?.agentRun?.runId === runId)) {
+  if (session.messages.some(message => message?.agentRun?.runId === runId && message.agentRun?.timeline?.length)) {
     await settleRecoveredOpenCodeRun(runId, sessionId);
     return false;
   }
-  // Only append when the interrupted request is still the session tail;
-  // otherwise a newer turn exists and the message would interleave.
-  let lastUserIndex = -1;
-  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
-    if (session.messages[index]?.role === 'user') {
-      lastUserIndex = index;
-      break;
-    }
-  }
-  if (lastUserIndex < 0
-    || session.messages.slice(lastUserIndex + 1).some(message => message?.role === 'assistant')) {
-    await settleRecoveredOpenCodeRun(runId, sessionId);
-    return false;
-  }
+  // Recovery may run after another user turn. Replace only this turn's empty
+  // crash placeholder, and retain every later message in its original order.
+  const prompt = String(descriptor.intent?.prompt || '');
+  const candidates = session.messages.map((message, index) => ({ message, index }))
+    .filter(({ message }) => message.role === 'user' && (!prompt || String(message.content || '') === prompt));
+  const startedAt = Number(descriptor.startedAt) || 0;
+  const target = candidates.filter(({ message }) => !startedAt || Number(message.ts) <= startedAt + 1000).at(-1)
+    || candidates.at(-1);
+  if (!target) return false;
+  const nextUser = session.messages.findIndex((message, index) => index > target.index && message.role === 'user');
+  const endIndex = nextUser < 0 ? session.messages.length : nextUser;
+  const replacementIndex = session.messages.findIndex((message, index) => index > target.index && index < endIndex
+    && (message.agentRun?.runId === runId || (message.yanSynthetic && !message.agentRun?.timeline?.length)));
   const replayEvents = Array.isArray(descriptor.events) ? descriptor.events : [];
-  // Without a usable journal slice, never fabricate an empty reply: just settle
-  // so the next startup stops reporting this Turn as interrupted.
+  // Without a usable journal slice, settle the dead run but keep recovery
+  // eligible for retry; no replay-completed marker is written for a placeholder.
   if (!replayEvents.length) {
     await settleRecoveredOpenCodeRun(runId, sessionId);
     return false;
@@ -10160,7 +9925,7 @@ async function recoverInterruptedOpenCodeRun(descriptor = {}) {
   const snapshot = descriptor.configSnapshot && typeof descriptor.configSnapshot === 'object'
     ? descriptor.configSnapshot
     : {};
-  if (['normal', 'plan', 'goal', 'evolution', 'agi'].includes(String(snapshot.workMode || ''))) {
+  if (['normal', 'plan', 'goal', 'evolution'].includes(String(snapshot.workMode || ''))) {
     runCtx.workMode = String(snapshot.workMode);
   }
   setRunModelPresentation(runCtx, {
@@ -10170,8 +9935,9 @@ async function recoverInterruptedOpenCodeRun(descriptor = {}) {
     modelName: snapshot.modelName
   });
   initOpenCodeRunState(runCtx);
-  for (const event of replayEvents) {
+  for (const [index, event] of replayEvents.entries()) {
     try { applyOpenCodeEvent(runCtx, event, { deferEffects: true }); } catch { /* one malformed event must not abort recovery */ }
+    if (index % 200 === 199) await new Promise(resolve => setTimeout(resolve, 0));
   }
   const lastEventAt = Number(descriptor.lastEventAt) || Date.now();
   const agentRun = openCodeResultToAgentRun({
@@ -10196,18 +9962,20 @@ async function recoverInterruptedOpenCodeRun(descriptor = {}) {
     type: 'progress',
     stage: 'work',
     content: descriptor.truncated
-      ? `${OPEN_CODE_RECOVERY_NOTE}（更早的运行日志已轮转，这里只保留了最近的部分）`
+      ? `${OPEN_CODE_RECOVERY_NOTE}（受日志保留或回放大小上限影响，这里只恢复了最近的部分）`
       : OPEN_CODE_RECOVERY_NOTE
   });
   agentRun.timeline = timeline;
-  session.messages.push({
+  const recoveredMessage = {
     role: 'assistant',
     content: agentRun.textContent || '',
     ts: lastEventAt,
     duration: agentRun.durationMs,
     agentRun,
     mediaAssets: extractMediaAssetsFromAgentRun(agentRun)
-  });
+  };
+  if (replacementIndex >= 0) session.messages.splice(replacementIndex, 1, recoveredMessage);
+  else session.messages.splice(endIndex, 0, recoveredMessage);
   if (state.currentSession?.id === sessionId) {
     state.currentSession = session;
     renderMessages(session.messages);
@@ -10341,7 +10109,8 @@ function scheduleQueuedTurnDispatch(session) {
           session: targetSession,
           intentId: queued.id,
           modelSelection: queued.modelSelection,
-          subagentRoles: queued.subagentRoles || []
+          subagentRoles: queued.subagentRoles || [],
+          pluginCalls: queued.pluginCalls || []
         });
       const completedSubmission = findPersistedIntentSubmission(targetSession, queued.id);
       if (result?.ok === true || completedSubmission?.complete) {
@@ -10371,9 +10140,11 @@ function scheduleQueuedTurnDispatch(session) {
 
 // 核心发送流程：每个任务完全独立，互不影响。返回 { ok, error }
 async function submitMessage(text, attachments = [], skillCalls = [], options = {}) {
+  window.YanVoiceInput?.cancel();
   const selectedSkillCalls = normalizeSkillCalls(skillCalls);
+  const pluginCalls = window.YanComposerPlugins?.normalize(options.pluginCalls) || [];
   const subagentRoles = Array.isArray(options.subagentRoles) ? options.subagentRoles : [];
-  if (!text && attachments.length === 0 && selectedSkillCalls.length === 0 && !subagentRoles.length) return { ok: false, error: 'empty' };
+  if (!text && attachments.length === 0 && selectedSkillCalls.length === 0 && !subagentRoles.length && !pluginCalls.length) return { ok: false, error: 'empty' };
   if (!options.session && !state.currentSession) await newSession();
   const runSession = options.session || state.currentSession;
   if (!runSession) return { ok: false, error: '没有可用会话' };
@@ -10392,7 +10163,7 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
   const effectiveModelSelection = normalizeModelSelectionSnapshot(
     options.modelSelection
       || persistedSubmission?.userMessage?.modelSelection
-      || getAgentModelSelection()
+      || getAgentModelSelection(runSession)
   );
   const ui = state.currentSession?.id === runSession.id;
   const runCtx = createRunCtx(runSession.id, ui, runSession.workspace || '');
@@ -10400,7 +10171,10 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
   setRunModelPresentation(runCtx, effectiveModelSelection);
   runCtx.accessMode = getCurrentAccessMode();
   runCtx.sessionRef = runSession;
+  runCtx.remoteModelSelection = effectiveModelSelection;
+  runCtx.remoteReasoningMode = options.reasoningMode || getReasoningSpeedMode(runSession);
   state.activeRuns.set(runSession.id, { sessionRef: runSession, runCtx, assistantEl: null });
+  armResponseWatchdog(runCtx, runSession.id);
   if (ui) beginChatAutoFollow(runSession.id);
   startPetSupervision(runCtx, runSession);
 
@@ -10420,6 +10194,7 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
     attachments,
     skillCalls: selectedSkillCalls,
     subagentRoles,
+    pluginCalls,
     modelSelection: effectiveModelSelection,
     ...(modelSwitchNotice ? { modelSwitchNotice } : {}),
     ts: Date.now()
@@ -10432,12 +10207,13 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
 
   const userMsgIndex = persistedSubmission?.userIndex ?? (runSession.messages.length - 1);
   if (ui && !persistedSubmission?.userMessage) {
-    appendMessage('user', text, attachments, true, userMsgIndex, userMsg.ts, null, null, selectedSkillCalls);
+    appendMessage('user', text, attachments, true, userMsgIndex, userMsg.ts, null, null, selectedSkillCalls, null, pluginCalls);
     if (modelSwitchNotice) appendModelSwitchNoticeElement(modelSwitchNotice);
     setEmptyState(false);
   }
 
   await saveCurrentSession(runSession);
+  options.onAccepted?.();
   const taskStartTime = Date.now();
   runCtx.startedAt = taskStartTime;
   let taskOk = true;
@@ -10476,6 +10252,7 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
     if (ui && agentRun) {
       renderAgentRunBody(assistantEl.querySelector('.msg-body'), agentRun, reply);
     }
+    await persistComputerControlReview(agentRun);
 
     const assistantMsg = {
       role: 'assistant',
@@ -10499,10 +10276,11 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       : (agentRun?.status === 'error' ? 'error' : 'completed');
     finishPetSupervision(runCtx, petStatus, petStatus === 'error' ? taskErr : undefined);
 
-    if (window.Notification && Notification.permission === 'granted' && agentRun?.status !== 'interrupted') {
+    if (canNotifyGeneral('completion') && agentRun?.status !== 'interrupted') {
       try {
         const failed = agentRun?.status === 'error';
         new Notification(failed ? 'Yan Agent · 任务异常' : 'Yan Agent', {
+          ...generalNotificationOptions(),
           body: failed
             ? `「${runSession.title || '任务'}」已停止：${taskErr || '模型请求失败'}`
             : `「${runSession.title || '任务'}」已完成 · 耗时 ${formatDuration(taskDuration)}`,
@@ -10597,10 +10375,10 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
     finishPetSupervision(runCtx, terminalStatus, terminalStatus === 'error' ? (taskErr || '任务执行出错') : undefined);
     if (terminalStatus === 'error'
       && !completionNotificationSent
-      && window.Notification
-      && Notification.permission === 'granted') {
+      && canNotifyGeneral('completion')) {
       try {
         new Notification('Yan Agent · 任务异常', {
+          ...generalNotificationOptions(),
           body: `「${runSession.title || '任务'}」已停止：${taskErr || '模型连接异常'}`,
           icon: 'assets/logo.png'
         });
@@ -10636,7 +10414,9 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       showTyping(false);
       updateSendState();
       syncCurrentSessionAgentUi(runSession);
+      syncUserMessageEditAvailability();
     }
+    if (runCtx.agentState?.status === 'done') window.YanPromptSuggestions?.onRunSettled?.(runSession);
     await activatePendingAgentHandoff(runSession.id);
     scheduleQueuedTurnDispatch(runSession);
   }
@@ -10671,8 +10451,125 @@ function buildAssistantActionsHtml(agentRun, duration, ts = null) {
   return `${workToggleHtml}${durHtml}<button class="msg-action-btn" data-act="speak" title="朗读" aria-pressed="false" aria-label="朗读">${ICONS.speaker}</button><button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>${clockHtml}`;
 }
 
+// Only an application the model actually operated may be presented. Discovery
+// (list_apps/list_windows) is not an operation, and a console host used to
+// locate a program is not the application the user asked to control.
+const COMPUTER_CONTROL_SYSTEM_HOSTS = new Set([
+  'cmd', 'conhost', 'openconsole', 'powershell', 'pwsh', 'windowsterminal',
+  'wt', 'bash', 'wsl', 'ubuntu', 'kali', 'cua-driver'
+]);
+function isComputerControlSystemHost(path) {
+  const base = String(path || '').split(/[\\/]/).pop() || '';
+  return COMPUTER_CONTROL_SYSTEM_HOSTS.has(base.replace(/\.exe$/i, '').toLowerCase());
+}
+
+function collectComputerControlApps(agentRun) {
+  const apps = new Map();
+  for (const item of (agentRun?.timeline || [])) {
+    if (item?.type !== 'tool_result' || !isComputerControlToolName(item.name) || item.ok === false) continue;
+    const output = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '');
+    const marker = output.match(/computer_control_app[\s\S]{0,800}?"path"\s*:\s*"([^"]+?)"/i);
+    const markerPath = marker ? marker[1].replace(/\\\\/g, '\\') : '';
+    if (!marker || !/\.exe$/i.test(markerPath) || isComputerControlSystemHost(markerPath)) continue;
+    const window = output.slice(marker.index || 0, (marker.index || 0) + marker[0].length + 200);
+    const nameMatch = window.match(/"name"\s*:\s*"([^"]*)"/i);
+    const idMatch = window.match(/"id"\s*:\s*"([^"]*)"/i);
+    const app = {
+      id: idMatch?.[1] || '',
+      path: markerPath,
+      name: nameMatch?.[1] || markerPath.split('\\').pop().replace(/\.exe$/i, '')
+    };
+    apps.set(String(app.path).toLowerCase(), app);
+  }
+  return [...apps.values()];
+}
+
+// The review itself is no longer fabricated here. When a run's last
+// computer-control action is an explicit exit, the app queues one real
+// Continual Harness refinement (lib/computer-control-review.js) and the
+// post-turn reviewer writes genuine experience. This only keeps the operated
+// application identity that the run footnote lists.
+async function persistComputerControlReview(agentRun) {
+  if (!agentRun) return [];
+  const apps = collectComputerControlApps(agentRun);
+  if (!apps.length) return [];
+  agentRun.controlledApps = apps;
+  return apps;
+}
+
+function controlledAppsForRun(agentRun) {
+  const persisted = Array.isArray(agentRun?.controlledApps) && agentRun.controlledApps.length
+    ? agentRun.controlledApps
+    : collectComputerControlApps(agentRun);
+  return persisted.filter(app => /\.exe$/i.test(String(app?.path || '')) && !isComputerControlSystemHost(app.path));
+}
+
+// Sits between the delivered answer and the quick-review card, naming only the
+// applications that were actually operated in this run.
+function renderControlledAppsFootnote(activityBody, agentRun) {
+  if (!activityBody) return null;
+  const apps = controlledAppsForRun(agentRun);
+  Array.from(activityBody.children)
+    .filter(element => element.classList?.contains('computer-control-session-apps'))
+    .forEach(element => element.remove());
+  if (!apps.length) return null;
+  const section = document.createElement('section');
+  section.className = 'computer-control-session-apps';
+  section.dataset.agentStage = 'summary';
+  const list = document.createElement('div');
+  list.className = 'computer-control-session-app-list';
+  const reviewIcon = window.YanComputerControl?.fileIcon || ICONS.file;
+  for (const app of apps) {
+    const row = document.createElement('div');
+    row.className = 'computer-control-session-app';
+    const icon = /^data:image\//.test(app.icon || '') ? app.icon : 'assets/app-window.svg';
+    row.innerHTML = `<img src="${escapeAttr(icon)}" alt=""><span class="computer-control-session-app-info"><strong>操控了 ${escapeHtml(app.name || '应用')}</strong></span><button type="button" class="computer-control-session-app-review" title="查看使用经验" aria-label="查看使用经验">${reviewIcon}</button>`;
+    row.querySelector('button')?.addEventListener('click', () => { void openControlledAppExperience(app); });
+    list.appendChild(row);
+  }
+  section.appendChild(list);
+  const reviewCard = activityBody.querySelector(':scope > .run-change-summary');
+  if (reviewCard) activityBody.insertBefore(section, reviewCard);
+  else activityBody.appendChild(section);
+  void enrichControlledAppIcons(section, apps);
+  return section;
+}
+
+async function openControlledAppExperience(app) {
+  openSettings('computer-control');
+  if (!app?.id) return;
+  try {
+    const result = await window.yan?.getComputerControlExperience?.(app.id);
+    if (result?.markdown) window.YanComputerControl?.openExperience?.(app.id);
+  } catch { /* The settings page stays the fallback destination. */ }
+}
+
+async function enrichControlledAppIcons(section, apps) {
+  if (!section?.isConnected || apps.every(app => /^data:image\//.test(app.icon || ''))) return;
+  try {
+    const icons = await computerControlAppIcons();
+    if (!section.isConnected) return;
+    section.querySelectorAll('.computer-control-session-app img').forEach((img, index) => {
+      const icon = icons.get(apps[index]?.id);
+      if (/^data:image\//.test(icon || '')) img.src = icon;
+    });
+  } catch { /* The window glyph stays when the icon cannot be resolved. */ }
+}
+
+// Icon extraction shells out to the OS, so a short-lived cache keeps a
+// re-render of the same message from repeating the lookup.
+let computerControlIconCache = { at: 0, icons: new Map() };
+async function computerControlAppIcons() {
+  if (Date.now() - computerControlIconCache.at < 60_000) return computerControlIconCache.icons;
+  const snapshot = await window.yan?.getComputerControlSettings?.();
+  const icons = new Map((snapshot?.apps || []).map(item => [item.id, item.icon]));
+  computerControlIconCache = { at: Date.now(), icons };
+  return icons;
+}
+
 function renderAssistantMessageActions(assistantEl, agentRun, duration, ts = null) {
   if (!assistantEl) return null;
+  assistantEl.querySelector(':scope > .computer-control-session-apps')?.remove();
   let actions = assistantEl.querySelector(':scope > .msg-actions');
   if (!actions) {
     actions = document.createElement('div');
@@ -10860,7 +10757,7 @@ function finalizeAgentRun(content, status, activeRun, bodyEl, error, runCtx) {
     responseDurationMs: Number.isFinite(Number(runCtx?.responseDurationMs ?? activeRun?.responseDurationMs))
       ? Math.max(0, Number(runCtx?.responseDurationMs ?? activeRun?.responseDurationMs))
       : null,
-    textContent: String(extractedContent.text || ''),
+    textContent: splitIntentLines(String(extractedContent.text || '')).text,
     timeline: Array.isArray(timeline) ? timeline : [],
     toolCallCount: Number(runCtx?.agentState?.toolCallCount) || 0,
     todos: runCtx?.agentState?.todos || [],
@@ -10903,6 +10800,7 @@ function resetAgentPermissionPanel() {
     for (const property of [
       '--agent-permission-bottom',
       '--agent-permission-max-height',
+      '--agent-permission-width',
       '--agent-question-width',
       '--agent-question-left',
       '--agent-question-bottom',
@@ -11002,8 +10900,12 @@ function positionAgentPermissionPanel() {
     syncAgentQuestionScrollFade();
     return;
   }
-  if (panel.dataset.mode === 'question' && composerRect?.width > 0) {
-    panel.style.setProperty('--agent-question-width', `${Math.round(composerRect.width)}px`);
+  // Both modes follow the composer width so the card reads as part of the
+  // input surface; CSS scopes each variable to its own panel mode.
+  if (composerRect?.width > 0) {
+    const panelWidth = `${Math.round(composerRect.width)}px`;
+    panel.style.setProperty('--agent-question-width', panelWidth);
+    panel.style.setProperty('--agent-permission-width', panelWidth);
   }
   const anchorVisible = anchorRect && anchorRect.top > hostRect.top && anchorRect.top < hostRect.bottom;
   const bottom = anchorVisible ? Math.max(18, Math.ceil(hostRect.bottom - anchorRect.top + 12)) : 24;
@@ -11048,6 +10950,80 @@ function agentQuestionSkipAnswer(question) {
   // A reject response terminates the model turn. Treat skip as a normal reply
   // so OpenCode can continue generating a user-facing answer.
   return [options[0]?.label || '跳过'];
+}
+
+// When the user is away from Yan Agent, a pending question must not stall the
+// task forever: after two minutes it resolves itself with the recommended (or
+// first) option, and a desktop notification tells the user what was decided.
+const AGENT_QUESTION_AUTO_DECIDE_MS = 120000;
+let agentQuestionAutoDecideTimer = 0;
+let agentQuestionNotification = null;
+
+function agentQuestionAutoAnswer(question) {
+  const options = normalizeAgentQuestionOptions(question);
+  const preferred = options.find(option => option.recommended) || options[0];
+  return [preferred?.label || agentQuestionSkipAnswer(question)[0]];
+}
+
+function notifyAgentQuestionPending() {
+  if (!canNotifyGeneral('question')) return;
+  try {
+    agentQuestionNotification?.close?.();
+    agentQuestionNotification = new Notification('Yan Agent 需要你的回复', {
+      ...generalNotificationOptions(),
+      body: '若 2 分钟内未回复，Yan Agent 将自行决策并告知你。',
+      icon: 'assets/logo.png',
+      tag: 'yan-agent-question'
+    });
+    agentQuestionNotification.onclick = () => { try { window.focus(); } catch {} };
+  } catch {}
+}
+
+function notifyAgentQuestionAutoDecided(summary) {
+  if (!canNotifyGeneral('question')) return;
+  try {
+    new Notification('Yan Agent 已自行决策', {
+      ...generalNotificationOptions(),
+      body: summary
+        ? `你已超过 2 分钟未回复，Yan Agent 选择了：${summary}`
+        : '你已超过 2 分钟未回复，Yan Agent 已自行决策并继续处理。',
+      icon: 'assets/logo.png'
+    });
+  } catch {}
+}
+
+function clearAgentQuestionAutoDecide() {
+  if (agentQuestionAutoDecideTimer) {
+    clearTimeout(agentQuestionAutoDecideTimer);
+    agentQuestionAutoDecideTimer = 0;
+  }
+  try { agentQuestionNotification?.close?.(); } catch {}
+  agentQuestionNotification = null;
+}
+
+function scheduleAgentQuestionAutoDecide() {
+  clearAgentQuestionAutoDecide();
+  const request = agentQuestionRequest;
+  if (!request) return;
+  notifyAgentQuestionPending();
+  agentQuestionAutoDecideTimer = setTimeout(() => {
+    agentQuestionAutoDecideTimer = 0;
+    const pending = agentQuestionRequest;
+    if (!pending || pending.requestId !== request.requestId) return;
+    const answers = pending.questions.map((question, index) => {
+      const drafted = agentQuestionDraftAnswer(question, pending.drafts[index]);
+      return drafted.length ? drafted : agentQuestionAutoAnswer(question);
+    });
+    const summary = answers
+      .map(list => list.filter(Boolean).join(' / '))
+      .filter(Boolean)
+      .join('；');
+    settleAgentQuestion({ answers, reject: false });
+    notifyAgentQuestionAutoDecided(summary);
+    toast(summary
+      ? `等待超过 2 分钟，Yan Agent 已自行决策：${summary}`
+      : '等待超过 2 分钟，Yan Agent 已自行决策并继续处理。');
+  }, AGENT_QUESTION_AUTO_DECIDE_MS);
 }
 
 function updateAgentQuestionNote(item, options, draft) {
@@ -11283,6 +11259,7 @@ function retreatAgentQuestion() {
 function settleAgentQuestion(result = {}, { silent = false } = {}) {
   const request = agentQuestionRequest;
   if (!request) return;
+  clearAgentQuestionAutoDecide();
   agentQuestionRequest = null;
   $('#chatMainColumn')?.classList.remove('permission-pending');
   $('#chatMainColumn')?.classList.remove('question-pending');
@@ -11334,7 +11311,7 @@ function requestAgentQuestion({ requestId = '', questions = [], sessionId }, run
     $('#chatMainColumn')?.classList.add('permission-pending');
     $('#chatMainColumn')?.classList.add('question-pending');
     positionAgentPermissionPanel();
-    if (browserFocusMode) setBrowserFocusComposerMode('expanded');
+    if (isFloatingComposerActive()) setBrowserFocusComposerMode('expanded');
     syncBrowserFocusPromptStatus();
     agentQuestionRequest = {
       resolve,
@@ -11346,10 +11323,11 @@ function requestAgentQuestion({ requestId = '', questions = [], sessionId }, run
       drafts: questions.map(() => ({ selected: [], custom: '' }))
     };
     renderAgentQuestionStep();
+    scheduleAgentQuestionAutoDecide();
   });
 }
 
-function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true, visionRelay = null }, runCtx) {
+function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true, alwaysToast = '', visionRelay = null }, runCtx) {
   return new Promise((resolve) => {
     if (agentQuestionRequest) settleAgentQuestion({ cancelled: true }, { silent: true });
     if (agentPermissionRequest) settleAgentPermission('deny', { silent: true });
@@ -11377,6 +11355,15 @@ function requestAgentPermission({ requestId = '', title, description, detail, se
     onceButton && (onceButton.textContent = '本次允许');
     denyButton && (denyButton.textContent = '拒绝');
     panel.dataset.mode = 'permission';
+    if (canNotifyGeneral('permission')) {
+      try {
+        const notice = new Notification('Yan Agent 需要你的批准', {
+          ...generalNotificationOptions(), body: title || '请查看待批准的操作',
+          icon: 'assets/logo.png', tag: 'yan-agent-permission'
+        });
+        notice.onclick = () => { try { window.focus(); } catch {} };
+      } catch {}
+    }
     alwaysButton?.classList.toggle('hidden', allowAlways === false);
 
     const showVisionRelay = !!visionRelay?.show;
@@ -11392,7 +11379,7 @@ function requestAgentPermission({ requestId = '', title, description, detail, se
     panel.classList.remove('hidden', 'collapsed');
     $('#agentPermissionToggle')?.setAttribute('aria-expanded', 'true');
     $('#chatMainColumn')?.classList.add('permission-pending');
-    if (browserFocusMode) setBrowserFocusComposerMode('expanded');
+    if (isFloatingComposerActive()) setBrowserFocusComposerMode('expanded');
     syncBrowserFocusPromptStatus();
     agentPermissionRequest = {
       resolve: (decision, extras = {}) => {
@@ -11400,7 +11387,7 @@ function requestAgentPermission({ requestId = '', title, description, detail, se
         const { silent = false } = extras;
         if (!silent) {
           if (decision === 'always') {
-            toast('已记住并允许这类操作');
+            toast(alwaysToast || '已记住并允许这类操作');
           } else if (decision === 'once') {
             toast('已允许本次操作');
           } else if (decision === 'deny') {
@@ -11588,7 +11575,7 @@ function collectAssistantText(bodyEl) {
 function collectTimelineFromDom(bodyEl) {
   const timeline = [];
   if (!bodyEl) return timeline;
-  for (const child of bodyEl.querySelectorAll('.thinking-block, .msg-round, .tool-step, .delivery-agreement-tool, .reasoning-sidepath-tool')) {
+  for (const child of bodyEl.querySelectorAll('.thinking-block, .msg-round, .tool-step, .delivery-agreement-tool')) {
     if (child.classList.contains('thinking-block')) {
       const text = child.querySelector('.thinking-text')?.textContent || '';
       if (text) timeline.push({ type: 'thinking', content: text });
@@ -11601,10 +11588,6 @@ function collectTimelineFromDom(bodyEl) {
       try { contract = JSON.parse(child.dataset.contract || '{}'); } catch {}
       try { agreement = JSON.parse(child.dataset.deliveryAgreement || '{}'); } catch {}
       timeline.push(deliveryAgreementTimelineItem(contract, agreement));
-    } else if (child.classList.contains('reasoning-sidepath-tool')) {
-      let payload = {};
-      try { payload = JSON.parse(child.dataset.sidepath || '{}'); } catch {}
-      timeline.push(normalizeReasoningSidepathItem(payload));
     } else if (child.classList.contains('tool-step')) {
       const name = child.dataset.tool || '';
       const callId = child.dataset.callId || '';
@@ -11646,10 +11629,7 @@ function syncAgentRunTicker(bodyEl, header, agentRun) {
   const completedAt = parseRunTimestamp(agentRun.completedAt);
   const fixedDuration = Number(agentRun.durationMs);
   const responseStartedAt = parseRunTimestamp(agentRun.responseStartedAt);
-  const responseDuration = Number.isFinite(Number(agentRun.responseDurationMs))
-    ? Math.max(0, Number(agentRun.responseDurationMs))
-    : (responseStartedAt ? Math.max(0, responseStartedAt - startedAt) : null);
-  const tickerKey = [status, startedAt, completedAt, fixedDuration, responseStartedAt, responseDuration].join(':');
+  const tickerKey = [status, startedAt, completedAt, fixedDuration, responseStartedAt].join(':');
   const previousTicker = agentRunTickers.get(bodyEl);
   if (previousTicker?.key === tickerKey && previousTicker.header === header) {
     previousTicker.update();
@@ -11674,20 +11654,14 @@ function syncAgentRunTicker(bodyEl, header, agentRun) {
     const elapsed = formatHandledDuration(getElapsed());
     const elapsedEl = header.querySelector('.run-elapsed');
     if (elapsedEl) elapsedEl.textContent = elapsed;
-    const replyElapsedEl = header.querySelector('.run-reply-elapsed');
-    if (replyElapsedEl && responseDuration != null) replyElapsedEl.textContent = formatHandledDuration(responseDuration);
     const summary = header.querySelector('.agent-run-summary');
     if (summary) {
       const phaseLabel = header.querySelector('.run-phase')?.textContent || '';
       const cacheLabel = header.querySelector('.run-cache-hit')?.textContent?.trim() || '';
-      const throughputLabel = header.querySelector('.run-throughput')?.getAttribute('title') || '';
       const statusLabel = header.querySelector('.run-status-label')?.textContent || '已处理';
-      const replyLabel = header.querySelector('.run-reply-time')?.textContent?.trim() || '';
       summary.setAttribute('aria-label', [
-        `${statusLabel} ${elapsed}`,
-        replyLabel,
+        elapsedEl ? `${statusLabel} ${elapsed}` : statusLabel,
         cacheLabel,
-        throughputLabel,
         phaseLabel
       ].filter(Boolean).join('，'));
     }
@@ -11695,7 +11669,7 @@ function syncAgentRunTicker(bodyEl, header, agentRun) {
 
   const ticker = { key: tickerKey, header, update, timer: null };
   update();
-  if (status === 'working') {
+  if (status === 'working' && responseStartedAt) {
     ticker.timer = setInterval(update, 1000);
   }
   agentRunTickers.set(bodyEl, ticker);
@@ -11765,8 +11739,9 @@ function syncAgentWorkVisibility(header) {
     actions.prepend(toggle);
   }
   if (header.dataset.workToggleTouched !== 'true') {
-    const defaultExpanded = header.dataset.status === 'working' || header.dataset.summaryStarted !== 'true';
-    header.dataset.workExpanded = String(canToggle && defaultExpanded);
+    const status = header.dataset.status || 'working';
+    const hideWork = status === 'error' || status === 'interrupted' || (status !== 'working' && header.dataset.summaryStarted === 'true');
+    header.dataset.workExpanded = String(canToggle && !hideWork);
   }
   const expanded = canToggle && header.dataset.workExpanded === 'true';
   header.classList.toggle('agent-work-collapsed', canToggle && !expanded);
@@ -11782,7 +11757,7 @@ function renderAgentRunHeader(bodyEl, agentRun) {
   const summary = header.querySelector('.agent-run-summary');
   const activityBody = header.querySelector('.agent-activity-body');
   const status = agentRun.status || 'working';
-  if (status === 'working') showTyping(false);
+  if (status === 'working' && !agentRun.sideChat) showTyping(false);
   header.className = 'agent-run-header status-' + status;
   header.dataset.status = status;
   const summaryStarted = !!agentRun.summaryStarted;
@@ -11802,30 +11777,11 @@ function renderAgentRunHeader(bodyEl, agentRun) {
   const cacheTitle = cacheStats
     ? `本轮缓存读取 ${formatTokenCount(cacheStats.cacheRead)} / 输入总量 ${formatTokenCount(cacheStats.promptTokens)} tokens`
     : '';
-  const performance = agentRun.performance && typeof agentRun.performance === 'object'
-    ? agentRun.performance
-    : null;
-  const inputThroughput = formatThroughput(performance?.effectiveInputTokensPerSecond);
-  const resolvedOutputThroughput = performance?.outputTokensPerSecond
-    ?? performance?.visibleOutputTokensPerSecond
-    ?? performance?.providerOutputTokensPerSecond;
-  const outputThroughput = formatThroughput(resolvedOutputThroughput);
-  const throughputTitle = [
-    inputThroughput ? `输入 ${inputThroughput}` : '',
-    outputThroughput ? `输出 ${outputThroughput}` : ''
-  ].filter(Boolean).join('，');
-  const throughputMarkup = inputThroughput
-    ? `<span class="run-throughput-input" title="输入速度"><span aria-hidden="true">↑</span> ${escapeHtml(inputThroughput)}</span>`
-    : '';
   const initialDuration = status === 'working'
     ? Math.max(0, Date.now() - (parseRunTimestamp(agentRun.startedAt) || Date.now()))
     : Math.max(0, Number(agentRun.durationMs) || 0);
   const responseStartedAt = parseRunTimestamp(agentRun.responseStartedAt);
-  const responseDuration = Number.isFinite(Number(agentRun.responseDurationMs))
-    ? Math.max(0, Number(agentRun.responseDurationMs))
-    : (responseStartedAt ? Math.max(0, responseStartedAt - (parseRunTimestamp(agentRun.startedAt) || Date.now())) : null);
   const waitingForResponse = status === 'working' && !responseStartedAt;
-  const terminalResponseDuration = status === 'working' ? responseDuration : (responseDuration ?? 0);
   const summarySignature = [
     status,
     canToggle,
@@ -11833,21 +11789,14 @@ function renderAgentRunHeader(bodyEl, agentRun) {
     cacheStats?.cacheRead || 0,
     cacheStats?.promptTokens || 0,
     cacheStats?.rate || 0,
-    performance?.effectiveInputTokensPerSecond || 0,
-    resolvedOutputThroughput || 0,
-    responseStartedAt || 0,
-    responseDuration ?? ''
+    responseStartedAt || 0
   ].join('|');
   if (summary.dataset.renderSignature !== summarySignature) {
     const groups = [
       waitingForResponse
-        ? `<span class="run-status is-waiting"><span class="run-status-label">回包中</span> <span class="run-elapsed">${escapeHtml(formatHandledDuration(initialDuration))}</span></span>`
+        ? `<span class="run-status is-waiting"><span class="run-status-label">Yan Agent is starting up</span></span>`
         : `<span class="run-status"><span class="run-status-label">已处理</span> <span class="run-elapsed">${escapeHtml(formatHandledDuration(initialDuration))}</span></span>`,
-      status !== 'working'
-        ? `<span class="run-reply-time">回包时间 <span class="run-reply-elapsed">${escapeHtml(formatHandledDuration(terminalResponseDuration))}</span></span>`
-        : '',
       cacheStats ? `<span class="run-cache-hit ${cacheLevel}" title="${escapeAttr(cacheTitle)}">缓存命中 <span class="run-cache-rate">${escapeHtml(cacheRate)}</span></span>` : '',
-      throughputMarkup ? `<span class="run-throughput" title="${escapeAttr(throughputTitle)}">${throughputMarkup}</span>` : '',
       terminalLabel ? `<span class="run-terminal ${escapeAttr(status)}">${escapeHtml(terminalLabel)}</span>` : ''
     ].filter(Boolean);
     summary.innerHTML = `
@@ -11949,7 +11898,7 @@ function renderRunChangeSummary(bodyEl, agentRun) {
   if (!bodyEl) return;
   const existing = bodyEl.querySelector(':scope > .run-change-summary');
   const files = Array.isArray(agentRun?.changeSummary?.files) ? agentRun.changeSummary.files : [];
-  if (!files.length) {
+  if (state.config?.general?.showQuickReview !== true || !files.length) {
     existing?.remove();
     return null;
   }
@@ -12125,148 +12074,6 @@ function buildDeliveryAgreementElement(contract = {}, agreement = {}) {
   return details;
 }
 
-function buildReasoningSidepathElement(sidepath = {}) {
-  const details = document.createElement('details');
-  const variant = sidepath.variant === 'brief' ? 'brief' : 'gate';
-  const blockedCount = Math.max(0, Number(sidepath.blockedCount) || 0);
-  const bypassed = sidepath.bypassed === true;
-  const degraded = sidepath.degraded === true;
-  const state = variant === 'brief'
-    ? 'recorded'
-    : (bypassed
-      ? 'bypassed'
-      : (degraded
-        ? 'degraded'
-        : (sidepath.status === 'cleared' ? 'cleared' : (blockedCount > 0 ? 'blocked' : 'pending'))));
-  const name = variant === 'brief' ? REASONING_SIDEPATH_BRIEF_NAME : REASONING_SIDEPATH_NAME;
-  details.className = 'tool-activity-group reasoning-sidepath-tool is-completed';
-  details.dataset.tool = name;
-  details.dataset.toolState = 'completed';
-  details.dataset.toolLabelMode = 'outer';
-  details.dataset.sidepathStatus = state;
-  details.dataset.sidepathVariant = variant;
-  details.dataset.sidepath = JSON.stringify({
-    variant,
-    status: sidepath.status || '',
-    mode: sidepath.mode || '',
-    deliverable: sidepath.deliverable || '',
-    task: sidepath.task || '',
-    userIntent: sidepath.userIntent || '',
-    understanding: sidepath.understanding || '',
-    intentDelta: sidepath.intentDelta || '',
-    ambiguities: sidepath.ambiguities || [],
-    candidates: sidepath.candidates || [],
-    verificationList: sidepath.verificationList || [],
-    blockedCount,
-    blockedPermission: sidepath.blockedPermission || '',
-    bypassFile: sidepath.bypassFile || '',
-    degraded,
-    bypassed
-  });
-  details.open = false;
-
-  const summary = document.createElement('summary');
-  summary.className = 'tool-activity-summary';
-  summary.innerHTML = `
-    <span class="tool-activity-icon tc-icon-svg" data-icon="chart-scatter">${ICONS.chartScatter}</span>
-    <span class="tool-activity-label tool-activity-outer-label" data-tool-state="completed">${name} ${REASONING_SIDEPATH_STATUS[state]}</span>
-  `;
-
-  const body = document.createElement('div');
-  body.className = 'tool-activity-body reasoning-sidepath-body';
-  const panel = document.createElement('div');
-  panel.className = 'tool-result-panel reasoning-sidepath-panel';
-  panel.setAttribute('role', 'list');
-
-  const appendRow = (key, valueNode) => {
-    const row = document.createElement('div');
-    row.className = 'reasoning-sidepath-field';
-    row.setAttribute('role', 'listitem');
-    const keyNode = document.createElement('span');
-    keyNode.className = 'reasoning-sidepath-key';
-    keyNode.textContent = key;
-    const value = document.createElement('span');
-    value.className = 'reasoning-sidepath-value';
-    if (typeof valueNode === 'string' || typeof valueNode === 'number') {
-      value.textContent = String(valueNode || '').trim() || '—';
-    } else if (valueNode) {
-      value.appendChild(valueNode);
-    } else {
-      value.textContent = '—';
-    }
-    row.append(keyNode, value);
-    panel.appendChild(row);
-  };
-
-  if (variant === 'gate') {
-    appendRow('status', REASONING_SIDEPATH_STATE_TEXT[state] || '');
-    const notes = [];
-    if (blockedCount > 0) {
-      notes.push(`写入被拦截 ${blockedCount} 次${sidepath.blockedPermission ? `（${sidepath.blockedPermission}）` : ''}`);
-    }
-    if (degraded) notes.push('拦截预算用尽后降级放行');
-    if (bypassed) notes.push(`非权限写入绕过${sidepath.bypassFile ? `（${sidepath.bypassFile}）` : ''}，已运行时补记`);
-    if (notes.length) appendRow('runtime', notes.join('；'));
-    if (sidepath.mode || sidepath.deliverable) {
-      appendRow('mode', [sidepath.mode, sidepath.deliverable].filter(Boolean).join(' / '));
-    }
-    body.appendChild(panel);
-    details.append(summary, body);
-    setToolContainerState(details, 'completed');
-    return details;
-  }
-
-  appendRow('mode', [sidepath.mode, sidepath.deliverable].filter(Boolean).join(' / '));
-  appendRow('task', sidepath.task || '');
-  appendRow('userIntent', sidepath.userIntent || '');
-  appendRow('understanding', sidepath.understanding || '');
-  if (String(sidepath.intentDelta || '').trim()) appendRow('intentDelta', sidepath.intentDelta);
-  if (Array.isArray(sidepath.ambiguities) && sidepath.ambiguities.length) {
-    appendRow('ambiguities', sidepath.ambiguities.join('\n'));
-  }
-  if (Array.isArray(sidepath.candidates) && sidepath.candidates.length) {
-    const list = document.createElement('span');
-    list.className = 'reasoning-sidepath-list';
-    for (const candidate of sidepath.candidates) {
-      const line = document.createElement('span');
-      line.className = `reasoning-sidepath-candidate is-${candidate?.status === 'chosen' ? 'chosen' : 'rejected'}`;
-      const mark = document.createElement('span');
-      mark.className = 'reasoning-sidepath-candidate-status';
-      mark.textContent = candidate?.status === 'chosen' ? '[chosen]' : '[rejected]';
-      const text = document.createElement('span');
-      text.textContent = `${candidate?.decision || ''}${candidate?.why ? ` — ${candidate.why}` : ''}`;
-      line.append(mark, text);
-      list.appendChild(line);
-    }
-    appendRow('candidates', list);
-  }
-  if (Array.isArray(sidepath.verificationList) && sidepath.verificationList.length) {
-    const list = document.createElement('span');
-    list.className = 'reasoning-sidepath-list';
-    for (const entry of sidepath.verificationList) {
-      const line = document.createElement('span');
-      line.className = 'reasoning-sidepath-verification';
-      line.textContent = `${entry?.claim || ''} → ${entry?.check || ''}`;
-      list.appendChild(line);
-    }
-    appendRow('verification', list);
-  }
-  if (blockedCount > 0 || bypassed || degraded) {
-    const notes = [];
-    if (blockedCount > 0) {
-      notes.push(`写入被拦截 ${blockedCount} 次${sidepath.blockedPermission ? `（${sidepath.blockedPermission}）` : ''}`);
-    }
-    if (degraded) notes.push('拦截预算用尽后降级放行');
-    if (bypassed) notes.push(`非权限写入绕过${sidepath.bypassFile ? `（${sidepath.bypassFile}）` : ''}，已运行时补记`);
-    appendRow('runtime', notes.join('；'));
-  }
-
-  body.appendChild(panel);
-  details.append(summary, body);
-  setToolContainerState(details, 'completed');
-  return details;
-}
-
 function updateStreamingMarkdownElement(element, content, previousState) {
   const canAppend = previousState.streaming
     && content.startsWith(previousState.content || '')
@@ -12301,9 +12108,16 @@ function updateStreamingMarkdownElement(element, content, previousState) {
 }
 
 function updateAgentTimelinePartElement(element, item, result, phase, presentationMode = 'standard') {
+  if (item.type === 'intelligent_ui') {
+    window.YanIntelligentUi?.update(element, item);
+    return;
+  }
   const previousState = agentElementRenderState.get(element) || {};
   if (item.type === 'text') {
-    const content = String(item.content || '');
+    // Last line of defence: whatever route a text item took to reach here
+    // (ingestion, stored session, DOM restore), the intent marker is removed
+    // before it is rendered or measured.
+    const content = splitIntentLines(item.content).text;
     const streaming = !!item.streaming;
     element.classList.toggle('streaming', streaming);
     if (streaming) {
@@ -12336,13 +12150,19 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
       }
     }
     const label = element.querySelector('.thinking-label');
-    // Keep the active state descriptive while streaming, then collapse the
-    // finished block to the concise label used by the completed transcript.
-    if (label) label.textContent = streaming ? '深度求索中……' : '思考';
+    element.classList.toggle('has-progress-summary', !streaming && !!thinkingLabelByItem.get(item));
+    // Keep the active state descriptive while streaming, then label the finished
+    // block with what that stretch was about (falling back to the plain label).
+    if (label) label.textContent = streaming ? '思考中' : (thinkingLabelByItem.get(item)
+      || (state.config?.agent?.reasoningSummary === 'none' ? '思考已结束' : item.summaryStatus === 'pending' ? '正在整理进展…' : item.summaryStatus === 'failed' ? '进展摘要暂不可用' : '思考已结束'));
     element.classList.toggle('streaming', streaming);
     if (streaming && !previousState.streaming) {
-      element.open = true;
-      if (text) text.scrollTop = text.scrollHeight;
+      // Auto-expand the live reasoning unless the user turned it off; keeping it
+      // closed leaves the run readable as a single "思考中" line above the reply.
+      if (state.config?.general?.expandThinking !== false) {
+        element.open = true;
+        if (text) text.scrollTop = text.scrollHeight;
+      }
     }
     if (!streaming && previousState.streaming) element.open = false;
     agentElementRenderState.set(element, { content, streaming });
@@ -12367,24 +12187,43 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
     return;
   }
 
-  if (item.type === 'reasoning_sidepath') {
-    const signature = getAgentPartSignature([item]);
-    if (previousState.signature !== signature) {
+  if (item.type === 'computer_control_group') {
+    const previousState = agentElementRenderState.get(element) || {};
+    const children = Array.isArray(item.items) ? item.items : [];
+    const signature = getAgentPartSignature(children.map(entry => [entry.item?.type, entry.item?.openCodeKey, getAgentPartSignature(entry.item)]));
+    if (previousState.signature !== signature || previousState.presentationMode !== presentationMode || previousState.phase !== phase) {
       const wasOpen = element.open;
-      const next = buildReasoningSidepathElement(item);
-      element.className = next.className;
-      element.dataset.tool = next.dataset.tool;
-      element.dataset.toolState = next.dataset.toolState;
-      element.dataset.toolLabelMode = next.dataset.toolLabelMode;
-      element.dataset.sidepathStatus = next.dataset.sidepathStatus;
-      element.dataset.sidepathVariant = next.dataset.sidepathVariant;
-      element.dataset.sidepath = next.dataset.sidepath;
-      element.replaceChildren(...Array.from(next.children));
+      const body = element.querySelector('.computer-control-group-body');
+      if (body) {
+        const existing = new Map(Array.from(body.children).map(child => [child.dataset.agentPartKey, child]));
+        const desired = [];
+        for (const child of children) {
+          const key = getAgentTimelinePartKey(child.item, child.index);
+          let childElement = existing.get(key);
+          if (childElement?.dataset.agentPartType !== child.item.type) childElement = null;
+          if (!childElement) childElement = createAgentTimelinePartElement(child.item, presentationMode);
+          if (!childElement) continue;
+          childElement.dataset.agentPartType = child.item.type;
+          childElement.dataset.agentPartKey = key;
+          const childPhase = phase === 'running' ? 'running' : 'done';
+          updateAgentTimelinePartElement(childElement, child.item, null, childPhase, presentationMode);
+          desired.push(childElement);
+        }
+        const retained = new Set(desired);
+        for (const child of Array.from(body.children)) if (!retained.has(child)) child.remove();
+        let reference = body.firstElementChild;
+        for (const child of desired) {
+          if (child !== reference) body.insertBefore(child, reference);
+          reference = child.nextElementSibling;
+        }
+      }
       element.open = wasOpen;
     }
-    agentElementRenderState.set(element, { signature, itemRef: item });
+    element.classList.toggle('is-running', phase === 'running');
+    agentElementRenderState.set(element, { signature, presentationMode, phase });
     return;
   }
+
 
   if (item.type === 'delivery_contract') {
     const contract = normalizedDeliveryAgreement(item.contract || {});
@@ -12416,6 +12255,22 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
         element.setAttribute('aria-label', 'Agent 工作中');
         element.innerHTML = buildAgentLoaderMarkup();
       }
+    } else if (variant === 'reasoning-intent') {
+      if (previousState.variant !== variant || previousState.content !== content) {
+        element.className = 'agent-progress-note reasoning-intent-note';
+        element.removeAttribute('role');
+        element.removeAttribute('aria-label');
+        const icon = document.createElement('span');
+        icon.className = 'think-icon thinking-bot';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = THINKING_BOT_ICON;
+        const label = document.createElement('span');
+        label.className = 'reasoning-intent-label';
+        label.textContent = content;
+        element.replaceChildren(icon, label);
+      }
+      agentElementRenderState.set(element, { content, variant });
+      return;
     } else if (variant === 'context-compression') {
       const compressionState = contextCompressionState(item, content);
       if (
@@ -12480,7 +12335,7 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
       return;
     } else {
       if (previousState.variant === 'agent-loader' || previousState.content !== content) {
-        element.className = 'agent-progress-note' + (content === '回包中' ? ' agent-shine-text' : '');
+        element.className = 'agent-progress-note' + (content === 'Yan Agent is starting up' ? ' agent-shine-text' : '');
         element.removeAttribute('role');
         element.removeAttribute('aria-label');
         element.textContent = content;
@@ -12494,7 +12349,7 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
     element.className = 'agent-subagent-status';
     element.textContent = item.content;
     element.dataset.subagentId = item.subagentId;
-    element.setAttribute('aria-label', item.content + '，查看子智能体');
+    element.setAttribute('aria-label', item.content + '，查看子代理');
     return;
   }
 
@@ -12563,11 +12418,22 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
 }
 
 function createAgentTimelinePartElement(item, presentationMode = 'standard') {
+  if (item.type === 'intelligent_ui') return window.YanIntelligentUi?.create() || null;
   if (item.type === 'thinking') return buildThinkingElement('', false);
   if (item.type === 'thinking_group') return buildGptThinkingElement(item.items || [], item.placeholder || '', item.shine !== false);
+  if (item.type === 'computer_control_group') {
+    const details = document.createElement('details');
+    details.className = 'computer-control-timeline-group';
+    const summary = document.createElement('summary');
+    summary.className = 'computer-control-timeline-summary';
+    summary.innerHTML = `<span class="computer-control-timeline-icon" aria-hidden="true">${COMPUTER_CONTROL_CURSOR_ICON}</span><span>Yan Agent 正在操控你的电脑</span><svg class="computer-control-timeline-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
+    const body = document.createElement('div');
+    body.className = 'computer-control-group-body';
+    details.append(summary, body);
+    return details;
+  }
   if (item.type === 'text') return buildWorkNarrationElement('');
   if (item.type === 'delivery_contract') return buildDeliveryAgreementElement(item.contract || {}, item);
-  if (item.type === 'reasoning_sidepath') return buildReasoningSidepathElement(item);
   if (item.type === 'progress') return buildProgressNoteElement(item.content || '', item.variant, item);
   if (item.type === 'subagent_status') {
     const button = document.createElement('button');
@@ -12587,6 +12453,7 @@ function createAgentTimelinePartElement(item, presentationMode = 'standard') {
 
 function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resultIndex, presentationMode = 'standard') {
   const sourceParts = [];
+  const intelligentUiParts = new Map();
   const claimedResults = new Set();
   const resultPositions = new Map();
   renderTimeline.forEach((item, index) => {
@@ -12640,7 +12507,12 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
 
   renderTimeline.forEach((item, index) => {
     if (!item || item.type === 'tool_result') return;
-    if (useGptThinkingChain && item.type === 'thinking') {
+    // Apply this before wrapping: nested parts do not pass through the
+    // top-level reconciliation loop's reasoning-intent filter.
+    if (item.type === 'progress' && item.variant === 'reasoning-intent'
+      && (state.config?.agent?.reasoningSummary === 'none'
+        || intentFoldsIntoThinking(renderTimeline, index, useGptThinkingChain))) return;
+    if (useGptThinkingChain && item.type === 'thinking' && item.streaming) {
       flushCalls();
       appendGptThinking(item, index);
       return;
@@ -12665,6 +12537,20 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
     if (item.type === 'tool_call') {
       if (item.name === 'task') return;
       const result = findTimelineToolResult(renderTimeline, item, index, claimedResults, resultIndex);
+      if (window.YanIntelligentUi?.isTool(item.name)) {
+        flushCalls();
+        const ui = window.YanIntelligentUi.fromCall(item, result, status);
+        const existing = intelligentUiParts.get(ui.id);
+        if (existing) {
+          // Preserve a working interface while an update is pending or fails.
+          if (ui.html || ui.code || !(existing.item.html || existing.item.code)) existing.item = { ...ui, title: ui.title === 'Intelligent UI' ? existing.item.title : ui.title, purpose: ui.purpose || existing.item.purpose };
+        } else {
+          const source = { item: ui, index };
+          intelligentUiParts.set(ui.id, source);
+          sourceParts.push(source);
+        }
+        return;
+      }
       const phase = result?.interrupted || (!result && status === 'interrupted')
         ? 'interrupted'
         : (!result && status === 'working' ? 'running' : 'done');
@@ -12696,14 +12582,344 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
       .find(item => (item.items || []).some(entry => entry?.streaming));
     thinkingGroups.forEach(item => { item.shine = item === activeGroup; });
   }
-  return sourceParts;
+  const grouped = [];
+  let activeComputer = null;
+  let activeComputerKeys = new Set();
+  let activeComputerCallKeys = new Set();
+  let lastComputerContent = '';
+  const isComputerExitNarration = item => {
+    if (!item || !['text', 'thinking', 'progress'].includes(item.type)) return false;
+    const content = String(item.content || '').trim();
+    return /(?:退出|结束|已离开|已关闭)\s*(?:电脑操控|电脑控制|Cua|Yan Computer Use)|(?:电脑操控|电脑控制)\s*(?:已退出|已结束|已关闭)/i.test(content);
+  };
+  const flushComputer = () => {
+    if (!activeComputer) return;
+    const first = activeComputer[0];
+    grouped.push({ item: { type: 'computer_control_group', stage: 'work', items: activeComputer, openCodeKey: `computer-control:${getAgentTimelinePartKey(first.item, first.index)}` }, index: first.index });
+    activeComputer = null;
+    activeComputerKeys = new Set();
+    activeComputerCallKeys = new Set();
+  };
+  const acceptIntoComputerGroup = source => {
+    const item = source.item;
+    if (item?.type === 'tool_group' && Array.isArray(item.calls)) {
+      const callKey = item.calls.map(call => [
+        String(call?.item?.name || ''),
+        getAgentPartSignature(call?.item?.args || {}),
+        String(call?.item?.callId || '')
+      ].join('\u001e')).join('\u001f');
+      if (callKey && activeComputerCallKeys.has(callKey)) return false;
+      if (callKey) activeComputerCallKeys.add(callKey);
+    }
+    const currentText = String(item?.content || '').trim();
+    const dedupeKey = currentText ? `${item.type}:${currentText}` : '';
+    if (dedupeKey && activeComputerKeys.has(dedupeKey)) return false;
+    if (dedupeKey) activeComputerKeys.add(dedupeKey);
+    activeComputer.push(source);
+    return true;
+  };
+  for (const source of sourceParts) {
+    const item = source.item;
+    const computerGroup = item?.type === 'tool_group' && Array.isArray(item.calls) && item.calls.length > 0 && item.calls.every(call => isComputerControlCall(call.item));
+    const containsComputerExit = (item?.type === 'tool_group' && Array.isArray(item.calls)
+      ? item.calls.some(call => isComputerControlExitTool(call.item))
+      : item?.type === 'tool_call' && isComputerControlExitTool(item));
+    const endsComputerControl = containsComputerExit;
+    if (activeComputer && isComputerExitNarration(item)) {
+      activeComputer.push(source);
+      flushComputer();
+      lastComputerContent = '';
+      continue;
+    }
+    // The delivered answer (summary stage) is post-exit content: it closes the
+    // episode first so the wrapper never swallows the actual reply.
+    if (activeComputer && item?.stage === 'summary') flushComputer();
+    if (activeComputer) {
+      // One episode spans from the first control action until the exit. Every
+      // part in between — interleaved narration and unrelated tools alike —
+      // stays inside the same wrapper instead of starting a second banner.
+      acceptIntoComputerGroup(source);
+      if (endsComputerControl) flushComputer();
+      continue;
+    }
+    if (computerGroup || containsComputerExit) {
+      activeComputer = [];
+      const previous = grouped[grouped.length - 1];
+      if (computerGroup && previous?.item?.type === 'thinking') activeComputer.push(grouped.pop());
+      acceptIntoComputerGroup(source);
+      if (endsComputerControl) flushComputer();
+      continue;
+    }
+    const content = String(item?.content || '').trim();
+    if ((item?.type === 'text' || item?.type === 'thinking') && content && content === lastComputerContent) continue;
+    if (item?.type === 'text' || item?.type === 'thinking') lastComputerContent = content;
+    grouped.push(source);
+  }
+  flushComputer();
+  grouped.sort((a, b) => a.index - b.index);
+  return grouped;
+}
+
+const COMPUTER_CONTROL_CURSOR_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.27 9.89 13.01 21.65c.14.43.73.47.93.06l2.47-5.27a.5.5 0 0 1 .26-.24l5.02-2.09c.43-.18.4-.78-.03-.93L9.9 9.26c-.39-.13-.76.23-.63.63Z"/><path d="m12.17 5.76 1.78-1.78M7.88 4.7l-.9-2.7M4.7 7.87 2 6.97"/></svg>';
+function isComputerControlToolName(name) {
+  const value = String(name || '').toLowerCase();
+  return value.includes('computer_') || value.includes('computer-') || value === 'computer' || value.includes('yan_computer') || COMPUTER_CONTROL_NATIVE_TOOLS.has(value) || value.includes('end_session');
+}
+
+function isComputerControlCall(item) {
+  if (!item) return false;
+  if (isComputerControlToolName(item.name)) return true;
+  return isComputerControlExitTool(item);
+}
+
+const COMPUTER_CONTROL_NATIVE_TOOLS = new Set(['start_session', 'escalate_session', 'get_session', 'end_session', 'list_apps', 'list_windows', 'get_window_state', 'verify_state', 'launch_app', 'bring_to_front', 'set_window_frame', 'invoke_menu', 'click', 'double_click', 'right_click', 'drag', 'type_text', 'press_key', 'hotkey', 'set_value', 'scroll', 'get_screen_size', 'get_desktop_state', 'get_cursor_position', 'move_cursor', 'check_permissions']);
+function isComputerControlExitToolName(name) {
+  const value = String(name || '').toLowerCase();
+  return value === 'end_session' || value.endsWith('_end_session') || value.includes('end_session');
+}
+function isComputerControlExitTool(item) {
+  const name = String(item?.name || '').toLowerCase();
+  if (isComputerControlExitToolName(name)) return true;
+  if (name !== 'plugins_deactivate' && !name.endsWith('_plugins_deactivate')) return false;
+  const args = item?.args && typeof item.args === 'object' ? item.args : {};
+  const id = [args.id, args.plugin_id, args.pluginId, args.name]
+    .find(value => typeof value === 'string')?.toLowerCase() || '';
+  return id.includes('computer') || id.includes('cua');
+}
+
+const thinkingLabelByItem = new WeakMap();
+// The reasoning-intent line is a protocol marker, not narration: it carries the
+// label of the reasoning stretch it reports on, and the orb icon of that stretch
+// introduces the work. The forward marker is 「意图：」, defined by
+// REASONING_INTENT_RULE in lib/reasoning-intent.js.
+//
+// The two arrowhead variants are the retired marker. They are still recognised
+// for two reasons only: conversations stored by earlier releases must re-render
+// without them, and a model that still emits the old form must not print it.
+// Both are written as escapes, so no marker glyph exists in this file.
+const THINKING_INTENT_LINE = /^\s*(?:意图[:：]|[\u25b8\u27a4])\s*(.*)$/;
+
+// Removes every intent line from a text payload and returns the first usable
+// label. Ingestion, finalization, DOM projection and message restore all go
+// through this helper, so the marker character can never reach a visible
+// element. The line is dropped whether or not its sentence is usable as a
+// label: a label that is too long or carries inline markup is skipped (it would
+// render badly as a heading), but it is still never shown with its marker.
+function splitIntentLines(content) {
+  const source = String(content ?? '');
+  if (!source) return { text: '', intent: '' };
+  let intent = '';
+  let dropped = false;
+  const kept = [];
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(THINKING_INTENT_LINE);
+    if (match) {
+      dropped = true;
+      const label = String(match[1] || '').trim();
+      if (!intent && label.length <= 240 && !/<[^>]+>/.test(label)) intent = label;
+      continue;
+    }
+    kept.push(line);
+  }
+  if (!dropped) return { text: source, intent: '' };
+  return { text: kept.join('\n').trim(), intent };
+}
+
+const appearanceFonts = new Set(['Yan Reading Serif', 'Source Serif 4']);
+let appearanceFontsReady;
+let appearanceSave = Promise.resolve();
+const appearanceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const appearanceIds = ['UiFont', 'ContentFont', 'CodeFont', 'UiWeight', 'ContentWeight', 'CodeWeight', 'ReduceMotion', 'UiScale', 'CodeScale', 'Contrast', 'Accent'];
+const appearanceAccents = { blue: '#0084ff', warm: '#e87928', green: '#16865d' };
+
+function fillAppearanceSelect(id, options, selected) {
+  const select = $(`#${id}`);
+  if (!select) return;
+  select.replaceChildren(...options.map(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }));
+  if (![...select.options].some(option => option.value === selected)) {
+    const missing = document.createElement('option');
+    missing.value = selected;
+    missing.textContent = `${selected.replace(/^local:/, '')}（未安装，使用默认字体）`;
+    select.append(missing);
+  }
+  select.value = selected;
+}
+
+function renderAppearanceFonts(cfg) {
+  const installed = [...appearanceFonts].sort((a, b) => a.localeCompare(b, 'zh-CN')).map(name => [`local:${name}`, name === 'Yan Reading Serif' ? '思源宋体（内置）' : name]);
+  const defaults = [['system', '系统默认']];
+  fillAppearanceSelect('appearanceUiFont', [...defaults, ...installed], cfg.uiFont);
+  fillAppearanceSelect('appearanceContentFont', [...defaults, ['same-ui', '与界面字体相同'], ['serif', '衬线字体'], ['sans', '无衬线字体'], ...installed], cfg.contentFont);
+  fillAppearanceSelect('appearanceCodeFont', [...defaults, ...installed], cfg.codeFont);
+  const weights = [['light', '细体'], ['regular', '常规'], ['medium', '中等'], ['semibold', '半粗'], ['bold', '粗体']];
+  for (const role of ['Ui', 'Content', 'Code']) fillAppearanceSelect(`appearance${role}Weight`, weights, cfg[`${role.toLowerCase()}Weight`]);
+}
+
+// The user's appearance accent owns the accent tokens. Wallpaper compat may
+// tint them while a wallpaper is active, but must never erase this choice.
+function applyAppearanceAccent(accent) {
+  const value = /^#[\da-f]{6}$/i.test(String(accent || '')) ? String(accent).toLowerCase() : '#0084ff';
+  const root = document.documentElement;
+  for (const name of ['--accent', '--accent-text', '--settings-accent']) root.style.setProperty(name, value);
+  for (const name of ['--accent-soft', '--settings-accent-soft']) root.style.setProperty(name, `color-mix(in srgb, ${value} 14%, transparent)`);
+}
+
+function applyAppearance(value = {}) {
+  const fonts = window.YanAppearance;
+  const cfg = fonts.normalize(value);
+  const root = document.documentElement;
+  const ui = fonts.family(cfg.uiFont, fonts.sans);
+  const legacyReading = state.config?.readingFont === 'sans' ? ui : fonts.serif;
+  const content = cfg.contentFont === 'same-ui' || cfg.contentFont === 'sans' ? ui : cfg.contentFont === 'serif' ? fonts.serif : fonts.family(cfg.contentFont, legacyReading);
+  const code = fonts.family(cfg.codeFont, fonts.mono);
+  // Rebind the existing tokens too, so older components follow the selected role.
+  for (const name of ['--font-ui', '--font-sans', '--font-display', '--font-body', '--review-ui-font']) root.style.setProperty(name, ui);
+  for (const name of ['--font-content', '--font-reading', '--font-review-file']) root.style.setProperty(name, content);
+  for (const name of ['--font-code-selected', '--font-mono', '--font-code', '--font-review-code', '--review-code-font']) root.style.setProperty(name, code);
+  for (const role of ['ui', 'content', 'code']) root.style.setProperty(`--${role}-weight`, fonts.weights[cfg[`${role}Weight`]]);
+  root.style.setProperty('--ui-scale', `${cfg.uiScale}px`);
+  root.style.setProperty('--code-scale', `${cfg.codeScale}px`);
+  for (const [name, size] of Object.entries({ xs: 11, sm: 12.5, base: 14, md: 16, lg: 20 })) root.style.setProperty(`--text-${name}`, `${size * cfg.uiScale / 14}px`);
+  root.dataset.reduceMotion = String(cfg.reduceMotion === 'on' || (cfg.reduceMotion === 'system' && appearanceMotion.matches));
+  root.style.setProperty('--appearance-contrast', `${cfg.contrast}%`);
+  applyAppearanceAccent(cfg.accent);
+  renderAppearanceFonts(cfg);
+  for (const suffix of appearanceIds.filter(name => !/Font$|Weight$/.test(name))) {
+    const el = $(`#appearance${suffix}`);
+    if (el) el.value = cfg[suffix[0].toLowerCase() + suffix.slice(1)];
+  }
+  $$('.appearance-theme-card').forEach(button => button.setAttribute('aria-checked', String(button.dataset.themeChoice === (state.config?.theme || 'dark'))));
+  const preset = $('#appearanceAccentPreset');
+  if (preset) preset.value = Object.keys(appearanceAccents).find(key => appearanceAccents[key] === cfg.accent) || 'custom';
+  window.YanAppearanceControls?.sync();
+  window.dispatchEvent(new CustomEvent('yan-appearance-change', { detail: { ...cfg, ui, content, code } }));
+}
+
+function saveAppearance(patch) {
+  // Serialize rapid control changes; a late IPC response must not undo a newer choice.
+  appearanceSave = appearanceSave.then(async () => {
+    const previous = state.config.appearance;
+    applyAppearance({ ...previous, ...patch });
+    try {
+      state.config = await api.setConfig({ appearance: patch });
+      applyAppearance(state.config.appearance);
+    } catch (error) {
+      applyAppearance(previous);
+      toast(`外观设置保存失败：${error?.message || error}`);
+    }
+  });
+  return appearanceSave;
+}
+
+function bindAppearanceSettings() {
+  $$('.appearance-theme-card').forEach(button => {
+    if (button.dataset.bound === 'true') return;
+    button.dataset.bound = 'true';
+    button.addEventListener('click', async () => {
+      try {
+        state.config = await api.setConfig({ theme: button.dataset.themeChoice });
+        applyTheme(state.config.theme);
+        applyAppearance(state.config.appearance);
+      } catch (error) { toast(`主题保存失败：${error?.message || error}`); }
+    });
+  });
+
+  if (!appearanceFontsReady) {
+    appearanceFontsReady = (async () => {
+      try {
+        if (typeof window.queryLocalFonts === 'function') {
+          const installed = await window.queryLocalFonts();
+          installed.forEach(font => appearanceFonts.add(font.family));
+        }
+      } catch (error) {
+        console.warn('Local fonts unavailable; bundled fonts remain selectable.', error);
+      }
+      renderAppearanceFonts(window.YanAppearance.normalize(state.config.appearance));
+      window.YanAppearanceControls?.sync();
+    })();
+    appearanceMotion.addEventListener('change', () => applyAppearance(state.config.appearance));
+  }
+  for (const suffix of appearanceIds) {
+    const el = $(`#appearance${suffix}`);
+    if (!el || el.dataset.bound === 'true') continue;
+    el.dataset.bound = 'true';
+    el.addEventListener('change', () => {
+      const key = suffix[0].toLowerCase() + suffix.slice(1);
+      const value = el.type === 'number' || el.type === 'range' ? Number(el.value) : el.value;
+      saveAppearance({ [key]: value });
+    });
+  }
+  const preset = $('#appearanceAccentPreset');
+  if (preset && preset.dataset.bound !== 'true') {
+    preset.dataset.bound = 'true';
+    preset.addEventListener('change', () => {
+      if (appearanceAccents[preset.value]) saveAppearance({ accent: appearanceAccents[preset.value] });
+      else $('#appearanceAccent')?.click();
+    });
+  }
+}
+
+function thinkingIntentFromText(text) {
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const match = line.trim().match(THINKING_INTENT_LINE);
+    if (match?.[1]?.trim()) {
+      const label = match[1].trim();
+      if (label.length <= 240 && !/<[^>]+>/.test(label)) return label;
+    }
+  }
+  return '';
+}
+
+// Use only an explicit model-authored summary from this exact stretch.
+function deriveThinkingLabel(timeline, index) {
+  if (state.config?.agent?.reasoningSummary === 'none') return '';
+  const item = timeline[index];
+  if (item?.summaryStatus === 'ready' && String(item.summary || '').trim()) return item.summary.trim();
+  for (let i = index + 1; i < timeline.length; i += 1) {
+    const next = timeline[i];
+    if (!next) continue;
+    if (['thinking', 'thinking_group', 'tool_call', 'subtask'].includes(next.type)) break;
+    if (next.type === 'progress' && next.variant === 'reasoning-intent') {
+      const label = String(next.content || '').trim();
+      if (label && label.length <= 240) return label;
+    }
+    if (next.type === 'text' && next.streaming !== true) {
+      const intent = thinkingIntentFromText(next.content);
+      if (intent) return intent;
+    }
+  }
+  return '';
+}
+
+// The intent row belongs to the reasoning stretch directly above it. In the
+// standard presentation and for finished GPT stretches, it already shows the
+// sentence as its label, so a second row would repeat it. Once a tool round intervenes the
+// stretch is over and the row renders on its own — introduced by the same orb
+// icon instead of the bare marker character.
+function intentFoldsIntoThinking(timeline, index, useGptThinkingChain) {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const item = timeline[i];
+    if (!item) continue;
+    if (item.type === 'thinking') return !(useGptThinkingChain && item.streaming);
+    if (item.type === 'thinking_group' || item.type === 'tool_call' || item.type === 'subtask') return false;
+    if (item.type === 'text' && String(item.content || '').trim()) return false;
+  }
+  return false;
 }
 
 function syncAgentTimelineParts(activityBody, timeline, status, fallbackContent, summaryStarted = false, renderWork = true, presentationMode = 'standard') {
   if (!activityBody) return;
   const renderTimeline = timeline
-    .filter(item => renderWork || item?.stage === 'summary');
-  const sourceCacheKey = `${status}|${renderWork ? 'work' : 'summary'}|${presentationMode}`;
+    .filter(item => renderWork || item?.stage === 'summary' || window.YanIntelligentUi?.isTool(item?.name));
+  renderTimeline.forEach((item, index) => {
+    if (item?.type === 'thinking') thinkingLabelByItem.set(item, deriveThinkingLabel(renderTimeline, index));
+  });
+  const sourceCacheKey = `${status}|${renderWork ? 'work' : 'summary'}|${presentationMode}|${state.config?.agent?.reasoningSummary || 'auto'}`;
   const cachedSource = agentTimelineSourcePartsCache.get(timeline);
   let sourceParts;
   if (cachedSource?.key === sourceCacheKey) {
@@ -12746,6 +12962,21 @@ function syncAgentTimelineParts(activityBody, timeline, status, fallbackContent,
     const { item: sourceItem, index } = source;
     let item = sourceItem;
     if (!item || item.type === 'tool_result') continue;
+    // A stretch that already carries this sentence as its label must not print
+    // it a second time underneath; that label is the orb-led rendering.
+    if (item.type === 'progress' && item.variant === 'reasoning-intent'
+      && (state.config?.agent?.reasoningSummary === 'none' || intentFoldsIntoThinking(renderTimeline, index, presentationMode === 'gpt-action-progress'))) {
+      continue;
+    }
+    if (item.type === 'text') {
+      // Belt and braces: any stored or late-arriving payload is normalized once
+      // more here, so the marker character can never reach an element.
+      const narration = splitIntentLines(item.content);
+      if (narration.text !== String(item.content || '')) {
+        item = { ...item, content: narration.text };
+        if (!item.content) continue;
+      }
+    }
     const baseKey = getAgentTimelinePartKey(item, index);
     const occurrence = keyCounts.get(baseKey) || 0;
     keyCounts.set(baseKey, occurrence + 1);
@@ -12916,6 +13147,13 @@ function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
     changeSummary.dataset.agentStage = 'summary';
     activityBody.appendChild(changeSummary);
   }
+  if (agentRun.status === 'working') {
+    Array.from(activityBody.children)
+      .filter(element => element.classList?.contains('computer-control-session-apps'))
+      .forEach(element => element.remove());
+  } else {
+    renderControlledAppsFootnote(activityBody, agentRun);
+  }
   renderAgentRunHeader(bodyEl, agentRun);
   if (agentRun.status === 'working' && activityBody && wasPinnedToBottom) {
     activityBody.scrollTop = activityBody.scrollHeight;
@@ -13044,23 +13282,36 @@ function buildWorkNarrationElement(content) {
   return narration;
 }
 
-// Uiverse: Capybara loader by Novaxlo (MIT). Source: https://uiverse.io/Novaxlo/kind-snail-5
+// Uiverse: Loader by Praashoo7 (MIT). Source: https://uiverse.io/Praashoo7/lucky-hound-44
 function buildAgentLoaderMarkup() {
-  return '<div class="capybaraloader" aria-hidden="true">'
-    + '<div class="capybara">'
-    + '<div class="capyhead">'
-    + '<div class="capyear"><div class="capyear2"></div></div>'
-    + '<div class="capyear"></div>'
-    + '<div class="capymouth"><div class="capylips"></div><div class="capylips"></div></div>'
-    + '<div class="capyeye"></div>'
-    + '<div class="capyeye"></div>'
+  return '<div class="uivhound" aria-hidden="true">'
+    + '<div class="uivhound-main">'
+    + '<div class="uivhound-up">'
+    + '<div class="uivhound-loaders">'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
+    + '<div class="uivhound-loader"></div>'
     + '</div>'
-    + '<div class="capyleg"></div>'
-    + '<div class="capyleg2"></div>'
-    + '<div class="capyleg2"></div>'
-    + '<div class="capy"></div>'
+    + '<div class="uivhound-loadersB">'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball0"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball1"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball2"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball3"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball4"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball5"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball6"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball7"></div></div>'
+    + '<div class="uivhound-loaderA"><div class="uivhound-ball8"></div></div>'
     + '</div>'
-    + '<div class="loader"><div class="loaderline"></div></div>'
+    + '</div>'
+    + '</div>'
     + '</div>';
 }
 
@@ -13137,45 +13388,30 @@ function buildProgressNoteElement(content, variant = '', item = {}) {
     note.innerHTML = buildStreamReconnectMarkup(value, item);
     return note;
   }
-  note.className = 'agent-progress-note' + (value === '回包中' ? ' agent-shine-text' : '');
+  if (variant === 'reasoning-intent') {
+    // Reported reasoning progress: the sentence keeps the orb icon that the
+    // thinking block uses, so a completed stretch reads the same whether the
+    // model wrote the label inside its reasoning or as a separate line.
+    note.className = 'agent-progress-note reasoning-intent-note';
+    const icon = document.createElement('span');
+    icon.className = 'think-icon thinking-bot';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = THINKING_BOT_ICON;
+    const label = document.createElement('span');
+    label.className = 'reasoning-intent-label';
+    label.textContent = value;
+    note.append(icon, label);
+    return note;
+  }
+  note.className = 'agent-progress-note' + (value === 'Yan Agent is starting up' ? ' agent-shine-text' : '');
   note.textContent = value;
   return note;
 }
 
-/*
- * Adapted from the official AICSS Orbs registry Helix G2 implementation:
- * https://www.aicss.dev/r/orbs.json
- *
- * The renderer is DOM-based rather than React-based, so the official
- * geometry is kept here while the markup is created with native DOM nodes.
- */
-const AICSS_G2_STAGE = 28;
-const AICSS_G2_SIZE = 20;
-const AICSS_G2_GLOBE_R = 8.5;
-const AICSS_G2_GLOBE_TILT = (14 * Math.PI) / 180;
-const AICSS_G2_GLOBE_STEPS = 8;
-const AICSS_G2_GLOBE_RINGS = [
-  { lat: 52, count: 8 },
-  { lat: 26, count: 8 },
-  { lat: 0, count: 8 },
-  { lat: -26, count: 8 },
-  { lat: -52, count: 8 }
-];
 
-function projectAicssG2Globe(x, y, z, spin) {
-  const cs = Math.cos(spin);
-  const ss = Math.sin(spin);
-  const x1 = x * cs - z * ss;
-  const z1 = x * ss + z * cs;
-  const y1 = y;
-  const ct = Math.cos(AICSS_G2_GLOBE_TILT);
-  const st = Math.sin(AICSS_G2_GLOBE_TILT);
-  return {
-    x: x1,
-    y: y1 * ct - z1 * st,
-    z: y1 * st + z1 * ct
-  };
-}
+
+// Thinking mark: Keyline icons "bot-2" (https://keylineicons.com/icons?icon=bot-2).
+const THINKING_BOT_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z\"></path><path d=\"M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574\"></path></svg>";
 
 function resolveAgentPresentationMode(modelId, explicitMode = '') {
   const explicit = String(explicitMode || '').trim();
@@ -13200,59 +13436,8 @@ function setRunModelPresentation(runCtx, selection = {}) {
   runCtx.presentationMode = resolveAgentPresentationMode(runCtx.modelId, selection.presentationMode);
 }
 
-function aicssG2GlobeOpacity(z) {
-  const t = Math.max(0, Math.min(1, (z / AICSS_G2_GLOBE_R + 0.15) / 1.15));
-  return 0.12 + 0.88 * t * t;
-}
 
-function aicssG2GlobeKeyframeStyle(x0, y0, z0, ringIndex) {
-  const style = {};
-  // Official G2 alternates the direction of every other latitude ring.
-  const dir = ringIndex % 2 === 1 ? -1 : 1;
-  for (let k = 0; k < AICSS_G2_GLOBE_STEPS; k++) {
-    const phase = k / AICSS_G2_GLOBE_STEPS;
-    const spin = dir * phase * Math.PI * 2;
-    const point = projectAicssG2Globe(x0, y0, z0, spin);
-    style[`--g${k}x`] = `${point.x.toFixed(2)}px`;
-    style[`--g${k}y`] = `${(-point.y).toFixed(2)}px`;
-    style[`--g${k}o`] = aicssG2GlobeOpacity(point.z).toFixed(3);
-  }
-  return style;
-}
 
-function buildAicssG2Markup() {
-  const glyph = document.createElement('span');
-  glyph.className = 'thinking-orb-glyph';
-  glyph.style.setProperty('--orb-k', String(AICSS_G2_SIZE / AICSS_G2_STAGE));
-
-  const helix = document.createElement('span');
-  helix.className = 'thinking-orb-helix';
-  helix.dataset.variant = 'G2';
-
-  let index = 0;
-  AICSS_G2_GLOBE_RINGS.forEach((ring, ringIndex) => {
-    const latRad = (ring.lat * Math.PI) / 180;
-    const y0 = Math.sin(latRad) * AICSS_G2_GLOBE_R;
-    const ringR = Math.cos(latRad) * AICSS_G2_GLOBE_R;
-    for (let j = 0; j < ring.count; j++) {
-      const lon = (j / ring.count) * Math.PI * 2;
-      const pointStyle = aicssG2GlobeKeyframeStyle(
-        Math.cos(lon) * ringR,
-        y0,
-        Math.sin(lon) * ringR,
-        ringIndex
-      );
-      const dot = document.createElement('span');
-      dot.className = 'thinking-orb-dot';
-      dot.dataset.key = String(index++);
-      Object.entries(pointStyle).forEach(([property, value]) => dot.style.setProperty(property, value));
-      helix.appendChild(dot);
-    }
-  });
-
-  glyph.appendChild(helix);
-  return glyph;
-}
 
 function buildThinkingElement(content, open = false) {
   const thinkEl = document.createElement('details');
@@ -13261,12 +13446,12 @@ function buildThinkingElement(content, open = false) {
 
   const summary = document.createElement('summary');
   const icon = document.createElement('span');
-  icon.className = 'think-icon thinking-orb';
+  icon.className = 'think-icon thinking-bot';
   icon.setAttribute('aria-hidden', 'true');
-  icon.appendChild(buildAicssG2Markup());
+  icon.innerHTML = THINKING_BOT_ICON;
   const label = document.createElement('span');
   label.className = 'thinking-label';
-  label.textContent = '深度求索中……';
+  label.textContent = '思考中';
   summary.append(icon, label);
 
   const text = document.createElement('div');
@@ -13296,9 +13481,9 @@ function buildGptThinkingElement(items = [], placeholder = '', showShine = true)
   root.setAttribute('aria-live', 'polite');
 
   const icon = document.createElement('span');
-  icon.className = 'think-icon thinking-orb';
+  icon.className = 'think-icon thinking-bot';
   icon.setAttribute('aria-hidden', 'true');
-  icon.appendChild(buildAicssG2Markup());
+  icon.innerHTML = THINKING_BOT_ICON;
 
   const body = document.createElement('div');
   body.className = 'gpt-thinking-chain-body';
@@ -13322,6 +13507,11 @@ function buildGptThinkingElement(items = [], placeholder = '', showShine = true)
 }
 
 const TOOL_UI = {
+  plugins_list: { label: '查找插件', icon: 'square-more-horizontal' },
+  plugins_inspect: { label: '查看插件', icon: 'file-text' },
+  plugins_activate: { label: '激活插件', icon: 'square-more-horizontal' },
+  plugins_read_resource: { label: '读取插件资源', icon: 'file-text' },
+  plugins_deactivate: { label: '停用会话插件', icon: 'square-more-horizontal' },
   yan_policy_acceptance: { label: '策略验收', icon: 'badge-check' },
   read: { label: '读取文件', icon: 'file-text' },
   read_file: { label: '读取文件', icon: 'file-text' },
@@ -13446,6 +13636,7 @@ const TOOL_ICON_SVG = {
 };
 
 const TOOL_SERVER_UI = {
+  'yan-computer': { label: 'Yan Computer Use', toolName: 'Yan Computer Use', icon: 'terminal-cursor' },
   'yan-browser': { label: 'Yan 内置浏览器', toolName: 'Yan-builtin-browser-Control', icon: 'globe-cursor' },
   serena: { label: 'Yan Serena', toolName: 'Yan-Serena-MCP', icon: 'file-check' },
   codegraph: { label: 'Yan CodeGraph', toolName: 'Yan-CodeGraph-MCP', icon: 'folder-check' },
@@ -13544,6 +13735,8 @@ function parseToolIdentity(toolName) {
     return { raw, server: legacyMcp[1].toLowerCase(), action: legacyMcp[2].toLowerCase() };
   }
   const normalized = raw.replace(/\./g, '_').toLowerCase();
+  const computerPlugin = normalized.match(/^yanp_[a-f0-9]{16}_[a-f0-9]{10}_computer_(.+)$/);
+  if (computerPlugin) return { raw, server: 'yan_computer', action: computerPlugin[1] };
   const prefixes = [
     'mcp_default_playwright',
     'mcp_default_codegraph',
@@ -13575,6 +13768,7 @@ function resolvedToolUi(label, iconKey, groupKey) {
 
 function toolServerCategory(server) {
   const key = String(server || '').replace(/-/g, '_').toLowerCase();
+  if (key.includes('yan_computer')) return 'yan-computer';
   if (key.includes('yan_browser')) return 'yan-browser';
   if (key.includes('playwright')) return 'playwright';
   if (key.includes('serena')) return 'serena';
@@ -13708,9 +13902,7 @@ function renderGeneratedImagePreview(body, resultRaw) {
   preview.title = '打开图片预览';
   preview.innerHTML = generatedImageLoadingMarkup({}, '正在加载图片');
   body.appendChild(preview);
-  const openViewer = () => api.openGeneratedImage(assetId).then(response => {
-    if (response?.error) toast(response.error);
-  }).catch(error => toast('无法打开图片：' + error.message));
+  const openViewer = () => window.yanImageOverlay.open({ assetId });
   preview.addEventListener('click', openViewer);
   preview.addEventListener('keydown', event => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -14058,6 +14250,7 @@ function toolCommandRuntime(toolName, args, resultDetails) {
 }
 
 function toolCommandState(phase, ok, details) {
+  if (phase !== 'interrupted' && String(details?.output || '').includes('Command is running in the background.')) return 'background';
   return toolPanelState(phase, ok, details);
 }
 
@@ -14070,6 +14263,7 @@ function toolPanelState(phase, ok, details) {
 }
 
 function toolCommandStatusMarkup(state, details) {
+  if (state === 'background') return '<span class="tool-panel-status tool-command-status">已转后台 · 在 Bash 面板查看当前状态</span>';
   if (state === 'running') {
     return '<span class="tool-panel-status tool-command-status is-running" aria-label="执行中"><span class="tool-panel-status-dot tool-command-status-dot" aria-hidden="true"></span></span>';
   }
@@ -14812,9 +15006,10 @@ function sessionEstimateTokens(session, liveContext) {
 }
 
 function updateContextInfo(as, session = state.currentSession) {
+  $('#contextRingWrap')?.classList.toggle('hidden', state.config?.general?.showContextUsage !== true);
   if (as && !isAgentStateForCurrentSession(as)) return;
   if (!as) as = getCurrentAgentState();
-  const modelSelection = getAgentModelSelection();
+  const modelSelection = getAgentModelSelection(session);
   const modelName = modelSelection.name || modelSelection.modelId;
   const status = String(as.status || 'idle');
   const statusLabel = { idle: '空闲', working: '执行中', done: '已完成', interrupted: '已暂停', error: '运行失败' }[status] || status;
@@ -14853,12 +15048,16 @@ function updateContextInfo(as, session = state.currentSession) {
       tokens = activeRunCtx.contextUiTokens;
     }
   }
-  const resolvedBudget = activeRunCtx?.runBudget || configuredContextBudget();
+  const configuredBudget = configuredContextBudget();
+  const runMatchesSelection = activeRunCtx && activeRunCtx.modelId === modelSelection.modelId
+    && activeRunCtx.providerId === modelSelection.providerId
+    && activeRunCtx.supplierId === modelSelection.supplierId;
+  const resolvedBudget = runMatchesSelection ? activeRunCtx.runBudget : configuredBudget;
   const maxTokens = positiveContextTokens(resolvedBudget.contextWindow)
     || DEFAULT_CONTEXT_SETTINGS.maxTokens;
   const compressAt = Math.min(
     positiveContextTokens(resolvedBudget.compressSoftThreshold)
-      || configuredContextBudget().compressSoftThreshold,
+      || configuredBudget.compressSoftThreshold,
     Math.max(1, maxTokens - 1)
   );
   const hardAt = positiveContextTokens(resolvedBudget.compressHardThreshold) || maxTokens;
@@ -15077,6 +15276,7 @@ const rsReviewState = {
   documentCache: new Map(),
   fileTreeWidth: 190,
   scope: 'worktree',
+  comparisonByWorkspace: new Map(),
   comments: {},
   openComposerKey: '',
   onRollback: null
@@ -15162,7 +15362,7 @@ function openTaskGitChanges() {
   rsReviewState.documentCache.clear();
   const tab = createRightSidebarTab('review');
   if (!tab) return;
-  activateRightSidebarTab(tab.id);
+  activateRightSidebarTab(tab.id, { forceReview: true });
   setRightSidebarAddMenuOpen(false);
 }
 
@@ -15184,7 +15384,7 @@ function openRunChangeReview(agentRun, filePath, onRollback = null) {
   rsReviewState.documentCache.clear();
   const tab = createRightSidebarTab('review');
   if (!tab) return false;
-  activateRightSidebarTab(tab.id, { forceReview: false });
+  activateRightSidebarTab(tab.id, { forceReview: true });
   setRightSidebarAddMenuOpen(false);
   return true;
 }
@@ -15789,15 +15989,12 @@ function reviewSendCommentsToAgent(filePath) {
   if (!notes.length) return;
   const lines = notes.map(note => '- ' + note.label + '：' + String(note.text || '').replace(/\s+/g, ' ').trim());
   const message = '关于「' + filePath + '」的行内审阅意见：\n' + lines.join('\n') + '\n请处理以上行内审阅意见，保持改动范围最小。';
-  const input = $('#interjectionInput');
-  if (input) {
-    input.value = message;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-  }
   const tab = createRightSidebarTab('interjection');
   if (tab) activateRightSidebarTab(tab.id);
-  toast('已把 ' + notes.length + ' 条行内评论填入临时对话');
+  setSideChatComposerText(message);
+  syncInterjectionUi();
+  sideChatElement('composerInput')?.focus();
+  toast('已把 ' + notes.length + ' 条行内评论填入侧边聊天');
 }
 
 function reviewDocumentCacheKey(file) {
@@ -16281,6 +16478,7 @@ async function loadReviewFileDiff(target, filePath, context = {}) {
       if (workspace) {
         const result = await api.gitReview(workspace, {
           staged: (context.scope || rsReviewState.scope) === 'staged',
+          ...context.comparison,
           layout: 'full',
           paths: [path],
           fresh: true
@@ -16311,10 +16509,16 @@ function renderYanDshReviewSidebar(options = {}) {
     sessionId: state.currentSession?.id,
     selectedPath: rsReviewState.selectedPath,
     target: rsReviewState.source === 'git' ? gitReviewTarget() : getRightSidebarReviewTarget(),
-    fresh: options.fresh === true
+    fresh: options.fresh === true,
+    comparison: { ...(rsReviewState.comparisonByWorkspace.get(currentGitWorkspace()) || { mode: 'all' }) }
   };
   const key = JSON.stringify([context.source, context.scope, context.workspace, context.sessionId,
-    context.target?.runId, context.target?.changeVersion, context.selectedPath]);
+    context.target?.runId, context.target?.changeVersion, context.selectedPath, context.comparison]);
+  if (options.reuse && !context.fresh) {
+    const sameTarget = cachedKey => cachedKey && JSON.stringify(JSON.parse(cachedKey).slice(0, 5)) === JSON.stringify(JSON.parse(key).slice(0, 5));
+    if (sameTarget(rsReviewPendingRender?.key)) return rsReviewPendingRender.promise;
+    if (sameTarget(rsReviewRenderedKey)) return;
+  }
   if (rsReviewPendingRender?.key === key && rsReviewPendingRender.fresh === context.fresh) return rsReviewPendingRender.promise;
   if (!options.force && !context.fresh && key === rsReviewRenderedKey
     && !$('#yanDshReviewPanel')?.classList.contains('hidden')) return;
@@ -16352,6 +16556,9 @@ async function performYanDshReviewRender(context, renderVersion, key) {
     && openRightSidebarTabs.some(tab => tab.type === 'review');
   const setLoading = () => {
     panel.dataset.state = 'loading';
+    // The embedded review page owns its own refresh control; hide the legacy
+    // host arrow so loading reads as one centered hint, not a stray spinner.
+    $('#reviewRefreshBtn')?.classList.add('hidden');
     $('#reviewRefreshBtn')?.setAttribute('aria-busy', 'true');
   };
   const finish = async (summary, target, onRollback = null) => {
@@ -16362,7 +16569,36 @@ async function performYanDshReviewRender(context, renderVersion, key) {
     rsReviewState.runId = String(target?.runId || '');
     rsReviewState.changeVersion = target?.changeVersion || '';
     panel.dataset.state = next.files?.length ? 'success' : 'idle';
+    let status = taskGitState.workspace === context.workspace ? taskGitState.status : null;
+    if (context.workspace && (!status || !Array.isArray(status.branches?.local))) {
+      try {
+        const result = await api.gitStatus(context.workspace);
+        if (result?.ok !== false) status = result?.status || null;
+      } catch { /* Review remains usable when branch metadata is unavailable. */ }
+      if (!current()) return;
+    }
+    const branches = (Array.isArray(status?.branches?.local) ? status.branches.local : [])
+      .map(branch => String(branch.name || '')).filter(Boolean);
+    const defaultBranch = branches.find(name => name === 'main') || branches.find(name => name === 'master') || branches[0] || '';
+    const storedComparison = context.comparison || {};
+    const comparison = {
+      currentBranch: status?.currentBranch || (status?.detached ? '游离 HEAD' : '当前任务'),
+      defaultBranch,
+      branches,
+      mode: storedComparison.mode || 'all',
+      baseBranch: branches.includes(storedComparison.baseBranch) ? storedComparison.baseBranch : defaultBranch
+    };
     const opened = await globalThis.YanDshReview.open({
+      comparison,
+      onReferenceFile: path => { if (current()) void addReviewFileAttachment(context.workspace, path); },
+      onComparisonChange: selection => {
+        if (!current()) return;
+        rsReviewState.comparisonByWorkspace.set(context.workspace, { ...selection });
+        rsReviewState.source = 'git';
+        rsReviewState.scope = 'worktree';
+        rsReviewState.selectedPath = '';
+        void renderRightSidebarReview({ force: true, fresh: true });
+      },
       summary: next,
       selectedPath: rsReviewState.selectedPath,
       lazy: true,
@@ -16385,6 +16621,7 @@ async function performYanDshReviewRender(context, renderVersion, key) {
         return;
       }
       const result = await api.gitReview(workspace, {
+        ...context.comparison,
         staged: context.scope === 'staged',
         layout: 'summary',
         fresh: context.fresh
@@ -16392,6 +16629,7 @@ async function performYanDshReviewRender(context, renderVersion, key) {
       if (!current()) return;
       if (result?.ok === false) throw new Error(result.error || '无法读取 Git 文件改动');
       const summary = result?.review || emptyReviewSummary();
+      if (summary.comparison) context.comparison = { ...summary.comparison };
       if (!summary.files?.some(file => file.path === rsReviewState.selectedPath)) {
         rsReviewState.selectedPath = '';
       }
@@ -16508,30 +16746,70 @@ function renderTaskGitBranches(status = taskGitState.status) {
   const query = String($('#taskGitBranchSearch')?.value || '').trim().toLocaleLowerCase();
   const filterBranch = branch => !query || String(branch.name || '').toLocaleLowerCase().includes(query);
   const local = (Array.isArray(status.branches?.local) ? status.branches.local : []).filter(filterBranch);
-  const remote = (Array.isArray(status.branches?.remote) ? status.branches.remote : []).filter(filterBranch);
   const sections = [];
   if (local.length) {
     sections.push(`<section><h4>分支</h4>${local.map(branch => taskGitBranchOption(branch, 'local', status)).join('')}</section>`);
   }
-  if (remote.length) {
-    sections.push(`<section><h4>远程分支</h4>${remote.map(branch => taskGitBranchOption(branch, 'remote', status)).join('')}</section>`);
-  }
   list.innerHTML = sections.join('') || `<div class="task-git-branch-empty">没有匹配“${escapeHtml(query)}”的分支</div>`;
+}
+
+// New-task branch picker: a lightweight, upward-opening list that reuses only the
+// git status snapshot, independent from the task-bar branch capsule.
+function renderNewTaskBranches() {
+  const wrap = $('#newTaskBranchWrap');
+  const list = $('#newTaskBranchList');
+  if (!wrap || !list) return;
+  const status = taskGitState.status;
+  const ready = !!status?.isRepository;
+  wrap.classList.toggle('hidden', !ready);
+  if (!ready) { closeNewTaskBranchMenu(); return; }
+  const nameEl = $('#newTaskBranchName');
+  if (nameEl) nameEl.textContent = taskGitBranchLabel(status);
+  const query = String($('#newTaskBranchSearch')?.value || '').trim().toLocaleLowerCase();
+  const locals = (Array.isArray(status?.branches?.local) ? status.branches.local : [])
+    .filter(branch => !query || String(branch.name || '').toLocaleLowerCase().includes(query));
+  list.innerHTML = locals.length
+    ? locals.map(branch => {
+      const current = branch.name === status?.currentBranch;
+      return `<button class="new-task-branch-option${current ? ' is-current' : ''}" type="button" role="option" aria-selected="${current}" data-new-task-branch="${escapeAttr(branch.name)}">${escapeHtml(branch.name)}</button>`;
+    }).join('')
+    : `<div class="new-task-branch-empty">${query ? '没有匹配的分支' : '没有可用分支'}</div>`;
+}
+
+function closeNewTaskBranchMenu() {
+  $('#newTaskBranchMenu')?.classList.add('hidden');
+  $('#newTaskBranchBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function openNewTaskBranchMenu() {
+  const menu = $('#newTaskBranchMenu');
+  const button = $('#newTaskBranchBtn');
+  if (!menu || !button) return;
+  closeTaskGitBranchPopover();
+  closeWorkspaceChoiceMenu();
+  const search = $('#newTaskBranchSearch');
+  if (search) search.value = '';
+  renderNewTaskBranches();
+  menu.classList.remove('hidden');
+  button.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => search?.focus({ preventScroll: true }));
 }
 
 // Task worktrees + GitHub PRs inside the Git panel. Data comes through the
 // same gitIpc error envelope as the rest of the panel; merge results carry a
 // structured outcome (merged/conflicts/dirty) instead of throwing.
 const taskGitWorktreeState = { open: false, items: [], loading: false, forceArmed: '' };
-const taskGitPrState = { open: false, ghAvailable: null, items: [], loading: false, diffNumber: 0, diffLoading: false, workspace: '', version: 0, diffVersion: 0, error: '' };
+let taskGitPrCliAvailable = null;
 
 function setTaskGitSubsectionOpen(toggleId, sectionId, open) {
-  const toggle = $(toggleId);
+  const toggle = toggleId ? $(toggleId) : null;
   const section = $(sectionId);
-  if (!toggle || !section) return open;
+  if (!section) return open;
   section.classList.toggle('hidden', !open);
-  toggle.setAttribute('aria-expanded', String(open));
-  toggle.classList.toggle('is-open', open);
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.classList.toggle('is-open', open);
+  }
   return open;
 }
 
@@ -16603,7 +16881,7 @@ async function createTaskGitWorktree(trigger) {
     if (input) input.value = '';
     await refreshTaskGitWorktrees({ quiet: true });
     return result;
-  }, `已创建工作树 yan-task-${name.toLocaleLowerCase()}`);
+  }, `已创建工作树 ${name}`);
 }
 
 async function mergeTaskGitWorktree(trigger, taskId) {
@@ -16629,117 +16907,24 @@ async function removeTaskGitWorktree(trigger, taskId) {
   const result = await runTaskGitAction(trigger, () => api.gitWorktreeRemove(workspace, taskId, force));
   if (result?.removed) {
     taskGitWorktreeState.forceArmed = '';
-    toast(`已删除工作树 ${taskId}${result.branchKept ? '（分支未合并，已保留）' : ''}`);
+    toast(result.archived ? `已归档工作树 ${taskId}，可在设置中恢复` : `已删除工作树 ${taskId}${result.branchKept ? '（分支未合并，已保留）' : ''}`);
     await refreshTaskGitWorktrees({ quiet: true });
     return;
   }
   if (result?.reason === 'dirty' && !force) {
     taskGitWorktreeState.forceArmed = taskId;
     renderTaskGitWorktrees();
-    toast(`工作树 ${taskId} 有未提交修改，再点一次“确认删除”才会丢弃。`);
+    toast(`工作树 ${taskId} 有未提交修改，再点一次“确认删除”将保存快照并归档。`);
   }
 }
 
-async function refreshTaskGitPrs() {
-  const workspace = currentGitWorkspace();
-  const version = ++taskGitPrState.version;
-  const current = () => version === taskGitPrState.version && workspace === currentGitWorkspace();
-  if (taskGitPrState.workspace !== workspace) {
-    taskGitPrState.workspace = workspace;
-    taskGitPrState.items = [];
-    taskGitPrState.diffVersion++;
-    $('#taskGitPrDiff')?.classList.add('hidden');
-  }
-  taskGitPrState.error = '';
-  taskGitPrState.loading = false;
-  if (!workspace) {
-    taskGitPrState.items = [];
-    renderTaskGitPrs();
-    return;
-  }
-  if (taskGitPrState.ghAvailable !== true) {
-    const detection = await api.ghDetect().catch(() => null);
-    if (!current()) return;
-    taskGitPrState.ghAvailable = !!detection?.ghPath;
-  }
-  $('#taskGitPrUnavailable')?.classList.toggle('hidden', taskGitPrState.ghAvailable);
-  if (!taskGitPrState.ghAvailable) {
-    taskGitPrState.items = [];
-    taskGitPrState.loading = false;
-    renderTaskGitPrs();
-    return;
-  }
-  taskGitPrState.loading = true;
-  renderTaskGitPrs();
+async function detectTaskGitPrCli() {
   try {
-    const response = await api.ghPrList(workspace, { limit: 20, state: 'open' });
-    if (!current()) return;
-    if (response?.ok === false) throw new Error(response?.error || '读取 PR 列表失败');
-    taskGitPrState.items = Array.isArray(response?.prs) ? response.prs : [];
-  } catch (error) {
-    if (!current()) return;
-    taskGitPrState.items = [];
-    taskGitPrState.error = error?.message || '读取 PR 列表失败';
-  }
-  taskGitPrState.loading = false;
-  renderTaskGitPrs();
-}
-
-function renderTaskGitPrs() {
-  const list = $('#taskGitPrList');
-  if (!list) return;
-  const count = $('#taskGitPrCount');
-  if (count) {
-    count.hidden = !taskGitPrState.items.length;
-    count.textContent = String(taskGitPrState.items.length);
-  }
-  if (!taskGitPrState.ghAvailable) {
-    list.innerHTML = '';
-    return;
-  }
-  if (taskGitPrState.loading) {
-    list.innerHTML = '<div class="task-git-subsection-empty">正在读取 PR…</div>';
-    return;
-  }
-  if (!taskGitPrState.items.length) {
-    list.innerHTML = `<div class="task-git-subsection-empty">${escapeHtml(taskGitPrState.error || '没有打开中的 PR')}</div>`;
-    return;
-  }
-  list.innerHTML = taskGitPrState.items.map(pr => `
-    <div class="task-git-pr-row" data-task-git-pr="${Number(pr.number) || 0}">
-      <span class="task-git-pr-main" title="${escapeAttr(pr.url || '')}"><strong>#${Number(pr.number) || 0} ${escapeHtml(pr.title || '')}</strong><small>${escapeHtml(pr.headRefName || '')} → ${escapeHtml(pr.baseRefName || '')}</small></span>
-      <span class="task-git-pr-state is-${escapeHtml(pr.state || 'open')}">${escapeHtml(pr.state || 'open')}</span>
-      <button class="task-git-mini-btn" type="button" data-task-git-pr-diff="${Number(pr.number) || 0}">Diff</button>
-    </div>`).join('');
-}
-
-async function viewTaskGitPrDiff(trigger, number) {
-  const workspace = currentGitWorkspace();
-  if (!workspace || !number || workspace !== taskGitPrState.workspace) return;
-  const version = ++taskGitPrState.diffVersion;
-  const current = () => version === taskGitPrState.diffVersion && workspace === currentGitWorkspace();
-  const wrapper = $('#taskGitPrDiff');
-  const code = $('#taskGitPrDiffCode');
-  const title = $('#taskGitPrDiffTitle');
-  taskGitPrState.diffNumber = number;
-  taskGitPrState.diffLoading = true;
-  if (title) title.textContent = `PR #${number} Diff`;
-  if (code) code.textContent = '正在读取 diff…';
-  wrapper?.classList.remove('hidden');
-  try {
-    const response = await api.ghPrDiff(workspace, number);
-    if (!current()) return;
-    if (response?.ok === false) throw new Error(response?.error || '读取 PR diff 失败');
-    const diff = String(response?.diff || '');
-    if (code) code.textContent = diff.slice(0, 300_000) || '（该 PR 没有文本差异）';
-    if (title) title.textContent = `PR #${number} Diff${diff.length > 300_000 ? '（已截断）' : ''}`;
-  } catch (error) {
-    if (!current()) return;
-    if (code) code.textContent = error?.message || '读取 PR diff 失败';
-  } finally {
-    if (current()) taskGitPrState.diffLoading = false;
-    trigger?.removeAttribute('aria-busy');
-  }
+    const detection = await api.ghDetect();
+    taskGitPrCliAvailable = !!detection?.ghPath;
+  } catch { taskGitPrCliAvailable = false; }
+  renderTaskGitPrDialogState();
+  syncTaskGitControls();
 }
 
 async function createTaskGitPr(trigger) {
@@ -16767,8 +16952,54 @@ async function createTaskGitPr(trigger) {
     if (workspace !== currentGitWorkspace()) return;
     if ($('#taskGitPrTitle')) $('#taskGitPrTitle').value = '';
     if ($('#taskGitPrBody')) $('#taskGitPrBody').value = '';
-    await refreshTaskGitPrs();
+    closeTaskGitPrDialog();
   }
+}
+
+function openTaskGitPrDialog() {
+  const dialog = $('#taskGitPrDialog');
+  if (!dialog) return;
+  if ($('#taskGitPrDraft')) $('#taskGitPrDraft').checked = state.config?.git?.draftPr !== false;
+  closeTaskGitPanel();
+  closeTaskGitBranchPopover();
+  renderTaskGitPrDialogState();
+  void detectTaskGitPrCli();
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => $('#taskGitPrTitle')?.focus({ preventScroll: true }));
+}
+
+// Shared "create and check out a branch" flow for both the task-bar branch capsule
+// and the new-task branch picker.
+async function createTaskGitBranch(trigger) {
+  closeTaskGitBranchPopover();
+  closeNewTaskBranchMenu();
+  const values = await requestGitAction({
+    title: '创建并检出新分支',
+    description: `基于 ${taskGitBranchLabel()} 创建一个新的本地分支，并在创建成功后立即切换过去。`,
+    submitLabel: '创建并切换',
+    fields: [{ name: 'name', label: '分支名', placeholder: 'feature/git-branch-switcher' }]
+  });
+  if (!values) return;
+  const workspace = currentGitWorkspace();
+  if (!workspace) return;
+  const status = taskGitState.status?.workspace === workspace
+    ? taskGitState.status
+    : await refreshTaskGitStatus({ quiet: true, force: true });
+  if (!status?.isRepository) {
+    toast('当前工作区不是 Git 仓库，无法创建分支');
+    return;
+  }
+  await runTaskGitAction(trigger, () => api.gitCreateBranch(workspace, values.name), `已创建并切换到分支 ${values.name}`);
+}
+
+// The create-PR dialog reports whether the GitHub CLI is available.
+function renderTaskGitPrDialogState() {
+  $('#taskGitPrDialogHint')?.classList.toggle('hidden', taskGitPrCliAvailable !== false);
+}
+
+function closeTaskGitPrDialog() {
+  const dialog = $('#taskGitPrDialog');
+  if (dialog?.open) dialog.close();
 }
 
 function syncTaskGitControls() {
@@ -16788,26 +17019,31 @@ function syncTaskGitControls() {
   panel?.classList.toggle('is-busy', busy);
   if (panel && busy) panel.dataset.state = 'loading';
   $('#taskGitBranchPopover')?.classList.toggle('is-busy', busy);
-  if ($('#taskGitHubBtn')) $('#taskGitHubBtn').disabled = !workspace;
+  // The capsule panel now also hosts subagents and desktop Agent collaboration,
+  // so it stays reachable even before a Git workspace is selected.
+  if ($('#taskGitHubBtn')) $('#taskGitHubBtn').disabled = false;
   if ($('#taskGitBranchBtn')) $('#taskGitBranchBtn').disabled = !gitAvailable || busy;
   if ($('#taskGitRefreshBtn')) $('#taskGitRefreshBtn').disabled = !workspace || busy;
   if ($('#taskGitCreateBranchBtn')) $('#taskGitCreateBranchBtn').disabled = !gitAvailable || busy || !!status?.operation;
-  if ($('#taskGitGraphBtn')) $('#taskGitGraphBtn').disabled = !ready;
-  if ($('#taskGitPanelBranchBtn')) $('#taskGitPanelBranchBtn').disabled = !ready;
-  if ($('#taskGitChangesBtn')) $('#taskGitChangesBtn').disabled = !ready || changes.length === 0;
+  if ($('#taskGitGraphOpenBtn')) $('#taskGitGraphOpenBtn').disabled = !ready;
+  if ($('#taskGitBranchOpenBtn')) $('#taskGitBranchOpenBtn').disabled = !ready;
   if ($('#taskGitCommitOpenBtn')) $('#taskGitCommitOpenBtn').disabled = !ready;
   $$('[data-task-git-action="commit"], [data-task-git-action="commit-push"]').forEach(button => {
     button.disabled = !ready || !committable || (button.dataset.taskGitAction === 'commit-push' && !hasRemote);
   });
   if ($('#taskGitPushOnlyBtn')) $('#taskGitPushOnlyBtn').disabled = !canPush;
-  if ($('#taskGitWorktreeToggle')) $('#taskGitWorktreeToggle').disabled = !ready;
-  if ($('#taskGitPrToggle')) $('#taskGitPrToggle').disabled = !ready;
-  if ($('#taskGitWorktreeCreateBtn')) $('#taskGitWorktreeCreateBtn').disabled = !ready;
-  if ($('#taskGitPrCreateBtn')) $('#taskGitPrCreateBtn').disabled = !ready;
-  if ($('#taskGitWorktreeName')) $('#taskGitWorktreeName').disabled = !ready;
+  if ($('#taskGitPrCreateBtn')) $('#taskGitPrCreateBtn').disabled = !ready || taskGitPrCliAvailable === false;
   if ($('#taskGitPrTitle')) $('#taskGitPrTitle').disabled = !ready;
   if ($('#taskGitPrBase')) $('#taskGitPrBase').disabled = !ready;
   if ($('#taskGitPrBody')) $('#taskGitPrBody').disabled = !ready;
+  const nameEl = $('#taskGitWorkspaceName');
+  if (nameEl) {
+    const trimmed = String(workspace || '').replace(/[\\/]+$/, '');
+    const label = trimmed ? (trimmed.split(/[\\/]/).filter(Boolean).pop() || trimmed) : '未设置工作区';
+    nameEl.textContent = label;
+    nameEl.title = workspace || label;
+  }
+  if ($('#taskGitWorktreeMigrateBtn')) $('#taskGitWorktreeMigrateBtn').disabled = !ready;
 }
 
 function renderTaskGitStatus(status) {
@@ -16815,13 +17051,18 @@ function renderTaskGitStatus(status) {
   taskGitState.workspace = String(status?.workspace || currentGitWorkspace() || '');
   taskGitState.lastRefreshAt = Date.now();
   const ready = !!status?.isRepository;
-  const hasWorkspace = !!taskGitState.workspace;
   const branchWrap = $('#taskGitBranchWrap');
   const unavailable = $('#taskGitUnavailable');
   const actions = $('#taskGitOverviewActions');
-  branchWrap?.classList.toggle('hidden', !hasWorkspace);
+  // Git controls are gated on the workspace actually being a repository: without
+  // one there is no branch to show or create, so the branch capsule
+  // stays out of the task bar entirely.
+  branchWrap?.classList.toggle('hidden', !ready);
   unavailable?.classList.toggle('hidden', ready);
   actions?.classList.toggle('hidden', !ready);
+  if (!ready) {
+    closeTaskGitBranchPopover();
+  }
 
   const branchLabel = taskGitBranchLabel(status);
   if (!taskGitState.commitBranch || !status?.branches?.local?.some(branch => branch.name === taskGitState.commitBranch)) {
@@ -16835,7 +17076,6 @@ function renderTaskGitStatus(status) {
   renderTaskGitStats('#taskGitCommitStats', stats);
   // Keep open subsections in sync with panel refreshes without extra churn.
   if (taskGitWorktreeState.open) void refreshTaskGitWorktrees({ quiet: true });
-  if (taskGitPrState.open) void refreshTaskGitPrs();
   if ($('#taskGitCommitFileCount')) {
     const count = Array.isArray(status?.changes) ? status.changes.length : 0;
     $('#taskGitCommitFileCount').textContent = `${count} 个文件`;
@@ -16856,6 +17096,8 @@ function renderTaskGitStatus(status) {
     if (unavailableText) unavailableText.textContent = '请先在当前工作区中初始化或克隆 Git 仓库。';
   }
   renderTaskGitBranches(status);
+  renderNewTaskBranches();
+  renderTaskGitAgentSections();
   syncTaskGitControls();
 }
 
@@ -16901,9 +17143,57 @@ async function refreshTaskGitStatus({ quiet = false, force = false, status = nul
   }
 }
 
+// The capsule panel's agent sections: subagents plus the relocated desktop
+// multi-agent activity. Subagent records come from the same runs the right-side
+// subagents panel reads.
+function taskSubagentRecords() {
+  const session = state.currentSession;
+  if (!session) return [];
+  const workflow = window.YanSubagentWorkflow;
+  const runs = new Map();
+  for (const message of (session.messages || [])) {
+    const run = message?.agentRun;
+    if (!run) continue;
+    runs.set(run.runId || `history:${runs.size}`, run);
+  }
+  const live = getRunCtx(session.id)?.activeAgentRun;
+  if (live) runs.set(live.runId || 'live', live);
+  return [...runs.values()].flatMap(run => {
+    try { workflow?.migrate?.(run); } catch { /* keep whatever the run exposes */ }
+    return Array.isArray(run.subagents) ? run.subagents : [];
+  });
+}
+
+function renderTaskGitAgentSections() {
+  const row = $('#taskGitSubagentsRow');
+  if (!row) return;
+  const records = taskSubagentRecords();
+  const running = records.filter(record => record.status === 'running');
+  row.dataset.state = running.length ? 'running' : 'idle';
+  const working = $('#taskGitSubagentsWorking');
+  if (!working) return;
+  working.hidden = running.length === 0;
+  if (!running.length) return;
+  const panel = window.YanSubagentPanel;
+  const avatars = $('#taskGitSubagentAvatars');
+  if (avatars) {
+    const shown = running.slice(0, 5);
+    const overflow = running.length - shown.length;
+    avatars.innerHTML = shown.map(record => {
+      const role = panel?.roleFor?.(record.role) || record.role || '';
+      const title = panel?.nameFor?.(role) || role || '子代理';
+      return `<span class="task-git-agent-avatar" data-agent-role="${escapeAttr(role)}" title="${escapeAttr(title)}">${panel?.iconFor?.(record.role) || ''}</span>`;
+    }).join('') + (overflow > 0
+      ? `<span class="task-git-agent-avatar is-more" title="${escapeAttr(`${overflow} 个更多子代理`)}">+${overflow}</span>`
+      : '');
+  }
+  const label = $('#taskGitSubagentWorkingLabel');
+  if (label) label.textContent = `${running.length} 个子代理正在工作`;
+}
+
 function openTaskGitBranchPopover() {
   const workspace = currentGitWorkspace();
-  if (!workspace || taskGitState.status?.available === false) return;
+  if (!workspace || taskGitState.status?.available === false || !taskGitState.status?.isRepository) return;
   closeTaskGitPanel();
   const popover = $('#taskGitBranchPopover');
   const button = $('#taskGitBranchBtn');
@@ -16930,7 +17220,75 @@ function openTaskGitPanel() {
   panel.setAttribute('aria-hidden', 'false');
   button.classList.add('active');
   button.setAttribute('aria-expanded', 'true');
+  renderTaskGitAgentSections();
+  positionTaskGitPanel();
   void refreshTaskGitStatus({ quiet: true, force: true });
+}
+
+// The Git tools wrap is not the last element in the task bar (the workspace
+// tools pill and switch follow), so a fixed right offset would leave the summary
+// inset. Pin the panel's right edge to the task bar's right edge instead.
+function positionTaskGitPanel() {
+  const panel = $('#taskGitPanel');
+  const wrap = $('#taskGitToolsWrap');
+  const bar = $('.task-bar');
+  if (!panel || !wrap || !bar) return;
+  const gap = bar.getBoundingClientRect().right - wrap.getBoundingClientRect().right;
+  panel.style.right = `${-Math.max(0, Math.round(gap))}px`;
+}
+
+function taskGitSlug(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+
+function openTaskGitMigrateDialog() {
+  const dialog = $('#taskGitMigrateDialog');
+  const input = $('#taskGitMigrateBranch');
+  if (!dialog || !input) return;
+  const prefix = String(state.config?.git?.branchPrefix ?? 'yan/');
+  const session = state.currentSession || {};
+  const slug = taskGitSlug(session.title || '') || `agent-${String(session.id || '').slice(-6)}`;
+  input.value = `${prefix}${slug}`;
+  const error = $('#taskGitMigrateError');
+  if (error) { error.hidden = true; error.textContent = ''; }
+  closeTaskGitPanel();
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => {
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+async function submitTaskGitMigrate(event) {
+  event?.preventDefault();
+  const workspace = currentGitWorkspace();
+  const input = $('#taskGitMigrateBranch');
+  const submit = $('#taskGitMigrateSubmit');
+  const errorEl = $('#taskGitMigrateError');
+  const fail = message => { if (errorEl) { errorEl.textContent = message; errorEl.hidden = false; } };
+  const branch = String(input?.value || '').trim();
+  if (!workspace) return fail('请先选择工作区。');
+  if (!branch) return fail('请输入分支名称。');
+  if (taskGitState.busy) return;
+  taskGitState.busy = true;
+  if (submit) submit.disabled = true;
+  if (errorEl) { errorEl.hidden = true; errorEl.textContent = ''; }
+  try {
+    const taskId = branch.split('/').filter(Boolean).pop() || branch;
+    const result = await api.gitWorktreeCreate(workspace, taskId, '', branch);
+    if (result?.ok === false) throw new Error(result?.error || '创建工作树失败');
+    const worktree = result?.worktree;
+    if (!worktree?.path) throw new Error('未返回工作树路径');
+    $('#taskGitMigrateDialog')?.close();
+    await applySessionWorkspace(worktree.path);
+    toast(`已移交至工作树 ${worktree.branch || branch}`);
+  } catch (error) {
+    fail(error?.message || '移交失败');
+  } finally {
+    taskGitState.busy = false;
+    if (submit) submit.disabled = false;
+    await refreshTaskGitStatus({ quiet: true, force: true });
+  }
 }
 
 function renderTaskGitCommitBranches() {
@@ -16983,6 +17341,7 @@ function taskGitAutoCommitMessage(status = taskGitState.status) {
 }
 
 async function generateTaskGitCommitMessage() {
+  let fallback = '';
   const input = $('#taskGitCommitMessageInput');
   const button = $('#taskGitGenerateMessageBtn');
   if (!input || !button || button.getAttribute('aria-busy') === 'true') return;
@@ -16994,7 +17353,7 @@ async function generateTaskGitCommitMessage() {
       ? await refreshTaskGitStatus({ quiet: true, force: true })
       : null;
     const status = freshStatus || taskGitState.status || {};
-    const fallback = taskGitAutoCommitMessage(status);
+    fallback = taskGitAutoCommitMessage(status);
     const selection = getAgentModelSelection();
     const hasModel = !!String(selection.providerId || '').trim() && !!String(selection.modelId || '').trim();
     if (!workspace || !status?.isRepository || !hasModel) {
@@ -17047,19 +17406,14 @@ async function generateTaskGitCommitMessage() {
         role: 'user',
         content: [
           'Generate one concise Chinese Git commit subject for the supplied working-tree changes.',
-          'Use an imperative description, stay under 50 Chinese characters, and return the subject only without quotes, markdown, prefixes, or explanation.',
+          'By default use an imperative Chinese subject under 50 characters. Follow the saved commit-message instructions for language, format and length when provided. Return only the complete commit message without code fences or explanation.',
           boundedChangePayload
         ].join('\n\n')
       }]
     };
     const result = await runOpenCodeLoop(session, null, runCtx);
     const generated = String(result?.content || '')
-      .replace(/```[\s\S]*?```/g, '')
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .map(line => line.replace(/^(?:提交信息|commit message)\s*[:：]\s*/i, ''))
-      .map(line => line.replace(/^['"`]+|['"`]+$/g, '').trim())
-      .find(Boolean)?.slice(0, 120) || '';
+      .replace(/^```[^\n]*\n|\n```\s*$/g, '').trim().slice(0, 10000);
     input.value = generated || fallback;
   } catch (error) {
     input.value = fallback;
@@ -17325,13 +17679,15 @@ function requestGitAction({ title, description = '', submitLabel = '确认', dan
   $('#gitActionSubmit').className = danger ? 'delete-task-confirm' : 'primary-btn';
   $('#gitActionError').classList.add('hidden');
   $('#gitActionError').textContent = '';
-  $('#gitActionFields').innerHTML = fields.map(field => `
-    <label class="git-action-field">
-      <span>${escapeHtml(field.label)}</span>
-      <input class="input${field.mono ? ' mono' : ''}" name="${escapeAttr(field.name)}" type="${escapeAttr(field.type || 'text')}" value="${escapeAttr(field.value || '')}" placeholder="${escapeAttr(field.placeholder || '')}" ${field.required === false ? '' : 'required'} autocomplete="off" spellcheck="false" />
-    </label>`).join('');
+  $('#gitActionFields').innerHTML = fields.map(field => {
+    const label = `<span>${escapeHtml(field.label)}</span>`;
+    const common = `name="${escapeAttr(field.name)}" placeholder="${escapeAttr(field.placeholder || '')}" ${field.required === false ? '' : 'required'} autocomplete="off" spellcheck="false"`;
+    return field.multiline
+      ? `<label class="git-action-field">${label}<textarea class="input${field.mono ? ' mono' : ''}" ${common} rows="${Math.max(1, Number(field.rows) || 4)}">${escapeHtml(field.value || '')}</textarea></label>`
+      : `<label class="git-action-field">${label}<input class="input${field.mono ? ' mono' : ''}" type="${escapeAttr(field.type || 'text')}" value="${escapeAttr(field.value || '')}" ${common} /></label>`;
+  }).join('');
   dialog.showModal();
-  requestAnimationFrame(() => $('#gitActionFields input')?.focus());
+  requestAnimationFrame(() => $('#gitActionFields input, #gitActionFields textarea')?.focus());
   return new Promise(resolve => { gitActionResolver = resolve; });
 }
 
@@ -17366,43 +17722,17 @@ function bindTaskGit() {
   $('#taskGitBranchList')?.addEventListener('click', async event => {
     const option = event.target.closest('[data-task-git-branch-name]');
     if (!option || option.disabled) return;
-    const kind = option.dataset.taskGitBranchKind;
     const name = option.dataset.taskGitBranchName;
-    if (!name || (kind === 'local' && name === taskGitState.status?.currentBranch)) {
+    if (!name || name === taskGitState.status?.currentBranch) {
       closeTaskGitBranchPopover();
       return;
     }
     closeTaskGitBranchPopover();
-    if (kind === 'remote') {
-      const localName = name.includes('/') ? name.slice(name.indexOf('/') + 1) : name;
-      await runTaskGitAction(option, () => api.gitSwitchBranch(currentGitWorkspace(), localName, name), `已检出 ${name}`);
-    } else {
-      await runTaskGitAction(option, () => api.gitSwitchBranch(currentGitWorkspace(), name), `已切换到 ${name}`);
-    }
+    await runTaskGitAction(option, () => api.gitSwitchBranch(currentGitWorkspace(), name), `已切换到 ${name}`);
   });
-  $('#taskGitCreateBranchBtn')?.addEventListener('click', async event => {
-    const trigger = event.currentTarget;
-    closeTaskGitBranchPopover();
-    const values = await requestGitAction({
-      title: '创建并检出新分支',
-      description: `基于 ${taskGitBranchLabel()} 创建一个新的本地分支，并在创建成功后立即切换过去。`,
-      submitLabel: '创建并切换',
-      fields: [{ name: 'name', label: '分支名', placeholder: 'feature/git-branch-switcher' }]
-    });
-    if (values) {
-      const workspace = currentGitWorkspace();
-      if (!workspace) return;
-      const status = taskGitState.status?.workspace === workspace
-        ? taskGitState.status
-        : await refreshTaskGitStatus({ quiet: true, force: true });
-      const action = status?.isRepository
-        ? () => api.gitCreateBranch(workspace, values.name)
-        : () => api.gitInit(workspace, values.name);
-      await runTaskGitAction(trigger, action, `已创建并切换到分支 ${values.name}`);
-    }
-  });
-  $('#taskGitGraphBtn')?.addEventListener('click', openTaskGitGraph);
-
+  $('#taskGitCreateBranchBtn')?.addEventListener('click', event => { void createTaskGitBranch(event.currentTarget); });
+  $('#newTaskBranchCreateBtn')?.addEventListener('click', event => { void createTaskGitBranch(event.currentTarget); });
+  $('#newTaskBranchSearch')?.addEventListener('input', () => renderNewTaskBranches());
   $('#taskGitHubBtn')?.addEventListener('click', event => {
     event.stopPropagation();
     if ($('#taskGitPanel')?.classList.contains('hidden')) openTaskGitPanel();
@@ -17412,58 +17742,54 @@ function bindTaskGit() {
     const button = event.currentTarget;
     button?.setAttribute('aria-busy', 'true');
     try {
-      await refreshTaskGitStatus({ force: true });
+      const status = await refreshTaskGitStatus({ force: true });
+      if (status && status.available === false) toast(status.error || 'Git 状态刷新失败', { error: true });
+      else toast('Git 状态已刷新');
+    } catch (error) {
+      toast(error?.message || 'Git 状态刷新失败', { error: true });
     } finally {
       button?.removeAttribute('aria-busy');
     }
   });
-  $('#taskGitPanelBranchBtn')?.addEventListener('click', () => {
-    closeTaskGitPanel();
-    openTaskGitBranchPopover();
-  });
-  $('#taskGitChangesBtn')?.addEventListener('click', () => {
+  $('#taskGitBranchOpenBtn')?.addEventListener('click', () => {
     openTaskGitChanges();
+  });
+  $('#taskGitSubagentsRow')?.addEventListener('click', () => {
+    closeTaskGitPanel();
+    openRightSidebarTool('subagents');
   });
   $('#taskGitCommitOpenBtn')?.addEventListener('click', () => {
     closeTaskGitPanel();
+    closeTaskGitBranchPopover();
     openTaskGitCommitDialog();
   });
-  $('#taskGitWorktreeToggle')?.addEventListener('click', () => {
-    taskGitWorktreeState.open = setTaskGitSubsectionOpen('#taskGitWorktreeToggle', '#taskGitWorktreeSection', !taskGitWorktreeState.open);
-    if (taskGitWorktreeState.open) void refreshTaskGitWorktrees();
+  $('#taskGitGraphOpenBtn')?.addEventListener('click', () => {
+    closeTaskGitPanel();
+    openTaskGitGraph();
   });
-  $('#taskGitWorktreeList')?.addEventListener('click', event => {
-    const button = event.target.closest('[data-task-git-worktree-action]');
-    if (!button || button.disabled) return;
-    const taskId = button.dataset.taskGitWorktreeName || '';
-    if (!taskId) return;
-    if (button.dataset.taskGitWorktreeAction === 'merge') void mergeTaskGitWorktree(button, taskId);
-    else void removeTaskGitWorktree(button, taskId);
+  $('#taskGitWorktreeMigrateBtn')?.addEventListener('click', () => openTaskGitMigrateDialog());
+  $('#newTaskBranchBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    if ($('#newTaskBranchMenu')?.classList.contains('hidden')) openNewTaskBranchMenu();
+    else closeNewTaskBranchMenu();
   });
-  $('#taskGitWorktreeCreateBtn')?.addEventListener('click', event => {
-    void createTaskGitWorktree(event.currentTarget);
+  $('#newTaskBranchMenu')?.addEventListener('click', async event => {
+    const option = event.target.closest('[data-new-task-branch]');
+    if (!option) return;
+    const name = option.dataset.newTaskBranch || '';
+    closeNewTaskBranchMenu();
+    if (!name || name === taskGitState.status?.currentBranch) return;
+    await runTaskGitAction(option, () => api.gitSwitchBranch(currentGitWorkspace(), name), `已切换到 ${name}`);
   });
-  $('#taskGitWorktreeName')?.addEventListener('keydown', event => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void createTaskGitWorktree($('#taskGitWorktreeCreateBtn'));
-    }
+  $('#taskGitPrDialogCloseBtn')?.addEventListener('click', closeTaskGitPrDialog);
+  $('#taskGitPrDialog')?.addEventListener('cancel', event => {
+    event.preventDefault();
+    closeTaskGitPrDialog();
   });
-  $('#taskGitPrToggle')?.addEventListener('click', () => {
-    taskGitPrState.open = setTaskGitSubsectionOpen('#taskGitPrToggle', '#taskGitPrSection', !taskGitPrState.open);
-    if (taskGitPrState.open) void refreshTaskGitPrs();
-    else $('#taskGitPrDiff')?.classList.add('hidden');
+  $('#taskGitPrDialog')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeTaskGitPrDialog();
   });
-  $('#taskGitPrList')?.addEventListener('click', event => {
-    const button = event.target.closest('[data-task-git-pr-diff]');
-    if (!button || button.disabled) return;
-    button.setAttribute('aria-busy', 'true');
-    void viewTaskGitPrDiff(button, Number(button.dataset.taskGitPrDiff) || 0);
-  });
-  $('#taskGitPrDiffCloseBtn')?.addEventListener('click', () => {
-    taskGitPrState.diffVersion++;
-    $('#taskGitPrDiff')?.classList.add('hidden');
-  });
+  $('#taskGitPrGenerateBtn')?.addEventListener('click', generateGitPrDescription);
   $('#taskGitPrCreateBtn')?.addEventListener('click', event => {
     void createTaskGitPr(event.currentTarget);
   });
@@ -17514,20 +17840,78 @@ function bindTaskGit() {
     closeGitActionDialog(null);
   });
 
+  $('#taskGitMigrateForm')?.addEventListener('submit', submitTaskGitMigrate);
+  $('#taskGitMigrateCloseBtn')?.addEventListener('click', () => $('#taskGitMigrateDialog')?.close());
+  $('#taskGitMigrateDialog')?.addEventListener('cancel', event => {
+    event.preventDefault();
+    $('#taskGitMigrateDialog')?.close();
+  });
+  $('#taskGitMigrateDialog')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  });
+
   document.addEventListener('pointerdown', event => {
     if (!event.target.closest('#taskGitBranchWrap')) closeTaskGitBranchPopover();
+    if (!event.target.closest('#newTaskBranchWrap')) closeNewTaskBranchMenu();
     if (!event.target.closest('#taskGitToolsWrap')) closeTaskGitPanel();
     if (!event.target.closest('#taskGitCommitBranchBtn, #taskGitCommitBranchMenu')) setTaskGitCommitBranchMenuOpen(false);
   }, { passive: true });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     closeTaskGitBranchPopover({ restoreFocus: true });
+    closeNewTaskBranchMenu();
     closeTaskGitPanel({ restoreFocus: true });
+  });
+  window.addEventListener('resize', () => {
+    if (!$('#taskGitPanel')?.classList.contains('hidden')) positionTaskGitPanel();
   });
   syncTaskGitControls();
 }
 
+const fullChatParking = document.createComment('agent-chat-home');
+$('#chatMainColumn').before(fullChatParking);
+let fullChatSelected = false;
+function syncFullChatTab() {
+  const selected = browserFocusMode && fullChatSelected;
+  const app = $('#app');
+  app.classList.toggle('full-agent-chat', selected);
+  app.classList.toggle('browser-focus-mode', browserFocusMode && !selected);
+  const chat = $('#chatMainColumn');
+  chat.classList.toggle('empty', $('#pageChat').classList.contains('empty'));
+  let host = $('#rs-agent-chat');
+  if (!host) {
+    host = document.createElement('section'); host.id = 'rs-agent-chat'; host.className = 'rs-agent-chat';
+    $('#rightSidebar .rs-content').appendChild(host);
+  }
+  if (selected) {
+    if (chat.parentNode !== host) host.appendChild(chat);
+    chat.style.width = '100%';
+  } else {
+    if (chat.parentNode !== fullChatParking.parentNode) fullChatParking.after(chat);
+    chat.style.removeProperty('width');
+  }
+  host.hidden = !selected;
+  $('#rightSidebarTabStrip [data-agent-chat-tab]')?.setAttribute('aria-selected', String(selected));
+}
+
+// The full-screen right panel carries an "Agent" tab whose label mirrors the
+// active task title. Switching tasks in the left sidebar used to leave that
+// label stale until an unrelated tab click rebuilt the strip, so refresh just
+// the label in place whenever the task context changes.
+function syncAgentChatTabLabel() {
+  const button = $('#rightSidebarTabStrip [data-agent-chat-tab]');
+  if (!button) return;
+  const title = state.currentSession?.title || '新聊天';
+  const label = button.querySelector('.rs-work-tab-label');
+  if (label && label.textContent !== title) label.textContent = title;
+  if (button.title !== title) button.title = title;
+}
+
 const RIGHT_SIDEBAR_TOOLS = Object.freeze({
+  'image-editor': {
+    label: '用户附件',
+    icon: window.YanImageEditorIcons['image-plus']
+  },
   browser: {
     label: '浏览器',
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>'
@@ -17537,7 +17921,7 @@ const RIGHT_SIDEBAR_TOOLS = Object.freeze({
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5M8 16h4"/><path d="m15 16 1.5 1.5L20 14"/></svg>'
   },
   interjection: {
-    label: '临时对话',
+    label: '侧边聊天',
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5686 16.353C2.915 14.8839 2 12.9769 2 11C2 6.5817 6.4772 3 12 3C17.5228 3 22 6.5817 22 11C22 15.4183 17.5228 19 12 19C11.1845 19 10.3721 18.9202 9.5808 18.7624L5 21L4.5686 16.353Z"/><path d="M12 8V14M9 11H15"/></svg>'
   },
   plan: {
@@ -17545,8 +17929,8 @@ const RIGHT_SIDEBAR_TOOLS = Object.freeze({
     icon: ICONS.billList
   },
   subagents: {
-    label: '子智能体',
-    icon: window.YanSubagentPanel.icon
+    label: '子代理',
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-keyline-icon="bot-2"><path d="M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/><path d="M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574"/></svg>'
   }
 });
 
@@ -17701,7 +18085,7 @@ function syncRightSidebarTabLayout() {
   const hiddenTabs = tabs.slice(0, firstVisible);
   overflowWrap.classList.toggle('hidden', hiddenTabs.length === 0);
   overflowMenu.innerHTML = hiddenTabs.map(tab => {
-    const active = tab.id === activeRightSidebarTab;
+    const active = tab.id === activeRightSidebarTab && !(browserFocusMode && fullChatSelected);
     const label = String(tab.label || RIGHT_SIDEBAR_TOOLS[tab.type]?.label || '');
     return `<button class="rs-tab-overflow-item${active ? ' active' : ''}" type="button" role="menuitem" data-rs-overflow-tab="${escapeAttr(tab.id)}" title="${escapeAttr(label)}">
       <span class="rs-work-tab-icon" aria-hidden="true">${rightSidebarTabIconMarkup(tab)}</span>
@@ -17732,15 +18116,21 @@ function renderRightSidebarTabs() {
     </div>`;
   }).join('');
 
+  if (browserFocusMode) {
+    const title = state.currentSession?.title || '新聊天';
+    strip.insertAdjacentHTML('afterbegin', `<div class="rs-tab-unit${fullChatSelected ? ' active' : ''}"><button type="button" class="rs-work-tab${fullChatSelected ? ' active' : ''}" data-agent-chat-tab role="tab" aria-selected="${fullChatSelected}" title="${escapeAttr(title)}"><span class="rs-work-tab-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/>  <path d="M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574"/></svg></span><span class="rs-work-tab-label">${escapeHtml(title)}</span></button></div>`);
+  }
   const hasOpenTabs = openRightSidebarTabs.length > 0;
   $('#rightSidebarAddWrap')?.classList.toggle('hidden', !hasOpenTabs);
   if (!hasOpenTabs) setRightSidebarAddMenuOpen(false);
   const hasActiveTab = !!getActiveRightSidebarTab();
   $$('.rs-panel').forEach(panel => {
-    const active = hasActiveTab && panel.id === `rs-${activeRightSidebarTab}`;
+    const active = $('#app').classList.contains('pr-diff-open') ? panel.id === 'rs-review' : hasActiveTab && panel.id === `rs-${activeRightSidebarTab}`;
     panel.classList.toggle('active', active);
+    panel.toggleAttribute('inert', !active);
     panel.setAttribute('aria-hidden', String(!active));
   });
+  syncFullChatTab();
   syncRightSidebarTabLayout();
   syncSidebarAccessibility();
 }
@@ -17820,7 +18210,7 @@ function createRightSidebarTab(tool, options = {}) {
     openRightSidebarTabs.push(tab);
     return tab;
   }
-  if (tool === 'review' || tool === 'interjection' || tool === 'plan') {
+  if (tool === 'review' || tool === 'interjection' || tool === 'plan' || tool === 'image-editor') {
     const existing = openRightSidebarTabs.find(tab => tab.type === tool);
     if (existing) return existing;
     const tab = { id: tool, type: tool, label: RIGHT_SIDEBAR_TOOLS[tool].label };
@@ -17850,9 +18240,11 @@ function createRightSidebarTab(tool, options = {}) {
   return tab;
 }
 
-function activateRightSidebarTab(tabId, { forceReview = true } = {}) {
+function activateRightSidebarTab(tabId, { forceReview = false } = {}) {
   const tab = openRightSidebarTabs.find(item => item.id === tabId);
   if (!tab) return false;
+  fullChatSelected = false;
+  syncFullChatTab();
   if (tab.type === 'browser' && !browserTabMatchesScope(tab)) {
     setRightSidebarOpen(false);
     return false;
@@ -17862,14 +18254,15 @@ function activateRightSidebarTab(tabId, { forceReview = true } = {}) {
   if (tab.type === 'browser') lastActiveBrowserTabId = tab.id;
   renderRightSidebarTabs();
   updateBrowserFocusControls();
+  syncBrowserFocusComposerAvailability();
   setRightSidebarOpen(true);
   if (tab.type === 'review') {
     expandRightSidebarForReview();
-    void renderRightSidebarReview({ force: forceReview });
+    void renderRightSidebarReview({ force: forceReview, reuse: !forceReview });
   }
   if (tab.type === 'interjection') {
     syncInterjectionUi();
-    requestAnimationFrame(() => $('#interjectionInput')?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => sideChatElement('composerInput')?.focus({ preventScroll: true }));
   }
   if (tab.type === 'plan') renderPlanDocumentPanel();
   if (tab.type === 'browser') syncBrowserViewport(tab.id);
@@ -17902,7 +18295,6 @@ function openRightSidebarTool(tool, { reuseBrowser = false } = {}) {
 
   if (tool === 'interjection') syncInterjectionUi();
   if (tool === 'browser') {
-    window.YanUnderstandAnything?.close();
     syncBrowserViewport();
   }
   setRightSidebarOpen(true);
@@ -17924,7 +18316,12 @@ function openBrowserUrlInNewTab(url) {
 function closeRightSidebarTool(tool) {
   const index = openRightSidebarTabs.findIndex(tab => tab.id === tool);
   if (index < 0) return false;
+  if (openRightSidebarTabs[index].type === 'image-editor' && window.YanImageEditor?.hasEdits()) {
+    void window.YanImageEditor.confirmClose().then(confirmed => { if (confirmed) closeRightSidebarTool(tool); });
+    return false;
+  }
   const [closedTab] = openRightSidebarTabs.splice(index, 1);
+  if (closedTab.type === 'image-editor') window.YanImageEditor?.reset();
   if (closedTab.type === 'review') {
     rsReviewRenderVersion++;
     rsReviewPendingRender = null;
@@ -17943,7 +18340,8 @@ function closeRightSidebarTool(tool) {
   renderRightSidebarTabs();
   const active = getActiveRightSidebarTab();
   updateBrowserFocusControls();
-  if (active?.type === 'review') void renderRightSidebarReview();
+  syncBrowserFocusComposerAvailability();
+  if (active?.type === 'review') void renderRightSidebarReview({ reuse: true });
   if (active?.type === 'interjection') syncInterjectionUi();
   if (active?.type === 'browser') syncBrowserViewport(active.id);
   if (!openRightSidebarTabs.length) setRightSidebarOpen(false);
@@ -17951,6 +18349,11 @@ function closeRightSidebarTool(tool) {
 }
 
 $('#rightSidebarTabStrip')?.addEventListener('click', event => {
+  if (event.target.closest('[data-agent-chat-tab]')) {
+    fullChatSelected = true;
+    renderRightSidebarTabs();
+    return;
+  }
   const closeButton = event.target.closest('[data-rs-close-tab]');
   if (closeButton) {
     event.stopPropagation();
@@ -17985,7 +18388,7 @@ $$('[data-rs-open-tool]').forEach(button => {
 
 $('#rightSidebarAddBtn')?.addEventListener('click', event => {
   event.stopPropagation();
-  setRightSidebarAddMenuOpen($('#rightSidebarAddMenu')?.classList.contains('hidden'));
+  openRightSidebarTool('browser');
 });
 $('#reviewFileList')?.addEventListener('click', event => {
   const folderButton = event.target.closest('[data-review-folder-toggle]');
@@ -18111,7 +18514,7 @@ api.onBrowserNewTabRequest?.(detail => {
 });
 document.addEventListener('click', event => {
   const agentLink = event.target.closest?.('a[data-yan-browser-link]');
-  if (agentLink?.closest('.msg-body.agent-output')) {
+  if (agentLink?.closest('.msg-body.agent-output, .msg.user .msg-body, .skill-document-markdown')) {
     const targetUrl = agentLink.dataset.yanBrowserLink || agentLink.getAttribute('href') || '';
     // Workspace screenshots are local image files: they belong to the same
     // preview window as attachments and generated images, not the side panel.
@@ -18122,7 +18525,8 @@ document.addEventListener('click', event => {
       openAttachmentPreview({ path: imagePath, name: '' });
       return;
     }
-    if (openBrowserUrlInNewTab(targetUrl)) {
+    if (/^(?:https?|file):/i.test(targetUrl)) {
+      api.browserOpenLink(targetUrl).then(result => { if (result.target === 'builtin') openBrowserUrlInNewTab(targetUrl); }).catch(error => toast(error.message));
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -18148,8 +18552,6 @@ if (typeof ResizeObserver === 'function') {
   if (rightSidebarTabbar) rightSidebarTabLayoutObserver.observe(rightSidebarTabbar);
   if (rightSidebarTabStrip) rightSidebarTabLayoutObserver.observe(rightSidebarTabStrip);
 }
-window.addEventListener('resize', scheduleRightSidebarTabLayoutSync);
-
 $('#rightSidebarFocusBtn')?.addEventListener('click', () => {
   setBrowserFocusMode(!browserFocusMode);
 });
@@ -18157,16 +18559,14 @@ $('#rightSidebarFocusBtn')?.addEventListener('click', () => {
 // Right dock: tools open the panel, the active tool toggles it closed, and
 // the circular close button mirrors the tab bar's own close affordance.
 $('#rightDockClose')?.addEventListener('click', () => closeRightSidebar());
-$$('.rs-dock-btn').forEach(button => {
-  button.addEventListener('click', () => {
-    const tool = button.dataset.rsDockTool;
-    const rightOpen = !$('#app').classList.contains('rs-hidden');
-    if (rightOpen && getActiveRightSidebarTab()?.type === tool) {
-      closeRightSidebar();
-      return;
-    }
-    openRightSidebarTool(tool);
-  });
+$('#rightDockLaunch')?.addEventListener('click', () => {
+  if (!$('#app').classList.contains('rs-hidden')) closeRightSidebar();
+  else if (getActiveRightSidebarTab()) activateRightSidebarTab(activeRightSidebarTab);
+  else {
+    const agentTab = [...openRightSidebarTabs].reverse().find(tab => tab.type === 'browser' && tab.agentOwned && browserTabMatchesScope(tab));
+    if (agentTab) activateRightSidebarTab(agentTab.id);
+    else openRightSidebarTool('browser');
+  }
 });
 
 // ============================================================
@@ -18186,85 +18586,26 @@ function parkSettingsOverlay() {
   if (!settingsOverlay.isConnected || !settingsOverlay.classList.contains('hidden')) return;
   settingsParkingLot.appendChild(settingsOverlay);
 }
-const settingsMenu = $('#settingsMenu');
-
-// Settings, profile, pet and theme are always-visible utility controls. Keep
-// the old menu node for compatibility with persisted UI/tests, but no longer
-// open a floating menu from the settings button.
-function setSettingsMenuOpen(open) {
-  settingsMenu?.classList.toggle('hidden', false);
-  $('#settingsBtn')?.setAttribute('aria-expanded', 'false');
-}
-
 $('#settingsBtn').addEventListener('click', () => openSettings('general'));
 
-function bindUserNameInput(input) {
-  if (!input || input.dataset.bound === 'true') return;
-  input.dataset.bound = 'true';
-  input.addEventListener('focus', event => {
-    setSettingsMenuOpen(false);
-    event.currentTarget.select();
-  });
-  input.addEventListener('input', updateGreeting);
-  input.addEventListener('keydown', event => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.currentTarget.blur();
-    } else if (event.key === 'Escape') {
-      event.currentTarget.value = normalizeUserName(state.config?.userName);
-      event.currentTarget.blur();
-    }
-  });
-  input.addEventListener('blur', async event => {
-    const activeInput = event.currentTarget;
-    const previousName = normalizeUserName(state.config?.userName);
-    const nextName = normalizeUserName(activeInput.value);
-    activeInput.value = nextName;
-    if (nextName === previousName) {
-      updateGreeting();
-      return;
-    }
-    try {
-      state.config = await api.setConfig({ userName: nextName });
-      syncUserNameUi();
-    } catch (error) {
-      activeInput.value = previousName;
-      updateGreeting();
-      toast(`用户名保存失败：${error?.message || error}`);
-    }
-  });
-}
+$('#closeSettings')?.addEventListener('click', closeSettings);
 
-bindUserNameInput($('#userNameInput'));
-$('#petWindowToggle')?.addEventListener('click', async () => {
-  const visible = await api.togglePetWindow?.();
-  updatePetWindowButton(!!visible);
-});
-$('#themeToggle')?.addEventListener('click', async () => {
-  const order = ['light', 'dark'];
-  const current = state.config?.theme || 'dark';
-  const currentIndex = order.indexOf(current);
-  const next = order[(currentIndex < 0 ? 0 : currentIndex + 1) % order.length];
-  state.config = await api.setConfig({ theme: next });
-  applyTheme(next);
-});
-$('#settingsMenuOpen')?.addEventListener('click', () => {
-  openSettings('general');
-});
-$('#closeSettings').addEventListener('click', closeSettings);
-
-function openSettings(tab = 'about') {
+let settingsReturnFocus = null;
+function openSettings(tab = 'general') {
+  window.YanVoiceInput?.cancel();
   // Settings is a separate workspace. Close transient chat-only surfaces
   // before the layout is hidden so an expanded todo panel cannot remain
   // painted above a wallpaper-backed settings page during the handoff.
+  closeAbout();
+  window.YanRemoteControl?.close();
   setTodoProgressOpen(false);
   mountSettingsOverlay();
   const alreadyOpen = !settingsOverlay.classList.contains('hidden');
   if (!alreadyOpen) {
+    settingsReturnFocus = document.activeElement;
     $('#app').classList.add('settings-mode');
     settingsOverlay.classList.remove('hidden');
     [
-      '#pageChat', '#pageSkills', '#pageMcp', '#pageWorkGui',
       '#rightSidebar', '#rightResizeHandle'
     ].forEach(selector => {
       const element = $(selector);
@@ -18275,6 +18616,7 @@ function openSettings(tab = 'about') {
   switchTab(tab);
   void populateSettings();
   syncSidebarAccessibility();
+  if (!alreadyOpen) $('#settingsSidebarNav .sheet-nav-btn.active')?.focus({ preventScroll: true });
 }
 
 function closeSettings() {
@@ -18283,7 +18625,6 @@ function closeSettings() {
   settingsOverlay.classList.add('hidden');
   $('#app').classList.remove('settings-mode');
   [
-    '#pageChat', '#pageSkills', '#pageMcp', '#pageWorkGui',
     '#rightSidebar', '#rightResizeHandle'
   ].forEach(selector => {
     const element = $(selector);
@@ -18291,21 +18632,96 @@ function closeSettings() {
     element?.removeAttribute('aria-hidden');
   });
   syncSidebarAccessibility();
+  if (settingsReturnFocus?.isConnected) settingsReturnFocus.focus({ preventScroll: true });
   requestAnimationFrame(() => parkSettingsOverlay());
 }
+
+// About is an independent workspace reached from the app rail; it is not a
+// settings tab. It mirrors the settings overlay lifecycle so the underlying
+// task layout is removed from paint and hit testing while it is open.
+const aboutPageLayer = $('#aboutPage');
+let aboutReturnFocus = null;
+
+function renderAboutContent() {
+  const content = window.YanAboutContent || {};
+  const versionEl = $('#aboutVersionLabel');
+  if (versionEl && content.versionLabel) versionEl.textContent = content.versionLabel;
+  const notes = $('#aboutReleaseNotes');
+  if (notes) notes.innerHTML = renderMarkdown(String(content.releaseNotes || ''));
+}
+
+function openAbout() {
+  if (!aboutPageLayer) return;
+  if (!$('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
+  window.YanRemoteControl?.close();
+  setTodoProgressOpen(false);
+  const alreadyOpen = !aboutPageLayer.classList.contains('hidden');
+  if (!alreadyOpen) {
+    aboutReturnFocus = document.activeElement;
+    renderAboutContent();
+    $('#app').classList.add('about-mode');
+    aboutPageLayer.classList.remove('hidden');
+    [
+      '#rightSidebar', '#rightResizeHandle'
+    ].forEach(selector => {
+      const element = $(selector);
+      element?.toggleAttribute('inert', true);
+      element?.setAttribute('aria-hidden', 'true');
+    });
+  }
+  syncSidebarAccessibility();
+  if (!alreadyOpen) requestAnimationFrame(() => $('#aboutCheckUpdateBtn')?.focus({ preventScroll: true }));
+}
+
+function closeAbout() {
+  if (!aboutPageLayer || aboutPageLayer.classList.contains('hidden')) return;
+  aboutPageLayer.classList.add('hidden');
+  $('#app').classList.remove('about-mode');
+  [
+    '#rightSidebar', '#rightResizeHandle'
+  ].forEach(selector => {
+    const element = $(selector);
+    element?.removeAttribute('inert');
+    element?.removeAttribute('aria-hidden');
+  });
+  syncSidebarAccessibility();
+  if (aboutReturnFocus?.isConnected) aboutReturnFocus.focus({ preventScroll: true });
+}
+
+$('#aboutNavBtn')?.addEventListener('click', () => openAbout());
 
 $$('.sheet-nav-btn').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
-const visibleSettingsTabButtons = () => $$('#settingsSidebarNav .sheet-nav-btn:not([data-tab="model"])');
+const visibleSettingsTabButtons = () => $$('#settingsSidebarNav .sheet-nav-btn:not([disabled])');
 
 const SETTINGS_TAB_META = Object.freeze({
-  general: { title: '常规', description: '主题、语言、权限等基础设置' },
-  api: { title: 'API 配置', description: '模型厂商、凭据与兼容端点' },
+  'intelligent-ui': { title: 'Intelligent UI', description: '实验室功能 · 在对话中完成任务的小程序' },
+  archived: { title: '已归档的聊天', description: '' },
+  worktrees: { title: 'Worktrees', description: '' },
+  'code-review': { title: '代码审查', description: '' },
+  subagents: { title: '子代理', description: '' },
+  git: { title: 'Git', description: '' },
+  general: { title: '常规', description: '文件打开方式、编辑器与通知' },
+  configuration: { title: '配置', description: '配置新聊天的权限与朗读以及智能体的回复' },
+  storage: { title: '存储空间', description: '' },
+  api: { title: '服务商配置', description: '模型服务商、凭据与兼容端点，可同时启用多家' },
+  'main-model': { title: '主模型', description: '' },
+  'model-secondary': { title: '次模型', description: '在服务商连接里标记支持生图 / 生视频的模型' },
   model: { title: '模型', description: '选择当前任务默认使用的模型' },
-  'vision-relay': { title: '视觉中继', description: '允许任意主模型读取和理解图像内容，实现完全多模态' },
-  about: { title: '关于Yan Agent', description: '版本信息与更新文档' }
+  'vision-relay': { title: '多模态链路', description: '视觉中继让任意主模型读取和理解图像内容，组成完整多模态链路' },
+  usage: { title: '用量显示', description: '' },
+  about: { title: '关于', description: '版本信息与更新文档' },
+  logo: { title: '外观', description: '主题、字体与偏好设置' },
+  wallpaper: { title: '壁纸', description: '' },
+  'computer-control': { title: '电脑操控', description: '管理 Yan Agent 如何使用你电脑上的其他应用程序' },
+  'app-snapshot': { title: '应用快照', description: '' },
+  voice: { title: '语音功能', description: '' },
+  memory: { title: '个性化', description: '' },
+  browser: { title: '浏览器', description: '管理你的 Browser Use 偏好设置和网站访问权限。' },
+  remote: { title: '远程操控', description: '使用 WebUI 在同一局域网继续进行和管理工作。' },
+  pet: { title: 'Domml与虚拟宠物', description: 'Domml允许你快速访问Yan Agent，单击它可聚焦Yan Agent。' }
 });
 
 $('#settingsSidebarNav')?.addEventListener('keydown', event => {
@@ -18324,9 +18740,17 @@ $('#settingsSidebarNav')?.addEventListener('keydown', event => {
 });
 
 function switchTab(tab) {
+  if (!visibleSettingsTabButtons().some(button => button.dataset.tab === tab)) tab = 'general';
   if (tab !== 'quick-launch' && quickLaunchCapturing) stopQuickLaunchCapture();
   const meta = SETTINGS_TAB_META[tab] || SETTINGS_TAB_META.about;
   settingsOverlay.dataset.activeTab = tab;
+  if (tab === 'archived') void window.YanArchiveSettings?.refresh();
+  if (tab === 'code-review') void window.YanCodeReviewSettings?.refresh();
+  if (tab === 'subagents') void window.YanSubagentSettings?.refresh();
+  if (tab === 'worktrees') void window.YanWorktreeSettings?.refresh();
+  if (tab === 'storage') void window.YanStorageSettings?.refresh();
+  if (tab === 'usage') void window.YanUsageSettings?.refresh();
+  if (tab === 'remote') void window.YanRemoteControl?.refresh();
   visibleSettingsTabButtons().forEach(b => {
     const active = b.dataset.tab === tab;
     b.classList.toggle('active', active);
@@ -18339,163 +18763,35 @@ function switchTab(tab) {
     p.setAttribute('aria-hidden', String(!active));
   });
   if ($('#settingsSectionTitle')) $('#settingsSectionTitle').textContent = meta.title;
+  if (tab === 'storage') {
+    const icon = $('#settings-tab-storage svg')?.cloneNode(true);
+    if (icon) $('#settingsSectionTitle')?.prepend(icon);
+  }
   if ($('#settingsSectionDescription')) $('#settingsSectionDescription').textContent = meta.description;
   const settingsContent = $('.settings-page-layer .sheet-content');
   if (settingsContent) settingsContent.scrollTop = 0;
+  if (tab === 'computer-control') void window.YanComputerControl?.refresh();
+  else window.YanComputerControl?.closeDetail();
+  if (tab === 'app-snapshot') window.YanAppSnapshot?.syncSettings();
+  if (tab === 'memory') window.YanMemorySettings?.sync();
+  if (tab === 'main-model') void refreshMainModels();
+  if (tab === 'model-secondary') void refreshSecondaryModels();
+  if (tab === 'browser') window.YanBrowserSettings?.sync();
+  if (tab === 'voice') void window.YanVoiceInput?.refresh();
 }
-
-const ABOUT_CONTACTS = Object.freeze({
-  douyin: '994525685197',
-  qq: '1103989964',
-  email: '1420894553@qq.com'
-});
-
-function syncAboutContact(key = 'douyin') {
-  const picker = $('#aboutContactPicker');
-  const value = ABOUT_CONTACTS[key] || ABOUT_CONTACTS.douyin;
-  if (!picker) return;
-  picker.querySelectorAll('[data-about-contact]').forEach(button => {
-    const active = button.dataset.aboutContact === key;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-checked', String(active));
-  });
-  const valueEl = $('#aboutContactValue');
-  if (valueEl) valueEl.textContent = value;
-  const copyButton = $('#aboutContactCopy');
-  if (copyButton) copyButton.dataset.contactValue = value;
-}
-
-async function copyAboutContact() {
-  const value = String($('#aboutContactCopy')?.dataset.contactValue || $('#aboutContactValue')?.textContent || '').trim();
-  if (!value) return;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-    } else {
-      const helper = document.createElement('textarea');
-      helper.value = value;
-      helper.setAttribute('readonly', 'true');
-      helper.style.position = 'fixed';
-      helper.style.opacity = '0';
-      document.body.appendChild(helper);
-      helper.select();
-      document.execCommand('copy');
-      helper.remove();
-    }
-    toast('已复制到剪贴板');
-  } catch {
-    toast('复制失败');
-  }
-}
-
-const aboutErrorDialog = $('#aboutErrorDialog');
-const aboutErrorsButton = $('#aboutErrorsBtn');
-const aboutErrorClose = $('#aboutErrorClose');
-const ABOUT_ERROR_PAGES = Object.freeze([
-  {
-    title: 'OpenCode configuration changed while Agent runs are active.',
-    description: '任务运行期间修改了模型配置',
-    answer: 'A：任务期间请勿随意更改模型配置'
-  },
-  {
-    title: "Expected 'id' to be a string.",
-    description: 'OpenAI 兼容工具流的首个 tool-call 增量缺少字符串 “id”',
-    answer: 'A：属上游响应形状问题，请反馈至Yan Agent抖音/QQ群'
-  },
-  {
-    title: "Expected 'function.name' to be a string.",
-    description: 'OpenAI 兼容工具流的首个 tool-call 增量缺少函数名',
-    answer: 'A：属上游响应形状问题，请反馈至Yan Agent抖音/QQ群'
-  },
-  {
-    title: 'ConfigInvalidError / Invalid input: expected …',
-    description: 'provider、model 或权限对象不符合 SDK schema（例如 provider/model id 不是字符串）',
-    answer: 'A：provider-ID / model-ID有误，请检查API配置'
-  },
-  {
-    title: 'OpenCode completed without a final user-facing answer.',
-    description: '有 assistant 消息，但没有可展示的最终文本',
-    answer: 'A：此为偶发性问题，请尝试重新发送prompt'
-  },
-  {
-    title: 'Unknown certificate verification error.',
-    description: '未知证书配置错误',
-    answer: 'A：此为偶发性问题，请尝试重新发送prompt'
-  }
-]);
-let aboutErrorPage = 0;
-function renderAboutErrorPage() {
-  const pageIndex = Math.max(0, Math.min(ABOUT_ERROR_PAGES.length - 1, aboutErrorPage));
-  const page = ABOUT_ERROR_PAGES[pageIndex];
-  aboutErrorPage = pageIndex;
-  const title = $('#aboutErrorPageTitle');
-  if (title) title.textContent = page.title;
-  const copy = $('#aboutErrorPageCopy');
-  if (copy) {
-    copy.replaceChildren();
-    const description = document.createElement('p');
-    description.textContent = page.description;
-    const answer = document.createElement('p');
-    answer.className = 'about-error-answer';
-    answer.textContent = page.answer;
-    copy.append(description, answer);
-  }
-  const label = $('#aboutErrorStepLabel');
-  if (label) label.textContent = `${pageIndex + 1} / ${ABOUT_ERROR_PAGES.length}`;
-  const dots = $('#aboutErrorDots');
-  if (dots) {
-    dots.replaceChildren(...ABOUT_ERROR_PAGES.map((_item, index) => {
-      const dot = document.createElement('span');
-      dot.className = 'conn-step-dot' + (index === pageIndex ? ' now' : (index < pageIndex ? ' done' : ''));
-      return dot;
-    }));
-  }
-  $('#aboutErrorPrev')?.toggleAttribute('disabled', pageIndex === 0);
-  const next = $('#aboutErrorNext');
-  if (next) next.textContent = pageIndex === ABOUT_ERROR_PAGES.length - 1 ? '完成' : '下一页 →';
-  $('#aboutErrorStage')?.scrollTo({ top: 0 });
-}
-aboutErrorsButton?.addEventListener('click', () => {
-  if (!aboutErrorDialog) return;
-  aboutErrorPage = 0;
-  renderAboutErrorPage();
-  if (!aboutErrorDialog.open) aboutErrorDialog.showModal();
-});
-aboutErrorClose?.addEventListener('click', () => aboutErrorDialog?.close());
-$('#aboutErrorPrev')?.addEventListener('click', () => {
-  if (aboutErrorPage > 0) { aboutErrorPage -= 1; renderAboutErrorPage(); }
-});
-$('#aboutErrorNext')?.addEventListener('click', () => {
-  if (aboutErrorPage >= ABOUT_ERROR_PAGES.length - 1) aboutErrorDialog?.close();
-  else { aboutErrorPage += 1; renderAboutErrorPage(); }
-});
-aboutErrorDialog?.addEventListener('click', event => {
-  if (event.target === event.currentTarget) aboutErrorDialog.close();
-});
-aboutErrorDialog?.addEventListener('keydown', event => {
-  if (event.key === 'ArrowLeft' && aboutErrorPage > 0) {
-    event.preventDefault(); aboutErrorPage -= 1; renderAboutErrorPage();
-  } else if (event.key === 'ArrowRight' && aboutErrorPage < ABOUT_ERROR_PAGES.length - 1) {
-    event.preventDefault(); aboutErrorPage += 1; renderAboutErrorPage();
-  }
-});
-aboutErrorDialog?.addEventListener('close', () => aboutErrorsButton?.focus({ preventScroll: true }));
-$('#aboutContactPicker')?.addEventListener('click', event => {
-  const button = event.target.closest('[data-about-contact]');
-  if (!button) return;
-  syncAboutContact(button.dataset.aboutContact);
-});
-$('#aboutContactCopy')?.addEventListener('click', copyAboutContact);
 
 // About panel: check updates from the COS release feed
-const UPDATE_BUTTON_IDLE_LABEL = '检查当前版本并更新';
+const UPDATE_BUTTON_IDLE_LABEL = '检查版本并更新';
 const aboutCheckUpdateButton = $('#aboutCheckUpdateBtn');
 let updateDownloading = false;
 let updateProgressOff = null;
 
 function setUpdateButtonLabel(label, disabled = false) {
   if (!aboutCheckUpdateButton) return;
-  aboutCheckUpdateButton.textContent = window.YanI18n?.translate(label) || label;
+  const text = window.YanI18n?.translate(label) || label;
+  const labelEl = aboutCheckUpdateButton.querySelector('.about-update-label');
+  if (labelEl) labelEl.textContent = text;
+  else aboutCheckUpdateButton.textContent = text;
   aboutCheckUpdateButton.disabled = !!disabled;
 }
 
@@ -18563,7 +18859,6 @@ async function checkForUpdatesFromAbout() {
 aboutCheckUpdateButton?.addEventListener('click', () => {
   checkForUpdatesFromAbout();
 });
-syncAboutContact();
 
 let connectionCache = [];
 let activeConnectionId = '';
@@ -18578,41 +18873,41 @@ const CONNECTION_PRESET_LABELS = Object.freeze({
   openai: 'OpenAI 通用',
   gptl: 'GPT · GPTL',
   deepseek: 'DeepSeek · DSML',
-  anthropic: 'Anthropic',
-  gemini: 'Gemini',
+  anthropic: 'Anthropic · ANTL',
+  gemini: 'Gemini · GEML',
   kimi: 'Kimi·KIML',
   glm: 'glm·GLMM',
   qwen: 'Qwen·QWEM',
   doubao: '豆包 · 火山方舟',
-  agnes: 'Agnes',
+  agnes: 'Agnes · AGNL',
   stepfun: '阶跃 · StepFun',
   hunyuan: '混元 · Hunyuan',
   minimax: 'MiniMax',
   siliconflow: '硅基流动',
-  grok: 'Grok',
+  grok: 'Grok · GROL',
   opencode: 'OpenCode',
+  mimo: '小米 MiMo',
+  'opencode-go': 'OpenCode-Go',
+  'opencode-zen': 'OpenCode-Zen',
   sensenova: '日日新',
   jiyuan: '基元律动'
 });
 const CONNECTION_FORMAT_LABELS = Object.freeze({
   auto: '自动识别（按预设与 URL 推断）',
   openai: 'Chat Completions（/chat/completions）',
+  chat: 'Chat Completions（/chat/completions）',
   anthropic: 'Anthropic Messages（/v1/messages）',
   responses: 'Responses（/responses）'
 });
 const PET_PICKER_LABELS = Object.freeze({
   orb: 'Yan Agent Orb',
-  yuexinmiao: '月薪猫',
   deepseek: '大烧货',
   claude: 'claude'
 });
 
 const WALLPAPER_LIBRARY = Object.freeze({
-  'sword-and-sakura': { name: '剑与樱', file: '剑与樱.jpg' },
-  'chinese-garden': { name: '中式园林', file: '中式园林.jpg' },
-  'dark-side-of-moon': { name: '月之暗面', file: '月之暗面.jpg' },
-  'side-glance': { name: '侧脸回眸', file: '侧脸回眸.jpg' },
-  'deep-cave': { name: '幽邃山洞', file: '幽邃山洞.jpg' }
+  'night-sky': { name: '夜空-天体-天空', file: '【哲风壁纸】夜空-天体-天空.jpg' },
+  'rainy-architecture': { name: '下雨天-中式建筑', file: '【哲风壁纸】下雨天-中式建筑.mp4', poster: 'thumbs/rainy-architecture.jpg' }
 });
 
 function wallpaperFileUrl(filePath) {
@@ -18622,6 +18917,12 @@ function wallpaperFileUrl(filePath) {
   const normalized = source.replace(/\\/g, '/');
   if (/^[A-Za-z]:\//.test(normalized)) return `file:///${encodeURI(normalized)}`;
   return `file://${encodeURI(normalized.startsWith('/') ? normalized : `/${normalized}`)}`;
+}
+
+const WALLPAPER_VIDEO_PATTERN = /\.(?:mp4|webm|m4v|mov|ogv)(?:[?#]|$)/i;
+
+function wallpaperIsVideo(source) {
+  return WALLPAPER_VIDEO_PATTERN.test(String(source || ''));
 }
 
 function wallpaperSource(wallpaper = {}) {
@@ -18664,7 +18965,14 @@ function renderWallpaperMarket(wallpaper = {}) {
     card.tabIndex = 0;
     card.setAttribute('role', 'listitem');
     card.setAttribute('aria-pressed', 'false');
-    card.innerHTML = `<img src="${escapeAttr(wallpaperFileUrl(entry.path))}" alt="${escapeAttr(entry.name)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" draggable="false" /><div class="wallpaper-card-footer"><span>${escapeHtml(entry.name)}</span><button class="wallpaper-card-delete" type="button" data-wallpaper-delete="${escapeAttr(entry.id)}" title="删除壁纸" aria-label="删除${escapeAttr(entry.name)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg></button></div>`;
+    const isVideo = wallpaperIsVideo(entry.path);
+    // MP4 previews show the frame at 0.1s through a media fragment so the card
+    // never plays sound or decodes the whole clip.
+    const preview = isVideo
+      ? `<video class="wallpaper-card-video" src="${escapeAttr(`${wallpaperFileUrl(entry.path)}#t=0.1`)}" muted preload="metadata" playsinline disablepictureinpicture aria-hidden="true"></video>`
+      : `<img src="${escapeAttr(wallpaperFileUrl(entry.path))}" alt="${escapeAttr(entry.name)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" draggable="false" />`;
+    const tag = isVideo ? '<em class="wallpaper-card-tag">视频</em>' : '';
+    card.innerHTML = `${preview}<div class="wallpaper-card-footer"><span>${escapeHtml(entry.name)}</span>${tag}<button class="wallpaper-card-delete" type="button" data-wallpaper-delete="${escapeAttr(entry.id)}" title="删除壁纸" aria-label="删除${escapeAttr(entry.name)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg></button></div>`;
     grid.insertBefore(card, addCard);
   }
 }
@@ -18678,19 +18986,66 @@ function syncWallpaperMarket(wallpaper = {}) {
   });
 }
 
+function playWallpaperVideo(video) {
+  if (!video || !video.isConnected || !video.getAttribute('src')) return;
+  video.defaultMuted = true;
+  video.muted = true;
+  video.volume = 0;
+  try {
+    const attempt = video.play();
+    if (attempt && typeof attempt.catch === 'function') {
+      attempt.catch(() => {
+        // Retry muted playback if autoplay was temporarily unavailable.
+        video.muted = true;
+        const retry = video.play();
+        if (retry && typeof retry.catch === 'function') retry.catch(() => {});
+      });
+    }
+  } catch {
+    // Playback is best-effort; the first frame stays visible on failure.
+  }
+}
+
+function applyWallpaperVideo(source) {
+  const video = $('#wallpaperVideo');
+  if (!video) return;
+  if (!source) {
+    if (video.dataset.wallpaperSrc) {
+      video.dataset.wallpaperSrc = '';
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+    video.classList.remove('active');
+    return;
+  }
+  video.defaultMuted = true;
+  video.volume = 0;
+  video.muted = true;
+  if (video.dataset.wallpaperSrc !== source) {
+    video.dataset.wallpaperSrc = source;
+    video.src = source;
+  }
+  video.classList.add('active');
+  playWallpaperVideo(video);
+}
+
 function applyWallpaperConfig(config = {}) {
   const wallpaper = config?.wallpaper && typeof config.wallpaper === 'object' ? config.wallpaper : {};
   const source = wallpaperSource(wallpaper);
   const active = !!source;
+  const isVideo = active && wallpaperIsVideo(source);
   const layer = $('#wallpaperLayer');
   if (layer) {
     // Wallpaper opacity is locked to 100%; only the material strength is a
     // user-facing choice.
     layer.style.setProperty('--wallpaper-opacity', '1');
-    layer.style.backgroundImage = active ? `url(${JSON.stringify(source)})` : 'none';
+    layer.style.backgroundImage = active && !isVideo ? `url(${JSON.stringify(source)})` : 'none';
   }
+  applyWallpaperVideo(isVideo ? source : '');
   $('#app')?.classList.toggle('wallpaper-enabled', active);
   document.body.classList.toggle('wallpaper-enabled', active);
+  applyTheme(config.theme);
   renderWallpaperMarket(wallpaper);
   syncWallpaperMarket(wallpaper);
   void applyWallpaperCompat(config);
@@ -18703,9 +19058,11 @@ function applyWallpaperConfig(config = {}) {
 // ============================================================
 const THEME_COMPAT_VARS = Object.freeze([
   '--wall-scrim', '--wall-scrim-top', '--wall-scrim-bottom', '--wall-blur',
-  '--mat-chrome', '--mat-panel', '--mat-card', '--mat-float', '--mat-blur',
-  '--accent', '--accent-hover', '--accent-soft', '--accent-text'
+  '--mat-chrome', '--mat-panel', '--mat-card', '--mat-float', '--mat-blur'
 ]);
+// Owned by the appearance accent; wallpaper follow may set these while a
+// wallpaper is active, but they are never removed back to a hardcoded default.
+const ACCENT_COMPAT_VARS = Object.freeze(['--accent', '--accent-hover', '--accent-soft', '--accent-text']);
 const THEME_COMPAT_DEFAULTS = Object.freeze({ autoAdapt: true, materialStrength: 0.45, accentFollow: true });
 const wallpaperCompatCache = new Map();
 let wallpaperCompatRequest = 0;
@@ -18840,6 +19197,9 @@ function applyThemeCompatVars(vars = {}) {
     if (Object.prototype.hasOwnProperty.call(vars, name)) root.style.setProperty(name, vars[name]);
     else root.style.removeProperty(name);
   });
+  ACCENT_COMPAT_VARS.forEach(name => {
+    if (Object.prototype.hasOwnProperty.call(vars, name)) root.style.setProperty(name, vars[name]);
+  });
 }
 
 function renderThemeCompatSettings(settings = themeCompatSettings()) {
@@ -18861,14 +19221,24 @@ async function applyWallpaperCompat(config = state.config) {
     document.body.classList.remove('wallpaper-compat');
     document.documentElement.dataset.wallCompatSource = '';
     applyThemeCompatVars({});
+    applyAppearanceAccent(config?.appearance?.accent);
     return;
   }
+  const builtIn = WALLPAPER_LIBRARY[wallpaper.id];
+  const analysisSource = builtIn?.poster ? `assets/wallpapers/${builtIn.poster}` : source;
   let metrics = wallpaperCompatCache.get(source);
-  if (!metrics && typeof api?.wallpaperAnalyze === 'function') {
+  if (!metrics && !wallpaperIsVideo(analysisSource) && typeof api?.wallpaperAnalyze === 'function') {
     try {
-      const result = await api.wallpaperAnalyze(source);
-      if (result && result.ok !== false && Number.isFinite(result.luma)) {
-        metrics = { luma: result.luma, hue: result.hue, sat: result.sat };
+      // A stalled analysis must never block the material class: without
+      // wallpaper-compat the left column stays transparent while the right
+      // sidebar's surfaces (the review panel included) fall back to an opaque
+      // paper fill. Neutral metrics are an acceptable fallback.
+      const analyzed = await Promise.race([
+        api.wallpaperAnalyze(analysisSource),
+        new Promise(resolve => { setTimeout(() => resolve(null), 1500); })
+      ]);
+      if (analyzed && analyzed.ok !== false && Number.isFinite(analyzed.luma)) {
+        metrics = { luma: analyzed.luma, hue: analyzed.hue, sat: analyzed.sat };
         wallpaperCompatCache.set(source, metrics);
       }
     } catch {
@@ -18881,6 +19251,7 @@ async function applyWallpaperCompat(config = state.config) {
   app?.classList.add('wallpaper-compat');
   document.body.classList.add('wallpaper-compat');
   applyThemeCompatVars(vars);
+  if (!Object.prototype.hasOwnProperty.call(vars, '--accent')) applyAppearanceAccent(config?.appearance?.accent);
   document.documentElement.dataset.wallCompatSource = source;
 }
 
@@ -18898,7 +19269,10 @@ async function saveWallpaperSelection(next) {
   const current = state.config?.wallpaper && typeof state.config.wallpaper === 'object'
     ? state.config.wallpaper
     : {};
-  state.config = await api.setConfig({ wallpaper: { ...current, ...next } });
+  state.config = await api.setConfig({
+    wallpaper: { ...current, ...next },
+    ...(next.id && next.id !== current.id ? { theme: 'dark' } : {})
+  });
   applyWallpaperConfig(state.config);
 }
 
@@ -18944,7 +19318,7 @@ async function removeWallpaper(id) {
   }
 }
 
-const wallpaperAddDraft = { file: null, page: 0 };
+const wallpaperAddDraft = { file: null };
 
 function showWallpaperAddNotice(message = '', kind = 'error') {
   const notice = $('#wallpaperAddNotice');
@@ -18954,37 +19328,15 @@ function showWallpaperAddNotice(message = '', kind = 'error') {
   notice.classList.toggle('hidden', !message);
 }
 
-function setWallpaperAddPage(page = 0) {
-  const nextPage = Math.max(0, Math.min(1, Number(page) || 0));
-  wallpaperAddDraft.page = nextPage;
-  $$('#wallpaperAddStage .wallpaper-add-page').forEach((item, index) => {
-    const active = index === nextPage;
-    item.classList.toggle('active', active);
-    item.setAttribute('aria-hidden', String(!active));
-  });
-  $$('#wallpaperAddStepDots .conn-step-dot').forEach((dot, index) => {
-    dot.classList.toggle('done', index < nextPage);
-    dot.classList.toggle('now', index === nextPage);
-  });
-  const label = $('#wallpaperAddStepLabel');
-  if (label) label.textContent = `${nextPage + 1} / 2`;
-  const prev = $('#wallpaperAddPrev');
-  const next = $('#wallpaperAddNext');
-  if (prev) prev.disabled = nextPage === 0;
-  if (next) next.textContent = nextPage === 1 ? '确定' : '下一页 →';
-}
-
 function resetWallpaperAddDialog() {
   wallpaperAddDraft.file = null;
-  wallpaperAddDraft.page = 0;
   const input = $('#wallpaperAddFile');
   if (input) input.value = '';
   const name = $('#wallpaperAddName');
   if (name) name.value = '';
   const fileName = $('#wallpaperAddFileName');
-  if (fileName) fileName.textContent = '尚未选择照片';
+  if (fileName) fileName.textContent = '尚未选择文件';
   showWallpaperAddNotice('');
-  setWallpaperAddPage(0);
 }
 
 function openWallpaperAddDialog() {
@@ -18995,20 +19347,23 @@ function openWallpaperAddDialog() {
 }
 
 function wallpaperFileIsValid(file) {
-  return !!file && (/^image\/(?:jpeg|png)$/i.test(file.type) || /\.(?:jpe?g|png)$/i.test(file.name));
+  return !!file && (
+    /^image\/(?:jpeg|png)$/i.test(file.type)
+    || /^video\/(?:mp4|webm)$/i.test(file.type)
+    || /\.(?:jpe?g|png)$/i.test(file.name)
+    || /\.(?:mp4|webm)$/i.test(file.name)
+  );
 }
 
 async function saveWallpaperFromDraft() {
   const file = wallpaperAddDraft.file;
   const name = $('#wallpaperAddName')?.value?.trim() || '';
   if (!file || !wallpaperFileIsValid(file)) {
-    showWallpaperAddNotice('请先选择 JPG 或 PNG 照片。');
-    setWallpaperAddPage(0);
+    showWallpaperAddNotice('请先选择 JPG、PNG 图片或 MP4 视频。');
     return;
   }
   if (file.size > 50 * 1024 * 1024) {
     showWallpaperAddNotice('壁纸不能超过 50MB。');
-    setWallpaperAddPage(0);
     return;
   }
   if (!name) {
@@ -19036,16 +19391,7 @@ async function saveWallpaperFromDraft() {
       path: uploaded.path,
       name: name.slice(0, 120)
     }];
-    state.config = await api.setConfig({
-      wallpaper: {
-        ...current,
-        custom,
-        id,
-        path: uploaded.path,
-        name: name.slice(0, 120)
-      }
-    });
-    applyWallpaperConfig(state.config);
+    await saveWallpaperSelection({ custom, id, path: uploaded.path, name: name.slice(0, 120) });
     $('#wallpaperAddDialog')?.close();
     toast(`壁纸“${name}”已添加并应用`);
   } catch (error) {
@@ -19063,23 +19409,10 @@ function bindWallpaperAddDialog() {
     const file = event.currentTarget.files?.[0] || null;
     wallpaperAddDraft.file = file;
     const label = $('#wallpaperAddFileName');
-    if (label) label.textContent = file ? file.name : '尚未选择照片';
-    showWallpaperAddNotice(file && !wallpaperFileIsValid(file) ? '仅支持 JPG 或 PNG 照片。' : '');
+    if (label) label.textContent = file ? file.name : '尚未选择文件';
+    showWallpaperAddNotice(file && !wallpaperFileIsValid(file) ? '仅支持 JPG、PNG 图片或 MP4 视频。' : '');
   });
-  $('#wallpaperAddPrev')?.addEventListener('click', () => setWallpaperAddPage(wallpaperAddDraft.page - 1));
-  $('#wallpaperAddNext')?.addEventListener('click', () => {
-    if (wallpaperAddDraft.page === 0) {
-      if (!wallpaperAddDraft.file || !wallpaperFileIsValid(wallpaperAddDraft.file)) {
-        showWallpaperAddNotice('请先选择 JPG 或 PNG 照片。');
-        return;
-      }
-      showWallpaperAddNotice('');
-      setWallpaperAddPage(1);
-      $('#wallpaperAddName')?.focus();
-      return;
-    }
-    void saveWallpaperFromDraft();
-  });
+  $('#wallpaperAddNext')?.addEventListener('click', () => { void saveWallpaperFromDraft(); });
   $('#wallpaperAddClose')?.addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', event => {
     if (event.target === dialog) dialog.close();
@@ -19089,210 +19422,34 @@ function bindWallpaperAddDialog() {
 
 function normalizePetPickerId(value) {
   const id = String(value || '').trim().toLowerCase();
-  return Object.prototype.hasOwnProperty.call(PET_PICKER_LABELS, id) ? id : 'orb';
+  return DOMML_PETS.some(pet => pet.id === id) ? id : 'orb';
 }
 
-function syncGeneralPetPicker(value) {
-  const selected = normalizePetPickerId(value);
-  const label = $('#generalPetPickerLabel');
-  if (label) label.textContent = PET_PICKER_LABELS[selected];
-  $('#generalPetPickerMenu')?.querySelectorAll('[data-pet-select]').forEach(option => {
-    const active = option.dataset.petSelect === selected;
-    option.classList.toggle('active', active);
-    option.setAttribute('aria-selected', String(active));
-  });
-}
-
-function setGeneralPetPickerOpen(open, { focusSelected = false } = {}) {
-  const picker = $('#generalPetPicker');
-  const trigger = $('#generalPetPickerTrigger');
-  const menu = $('#generalPetPickerMenu');
-  if (!picker || !trigger || !menu) return;
-  const next = !!open && !picker.hidden;
-  if (!next) {
-    menu.classList.add('hidden');
-    trigger.setAttribute('aria-expanded', 'false');
-    return;
-  }
-  if (menu.parentElement !== document.body) document.body.appendChild(menu);
-  menu.classList.remove('hidden');
-  trigger.setAttribute('aria-expanded', 'true');
-  const triggerRect = trigger.getBoundingClientRect();
-  const menuRect = menu.getBoundingClientRect();
-  const gap = 7;
-  const left = Math.max(8, Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - 8));
-  const top = triggerRect.bottom + gap + menuRect.height <= window.innerHeight - 8
-    ? triggerRect.bottom + gap
-    : Math.max(8, triggerRect.top - menuRect.height - gap);
-  menu.style.left = `${Math.round(left)}px`;
-  menu.style.top = `${Math.round(top)}px`;
-  if (focusSelected) menu.querySelector('.general-pet-picker-option.active')?.focus();
-}
 
 function renderGeneralSettings(cfg = {}) {
   applyTheme(cfg.theme);
   applyLanguage(cfg.language);
   applyReadingFont(cfg.readingFont);
+  applyAppearance(cfg.appearance);
   applyWallpaperConfig(cfg);
-  syncUserNameUi();
   updateThemeSegmented(cfg.theme);
-  updateLanguageSegmented(cfg.language);
-  syncGeneralPetPicker(cfg.pet?.selected);
+  syncPetSettings(cfg.pet?.selected);
   syncPetWindowButton().catch(() => {});
   renderTtsSettings(cfg);
+  syncGeneralPreferences();
+  syncGitPreferences();
+  window.YanWorktreeSettings?.sync();
 }
 
-let contextConfigPage = 0;
-
-function setContextConfigNotice(message = '', stateName = '') {
-  const notice = $('#contextConfigNotice');
-  if (!notice) return;
-  notice.textContent = String(message || '');
-  notice.dataset.state = stateName;
-  notice.classList.toggle('hidden', !message);
-}
-
-function renderContextConfigPage(page = contextConfigPage) {
-  contextConfigPage = page === 1 ? 1 : 0;
-  $$('.context-config-page').forEach((item, index) => {
-    const active = index === contextConfigPage;
-    item.classList.toggle('active', active);
-    item.setAttribute('aria-hidden', String(!active));
-  });
-  $$('#contextConfigStepDots .conn-step-dot').forEach((dot, index) => {
-    dot.classList.toggle('done', index < contextConfigPage);
-    dot.classList.toggle('now', index === contextConfigPage);
-  });
-  const label = $('#contextConfigStepLabel');
-  if (label) label.textContent = `${contextConfigPage + 1} / 2`;
-  const previous = $('#contextConfigPrev');
-  if (previous) previous.disabled = contextConfigPage === 0;
-  const next = $('#contextConfigNext');
-  if (next) next.textContent = contextConfigPage === 0 ? '下一页 →' : '保存';
-  setContextConfigNotice();
-}
-
-function openContextConfigDialog() {
-  const dialog = $('#contextConfigDialog');
-  if (!dialog) return;
-  const budget = configuredContextBudget();
-  $('#contextMaxInput').value = contextTokensToK(budget.contextWindow);
-  $('#contextThresholdInput').value = contextTokensToK(budget.compressSoftThreshold);
-  renderContextConfigPage(0);
-  $('#contextConfigOpen')?.setAttribute('aria-expanded', 'true');
-  if (!dialog.open) dialog.showModal();
-  requestAnimationFrame(() => $('#contextMaxInput')?.focus());
-}
-
-function closeContextConfigDialog() {
-  const dialog = $('#contextConfigDialog');
-  if (dialog?.open) dialog.close();
-  $('#contextConfigOpen')?.setAttribute('aria-expanded', 'false');
-  setContextConfigNotice();
-}
-
-function contextConfigValues() {
-  return {
-    maxTokens: contextKToTokens($('#contextMaxInput')?.value),
-    compactionThreshold: contextKToTokens($('#contextThresholdInput')?.value)
-  };
-}
-
-async function advanceContextConfig() {
-  const values = contextConfigValues();
-  if (!values.maxTokens) {
-    renderContextConfigPage(0);
-    setContextConfigNotice('请输入有效的最大上下文长度', 'error');
-    $('#contextMaxInput')?.focus();
-    return;
-  }
-  if (contextConfigPage === 0) {
-    renderContextConfigPage(1);
-    requestAnimationFrame(() => $('#contextThresholdInput')?.focus());
-    return;
-  }
-  if (!values.compactionThreshold) {
-    setContextConfigNotice('请输入有效的压缩阈值', 'error');
-    $('#contextThresholdInput')?.focus();
-    return;
-  }
-  if (values.compactionThreshold >= values.maxTokens) {
-    setContextConfigNotice('压缩阈值必须小于最大上下文', 'error');
-    $('#contextThresholdInput')?.focus();
-    return;
-  }
-  const saveButton = $('#contextConfigNext');
-  if (saveButton) saveButton.disabled = true;
-  setContextConfigNotice('正在保存上下文配置', 'progress');
-  try {
-    state.config = await api.setConfig({ context: values });
-    updateContextInfo(getCurrentAgentState(), state.currentSession);
-    closeContextConfigDialog();
-    toast('上下文配置已保存');
-  } catch (error) {
-    setContextConfigNotice(`上下文配置保存失败：${error?.message || error}`, 'error');
-  } finally {
-    if (saveButton) saveButton.disabled = false;
-  }
-}
-
-function bindContextConfigDialog() {
-  const dialog = $('#contextConfigDialog');
-  if (!dialog || dialog.dataset.bound === 'true') return;
-  dialog.dataset.bound = 'true';
-  $('#contextConfigOpen')?.addEventListener('click', openContextConfigDialog);
-  $('#contextConfigClose')?.addEventListener('click', closeContextConfigDialog);
-  $('#contextConfigPrev')?.addEventListener('click', () => {
-    renderContextConfigPage(0);
-    requestAnimationFrame(() => $('#contextMaxInput')?.focus());
-  });
-  $('#contextConfigNext')?.addEventListener('click', () => void advanceContextConfig());
-  $$('.context-k-input', dialog).forEach(input => {
-    input.addEventListener('input', () => {
-      const clean = sanitizeContextKInput(input.value);
-      if (input.value !== clean) input.value = clean;
-      setContextConfigNotice();
-    });
-    input.addEventListener('keydown', event => {
-      if (event.key !== 'Enter') return;
-      event.preventDefault();
-      void advanceContextConfig();
-    });
-  });
-  dialog.addEventListener('close', () => {
-    $('#contextConfigOpen')?.setAttribute('aria-expanded', 'false');
-    setContextConfigNotice();
-  });
-  dialog.addEventListener('click', event => {
-    if (event.target === dialog) closeContextConfigDialog();
-  });
-}
 
 function renderSubagentSettings(cfg = {}) {
   // Subagents are always available; role focus is selected per message.
 }
 
-function renderFileWriteSpeedSettings(cfg = {}) {
-  const toggle = $('#disableAutoFormatter');
-  if (!toggle) return;
-  toggle.checked = cfg?.agent?.disableAutoFormatter === true;
-  if (toggle.dataset.bound === 'true') return;
-  toggle.dataset.bound = 'true';
-  toggle.addEventListener('change', async () => {
-    const enabled = toggle.checked;
-    const previous = state.config;
-    try {
-      state.config = await api.setConfig({ agent: { disableAutoFormatter: enabled } });
-      toast(enabled ? '极速文件写入已开启：收尾时统一格式化改动文件' : '极速文件写入已关闭：内核每次编辑后自动格式化');
-    } catch (error) {
-      renderFileWriteSpeedSettings(previous);
-      toast(`极速文件写入保存失败：${error?.message || error}`);
-    }
-  });
-}
-
 function bindGeneralSettings() {
-  bindContextConfigDialog();
+  bindGeneralPreferences();
+  bindGitPreferences();
+  bindPetSettings();
   bindTtsSettings();
   const themeToggle = $('#themeModeToggle');
   if (themeToggle && themeToggle.dataset.bound !== 'true') {
@@ -19302,18 +19459,6 @@ function bindGeneralSettings() {
       state.config = await api.setConfig({ theme });
       applyTheme(theme);
       toast('主题已更新');
-    });
-  }
-
-  const langGroup = $('#languageSegmented');
-  if (langGroup && langGroup.dataset.bound !== 'true') {
-    langGroup.dataset.bound = 'true';
-    langGroup.addEventListener('click', async event => {
-      const btn = event.target.closest('.general-segment-btn[data-lang]');
-      if (!btn) return;
-      const language = btn.dataset.lang;
-      state.config = await api.setConfig({ language });
-      applyLanguage(state.config?.language || language);
     });
   }
 
@@ -19334,78 +19479,6 @@ function bindGeneralSettings() {
     });
   }
 
-  const petToggle = $('#generalPetToggle');
-  if (petToggle && !petToggle.dataset.bound) {
-    petToggle.dataset.bound = 'true';
-    petToggle.addEventListener('change', async () => {
-      const enabled = petToggle.checked;
-      try {
-        state.config = await api.setConfig({ pet: { enabled } });
-        updatePetWindowButton(state.config.pet.enabled);
-      } catch (error) {
-        updatePetWindowButton(!enabled);
-        toast(`桌宠设置保存失败：${error?.message || error}`);
-      }
-    });
-  }
-
-  const petPicker = $('#generalPetPicker');
-  const petPickerTrigger = $('#generalPetPickerTrigger');
-  const petPickerMenu = $('#generalPetPickerMenu');
-  if (petPicker && petPickerTrigger && petPickerMenu && !petPicker.dataset.bound) {
-    petPicker.dataset.bound = 'true';
-    petPickerTrigger.addEventListener('click', event => {
-      event.stopPropagation();
-      setGeneralPetPickerOpen(petPickerTrigger.getAttribute('aria-expanded') !== 'true');
-    });
-    petPickerTrigger.addEventListener('keydown', event => {
-      if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) return;
-      event.preventDefault();
-      setGeneralPetPickerOpen(true, { focusSelected: true });
-    });
-    petPickerMenu.addEventListener('click', async event => {
-      const option = event.target.closest('[data-pet-select]');
-      if (!option) return;
-      const selected = normalizePetPickerId(option.dataset.petSelect);
-      const previous = normalizePetPickerId(state.config?.pet?.selected);
-      setGeneralPetPickerOpen(false);
-      syncGeneralPetPicker(selected);
-      petPickerTrigger.disabled = true;
-      try {
-        state.config = await api.setConfig({ pet: { selected } });
-        syncGeneralPetPicker(state.config.pet.selected);
-      } catch (error) {
-        syncGeneralPetPicker(previous);
-        toast(`桌宠切换失败：${error?.message || error}`);
-      } finally {
-        petPickerTrigger.disabled = false;
-        petPickerTrigger.focus();
-      }
-    });
-    petPickerMenu.addEventListener('keydown', event => {
-      const options = [...petPickerMenu.querySelectorAll('[data-pet-select]')];
-      const current = options.indexOf(document.activeElement);
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setGeneralPetPickerOpen(false);
-        petPickerTrigger.focus();
-        return;
-      }
-      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault();
-      const index = event.key === 'Home' ? 0
-        : event.key === 'End' ? options.length - 1
-          : event.key === 'ArrowDown' ? (current + 1 + options.length) % options.length
-            : (current - 1 + options.length) % options.length;
-      options[index]?.focus();
-    });
-    document.addEventListener('click', event => {
-      if (event.target.closest('#generalPetPicker, #generalPetPickerMenu')) return;
-      setGeneralPetPickerOpen(false);
-    });
-    document.addEventListener('scroll', () => setGeneralPetPickerOpen(false), true);
-    window.addEventListener('resize', () => setGeneralPetPickerOpen(false));
-  }
 
   const wallpaperGrid = $('#wallpaperMarketGrid');
   bindWallpaperAddDialog();
@@ -19468,345 +19541,115 @@ function bindGeneralSettings() {
 
 async function populateSettings() {
   const cfg = await api.getConfig();
-  const perm = await api.getPermissions();
 
   state.config = cfg;
   await renderConnectionList();
   await primeMediaModelLabels();
 
   renderGeneralSettings(cfg);
+  bindAppearanceSettings();
 
-  $('#permRead').checked = perm.allowFileRead;
-  $('#permWrite').checked = perm.allowFileWrite;
-  $('#permShell').checked = perm.allowShell;
-  $('#permNet').checked = perm.allowNetwork;
+
   renderSubagentSettings(cfg);
-  renderFileWriteSpeedSettings(cfg);
   await renderQuickLaunchSettings();
   await renderModelGrid(cfg);
   await renderVisionRelaySettings();
 }
 
+let visionRelayCandidateCache = [];
+
+function visionRelayCandidateKey(candidate) {
+  // HTML parsing replaces NUL characters in data attributes with U+FFFD.
+  // Use a lossless key so the clicked row still matches its candidate.
+  return JSON.stringify([
+    candidate?.providerId || '',
+    candidate?.supplierId || 'official',
+    candidate?.modelId || ''
+  ]);
+}
+
 async function renderVisionRelaySettings() {
-  let status = {};
+  const list = $('#visionRelayModelList');
+  if (!list) return;
+  let status = null;
   try {
     status = await api.getVisionRelayStatus();
   } catch {}
-  syncVisionRelaySettings(status);
-  try {
-    const cfg = await api.getConfig();
-    const toggle = $('#visionRelayEnabledCheck');
-    if (toggle) toggle.checked = cfg?.api?.visionRelayEnabled !== false;
-  } catch {}
-  return status;
+  visionRelayCandidateCache = Array.isArray(status?.candidates) ? status.candidates : [];
+  renderVisionRelayCandidateList();
 }
 
-function syncVisionRelaySettings(status = {}) {
-  const setStatus = (selector, preset, label) => {
-    const button = $(selector);
-    if (!button) return;
-    const detail = status?.[preset] || {};
-    const configured = detail.configured === true;
-    const stateLabel = detail.available
-      ? `已配置，识别到 ${Number(detail.modelCount) || 0} 个可用模型`
-      : (configured ? '已配置，但未识别到可用视觉模型' : '未配置');
-    button.dataset.status = detail.available ? 'success' : (configured ? 'error' : 'idle');
-    button.title = detail.available
-      ? `视觉中继可用，已识别 ${Number(detail.modelCount) || 0} 个候选模型`
-      : (configured ? '连接已配置，但没有识别到可用的视觉中继模型' : '尚未配置对应连接');
-    button.setAttribute('aria-label', `检查${label}配置状态，当前${stateLabel}`);
-    button.closest('[data-vision-relay-provider]')?.setAttribute('data-status', button.dataset.status);
-  };
-  setStatus('#visionRelayGlmStatus', 'glm', 'GLM');
-  setStatus('#visionRelaySenseNovaStatus', 'sensenova', 'SenseNova');
-  setStatus('#visionRelayAgnesStatus', 'agnes', 'Agnes');
-  setStatus('#visionRelaySiliconFlowStatus', 'siliconflow', '硅基流动');
+function renderVisionRelayCandidateList() {
+  const list = $('#visionRelayModelList');
+  if (!list) return;
+  if (!visionRelayCandidateCache.length) {
+    list.innerHTML = '<div class="vision-relay-empty">还没有标记为「支持多模态」的模型。请先到「模型服务 → 服务商配置」新建或编辑连接，并在模型行上把「支持多模态」打开。</div>';
+    return;
+  }
+  list.innerHTML = visionRelayCandidateCache.map(candidate => {
+    const key = visionRelayCandidateKey(candidate);
+    const label = candidate.modelName || candidate.modelId;
+    const meta = [candidate.providerName, candidate.supplierName].filter(Boolean).join(' · ');
+    const suffix = candidate.configured === false ? ' · 连接未配置密钥' : '';
+    return `<div class="media-model-settings-row vision-relay-row">
+      <div class="settings-group-heading">
+        <h3>${escapeHtml(label)}</h3>
+        <p>${escapeHtml(meta)}${suffix}</p>
+      </div>
+      <label class="vision-relay-switch vision-relay-model-switch" title="开启后作为视觉中继模型使用">
+        <input type="checkbox" role="switch" data-vision-relay-model="${escapeAttr(key)}" aria-label="将 ${escapeAttr(label)} 作为视觉中继模型"${candidate.enabled ? ' checked' : ''} />
+        <span class="vision-relay-slider" aria-hidden="true"></span>
+      </label>
+    </div>`;
+  }).join('');
+}
+
+async function applyVisionRelayModelToggle(input) {
+  const key = String(input?.dataset?.visionRelayModel || '');
+  const target = visionRelayCandidateCache.find(candidate => visionRelayCandidateKey(candidate) === key);
+  if (!target) return;
+  const nextSelected = [];
+  for (const candidate of visionRelayCandidateCache) {
+    const on = visionRelayCandidateKey(candidate) === key ? input.checked : candidate.enabled === true;
+    if (on) nextSelected.push({
+      providerId: candidate.providerId,
+      supplierId: candidate.supplierId,
+      modelId: candidate.modelId
+    });
+  }
+  input.disabled = true;
+  try {
+    state.config = await api.setConfig({ api: { visionRelayModels: nextSelected } });
+    await renderVisionRelaySettings();
+  } catch (error) {
+    input.checked = !input.checked;
+    toast(`视觉中继模型保存失败：${describeRunError(error)}`);
+  } finally {
+    input.disabled = false;
+  }
 }
 
 const VISION_RELAY_GUIDES = Object.freeze({
   'release-notes': window.YanReleaseNotes,
-  'yan-guide': {
-    title: 'Yan Agent 上手指南',
-    subtitle: '按页渐进了解全部功能；随时可以点左下角「引导」重新打开。',
-    pages: [
-      {
-        title: '欢迎使用 Yan Agent',
-        paragraphs: ['Yan Agent 是运行在桌面上的真实工作 Agent：它能读写工作区文件、执行命令、操控内置浏览器、生成图片与视频，并用可复核的证据向你交付结果。这份引导会逐页介绍全部功能。']
-      },
-      {
-        title: '三步完成初始配置',
-        paragraphs: ['第一次使用，建议先完成下面三件事，之后就可以直接新建任务。'],
-        bullets: [
-          '配置 API：进入 设置 → API →「新建连接」，按页填写名称、兼容预设、Base URL 与 API Key，测试连接并拉取模型。',
-          '选择模型：点击输入框底部工具条的模型按钮，选择主模型并拖动“推理强度”滑块。',
-          '设置权限：把输入框底部工具条的权限滑块调到「替我审批」或「完全访问」，Agent 才能顺畅地读写文件与执行命令。'
-        ]
-      },
-      {
-        title: '任务与工作区',
-        paragraphs: ['新建任务默认不在任何项目中（Blank），可以先对话和查询；涉及写入、构建或 Git 的任务，需要先选择工作区。'],
-        bullets: [
-          '新建任务：点击左侧「新建任务」，开始一条新对话。',
-          '选择工作区：点击任务栏的「选择工作区」，可以选一个文件夹，或选「不在项目中工作」。',
-          '任务列表：左侧中间列出历史任务；任务栏的「⋯」菜单可置顶或重命名任务。',
-          'Git 分支：任务栏可以直接搜索并切换分支，Agent 会在同一分支上工作。',
-          '每个任务独立保存消息、工作区与权限上下文，互不干扰。'
-        ]
-      },
-      {
-        title: '输入框：把要求说清楚',
-        paragraphs: ['输入框是任务的起点：按 Enter 发送，按 Shift+Enter 换行。'],
-        bullets: [
-          '添加附件：点「+」→「添加附件」，也可以把文件或图片直接粘贴进输入框。',
-          '优化 prompt：点「+」→「优化你的prompt」，Yan Prompt Optimizer 会重写你的输入，按 Ctrl+Z 可以回退。',
-          '排队对话：Agent 工作时仍可继续输入，消息会先排队，再在合适时机送达。',
-          '工具条：输入框底部集中了「+」、权限滑块、工作方式、模型与发送按钮。'
-        ]
-      },
-      {
-        title: '工作方式：目标 / 计划 / 自进化 / AGI',
-        paragraphs: ['在输入框按「/」，或点「+」→「使用/选择工作方式」，就能给这轮任务换一种推进方式；开启后底部会出现工作方式标识，点它即可退出。'],
-        bullets: [
-          '目标：给出一条可验收的目标，Agent 会分轮推进、自我验收并给出证据，直到达成或明确说明阻塞原因。',
-          '计划：先把计划文档写入右侧「计划文档」面板，方案确认后再开始执行。',
-          '自进化：本轮结束后把重复失败与可复用经验沉淀为长期演进，不会打断当前工作。',
-          'AGI：实验性能力，叠加推理侧路与自进化双链路。'
-        ]
-      },
-      {
-        title: '技能（Skill）',
-        paragraphs: ['在输入框按「$」，或点「+」→「使用$选择技能」，可以把技能绑定到本轮任务；不手动选择时，Agent 也会按需自动调用。'],
-        bullets: [
-          '预装技能：覆盖网页设计、动效、代码理解、Office 文档、逆向工程、视频生成等常用场景，开箱即用。',
-          'Skill 市场：左侧「Skill 市场」可以搜索、筛选、查看详情并安装。',
-          '个人技能：市场右上角「+」可以导入自定义 Skill JSON，文件需要包含 id、name、desc、prompt 字段。',
-          '也可以直接对 Agent 说「安装某某 Skill」或「新建一个 Skill」，它会用 Yan Skills 完成。'
-        ]
-      },
-      {
-        title: 'MCP 服务',
-        paragraphs: ['MCP 是 Agent 的工具来源：左侧「MCP 服务」列出全部服务，点击卡片可以查看包含的工具。'],
-        bullets: [
-          '测试连接：在服务详情里点「测试连接」，成功后显示可用的工具数量。',
-          '启停服务：普通服务可以「启用 / 禁用」；系统内置的 MCP 显示「始终启用」，由 Yan 统一管理。',
-          '添加服务器：按名称、启动命令与命令参数接入自己的 MCP 服务。',
-          '内置能力：内置 CodeGraph（代码图）、Serena（符号定位）、Built-in Browser、Yan Media、Skills 等 MCP，覆盖代码理解、浏览器操作与媒体生成。'
-        ]
-      },
-      {
-        title: '子代理与并行工作',
-        paragraphs: ['在输入框按「￥」，或点「+」→「使用￥调用子代理」，把适合并行的部分交给子代理；主代理负责编排、汇总与最终交付。'],
-        bullets: [
-          '角色分工：探索、研究、测试、审阅、构建、测绘、追踪、逆向等子代理各司其职。',
-          '子智能体面板：右侧面板可以查看每个子代理的实时进度与产出。',
-          '任务工作树：Git 工具 →「任务工作树」为并行构建创建隔离的 git worktree，完成后合并回当前分支。'
-        ]
-      },
-      {
-        title: '权限与访问模式',
-        paragraphs: ['权限滑块位于输入框底部工具条，共三档；Agent 触发受限操作时会弹出确认卡片。'],
-        bullets: [
-          '请求批准：每次受限操作都先询问，最稳妥。',
-          '替我审批：常见操作自动放行，高危命令仍会停下来请你确认。',
-          '完全访问：不再逐次询问，适合你信任的任务。',
-          '逐项开关：设置 → 常规 → 权限，可分别控制读取文件、写入文件、执行命令与网络访问。',
-          '确认卡片：出现时可以选择「本次允许」「总是允许」或「拒绝」。'
-        ]
-      },
-      {
-        title: 'API 与模型',
-        paragraphs: ['进入 设置 → API 可以自建任意数量的连接，凭据只保存在本机。'],
-        bullets: [
-          '新建连接：按页填写 配置名称 → 兼容预设 → Base URL → 接口格式 → API Key，可选填写生成图像 / 编辑图片 / 生成视频 POST 与自定义模型 ID。',
-          '测试与拉取：一键测试连接，成功后返回该连接的全部可用模型。',
-          '图像与视频模型：在 API 页底部选择生成图像/生成视频模型，之后就能让 Agent 生成或编辑图片与视频。',
-          '兼容预设：内置 GLM、通义、豆包、硅基流动、日日新等预设，不确定时保持「自动识别」即可。'
-        ]
-      },
-      {
-        title: '视觉中继（多模态）',
-        paragraphs: ['主模型不支持多模态时，视觉中继会从侧路调用视觉模型读图，再把内容转告主模型，让任意主模型都能完成多模态工作。'],
-        bullets: [
-          '免费来源：GLM、SenseNova、Agnes、硅基流动，配置任意一家即可。',
-          '教学文档：设置 → 视觉中继，每个来源都有分步教学、配置状态检查与开关。',
-          '关闭后，图片会直接发送给主模型；需要时随时可以打开。'
-        ]
-      },
-      {
-        title: '上下文与长期记忆',
-        paragraphs: ['长任务要关注上下文占用：Yan Agent 会自动压缩，也允许你手动干预。'],
-        bullets: [
-          '上下文配置：设置 → 常规 →「配置上下文」，按模型能力设置最大上下文与压缩阈值。',
-          '状态环：右侧面板工具条的圆环显示上下文占用，点击可以查看已用 / 上限与压缩提示。',
-          '手动压缩：在状态环面板点「我来压缩」，立即压缩早期对话。',
-          '长期记忆：Agent 会把稳定偏好与可复用经验沉淀下来，在后续任务中继续生效。'
-        ]
-      },
-      {
-        title: '右侧面板：审阅 / 浏览器 / 临时对话',
-        paragraphs: ['右侧工具条可以一键打开面板，支持多个标签页并行；全屏按钮让面板铺满工作区，Agent 仍会继续工作。'],
-        bullets: [
-          '审阅：Agent 修改文件后显示逐行 diff，可以刷新、折叠 / 展开、复制差异，并一键撤销本轮改动。',
-          '浏览器：打开网页交给 Agent 阅读与操作，也支持你随时接管。',
-          '临时对话：询问当前进度或注入新要求，不会打断 Agent 正在做的事。',
-          '计划文档与子智能体：运行计划模式或派出子代理时，会显示对应标签页。'
-        ]
-      },
-      {
-        title: '内置浏览器',
-        paragraphs: ['Yan Agent 优先使用内置浏览器完成网页阅读、交互与视觉验收。'],
-        bullets: [
-          'Agent 控制：打开、点击、输入、滚动、截图、读取页面等操作都能由 Agent 执行。',
-          '用户接管：点击浏览器工具栏的手势按钮，就可以自己接管鼠标与键盘。',
-          '导航与缩放：前进、后退、刷新、缩放（自动或手动），也可以直接输入 URL。',
-          '隐私清理：浏览器设置里可以单独清除缓存或 Cookie。',
-          '联网搜索：Agent 会优先使用 AnySearch 技能检索实时信息。'
-        ]
-      },
-      {
-        title: 'Git 工具',
-        paragraphs: ['任务栏右侧的 Git 工具覆盖日常版本控制操作。'],
-        bullets: [
-          '更改：查看当前工作区改动与 + / − 统计。',
-          '分支：搜索、切换，或创建并检出新分支。',
-          '提交或推送：填写提交信息，一键提交，也可以直接提交并推送。',
-          '任务工作树：创建与合并隔离工作树，配合并行子代理使用。',
-          'GitHub PR：查看与当前分支关联的 PR，或把分支发成 Pull Request（需要 gh CLI）。',
-          'Git 图谱：可视化查看提交历史与分支关系。'
-        ]
-      },
-      {
-        title: '媒体生成',
-        paragraphs: ['配置好图像 / 视频模型后，直接用自然语言描述画面，Agent 会调用 Yan Media 完成生成。'],
-        bullets: [
-          '图片：生成图片，也可以带参考图进行图像编辑。',
-          '视频：支持画面比例、时长、分辨率、反向提示词与随机种子等参数。',
-          '生成结果可以直接预览与打开，也可以继续交给 Agent 加工。'
-        ]
-      },
-      {
-        title: '桌宠、快速启动与外观',
-        paragraphs: ['个性化与效率选项集中在 设置 → 常规。'],
-        bullets: [
-          '桌宠：共四种可选；Yan Agent Orb 是监督型桌宠，会在你忙碌时帮你盯住 Agent 的工作状态。',
-          '快速启动：开启后按 Ctrl+Shift+Y（可以自定义）在任意软件上方呼出快速输入。',
-          '主题、语言与正文字体：深浅色与中英界面随时切换；不喜欢 Agent 输出的衬线宋体观感时，可在「正文字体」改为无衬线。',
-          '壁纸市场：内置多款壁纸，支持上传自定义壁纸并调节材质强度。',
-          '正文朗读：选择音色与语速，试听满意后可以让 Agent 朗读正文。',
-          '极速文件写入：写入时不逐次格式化，任务收尾统一格式化本次改动的文件，适合大批量修改。'
-        ]
-      },
-      {
-        title: '三种工作视图',
-        paragraphs: ['标题栏左侧可以切换三个工作视图，任务会在后台继续运行。'],
-        bullets: [
-          '主界面：日常对话与工作的主场景。',
-          'Understand Anything：基于本地代码图谱浏览项目结构、文件职责、符号关系与改动影响。',
-          'Yan Work GUI：用可视化方式查看 Agent 的工作过程与工作区状态。'
-        ]
-      },
-      {
-        title: '关于与帮助',
-        paragraphs: [
-          '遇到问题或有建议，随时联系我们；这份引导也可以随时重看。',
-          '现在，点击「新建任务」，向 Yan Agent 说出你的第一个目标吧。'
-        ],
-        bullets: [
-          '常见报错：设置 → 关于 →「常见报错」，覆盖已发现的内核报错与处理建议。',
-          '检查更新：一键检查当前版本并更新。',
-          '联系方式：抖音群、QQ 群与邮箱，欢迎反馈问题与建议。',
-          '重看引导：点击左下角「引导」按钮，或用 ← → 方向键翻页。'
-        ]
-      }
-    ]
-  },
   overview: {
     title: '视觉中继使用说明',
     pages: [
       {
         title: '什么是“视觉中继”？',
-        paragraphs: ['当主模型不支持多模态时，它无法直接读取图像。视觉中继会从侧路调用多模态模型读取图像，再把图像内容转告主模型，让任意主模型都能完成多模态工作。']
+        paragraphs: ['当主模型不支持多模态时，它无法直接读取图像。视觉中继会从侧路调用你指定的多模态模型读取图像，再把图像内容转告主模型，让文本主模型也能完成多模态工作。']
       },
       {
-        title: '“视觉中继”使用什么模型？',
-        paragraphs: ['当前调用顺序为：glm --> sensenova --> Agnes --> 硅基流动。']
+        title: '“视觉中继”使用哪些模型？',
+        paragraphs: ['完全由你决定。中继候选来自你在连接里标记为「支持多模态」的模型；在本页为其中任意一个或多个打开开关，就会按这里的顺序依次尝试。']
       },
       {
-        title: '“视觉中继”使用的模型免费吗？',
-        paragraphs: ['完全免费。多模态应该是主模型必备功能，而非要求你花钱购买的特权。']
+        title: '需要额外配置吗？',
+        paragraphs: ['不需要。中继复用你已经配置好的连接与密钥，不会新增任何厂商或额外入口。']
       },
       {
-        title: '必须同时配置 GLM、SenseNova、Agnes 与硅基流动吗？',
-        paragraphs: ['不需要，配置好其中一家即可正常使用视觉中继。']
-      },
-      {
-        title: '我该怎么配置“视觉中继”？',
-        paragraphs: ['本设置页下方依次提供了 glm、sensenova、Agnes 与硅基流动的教学文档，按步骤完成即可。']
+        title: '主模型本来就支持多模态怎么办？',
+        paragraphs: ['主模型是否支持多模态已是显式配置。只要它支持，图片就会直接发给主模型，绝不会启用中继。']
       }
-    ]
-  },
-  glm: {
-    title: 'GLM 视觉中继教学文档',
-    pages: [
-      { title: 'Yan Agent使用的视觉中继模型', paragraphs: ['glm-4.6v-flash --> glm-4.1v-thinking-flash --> glm-4v-flash'] },
-      { title: '新建连接', paragraphs: ['前往“设置” → “API”，点击新建连接并输入连接名称。'] },
-      { title: '选择预设', paragraphs: ['预设选择“glm·GLMM”。'] },
-      { title: '填写 Base URL', paragraphs: ['Base URL 填写：https://open.bigmodel.cn/api/paas/v4'] },
-      {
-        title: '新建 API Key',
-        paragraphs: ['打开智谱 BigModel 平台，注册并登录账号，然后新建 API Key。'],
-        link: { label: '打开智谱 BigModel 平台', url: 'https://bigmodel.cn/glm-coding' }
-      },
-      { title: '填写 API Key', paragraphs: ['回到 Yan Agent，填写刚刚创建的 API Key。'] },
-      { title: '完成配置', paragraphs: ['之后的一切跟随 Yan Agent 提示即可。'] }
-    ]
-  },
-  sensenova: {
-    title: 'SenseNova 视觉中继教学文档',
-    pages: [
-      { title: 'Yan Agent使用的视觉中继模型', paragraphs: ['sensenova-6.8-flash-lite'] },
-      { title: '新建连接', paragraphs: ['前往“设置” → “API”，点击新建连接并输入连接名称。'] },
-      { title: '选择预设', paragraphs: ['预设选择“日日新”。'] },
-      { title: '填写 Base URL', paragraphs: ['Base URL 填写：https://token.sensenova.cn/v1'] },
-      {
-        title: '新建 API Key',
-        paragraphs: ['打开 SenseNova，注册并登录账号，然后新建 API Key。'],
-        link: { label: '打开 SenseNova', url: 'https://www.sensenova.cn/' }
-      },
-      { title: '填写 API Key', paragraphs: ['回到 Yan Agent，填写刚刚创建的 API Key。'] },
-      { title: '完成配置', paragraphs: ['之后的一切跟随 Yan Agent 提示即可。'] }
-    ]
-  },
-  agnes: {
-    title: 'Agnes 视觉中继教学文档',
-    pages: [
-      { title: 'Yan Agent使用的视觉中继模型', paragraphs: ['Agnes-2.5-flash --> Agnes-2.0-flash'] },
-      { title: '新建连接', paragraphs: ['前往“设置” → “API”，点击新建连接并输入连接名称。'] },
-      { title: '选择预设', paragraphs: ['预设选择“Agnes”。'] },
-      { title: '填写 Base URL', paragraphs: ['Base URL 填写：https://apihub.agnes-ai.com/v1。Agnes 为国际模型，需要自备 VPN。'] },
-      {
-        title: '新建 API Key',
-        paragraphs: ['打开 Agnes AI，注册并登录账号，然后新建 API Key。'],
-        link: { label: '打开 Agnes AI', url: 'https://agnes-ai.com/' }
-      },
-      { title: '填写 API Key', paragraphs: ['回到 Yan Agent，填写刚刚创建的 API Key。'] },
-      { title: '完成配置', paragraphs: ['之后的一切跟随 Yan Agent 提示即可。'] }
-    ]
-  },
-  siliconflow: {
-    title: '硅基流动 视觉中继教学文档',
-    pages: [
-      { title: 'Yan Agent使用的视觉中继模型', paragraphs: ['Qwen/Qwen3.5-4B --> deepseek-ai/DeepSeek-OCR --> PaddlePaddle/PaddleOCR-VL-1.5'] },
-      { title: '新建连接', paragraphs: ['前往“设置” → “API”，点击新建连接并输入连接名称。'] },
-      { title: '选择预设', paragraphs: ['预设选择“硅基流动”。'] },
-      { title: '填写 Base URL', paragraphs: ['Base URL 填写：https://api.siliconflow.cn/v1'] },
-      {
-        title: '新建 API Key',
-        paragraphs: ['打开硅基流动，注册并登录账号，然后新建 API Key。'],
-        link: { label: '打开硅基流动', url: 'https://www.siliconflow.cn/' }
-      },
-      { title: '填写 API Key', paragraphs: ['回到 Yan Agent，填写刚刚创建的 API Key。'] },
-      { title: '完成配置', paragraphs: ['之后一切跟随 Yan Agent 提示即可。'] }
     ]
   }
 });
@@ -19888,53 +19731,12 @@ function closeVisionRelayGuide() {
   if (dialog?.open) dialog.close();
 }
 
-async function checkVisionRelayConfiguration(preset, button) {
-  const labels = { glm: 'GLM', sensenova: 'SenseNova', agnes: 'Agnes', siliconflow: '硅基流动' };
-  if (!labels[preset] || !button || button.disabled) return;
-  const label = labels[preset];
-  const previousText = button.textContent;
-  button.disabled = true;
-  button.setAttribute('aria-busy', 'true');
-  button.textContent = '检查中…';
-  try {
-    const status = await api.getVisionRelayStatus();
-    syncVisionRelaySettings(status);
-    const detail = status?.[preset] || {};
-    if (detail.available) {
-      toast(`${label} 视觉中继已配置，识别到 ${Number(detail.modelCount) || 0} 个可用模型`);
-    } else if (detail.configured) {
-      toast(`${label} 连接已配置，但未识别到可用视觉模型`);
-    } else {
-      toast(`${label} 视觉中继尚未配置`);
-    }
-  } catch (error) {
-    toast(`${label} 配置状态检查失败：${error?.message || String(error)}`);
-  } finally {
-    button.disabled = false;
-    button.removeAttribute('aria-busy');
-    button.textContent = previousText;
-  }
-}
-
 $$('[data-vision-relay-guide]').forEach(button => {
   button.addEventListener('click', () => openVisionRelayGuide(button.dataset.visionRelayGuide, button));
 });
-$('#visionRelayEnabledCheck')?.addEventListener('change', async event => {
-  const toggle = event.currentTarget;
-  try {
-    toggle.disabled = true;
-    state.config = await api.setConfig({ api: { visionRelayEnabled: toggle.checked } });
-  } catch (error) {
-    toggle.checked = !toggle.checked;
-    toast(`视觉中继设置保存失败：${describeRunError(error)}`);
-  } finally {
-    toggle.disabled = false;
-  }
-});
-$$('[data-vision-relay-check]').forEach(button => {
-  button.addEventListener('click', () => {
-    void checkVisionRelayConfiguration(button.dataset.visionRelayCheck, button);
-  });
+$('#visionRelayModelList')?.addEventListener('change', event => {
+  const input = event.target.closest('[data-vision-relay-model]');
+  if (input) void applyVisionRelayModelToggle(input);
 });
 $('#visionRelayGuideClose')?.addEventListener('click', closeVisionRelayGuide);
 $('#visionRelayGuidePrev')?.addEventListener('click', () => {
@@ -20219,7 +20021,7 @@ async function renderConnectionList() {
         <button class="connection-action-seg connection-action-delete" type="button" data-connection-action="delete" title="删除连接" aria-label="删除连接">删除</button>
         <button class="connection-action-seg connection-action-test" type="button" data-connection-action="test" title="快速测试连接" aria-label="快速测试连接">快速测试</button>
         <button class="connection-action-seg connection-action-open" type="button" data-connection-action="open" title="编辑连接" aria-label="编辑连接">＋</button>
-        <button class="connection-action-seg connection-action-enable${connection.isEnabled ? ' is-enabled' : ''}" type="button" data-connection-action="enable" title="${connection.isEnabled ? '当前已启用' : '启用此连接'}" aria-label="${connection.isEnabled ? '当前已启用' : '启用此连接'}"${connection.isEnabled ? ' disabled' : ''}>${connection.isEnabled ? '已启用' : '启用'}</button>
+        <button class="connection-action-seg connection-action-enable${connection.isEnabled ? ' is-enabled' : ''}" type="button" data-connection-action="enable" title="${connection.isEnabled ? '点击停用此连接' : '启用此连接'}" aria-label="${connection.isEnabled ? '停用此连接' : '启用此连接'}" aria-pressed="${connection.isEnabled ? 'true' : 'false'}">${connection.isEnabled ? '已启用' : '启用'}</button>
       </div>`;
     item.querySelector('.connection-edit-trigger')?.addEventListener('click', () => openConnectionDialog(connection.id));
     item.querySelectorAll('[data-connection-action]').forEach(actionButton => {
@@ -20230,7 +20032,7 @@ async function renderConnectionList() {
         if (action === 'open') openConnectionDialog(connection.id);
         if (action === 'test') void testConnectionFromList(connection, actionButton);
         if (action === 'delete') void deleteConnection(connection);
-        if (action === 'enable') void enableConnectionFromList(connection, actionButton);
+        if (action === 'enable') void toggleConnectionEnabled(connection, actionButton);
       });
     });
     listEl.appendChild(item);
@@ -20297,16 +20099,17 @@ async function testConnectionFromList(connection, actionButton) {
   }
 }
 
-async function enableConnectionFromList(connection, actionButton) {
-  if (!connection || actionButton?.disabled || actionButton?.dataset.busy === 'true') return;
+async function toggleConnectionEnabled(connection, actionButton) {
+  if (!connection || actionButton?.dataset.busy === 'true') return;
+  const enabling = !connection.isEnabled;
   actionButton.dataset.busy = 'true';
   actionButton.disabled = true;
   const originalLabel = actionButton.textContent;
-  actionButton.textContent = '启用中';
+  actionButton.textContent = enabling ? '启用中' : '停用中';
   try {
-    const result = await api.setProviderSupplier(connection.providerId, connection.supplierId);
+    const result = await api.setConnectionEnabled(connection.id, enabling);
     if (!result?.ok) {
-      toast(`启用失败：${result?.error || '未知错误'}`);
+      toast(`${enabling ? '启用' : '停用'}失败：${result?.error || '未知错误'}`);
       return;
     }
     state.config = result.config || await api.getConfig();
@@ -20314,9 +20117,10 @@ async function enableConnectionFromList(connection, actionButton) {
     renderModelBadge();
     await refreshQuickModels().catch(() => {});
     await primeMediaModelLabels();
-    toast(`已启用：${connection.name}`);
+    void refreshMainModels().catch(() => {});
+    toast(`${enabling ? '已启用' : '已停用'}：${connection.name}`);
   } catch (error) {
-    toast(`启用失败：${error?.message || error}`);
+    toast(`${enabling ? '启用' : '停用'}失败：${error?.message || error}`);
   } finally {
     actionButton.dataset.busy = 'false';
     actionButton.disabled = false;
@@ -20328,26 +20132,6 @@ function findConnectionInCache(connectionId) {
   return connectionCache.find(item => item.id === String(connectionId || '')) || null;
 }
 
-function renderConnectionModels(models, modelCount) {
-  const container = $('#connModels');
-  const countEl = $('#connModelCount');
-  if (!container) return;
-  const items = Array.isArray(models) ? models : [];
-  const numericCount = Number(modelCount);
-  connectionDraftModelCount = Number.isFinite(numericCount) && numericCount >= 0
-    ? numericCount
-    : items.length;
-  if (countEl) countEl.textContent = `${connectionDraftModelCount} 个`;
-  if (!items.length) {
-    container.innerHTML = '<div class="conn-model-empty" role="listitem">测试连接后显示 API 返回的模型目录。</div>';
-    return;
-  }
-  container.innerHTML = items.map(model => {
-    const label = model.name || model.id || '未命名模型';
-    return `<span class="conn-preset-pill conn-model-pill" role="listitem" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
-  }).join('');
-}
-
 function modelCatalogSourceLabel(model = {}) {
   if (model.source === 'glm-official-supplement') return 'GLM 官方补充';
   if (model.source === 'official-supplement' || model.source === 'official-media-catalog') return '官方补充';
@@ -20355,615 +20139,8 @@ function modelCatalogSourceLabel(model = {}) {
   return 'API 返回';
 }
 
-function showConnectionNotice(message, stateName = 'info') {
-  const notice = $('#connNotice');
-  if (!message) {
-    if (notice) {
-      notice.textContent = '';
-      notice.className = 'conn-notice hidden';
-      notice.removeAttribute('data-state');
-    }
-    return;
-  }
-  if (!notice) {
-    toast(message);
-    return;
-  }
-  notice.textContent = message;
-  notice.dataset.state = stateName || 'info';
-  notice.classList.remove('hidden');
-}
-
-function setConnectionSaveState(stateName = 'idle') {
-  const button = $('#connNext');
-  if (!button) return;
-  if (stateName === 'saving') {
-    button.dataset.busy = 'true';
-    button.disabled = true;
-  } else {
-    button.disabled = false;
-    button.dataset.busy = 'false';
-    if (stateName === 'complete') {
-      connectionSaveComplete = true;
-      button.dataset.state = 'complete';
-    } else {
-      connectionSaveComplete = false;
-      button.dataset.state = stateName === 'error' ? 'error' : 'default';
-    }
-  }
-}
-
-function resetConnectionSaveFeedback() {
-  setConnectionSaveState('idle');
-}
-
-function updateConnectionEyeButton(visible = false) {
-  const icon = $('#connToggleKey .provider-eye-icon');
-  const button = $('#connToggleKey');
-  if (icon) icon.dataset.eye = visible ? 'open' : 'closed';
-  if (button) {
-    const label = visible ? '隐藏 API Key' : '显示 API Key';
-    button.title = label;
-    button.setAttribute('aria-label', label);
-  }
-}
-
-const MASKED_API_KEY = '••••••';
-let connectionDraft = { preset: 'auto', apiFormat: 'auto', page: 0 };
-let connectionDraftApiKey = '';
-let connectionDraftModelCount = 0;
-const CONN_PAGE_COUNT = 11;
-
-function setConnPage(index) {
-  const page = Math.max(0, Math.min(CONN_PAGE_COUNT - 1, index));
-  connectionDraft.page = page;
-  const dialog = $('#connectionDialog');
-  const activePage = dialog?.querySelector(`.conn-page[data-conn-page="${page}"]`);
-  dialog?.querySelectorAll('.conn-page[data-conn-page]').forEach(el => {
-    const active = Number(el.dataset.connPage) === page;
-    el.classList.toggle('active', active);
-    el.setAttribute('aria-hidden', String(!active));
-  });
-  const dots = $('#connStepDots');
-  if (dots) {
-    dots.innerHTML = '';
-    for (let index = 0; index < CONN_PAGE_COUNT; index += 1) {
-      const dot = document.createElement('span');
-      dot.className = 'conn-step-dot' + (index === page ? ' now' : (index < page ? ' done' : ''));
-      dots.appendChild(dot);
-    }
-  }
-  const label = $('#connStepLabel');
-  if (label) label.textContent = `${page + 1} / ${CONN_PAGE_COUNT}`;
-  const prev = $('#connPrev');
-  const next = $('#connNext');
-  if (prev) prev.disabled = page === 0;
-  if (next) {
-    next.textContent = page === CONN_PAGE_COUNT - 1 ? '完成 ✓' : '下一页 →';
-    next.setAttribute('aria-label', page === CONN_PAGE_COUNT - 1 ? '完成并保存连接' : '下一页');
-  }
-  const stage = dialog?.querySelector('.conn-wizard-stage');
-  if (stage) stage.scrollTop = 0;
-  if (page === CONN_PAGE_COUNT - 1) renderConnSummary();
-  if ($('#connectionDialog')?.open) {
-    requestAnimationFrame(() => activePage?.querySelector('input, button')?.focus({ preventScroll: true }));
-  }
-}
-
-function validateConnectionPage(page = connectionDraft.page) {
-  const form = collectConnectionForm();
-  const fail = (message, selector) => {
-    showConnectionNotice(message, 'error');
-    $(selector)?.focus({ preventScroll: true });
-    return false;
-  };
-  if (page === 0 && !form.name) return fail('请先填写配置名称。', '#connName');
-  if (page === 2 && (!form.baseUrl || !/^https?:\/\//i.test(form.baseUrl))) {
-    return fail('Base URL 必须以 http:// 或 https:// 开头。', '#connBaseUrl');
-  }
-  if (page === 4 && !form.apiKey && !connectionEditing?.apiKeyConfigured) {
-    return fail('请先填写 API Key。', '#connApiKey');
-  }
-  const optionalUrls = [
-    ['#connImagePost', '生成图像 POST'],
-    ['#connImageEditPost', '编辑图片 POST'],
-    ['#connVideoPost', '生成视频 POST']
-  ];
-  const optionalIndex = page - 5;
-  if (optionalIndex >= 0 && optionalIndex < optionalUrls.length) {
-    const [selector, label] = optionalUrls[optionalIndex];
-    const value = $(selector)?.value?.trim() || '';
-    if (value && !/^https?:\/\//i.test(value)) {
-      return fail(`${label} 必须以 http:// 或 https:// 开头。`, selector);
-    }
-  }
-  return true;
-}
-
-function renderConnSummary() {
-  const summary = $('#connSummary');
-  if (!summary) return;
-  const form = collectConnectionForm();
-  const presetLabel = form.preset === 'auto'
-    ? '自动识别'
-    : (CONNECTION_PRESET_LABELS[form.preset] || form.preset);
-  const rows = [
-    ['名称', form.name || '（未填写）'],
-    ['预设', presetLabel],
-    ['格式', CONNECTION_FORMAT_LABELS[form.apiFormat] || CONNECTION_FORMAT_LABELS.auto],
-    ['BASE URL', form.baseUrl || '（未填写）'],
-    ['API KEY', connectionEditing?.apiKeyConfigured && !form.apiKey ? '已保存（保留）' : (form.apiKey ? '已填写' : '（未填写）')],
-    ['生图 POST', form.imageGenerationUrl || '自动推导'],
-    ['编辑图 POST', form.imageEditUrl || '自动推导'],
-    ['生视频 POST', form.videoGenerationUrl || '自动推导'],
-    ['模型', `${connectionDraftModelCount} 个`]
-  ];
-  summary.innerHTML = rows.map(([key, value]) => `
-    <div class="conn-summary-row"><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
-}
-
-async function openConnectionDialog(connectionId = '') {
-  activeConnectionId = String(connectionId || '');
-  connectionEditing = findConnectionInCache(activeConnectionId);
-  resetConnectionSaveFeedback();
-  showConnectionNotice('');
-  const dialog = $('#connectionDialog');
-  if (!dialog) return;
-  $('#connectionDialogTitle').textContent = connectionEditing ? '编辑连接' : '新建连接';
-  $('#connectionDialogSubtitle').textContent = connectionEditing
-    ? '一页一项，按步修改；随时可测试或保存。'
-    : '一页一项，按步填写；随时可测试或保存。';
-  $('#connName').value = connectionEditing?.name || '';
-  $('#connBaseUrl').value = connectionEditing?.baseUrl || '';
-  const keyInput = $('#connApiKey');
-  keyInput.value = connectionEditing?.apiKeyConfigured ? MASKED_API_KEY : '';
-  keyInput.type = connectionEditing?.apiKeyConfigured ? 'text' : 'password';
-  keyInput.dataset.masked = connectionEditing?.apiKeyConfigured ? 'true' : 'false';
-  keyInput.dataset.revealed = 'false';
-  connectionDraftApiKey = '';
-  updateConnectionEyeButton(false);
-  $('#connImagePost').value = connectionEditing?.imageGenerationUrl || '';
-  $('#connImageEditPost').value = connectionEditing?.imageEditUrl || '';
-  $('#connVideoPost').value = connectionEditing?.videoGenerationUrl || '';
-  $('#connManualModel').value = connectionEditing?.manualModelId || '';
-  connectionDraft.preset = connectionEditing?.presetManual ? (connectionEditing.preset || 'auto') : 'auto';
-  connectionDraft.apiFormat = connectionEditing?.apiFormat || 'auto';
-  syncConnPresetPills();
-  syncConnFormatPills();
-  renderConnectionModels(connectionEditing?.models || [], connectionEditing?.modelCount || 0);
-  setConnPage(0);
-  if (!dialog.open) dialog.showModal();
-}
-
-function syncConnPresetPills() {
-  document.querySelectorAll('#connPresetGrid .conn-preset-pill').forEach(button => {
-    button.classList.toggle('active', button.dataset.preset === connectionDraft.preset);
-  });
-}
-
-function syncConnFormatPills() {
-  document.querySelectorAll('#connFormatGrid .conn-format-pill').forEach(button => {
-    button.classList.toggle('active', button.dataset.format === connectionDraft.apiFormat);
-  });
-}
-
-function collectConnectionForm() {
-  const keyInput = $('#connApiKey');
-  const keyValue = keyInput?.value?.trim() || '';
-  return {
-    id: activeConnectionId || '',
-    name: $('#connName')?.value?.trim() || '',
-    baseUrl: $('#connBaseUrl')?.value?.trim() || '',
-    apiKey: keyInput?.dataset?.masked === 'true'
-      ? connectionDraftApiKey
-      : (connectionDraftApiKey || keyValue),
-    imageGenerationUrl: $('#connImagePost')?.value?.trim() || '',
-    imageEditUrl: $('#connImageEditPost')?.value?.trim() || '',
-    videoGenerationUrl: $('#connVideoPost')?.value?.trim() || '',
-    preset: connectionDraft.preset || 'auto',
-    apiFormat: connectionDraft.apiFormat || 'auto',
-    manualModelId: $('#connManualModel')?.value?.trim() || ''
-  };
-}
-
-function resolveProviderConfirmation(confirmed) {
-  if (!providerConfirmResolver) return;
-  const resolve = providerConfirmResolver;
-  providerConfirmResolver = null;
-  const layer = $('#providerConfirmModal');
-  layer?.classList.add('hidden');
-  layer?.setAttribute('aria-hidden', 'true');
-  resolve(confirmed);
-}
-
-function requestProviderConfirmation({ title, description, confirmLabel = '确认' } = {}) {
-  return new Promise(resolve => {
-    const layer = $('#providerConfirmModal');
-    if (!layer) {
-      resolve(false);
-      return;
-    }
-    $('#providerConfirmTitle').textContent = title || '确认操作';
-    $('#providerConfirmDescription').textContent = description || '';
-    $('#providerConfirmAccept').textContent = confirmLabel || '确认';
-    layer.classList.remove('hidden');
-    layer.setAttribute('aria-hidden', 'false');
-    providerConfirmResolver = resolve;
-  });
-}
-
-$('#connectionDialogClose')?.addEventListener('click', () => $('#connectionDialog')?.close());
-$('#connectionDialog')?.addEventListener('click', event => {
-  if (event.target !== event.currentTarget) return;
-  if (providerConfirmResolver) {
-    resolveProviderConfirmation(false);
-    return;
-  }
-  event.currentTarget.close();
-});
-$('#providerConfirmCancel')?.addEventListener('click', () => resolveProviderConfirmation(false));
-$('#providerConfirmAccept')?.addEventListener('click', () => resolveProviderConfirmation(true));
-$('#providerConfirmModal')?.addEventListener('click', event => {
-  if (event.target === event.currentTarget) resolveProviderConfirmation(false);
-});
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && providerConfirmResolver) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    resolveProviderConfirmation(false);
-  }
-}, true);
-
-['#connName', '#connBaseUrl', '#connApiKey', '#connImagePost', '#connImageEditPost', '#connVideoPost', '#connManualModel'].forEach(selector => {
-  $(selector)?.addEventListener('input', () => {
-    if (selector === '#connApiKey') {
-      const input = $('#connApiKey');
-      if (input?.dataset?.masked !== 'true') connectionDraftApiKey = input.value;
-    }
-    if (connectionSaveComplete) resetConnectionSaveFeedback();
-    if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
-  });
-});
-$('#connPresetGrid')?.addEventListener('click', event => {
-  const pill = event.target.closest('.conn-preset-pill');
-  if (!pill) return;
-  connectionDraft.preset = String(pill.dataset.preset || 'auto');
-  syncConnPresetPills();
-  if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
-});
-$('#connFormatGrid')?.addEventListener('click', event => {
-  const pill = event.target.closest('.conn-format-pill');
-  if (!pill) return;
-  connectionDraft.apiFormat = String(pill.dataset.format || 'auto');
-  syncConnFormatPills();
-  if (connectionDraft.page === CONN_PAGE_COUNT - 1) renderConnSummary();
-});
-$('#connPrev')?.addEventListener('click', () => setConnPage(connectionDraft.page - 1));
-$('#connNext')?.addEventListener('click', () => {
-  if (connectionDraft.page === CONN_PAGE_COUNT - 1) {
-    void saveConnection();
-    return;
-  }
-  if (!validateConnectionPage(connectionDraft.page)) return;
-  showConnectionNotice('');
-  setConnPage(connectionDraft.page + 1);
-});
-$('#connApiKey')?.addEventListener('beforeinput', event => {
-  if (event.currentTarget.dataset.masked !== 'true') return;
-  event.currentTarget.value = '';
-  connectionDraftApiKey = '';
-  event.currentTarget.dataset.masked = 'false';
-  event.currentTarget.dataset.revealed = 'false';
-  event.currentTarget.type = 'password';
-});
-$('#connToggleKey')?.addEventListener('click', async () => {
-  const input = $('#connApiKey');
-  const button = $('#connToggleKey');
-  if (!input || !button) return;
-  if (input.dataset.masked === 'true') {
-    if (connectionDraftApiKey) {
-      input.value = connectionDraftApiKey;
-      input.dataset.masked = 'false';
-      input.dataset.revealed = 'true';
-      input.type = 'text';
-      updateConnectionEyeButton(true);
-      return;
-    }
-    if (!connectionEditing) return;
-    button.disabled = true;
-    try {
-      const result = await api.getProviderSecret(connectionEditing.providerId, connectionEditing.supplierId);
-      if (result?.error) { toast(result.error); return; }
-      input.value = result?.apiKey || '';
-      connectionDraftApiKey = input.value;
-      input.dataset.masked = 'false';
-      input.dataset.revealed = 'true';
-      input.type = 'text';
-      updateConnectionEyeButton(true);
-    } finally {
-      button.disabled = false;
-    }
-    return;
-  }
-  const actualValue = connectionDraftApiKey || input.value;
-  if (actualValue) {
-    connectionDraftApiKey = actualValue;
-    input.value = MASKED_API_KEY;
-    input.dataset.masked = 'true';
-    input.dataset.revealed = 'false';
-    input.type = 'text';
-    updateConnectionEyeButton(false);
-    return;
-  }
-  input.type = input.type === 'password' ? 'text' : 'password';
-  updateConnectionEyeButton(input.type === 'text');
-});
-
-let connectionTestInFlight = false;
-async function testConnection() {
-  if (connectionTestInFlight) return;
-  const form = collectConnectionForm();
-  let apiKey = form.apiKey;
-  if (!apiKey && connectionEditing?.apiKeyConfigured) {
-    try {
-      const secret = await api.getProviderSecret(connectionEditing.providerId, connectionEditing.supplierId);
-      apiKey = secret?.apiKey || '';
-    } catch {}
-  }
-  if (!form.baseUrl || !/^https?:\/\//i.test(form.baseUrl)) {
-    showConnectionNotice('请先填写以 http(s):// 开头的 Base URL。', 'error');
-    return;
-  }
-  if (!apiKey) {
-    showConnectionNotice('请先填写 API Key（已保存的连接会自动使用已存 Key）。', 'error');
-    return;
-  }
-  connectionTestInFlight = true;
-  const buttons = ['#connTestInline'].map(selector => $(selector)).filter(Boolean);
-  buttons.forEach(button => {
-    button.disabled = true;
-    button.dataset.busy = 'true';
-  });
-  showConnectionNotice('正在连接并拉取模型列表…', 'progress');
-  try {
-    const result = await api.connectionsTest({
-      baseUrl: form.baseUrl,
-      apiKey,
-      preset: form.preset,
-      apiFormat: form.apiFormat
-    });
-    if (result?.ok) {
-      renderConnectionModels(result.models || [], result.modelCount);
-      showConnectionNotice(`连接成功：返回 ${Number(result.modelCount) || 0} 个模型。`, 'success');
-    } else {
-      showConnectionNotice(`连接失败：${result?.error || '未知错误'}`, 'error');
-    }
-  } catch (error) {
-    showConnectionNotice(`连接失败：${error?.message || error}`, 'error');
-  } finally {
-    connectionTestInFlight = false;
-    buttons.forEach(button => {
-      button.disabled = false;
-      button.dataset.busy = 'false';
-    });
-  }
-}
-
-$('#connTestInline')?.addEventListener('click', testConnection);
-
-async function saveConnection() {
-  if (connectionSaveComplete) return;
-  const form = collectConnectionForm();
-  if (!form.name) { showConnectionNotice('请填写连接名称。', 'error'); return; }
-  if (!form.baseUrl || !/^https?:\/\//i.test(form.baseUrl)) {
-    showConnectionNotice('Base URL 必须以 http:// 或 https:// 开头。', 'error');
-    return;
-  }
-  for (const [label, url] of [['生图 POST', form.imageGenerationUrl], ['编辑图片 POST', form.imageEditUrl], ['生视频 POST', form.videoGenerationUrl]]) {
-    if (url && !/^https?:\/\//i.test(url)) {
-      showConnectionNotice(`${label} 必须以 http:// 或 https:// 开头。`, 'error');
-      return;
-    }
-  }
-  if (!form.apiKey && !connectionEditing?.apiKeyConfigured) {
-    showConnectionNotice('请填写 API Key（留空仅对已保存连接表示保留旧 Key）。', 'error');
-    return;
-  }
-  setConnectionSaveState('saving');
-  showConnectionNotice(form.manualModelId ? '正在保存连接…' : '正在保存并同步模型目录…', 'progress');
-  try {
-    const result = await api.connectionsSave(form);
-    if (result?.ok) {
-      setConnectionSaveState('complete');
-      renderConnectionModels(result.connection?.models || [], result.connection?.modelCount || result.modelCount || 0);
-      await renderConnectionList();
-      connectionEditing = findConnectionInCache(result.connection?.id || activeConnectionId);
-      activeConnectionId = connectionEditing?.id || activeConnectionId;
-      state.config = await api.getConfig();
-      renderModelBadge();
-      await refreshQuickModels().catch(() => {});
-      await primeMediaModelLabels();
-      $('#connectionDialog')?.close();
-      const supplementalCount = Number(result.supplementalModelCount) || 0;
-      const supplementalText = supplementalCount
-        ? `，另有 ${supplementalCount} 个${result.connection?.supplementalModelLabel || '官方补充'}模型可选`
-        : '';
-      toast(`已保存：API 返回 ${Number(result.modelCount) || 0} 个模型${supplementalText}。`);
-    } else {
-      setConnectionSaveState('error');
-      showConnectionNotice(`保存失败：${result?.error || '未知错误'}`, 'error');
-    }
-  } catch (error) {
-    setConnectionSaveState('error');
-    showConnectionNotice(`保存失败：${error?.message || error}`, 'error');
-  }
-}
-
-async function deleteConnection(connectionOverride = null) {
-  const target = connectionOverride || connectionEditing;
-  if (!target) return;
-  if ($('#connectionDialog')?.open) $('#connectionDialog').close();
-  const confirmed = await requestProviderConfirmation({
-    title: '删除连接',
-    description: `确定删除「${target.name}」？已绑定到它的模型角色会被重置。`,
-    confirmLabel: '删除'
-  });
-  if (!confirmed) return;
-  try {
-    const result = await api.connectionsDelete(target.id);
-    if (result?.ok) {
-      if (connectionEditing?.id === target.id) {
-        connectionEditing = null;
-        activeConnectionId = '';
-      }
-      $('#connectionDialog')?.close();
-      await renderConnectionList();
-      state.config = await api.getConfig();
-      quickModelsCache = null;
-      renderModelBadge();
-      await refreshQuickModels().catch(() => {});
-      await primeMediaModelLabels();
-      toast('连接已删除');
-    } else {
-      toast(result?.error || '删除失败');
-    }
-  } catch (error) {
-    toast(`删除失败：${error?.message || error}`);
-  }
-}
-
 // ============================================================
-// MCP page (moved from settings)
 // ============================================================
-function parseMcpArguments(value) {
-  const source = String(value || '');
-  const args = [];
-  let token = '';
-  let quote = '';
-  const pushToken = () => {
-    if (!token) return;
-    args.push(token);
-    token = '';
-  };
-  for (const char of source) {
-    if (quote) {
-      if (char === quote) quote = '';
-      else token += char;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === ' ' || char === '\t' || char === '\r' || char === '\n') {
-      pushToken();
-      continue;
-    }
-    token += char;
-  }
-  pushToken();
-  return args;
-}
-
-function readMcpCreateForm() {
-  const name = String($('#mcpNewName')?.value || '').trim();
-  if (mcpCreateTransport === 'remote') {
-    const url = String($('#mcpNewUrl')?.value || '').trim();
-    const { headers } = parseMcpHeaders($('#mcpNewHeaders')?.value || '');
-    return { name, type: 'remote', url, headers };
-  }
-  return {
-    name,
-    type: 'local',
-    command: String($('#mcpNewCmd')?.value || '').trim(),
-    args: parseMcpArguments($('#mcpNewArgs')?.value || '')
-  };
-}
-
-function mcpCreateFormMissing(form) {
-  if (!form.name) return 'name';
-  if (form.type === 'remote') return form.url ? '' : 'url';
-  return form.command ? '' : 'command';
-}
-
-function revealMissingMcpCreateField(form) {
-  if (!form.name) {
-    renderMcpCreateStep(1);
-    setMcpWizardFieldError('mcpNewName', '请输入 MCP 名称后继续');
-    return;
-  }
-  if (form.type === 'remote') {
-    if (!form.url) {
-      renderMcpCreateStep(2);
-      setMcpWizardFieldError('mcpNewUrl', '请输入远程服务地址后继续');
-    }
-    return;
-  }
-  if (!form.command) {
-    renderMcpCreateStep(2);
-    setMcpWizardFieldError('mcpNewCmd', '请输入启动命令后继续');
-  }
-}
-
-$('#mcpTestCreateBtn')?.addEventListener('click', async () => {
-  const form = readMcpCreateForm();
-  if (mcpCreateFormMissing(form)) {
-    const message = form.type === 'remote' ? '请填写名称和服务地址' : '请填写名称和启动命令';
-    setMcpCreateTestButtonState('error', message);
-    revealMissingMcpCreateField(form);
-    toast(message);
-    return;
-  }
-  if (form.type === 'remote' && !/^https?:\/\//i.test(form.url)) {
-    setMcpCreateTestButtonState('error', '地址必须以 http:// 或 https:// 开头');
-    revealMissingMcpCreateField({ ...form, url: '' });
-    return;
-  }
-  setMcpCreateTestButtonState('loading');
-  try {
-    const result = await api.mcpTest?.(form);
-    if (!result || result.error) throw new Error(result?.error || '测试接口不可用');
-    setMcpCreateTestButtonState('success', `连接成功，${result.tools?.length || 0} 个工具；点击重新测试`);
-  } catch (error) {
-    setMcpCreateTestButtonState('error', `连接失败：${error.message || error}`);
-    toast(`MCP 测试失败：${error.message || error}`);
-  }
-});
-
-$('#mcpAddBtn')?.addEventListener('click', async () => {
-  const form = readMcpCreateForm();
-  if (mcpCreateFormMissing(form)) {
-    const message = form.type === 'remote' ? '请填写名称和服务地址' : '请填写名称和启动命令';
-    setMcpCreateButtonState('error', message);
-    revealMissingMcpCreateField(form);
-    toast(message);
-    return;
-  }
-  setMcpCreateButtonState('loading');
-  try {
-    const server = await api.mcpAdd(form);
-    if (!server || server.error) throw new Error(server?.error || '添加 MCP 失败');
-    toast('正在测试连接 ' + form.name + '...');
-    const res = await api.mcpStart(server.id);
-    if (res.error) {
-      setMcpCreateButtonState('error', 'MCP 启动失败：' + res.error);
-      toast('MCP 启动失败: ' + res.error);
-      return;
-    }
-    setMcpCreateButtonState('success');
-    $('#mcpNewName').value = '';
-    $('#mcpNewCmd').value = '';
-    $('#mcpNewUrl').value = '';
-    $('#mcpNewArgs').value = '';
-    $('#mcpNewHeaders').value = '';
-    closeCapabilityDialog('mcpCreateDialog');
-    toast('已添加并启动成功，加载了 ' + (res.tools?.length || 0) + ' 个工具');
-    await renderMcpPage();
-  } catch (error) {
-    setMcpCreateButtonState('error', '添加 MCP 失败：' + (error.message || error));
-    toast('添加 MCP 失败: ' + (error.message || error));
-  }
-});
 
 async function renderModelGrid(cfg) {
   const grid = $('#modelGrid');
@@ -21027,18 +20204,6 @@ async function renderModelGrid(cfg) {
       const name = models.find(model => model.providerId === providerId && model.id === id)?.name || id;
       const roleLabel = { text: '文本', image: '图像', video: '视频' }[modelType] || '当前';
       toast(`已将 ${name} 设为${roleLabel}模型`);
-    });
-  });
-}
-
-// Permissions
-async function bindPermissions() {
-  const map = { permRead: 'allowFileRead', permWrite: 'allowFileWrite', permShell: 'allowShell', permNet: 'allowNetwork' };
-  Object.keys(map).forEach(id => {
-    $('#' + id).addEventListener('change', async (e) => {
-      const perm = await api.setPermissions({ [map[id]]: e.target.checked });
-      state.config = await api.getConfig();
-      toast(`权限已更新：${map[id]} = ${e.target.checked}`);
     });
   });
 }
@@ -21141,11 +20306,16 @@ async function primeMediaModelLabels({ showLoading = false } = {}) {
     reconcileMediaModelSelections();
     renderMediaModelBadge();
     renderMediaModelSettingsWizard();
+    renderSecondaryModels();
     return payload;
   } catch (error) {
     if (sequence !== mediaModelRefreshSequence) return null;
     mediaModelCatalogStatus = 'error';
     mediaModelCatalogError = String(error?.message || error || '未知错误');
+    const secondaryList = $('#secondaryModelList');
+    if (secondaryList) {
+      secondaryList.innerHTML = `<div class="secondary-model-empty">读取失败：${escapeHtml(mediaModelCatalogError)}</div>`;
+    }
     renderMediaModelBadge();
     renderMediaModelSettingsWizard();
     if ($('#mediaModelSettingsDialog')?.open) {
@@ -21469,6 +20639,228 @@ async function saveMediaModelSettings() {
   }
 }
 
+
+function secondaryModelIsSelected(role, model) {
+  const media = state.config?.media || {};
+  return String(media[`${role}Model`] || '') === String(model.id)
+    && String(media[`${role}Provider`] || '') === String(model.providerId)
+    && (!media[`${role}SupplierId`] || String(media[`${role}SupplierId`]) === String(model.supplierId || ''));
+}
+
+function renderSecondaryModels() {
+  const list = $('#secondaryModelList');
+  if (!list) return;
+  const models = mediaModelCatalog.filter(model => model.modelType === 'image' || model.modelType === 'video');
+  if (!models.length) {
+    list.innerHTML = '<div class="secondary-model-empty">暂无可用的生图 / 生视频模型。请先在「服务商配置」中为模型标记「支持生图 / 支持生视频」。</div>';
+    return;
+  }
+  list.innerHTML = SECONDARY_MODEL_GROUPS.map(group => {
+    const rows = models.filter(model => model.modelType === group.role);
+    const body = rows.length
+      ? rows.map(model => renderSecondaryModelRow(group.role, model)).join('')
+      : `<div class="secondary-model-row secondary-model-row-empty">暂无标记为「${group.title}」的模型</div>`;
+    return `<div class="secondary-model-group">
+      <div class="secondary-model-group-head">${group.title}</div>
+      <div class="secondary-model-frame" role="list">${body}</div>
+    </div>`;
+  }).join('');
+}
+
+const SECONDARY_MODEL_GROUPS = [
+  { role: 'image', title: '生图' },
+  { role: 'video', title: '生视频' }
+];
+
+function renderSecondaryModelRow(role, model) {
+  const selected = secondaryModelIsSelected(role, model);
+  const label = model.name || model.id;
+  return `<div class="secondary-model-row" role="listitem" data-secondary-provider="${escapeAttr(model.providerId || '')}" data-secondary-supplier="${escapeAttr(model.supplierId || '')}" data-secondary-id="${escapeAttr(model.id || '')}" data-secondary-role="${role}">
+    <div class="secondary-model-main">
+      <span class="secondary-model-name" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+    </div>
+    <label class="secondary-model-enable" title="启用后作为该角色的次模型使用">
+      <input type="checkbox" class="switch" data-secondary-enable role="switch" aria-label="启用 ${escapeAttr(label)}"${selected ? ' checked' : ''} />
+    </label>
+  </div>`;
+}
+
+async function refreshSecondaryModels() {
+  const list = $('#secondaryModelList');
+  if (!list) return;
+  list.innerHTML = '<div class="secondary-model-empty">正在读取可用模型…</div>';
+  // Share the catalog and refresh sequence with the media picker so provider
+  // edits and late responses cannot leave this page with a separate stale list.
+  await primeMediaModelLabels();
+}
+
+async function applySecondaryModelToggle(model, enable) {
+  const role = model.modelType;
+  try {
+    const nextConfig = enable
+      ? await api.setModelRole(model.providerId, model.id, role, model.supplierId)
+      : await api.setModelRole('', '', role, '');
+    if (nextConfig?.error) {
+      toast(`保存失败：${nextConfig.error}`);
+      renderSecondaryModels();
+      return;
+    }
+    state.config = nextConfig;
+    renderModelBadge();
+    renderSecondaryModels();
+  } catch (error) {
+    toast(`保存失败：${error?.message || error}`);
+    renderSecondaryModels();
+  }
+}
+
+$('#secondaryModelList')?.addEventListener('change', event => {
+  const toggle = event.target.closest('[data-secondary-enable]');
+  if (!toggle) return;
+  const row = toggle.closest('[data-secondary-id]');
+  if (!row) return;
+  const providerId = row.dataset.secondaryProvider || '';
+  const supplierId = row.dataset.secondarySupplier || '';
+  const id = row.dataset.secondaryId || '';
+  const model = mediaModelCatalog.find(item => (
+    String(item.providerId || '') === providerId
+    && String(item.supplierId || '') === supplierId
+    && String(item.id || '') === id
+  ));
+  if (!model) return;
+  void applySecondaryModelToggle(model, toggle.checked);
+});
+
+// Primary (text) model page. Lists text models from every enabled connection so
+// several providers can stay enabled at once; image/video models never appear.
+let mainModelCache = [];
+let mainModelRefreshSeq = 0;
+let mainModelSaving = false;
+let mainModelGroups = [];
+const mainModelCollapsed = new Set();
+// Same chevrons the main-interface 项目 section uses for expand / collapse.
+const MAIN_MODEL_CHEVRON_DOWN = 'M6 9L12 15L18 9';
+const MAIN_MODEL_CHEVRON_RIGHT = 'M9 6L15 12L9 18';
+
+function renderMainModels() {
+  const list = $('#mainModelList');
+  if (!list) return;
+  if (!mainModelCache.length) {
+    mainModelGroups = [];
+    list.innerHTML = '<div class="main-model-empty">还没有可用的主模型。请先到「服务商配置」中启用包含文本模型的服务商连接。</div>';
+    return;
+  }
+  mainModelGroups = [];
+  for (const model of mainModelCache) {
+    const key = `${model.providerId}\u0000${model.supplierId}`;
+    let group = mainModelGroups.find(item => item.key === key);
+    if (!group) {
+      group = {
+        key,
+        name: model.supplierName || model.providerName || model.providerId,
+        models: []
+      };
+      mainModelGroups.push(group);
+    }
+    group.models.push(model);
+  }
+  list.innerHTML = mainModelGroups.map((group, index) => {
+    const collapsed = mainModelCollapsed.has(group.key);
+    return `
+    <div class="main-model-group${collapsed ? ' is-collapsed' : ''}">
+      <button type="button" class="main-model-group-head" data-main-group-toggle="${index}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? '展开' : '收起'} ${escapeAttr(group.name)}">
+        <svg class="main-model-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${collapsed ? MAIN_MODEL_CHEVRON_RIGHT : MAIN_MODEL_CHEVRON_DOWN}"/></svg>
+        <span class="main-model-group-name" title="${escapeAttr(group.name)}">${escapeHtml(group.name)}</span>
+        <span class="main-model-group-meta">${group.models.length} 个模型</span>
+      </button>
+      <div class="main-model-frame" role="list">
+        ${group.models.map(renderMainModelRow).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMainModelRow(model) {
+  const selected = mainModelIsSelected(model);
+  const label = model.name || model.id;
+  return `<button type="button" class="main-model-row${selected ? ' active' : ''}" role="listitem"
+    data-main-provider="${escapeAttr(model.providerId || '')}"
+    data-main-supplier="${escapeAttr(model.supplierId || '')}"
+    data-main-id="${escapeAttr(model.id || '')}"
+    aria-pressed="${selected ? 'true' : 'false'}"
+    title="设为主模型：${escapeAttr(label)}">
+    <span class="main-model-main">
+      <span class="main-model-name" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+    </span>
+    <span class="main-model-check" aria-hidden="true">✓</span>
+  </button>`;
+}
+
+function mainModelIsSelected(model) {
+  const selection = getAgentModelSelection(null);
+  return String(selection.providerId || '') === String(model.providerId || '')
+    && String(selection.supplierId || '') === String(model.supplierId || '')
+    && String(selection.modelId || '') === String(model.id || '');
+}
+
+async function refreshMainModels() {
+  const list = $('#mainModelList');
+  if (!list) return;
+  const seq = ++mainModelRefreshSeq;
+  list.innerHTML = '<div class="main-model-empty">正在读取已启用服务商的主模型…</div>';
+  try {
+    const payload = await api.listMainModels();
+    if (seq !== mainModelRefreshSeq) return;
+    mainModelCache = Array.isArray(payload?.models) ? payload.models : [];
+  } catch (error) {
+    if (seq !== mainModelRefreshSeq) return;
+    list.innerHTML = `<div class="main-model-empty">读取失败：${escapeHtml(error?.message || error || '未知错误')}</div>`;
+    return;
+  }
+  renderMainModels();
+}
+
+async function selectMainModel(model) {
+  if (!model || mainModelSaving) return;
+  if (mainModelIsSelected(model)) return;
+  mainModelSaving = true;
+  try {
+    const nextConfig = await api.setModelRole(model.providerId, model.id, 'text', model.supplierId);
+    if (nextConfig?.error) throw new Error(nextConfig.error);
+    state.config = nextConfig;
+    renderModelBadge();
+    renderMainModels();
+    toast(`主模型已切换为 ${model.name || model.id}`);
+  } catch (error) {
+    toast(`切换失败：${error?.message || error}`);
+  } finally {
+    mainModelSaving = false;
+  }
+}
+
+$('#mainModelList')?.addEventListener('click', event => {
+  const toggle = event.target.closest('[data-main-group-toggle]');
+  if (toggle) {
+    const group = mainModelGroups[Number(toggle.dataset.mainGroupToggle)];
+    if (!group) return;
+    if (mainModelCollapsed.has(group.key)) mainModelCollapsed.delete(group.key);
+    else mainModelCollapsed.add(group.key);
+    renderMainModels();
+    return;
+  }
+  const row = event.target.closest('[data-main-id]');
+  if (!row) return;
+  const providerId = row.dataset.mainProvider || '';
+  const supplierId = row.dataset.mainSupplier || '';
+  const id = row.dataset.mainId || '';
+  const model = mainModelCache.find(item => (
+    String(item.providerId || '') === providerId
+    && String(item.supplierId || '') === supplierId
+    && String(item.id || '') === id
+  ));
+  if (model) void selectMainModel(model);
+});
+
 function quickTextModels() {
   return (quickModelsCache?.models || []).filter(model => model.modelType === 'text');
 }
@@ -21512,18 +20904,33 @@ function renderModelPickerChoices() {
     lists.forEach(list => { list.innerHTML = empty; });
     return;
   }
-  const menuHtml = models.map(model => {
-    const providerId = String(model.providerId || '');
-    const supplierId = String(model.supplierId || '');
-    const modelId = String(model.id || '');
-    const selected = providerId === modelPickerDraft.providerId
-      && supplierId === modelPickerDraft.supplierId
-      && modelId === modelPickerDraft.modelId;
-    const label = String(model.name || modelId);
-    return `<button type="button" class="model-quick-item model-selector-option${selected ? ' is-selected' : ''}"
-      data-model-picker-provider="${escapeAttr(providerId)}" data-model-picker-supplier="${escapeAttr(supplierId)}"
-      data-model-picker-model="${escapeAttr(modelId)}" role="option" aria-selected="${selected}"
-      title="${escapeAttr(label)}"><span class="model-quick-name">${escapeHtml(label)}</span><span class="model-quick-check" aria-hidden="true">✓</span></button>`;
+  const groups = new Map();
+  for (const model of models) {
+    const key = JSON.stringify([model.providerId || '', model.supplierId || '']);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        name: String(model.supplierName || model.providerName || model.providerId || '未命名服务商'),
+        models: []
+      });
+    }
+    groups.get(key).models.push(model);
+  }
+  const menuHtml = [...groups.values()].map(group => {
+    const options = group.models.map(model => {
+      const providerId = String(model.providerId || '');
+      const supplierId = String(model.supplierId || '');
+      const modelId = String(model.id || '');
+      const selected = providerId === modelPickerDraft.providerId
+        && supplierId === modelPickerDraft.supplierId
+        && modelId === modelPickerDraft.modelId;
+      const label = String(model.name || modelId);
+      return `<button type="button" class="model-quick-item model-selector-option${selected ? ' is-selected' : ''}"
+        data-model-picker-provider="${escapeAttr(providerId)}" data-model-picker-supplier="${escapeAttr(supplierId)}"
+        data-model-picker-model="${escapeAttr(modelId)}" role="option" aria-selected="${selected}"
+        title="${escapeAttr(`${group.name} · ${label}`)}"><span class="model-quick-name">${escapeHtml(label)}</span><span class="model-quick-check" aria-hidden="true">✓</span></button>`;
+    }).join('');
+    return `<div class="model-quick-group" role="group" aria-label="${escapeAttr(group.name)}">
+      <div class="model-quick-group-label" aria-hidden="true" title="${escapeAttr(group.name)}">${escapeHtml(group.name)}</div>${options}</div>`;
   }).join('');
   const legacyHtml = models.map(model => {
     const providerId = String(model.providerId || '');
@@ -21710,6 +21117,7 @@ function closeReasoningPicker({ restoreFocus = false } = {}) {
 
 async function selectModelFromMenu(option) {
   if (!option || modelPickerSaving) return;
+  const taskSession = state.currentSession;
   const selectedModel = quickTextModels().find(model => (
     String(model.providerId || '') === String(option.dataset.modelPickerProvider || '')
     && String(model.supplierId || '') === String(option.dataset.modelPickerSupplier || '')
@@ -21729,14 +21137,7 @@ async function selectModelFromMenu(option) {
   modelPickerSaving = true;
   option.setAttribute('aria-busy', 'true');
   try {
-    const nextConfig = await api.setModelRole(
-      selectedModel.providerId,
-      selectedModel.id,
-      'text',
-      selectedModel.supplierId || ''
-    );
-    if (nextConfig?.error) throw new Error(nextConfig.error);
-    state.config = nextConfig;
+    await selectTaskModel(selectedModel, taskSession);
     modelPickerDraft.providerId = String(selectedModel.providerId || '');
     modelPickerDraft.supplierId = String(selectedModel.supplierId || '');
     modelPickerDraft.modelId = String(selectedModel.id || '');
@@ -21756,6 +21157,7 @@ async function selectModelFromMenu(option) {
 
 async function saveModelPicker() {
   if (modelPickerSaving) return;
+  const taskSession = state.currentSession;
   const selectedModel = currentModelPickerModel();
   if (!selectedModel) {
     setModelPickerPage(0);
@@ -21774,17 +21176,10 @@ async function saveModelPicker() {
       || String(current.supplierId || '') !== String(selectedModel.supplierId || '')
       || String(current.modelId || '') !== String(selectedModel.id || '');
     if (modelChanged) {
-      const nextConfig = await api.setModelRole(
-        selectedModel.providerId,
-        selectedModel.id,
-        'text',
-        selectedModel.supplierId || ''
-      );
-      if (nextConfig?.error) throw new Error(nextConfig.error);
-      state.config = nextConfig;
+      await selectTaskModel(selectedModel, taskSession);
     }
     if (reasoningSpeed !== getReasoningSpeedMode()) {
-      await selectReasoningSpeed(reasoningSpeed, { notify: false });
+      await selectReasoningSpeed(reasoningSpeed, { notify: false, session: taskSession });
     }
     renderModelBadge();
     const next = $('#modelPickerNext');
@@ -21870,17 +21265,18 @@ function renderReasoningFlower(mode) {
 
 const LEGACY_REASONING_SPEED_MODES = Object.freeze({ fast: 'low', balanced: 'medium', smart: 'high' });
 
-function getReasoningSpeedMode() {
+function getReasoningSpeedMode(session = state.currentSession) {
   const apiConfig = state.config?.api || {};
-  const value = String(apiConfig.reasoningSpeed || '');
+  const value = String(session?.reasoningMode || apiConfig.reasoningSpeed || '');
   if (REASONING_SPEED_UI[value]) return value;
   if (LEGACY_REASONING_SPEED_MODES[value]) return LEGACY_REASONING_SPEED_MODES[value];
   return apiConfig.thinking ? 'high' : 'medium';
 }
 
 function getReasoningSpeedBillingNote(mode) {
-  const provider = String(state.config?.api?.provider || '');
-  const model = String(state.config?.api?.model || '');
+  const selection = getAgentModelSelection();
+  const provider = selection.providerId;
+  const model = selection.modelId;
   if (model === 'kimi-k3') return 'Kimi K3 固定 Max · 档位仅调整 Agent 执行节奏';
   if (['high', 'xhigh', 'max'].includes(mode) && provider === 'moonshot' && model === 'kimi-k2.7-code') {
     return '将使用 Kimi K2.7 HighSpeed（价格更高）';
@@ -21934,14 +21330,18 @@ function renderReasoningSpeedControl(modeOverride, { updateBadge = true, progres
     ? Math.max(0, Math.min(1, Number(progressOverride)))
     : modeIndex / (REASONING_SPEED_ORDER.length - 1);
   if (updateBadge) {
-    if ($('#modelPillSpeed')) $('#modelPillSpeed').textContent = meta.label;
+    const hasModel = !!getAgentModelSelection().modelId;
+    if ($('#modelPillSpeed')) {
+      $('#modelPillSpeed').textContent = hasModel ? meta.label : '';
+      $('#modelPillSpeed').classList.toggle('hidden', !hasModel);
+    }
     const modelPill = $('#modelPill');
     if (modelPill) {
       const selection = getAgentModelSelection();
       const modelName = selection.name || selection.modelId || '未选择模型';
       modelPill.dataset.reasoningMode = mode;
-      modelPill.title = `模型：${modelName} · 推理强度：${meta.label}`;
-      modelPill.setAttribute('aria-label', `当前模型 ${modelName}，推理强度 ${meta.label}，点击切换`);
+      modelPill.title = hasModel ? `模型：${modelName} · 推理强度：${meta.label}` : '未选择模型，请先在服务商配置中启用文本模型';
+      modelPill.setAttribute('aria-label', hasModel ? `当前模型 ${modelName}，推理强度 ${meta.label}，点击切换` : modelPill.title);
     }
   }
   const routeReasoning = $('#modelQuickRouteReasoning');
@@ -21977,8 +21377,8 @@ function renderReasoningSpeedControl(modeOverride, { updateBadge = true, progres
   });
 }
 
-async function selectReasoningSpeed(mode, { notify = true } = {}) {
-  if (!REASONING_SPEED_UI[mode] || mode === getReasoningSpeedMode()) {
+async function selectReasoningSpeed(mode, { notify = true, session = state.currentSession } = {}) {
+  if (!REASONING_SPEED_UI[mode] || mode === getReasoningSpeedMode(session)) {
     renderReasoningSpeedControl();
     return state.config;
   }
@@ -21986,9 +21386,21 @@ async function selectReasoningSpeed(mode, { notify = true } = {}) {
   if (mode !== 'max') clearMaxReasoningNotice();
   if (mode === 'max' && !$('#modelPill')?.classList.contains('show-max-reasoning-notice')) showMaxReasoningNotice();
   try {
-    state.config = await api.setConfig({
-      api: { reasoningSpeed: mode, thinking: ['high', 'xhigh', 'max'].includes(mode) }
-    });
+    if (session) {
+      const previous = session.reasoningMode;
+      session.reasoningMode = mode;
+      try {
+        const saved = await api.saveSession(buildSessionSavePayload(session));
+        if (saved?.error) throw new Error(saved.error);
+      } catch (error) {
+        session.reasoningMode = previous;
+        throw error;
+      }
+    } else {
+      state.config = await api.setConfig({
+        api: { reasoningSpeed: mode, thinking: ['high', 'xhigh', 'max'].includes(mode) }
+      });
+    }
   } catch (error) {
     clearMaxReasoningNotice();
     throw error;
@@ -22046,8 +21458,6 @@ const WORK_MODE_UI = Object.freeze({
   normal: { label: '常规', toast: '工作方式：常规' },
   plan: { label: '计划', toast: '工作方式：计划' },
   goal: { label: '目标', toast: '工作方式：目标' },
-  evolution: { label: '自进化', toast: '工作方式：自进化' },
-  agi: { label: 'AGI', toast: '工作方式：AGI（实验性）——推理侧路 + 自进化双链路' }
 });
 
 function getCurrentWorkMode() {
@@ -22184,6 +21594,7 @@ async function selectAccessMode(mode, { closeMenu = true } = {}) {
   }
   renderAccessModeControl();
   if (closeMenu) setAccessModeMenuOpen(false);
+  syncGeneralPreferences();
   toast(ACCESS_MODE_UI[mode].toast);
 }
 
@@ -22218,6 +21629,7 @@ async function commitAccessSlider(value) {
 }
 
 function closeTaskActionsMenu() {
+  window.YanTaskMenu?.closeToolbar();
   $('#taskActionsMenu')?.classList.add('hidden');
   const button = $('#taskBarMoreBtn');
   button?.classList.remove('active');
@@ -22236,7 +21648,7 @@ function setTaskToolsPillTool(tool = 'powershell') {
   const button = $('#taskToolsPill');
   if (!icon || !button) return;
   const assets = {
-    powershell: { src: 'assets/powershell.png', label: '打开工作区工具 · 终端' },
+    powershell: { src: 'assets/terminal.svg', label: '打开工作区工具 · 终端' },
     vscode: { src: vsCodeStatus.iconDataUrl || 'assets/code-editor.svg', label: '打开工作区工具 · VS Code' },
     'file-explorer': { src: 'assets/file-explorer.png', label: '打开工作区工具 · 资源管理器' },
   };
@@ -22249,7 +21661,7 @@ function setTaskToolsPillTool(tool = 'powershell') {
 
 function getCurrentTaskTool() {
   const sessionId = state.currentSession?.id;
-  return sessionId ? (taskToolSelections.get(sessionId) || 'powershell') : 'powershell';
+  return sessionId ? (taskToolSelections.get(sessionId) || 'file-explorer') : 'file-explorer';
 }
 
 function selectCurrentTaskTool(tool = 'powershell') {
@@ -22264,7 +21676,6 @@ function selectCurrentTaskTool(tool = 'powershell') {
 async function refreshVsCodeAvailability() {
   const button = $('#taskBarVsCode');
   const icon = $('#taskBarVsCodeIcon');
-  if (!button) return false;
   try {
     const status = await api.getVsCodeStatus?.();
     vsCodeStatus = {
@@ -22275,12 +21686,12 @@ async function refreshVsCodeAvailability() {
   } catch {
     vsCodeStatus = { available: false, executable: '', iconDataUrl: '' };
   }
-  button.classList.toggle('hidden', !vsCodeStatus.available);
+  button?.classList.toggle('hidden', !vsCodeStatus.available);
   if (icon && vsCodeStatus.iconDataUrl) icon.src = vsCodeStatus.iconDataUrl;
   const workspace = state.currentSession?.workspace || state.config?.workspace || '';
-  if (!button.classList.contains('is-launching')) button.disabled = !workspace || !vsCodeStatus.available;
+  if (button && !button.classList.contains('is-launching')) button.disabled = !workspace || !vsCodeStatus.available;
   if (!vsCodeStatus.available && getCurrentTaskTool() === 'vscode') {
-    selectCurrentTaskTool('powershell');
+    selectCurrentTaskTool('file-explorer');
   } else if (getCurrentTaskTool() === 'vscode') {
     setTaskToolsPillTool('vscode');
   }
@@ -22360,8 +21771,7 @@ async function toggleCurrentTaskPinned() {
 
 let renameTaskSessionId = null;
 
-function openRenameTaskDialog() {
-  const session = state.currentSession;
+function openRenameTaskDialog(session = state.currentSession) {
   if (!session) return;
   renameTaskSessionId = session.id;
   const input = $('#renameTaskInput');
@@ -22408,23 +21818,9 @@ function bindTaskActions() {
   const moreButton = $('#taskBarMoreBtn');
   moreButton?.addEventListener('click', event => {
     event.stopPropagation();
-    const menu = $('#taskActionsMenu');
-    const opening = menu.classList.contains('hidden');
+    const opening = moreButton.getAttribute('aria-expanded') !== 'true';
     closeTaskActionsMenu();
-    if (opening) {
-      syncTaskActionLabels();
-      menu.classList.remove('hidden');
-      moreButton.classList.add('active');
-      moreButton.setAttribute('aria-expanded', 'true');
-    }
-  });
-  $('#taskActionsMenu')?.addEventListener('click', async event => {
-    const item = event.target.closest('[data-task-action]');
-    if (!item) return;
-    const action = item.dataset.taskAction;
-    closeTaskActionsMenu();
-    if (action === 'pin') await toggleCurrentTaskPinned();
-    if (action === 'rename') openRenameTaskDialog();
+    if (opening && state.currentSession) window.YanTaskMenu.open(moreButton, state.currentSession, { toolbar: true });
   });
   $('#renameTaskCancel')?.addEventListener('click', closeRenameTaskDialog);
   $('#renameTaskConfirm')?.addEventListener('click', confirmTaskRename);
@@ -22441,7 +21837,7 @@ function bindTaskActions() {
   });
   $('#taskBarTitle')?.addEventListener('dblclick', () => openRenameTaskDialog());
   document.addEventListener('click', event => {
-    if (!event.target.closest('.task-actions-wrap')) closeTaskActionsMenu();
+    if (!event.target.closest('.task-actions-wrap, .task-context-menu')) closeTaskActionsMenu();
   });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeTaskActionsMenu();
@@ -22450,23 +21846,26 @@ function bindTaskActions() {
 
 // Update the task bar (title + folder + buttons)
 function updateTaskBar() {
+  syncAgentChatTabLabel();
   const bar = $('#taskBar');
   if (!bar) return;
+  window.YanAgentShell?.sync($('#pageChat').classList.contains('empty'));
+  updateGreeting();
+  syncBrowserFocusComposerAvailability();
   closeTaskActionsMenu();
   closeTaskToolsMenu();
   syncRightDock();
   if (!state.currentSession) {
     bar.classList.add('hidden');
     closeTaskGitBranchPopover();
+    closeNewTaskBranchMenu();
     closeTaskGitPanel();
     renderTaskGitStatus({ available: true, workspace: '', isRepository: false });
-    window.YanUnderstandAnything?.bindWorkspace('');
     return;
   }
   bar.classList.remove('hidden');
   $('#taskBarTitle').textContent = displaySessionTitle(state.currentSession.title);
   const ws = String(state.currentSession.workspace || '').trim();
-  window.YanUnderstandAnything?.bindWorkspace(ws || '');
   const folderName = $('#taskBarFolderName');
   const folderButton = $('#taskBarFolder');
   const openBtn = $('#taskBarOpenFolder');
@@ -22476,10 +21875,11 @@ function updateTaskBar() {
   // still an empty blank chat it may be re-opened, once it has content the
   // workspace is locked for that conversation.
   const workspaceLocked = !isBlankNewChat(state.currentSession);
+  bar.classList.toggle('task-bar-locked', workspaceLocked);
   if (ws) {
     folderName.textContent = workspaceGroupLabel(ws);
     folderButton?.classList.remove('task-bar-folder-empty');
-    openBtn.disabled = false;
+    if (openBtn) openBtn.disabled = false;
     if (vsCodeBtn && !vsCodeBtn.classList.contains('is-launching')) vsCodeBtn.disabled = !vsCodeStatus.available;
     api.yanagentEnsure?.(ws);
   } else {
@@ -22489,17 +21889,32 @@ function updateTaskBar() {
     // A locked blank task drops the accent highlight: it no longer invites a
     // choice, so it renders as a quiet pill that reads "blank".
     folderButton?.classList.toggle('task-bar-folder-empty', !workspaceLocked);
-    openBtn.disabled = true;
+    if (openBtn) openBtn.disabled = true;
     if (vsCodeBtn) vsCodeBtn.disabled = true;
   }
   if (folderButton) {
-    folderButton.disabled = workspaceLocked;
-    folderButton.title = workspaceLocked ? '已有对话内容，工作区已锁定' : '选择工作区文件夹';
+    // A locked task keeps the control interactive: it opens the workspace in
+    // Explorer instead of offering the one-shot workspace choice again. It is
+    // only inert when a locked task has no workspace to reveal.
+    folderButton.disabled = workspaceLocked && !ws;
+    folderButton.title = workspaceLocked
+      ? (ws ? '在文件资源管理器中打开工作区' : '当前任务未选择工作区')
+      : '选择工作区文件夹';
+    if (workspaceLocked) {
+      folderButton.removeAttribute('aria-haspopup');
+      folderButton.setAttribute('aria-expanded', 'false');
+    } else {
+      folderButton.setAttribute('aria-haspopup', 'dialog');
+    }
     if (workspaceLocked) closeWorkspaceChoiceMenu();
   }
   syncTaskActionLabels();
   syncInterjectionUi();
-  void refreshTaskGitStatus({ quiet: true });
+  // A new (empty) task shows the workspace picker in the composer together with the
+  // branch selector; force the Git status there so the branch capsule reflects the
+  // chosen repository instead of a cached blank snapshot.
+  const emptyChat = $('#pageChat').classList.contains('empty');
+  void refreshTaskGitStatus({ quiet: true, force: emptyChat && Boolean(currentGitWorkspace()) });
 }
 
 function setWorkspaceChoiceMenuOpen(open) {
@@ -22507,6 +21922,7 @@ function setWorkspaceChoiceMenuOpen(open) {
   if (!menu) return;
   menu.classList.toggle('hidden', !open);
   $('#taskBarFolder')?.setAttribute('aria-expanded', String(open));
+  if (open) window.YanAgentShell?.openWorkspaceChoices();
 }
 
 function closeWorkspaceChoiceMenu() {
@@ -22737,12 +22153,29 @@ function renderMarkdownTables(t) {
 }
 
 const AGENT_URL_PATTERN = /(?:https?:\/\/|file:\/\/|www\.)[^\s<>"'`]+/gi;
-const AGENT_MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+)\]\(\s*((?:https?:\/\/|file:\/\/|www\.)[^\s<>"')]+)\s*\)/gi;
+const AGENT_MARKDOWN_LINK_PATTERN = /(?<!!)\[([^\]\r\n]+)\]\(\s*(?:<([^<>\r\n]+)>|((?:[^\s()<>]|\([^()\r\n]*\))+))(?:\s+["'][^\r\n]*?["'])?\s*\)/g;
 const AGENT_MARKDOWN_IMAGE_PATTERN = /!\[([^\]\r\n]*)\]\(\s*([^\s<>"')]+)\s*\)/gi;
 
 function normalizeAgentUrl(value) {
-  let url = trimAgentUrlCandidate(value);
+  let url = String(value || '').trim();
   if (!url) return '';
+  // Models commonly use absolute or workspace-relative paths in Markdown.
+  // Encode path characters before treating them as a URL (# is a filename,
+  // not a fragment), and accept optional source line/column suffixes.
+  if (!/^(?:https?:|file:|www\.)/i.test(url)) {
+    if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(url) && !/^[A-Za-z]:[\\/]/.test(url)) return '';
+    const workspace = typeof state !== 'undefined'
+      ? String(state.currentSession?.workspace || state.config?.workspace || '').replace(/\\/g, '/') : '';
+    let filePath = url.replace(/\\/g, '/').replace(/:\d+(?::\d+)?$/, '');
+    if (!/^(?:[A-Za-z]:\/|\/)/.test(filePath)) {
+      if (!workspace || !/^(?:[A-Za-z]:\/|\/)/.test(workspace)) return '';
+      filePath = `${workspace.replace(/\/$/, '')}/${filePath}`;
+    }
+    const encoded = filePath.split('/').map((part, index) => (
+      index === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part)
+    )).join('/');
+    url = `file://${encoded.startsWith('/') ? '' : '/'}${encoded}`;
+  }
   if (/^www\./i.test(url)) url = `https://${url}`;
   if (!/^(?:https?|file):/i.test(url)) return '';
   try {
@@ -22844,7 +22277,7 @@ function localImagePathFromUrl(value) {
   }
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, { softBreaks = false } = {}) {
   if (!text) return '';
   if (String(text).length > 200000) return `<pre>${escapeHtml(String(text))}</pre>`;
   // 先抽出代码块，避免其内部内容被后续规则误处理
@@ -22860,10 +22293,13 @@ function renderMarkdown(text) {
   });
   const agentLinks = [];
   const agentImages = [];
+  const math = window.YanMarkdownMath?.prepare(t);
+  if (math) t = math.text;
   const saveAgentLink = (label, url) => {
-    const target = normalizeAgentUrl(url);
+    const restoreInlineLabel = value => String(value).replace(/\u0000INLINE(\d+)\u0000/g, (_, i) => inlineCodes[Number(i)] || '');
+    const target = normalizeAgentUrl(restoreInlineLabel(url));
     if (!target) return null;
-    agentLinks.push({ label, url: target });
+    agentLinks.push({ label: restoreInlineLabel(label), url: target });
     return `\u0000AGENTLINK${agentLinks.length - 1}\u0000`;
   };
   const saveAgentImage = (alt, url) => {
@@ -22876,7 +22312,7 @@ function renderMarkdown(text) {
   // images must be HTTPS; local images are restricted to the active workspace.
   t = t.replace(AGENT_MARKDOWN_IMAGE_PATTERN, (match, alt, url) => saveAgentImage(alt, url) || match);
   // Preserve explicit Markdown links before auto-linking bare URLs.
-  t = t.replace(AGENT_MARKDOWN_LINK_PATTERN, (match, label, url) => saveAgentLink(label, url) || match);
+  t = t.replace(AGENT_MARKDOWN_LINK_PATTERN, (match, label, angledUrl, url) => saveAgentLink(label, angledUrl || url) || match);
   t = t.replace(AGENT_URL_PATTERN, match => {
     const source = trimAgentUrlCandidate(match);
     const token = saveAgentLink(source, source);
@@ -22906,7 +22342,12 @@ function renderMarkdown(text) {
     if (!b) return '';
     if (/^<(h\d|ul|ol|pre|li|table|blockquote)/.test(b)) return block;
     if (/^\u0000(?:CODE|AGENTIMAGE)\d+\u0000$/.test(b)) return block;
-    return '<p>' + block.replace(/\n/g, '<br>') + '</p>';
+    // Skill documents often wrap source prose at 80 columns. Those soft
+    // line breaks should reflow; explicit Markdown hard breaks still remain.
+    const prose = softBreaks
+      ? block.replace(/(?: {2,}|\\)\r?\n/g, '<br>').replace(/\r?\n/g, ' ')
+      : block.replace(/\n/g, '<br>');
+    return '<p>' + prose + '</p>';
   }).join('\n');
   // 还原代码块（内容做转义）
   t = t.replace(/\u0000CODE(\d+)\u0000/g, (_, i) =>
@@ -22920,15 +22361,31 @@ function renderMarkdown(text) {
     if (!image) return '';
     return `<figure class="agent-markdown-image"><a class="agent-markdown-image-link" href="${escapeAttr(image.url)}" data-yan-browser-link="${escapeAttr(image.url)}" rel="noreferrer" aria-label="打开图片预览" title="打开图片预览"><img src="${escapeAttr(image.url)}" alt="${escapeAttr(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a></figure>`;
   });
-  return t;
+  return math ? math.restore(t) : t;
 }
 
-function toast(msg) {
+function toast(msg, { error = false, duration } = {}) {
   const t = $('#toast');
+  if (!t) return;
   t.textContent = window.YanI18n?.translate(msg) || msg;
-  t.classList.remove('hidden');
+  // Failures use the error pill and stay long enough to be read; a plain
+  // confirmation keeps the short default.
+  t.classList.toggle('toast-error', error === true);
+  // The toast is a manual popover so it lives in the top layer and stays above
+  // an open modal dialog (a plain z-index would be trapped below it).
+  if (typeof t.showPopover === 'function') {
+    if (!t.matches(':popover-open')) t.showPopover();
+  } else {
+    t.classList.remove('hidden');
+  }
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.add('hidden'), 2200);
+  toast._t = setTimeout(() => {
+    if (typeof t.hidePopover === 'function') {
+      if (t.matches(':popover-open')) t.hidePopover();
+    } else {
+      t.classList.add('hidden');
+    }
+  }, Number(duration) || (error ? 8000 : 2200));
 }
 
 // ============================================================
@@ -22940,16 +22397,16 @@ function setupResizeHandles() {
   const right = $('#rightSidebar');
   let drag = null;
   let frame = 0;
-  const maximumRight = leftWidth => Math.max(280, window.innerWidth - leftWidth - 432);
+  const maximumRight = leftWidth => $('#app').classList.contains('pr-diff-open') ? window.YanCodeReview.maxDiffWidth() : Math.max(280, window.innerWidth - ($('#appRail')?.offsetWidth || 0) - leftWidth - 506);
   const flush = () => {
     frame = 0;
     if (!drag) return;
     if (drag.side === 'left') {
-      drag.leftWidth = Math.max(180, Math.min(420, drag.x));
-      drag.rightWidth = Math.max(280, Math.min(maximumRight(drag.leftWidth), drag.initialRightWidth));
+      drag.leftWidth = Math.max(180, Math.min(420, drag.x - left.getBoundingClientRect().left));
+      drag.rightWidth = Math.max(Math.min(280, maximumRight(drag.leftWidth)), Math.min(maximumRight(drag.leftWidth), drag.initialRightWidth));
       left.style.width = drag.leftWidth + 'px';
     } else {
-      drag.rightWidth = Math.max(280, Math.min(maximumRight(drag.leftWidth), window.innerWidth - drag.x));
+      drag.rightWidth = Math.max(Math.min(280, maximumRight(drag.leftWidth)), Math.min(maximumRight(drag.leftWidth), window.innerWidth - drag.x));
     }
     // Inline widths affect the two panels, without invalidating inherited
     // root variables throughout every message on each pointer event.
@@ -22989,10 +22446,10 @@ function setupResizeHandles() {
   window.addEventListener('resize', () => {
     finish();
     if (browserFocusMode) return;
-    if (agentBrowserTabsByRun.size) { expandRightSidebarForAgentBrowser(); return; }
+    if (agentBrowserTabsByRun.size && !$('#app').classList.contains('pr-diff-open')) { expandRightSidebarForAgentBrowser(); return; }
     const leftWidth = $('#app').classList.contains('sidebar-hidden') ? 0 : left.getBoundingClientRect().width;
     const current = parseFloat(getComputedStyle(root).getPropertyValue('--rs-w')) || 360;
-    root.style.setProperty('--rs-w', Math.max(280, Math.min(maximumRight(leftWidth), current)) + 'px');
+    root.style.setProperty('--rs-w', Math.max(Math.min(280, maximumRight(leftWidth)), Math.min(maximumRight(leftWidth), current)) + 'px');
     scheduleRightSidebarTabLayoutSync();
   });
 }
@@ -23000,42 +22457,16 @@ function setupResizeHandles() {
 // ============================================================
 // Auxiliary conversation is available as soon as the static right sidebar DOM exists.
 // ============================================================
-function bindInterjectionUi() {
-  const interjectionForm = $('#interjectionForm');
-  const interjectionInput = $('#interjectionInput');
-  if (!interjectionForm || interjectionForm.dataset.bound === 'true') return;
-  interjectionForm.dataset.bound = 'true';
-  interjectionForm?.addEventListener('submit', event => {
-    event.preventDefault();
-    if (interjectionThreadFor(currentInterjectionRun())?.pending) stopInterjection();
-    else void sendInterjection();
-  });
-  interjectionInput?.addEventListener('input', () => {
-    interjectionInput.style.height = '';
-    interjectionInput.style.height = `${Math.min(74, Math.max(30, interjectionInput.scrollHeight))}px`;
-    updateInterjectionSendState();
-  });
-  interjectionInput?.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      if (!$('#interjectionSend')?.disabled) {
-        if (interjectionThreadFor(currentInterjectionRun())?.pending) stopInterjection();
-        else void sendInterjection();
-      }
-    }
-  });
-  api.onOpenCodeInterjectionEvent?.(handleInterjectionStreamEvent);
-}
-
 bindInterjectionUi();
 
 // ============================================================
 // Bind UI (called once in init)
 // ============================================================
 function bindUI() {
+  bindTextSelectionToolbar();
+  bindComposerRichInput();
   bindInterjectionUi();
   bindGeneralSettings();
-  bindPermissions();
   bindSubagentSettings();
   bindMediaStudio();
   bindAgentPermissionPanel();
@@ -23045,6 +22476,9 @@ function bindUI() {
   bindGenericConfirmDialog();
   bindTaskActions();
   bindTaskToolsMenu();
+  // The workspace tools pill is gone; keep VS Code detection for the settings
+  // "default open-with" preview independent of any toolbar control.
+  void refreshVsCodeAvailability();
   bindTaskGit();
   const chatScroll = $('#chatScroll');
   chatScroll?.addEventListener('scroll', scheduleTurnScaleUpdate, { passive: true });
@@ -23060,14 +22494,26 @@ function bindUI() {
     if (chatScrollSyncFrame) return;
     chatScrollSyncFrame = requestAnimationFrame(() => {
       chatScrollSyncFrame = 0;
+      const sessionId = currentChatSessionId();
+      // Reaching the bottom again resumes the live edge no matter how the user
+      // got there (scrollbar drag, wheel, keyboard), so the resume button that
+      // was parked by an earlier wheel-up must go away on its own.
+      if (sessionId && chatAutoFollowBySession.get(sessionId) === false && isChatNearBottom(80)) {
+        chatAutoFollowBySession.delete(sessionId);
+      }
       syncChatAutoFollowUi();
     });
   }, { passive: true });
   $('#chatScrollResumeBtn')?.addEventListener('click', resumeChatAutoFollow);
-  window.addEventListener('resize', scheduleTurnScaleUpdate);
 
-  // Task bar: folder button → workspace choice menu (pick a folder / stay blank)
+  // Task bar: folder button → workspace choice menu while the task is still
+  // fresh; once the task is locked it opens the workspace in Explorer instead.
   $('#taskBarFolder').addEventListener('click', () => {
+    if ($('#taskBar')?.classList.contains('task-bar-locked')) {
+      const ws = String(state.currentSession?.workspace || '').trim();
+      if (ws) void api.revealFile(ws);
+      return;
+    }
     const menu = $('#workspaceChoiceMenu');
     if (!menu) return;
     setWorkspaceChoiceMenuOpen(menu.classList.contains('hidden'));
@@ -23082,6 +22528,8 @@ function bindUI() {
       if (picked) await applySessionWorkspace(picked);
     } else if (item.dataset.workspaceChoice === 'blank') {
       await applySessionWorkspace('');
+    } else if (item.dataset.workspaceChoice === 'recent') {
+      await applySessionWorkspace(item.dataset.workspace);
     }
   });
 
@@ -23091,13 +22539,6 @@ function bindUI() {
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeWorkspaceChoiceMenu();
   });
-
-  // Task bar: open folder in explorer
-  $('#taskBarOpenFolder').addEventListener('click', async () => {
-    const ws = state.config.workspace;
-    if (ws) await api.revealFile(ws);
-  });
-
 
   $('#taskBarVsCode')?.addEventListener('click', openCurrentWorkspaceInVsCode);
 
@@ -23292,15 +22733,15 @@ function bindUI() {
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
       e.preventDefault();
-      if (currentWindowView !== 'main') return;
       setLeftSidebarOpen($('#app').classList.contains('sidebar-hidden'));
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       $('#newTaskNavBtn').click();
     }
-    if (e.key === 'Escape' && !settingsOverlay.classList.contains('hidden')) {
-      closeSettings();
+    if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
+      if (!settingsOverlay.classList.contains('hidden')) closeSettings();
+      else if (aboutPageLayer && !aboutPageLayer.classList.contains('hidden')) closeAbout();
     }
   });
 
@@ -23353,7 +22794,7 @@ function getBrowserCompactUrl(url) {
 function syncBrowserAddressInput(controller) {
   if (!controller?.urlInput) return;
   const fullUrl = getBrowserDisplayUrl(controller.currentUrl);
-  controller.urlInput.value = controller.addressEditing ? fullUrl : getBrowserCompactUrl(fullUrl);
+  controller.urlInput.value = controller.addressEditing || state.config?.browser?.showFullUrl ? fullUrl : getBrowserCompactUrl(fullUrl);
   controller.urlInput.title = fullUrl;
 }
 
@@ -23368,6 +22809,49 @@ function setBrowserPageState(controller, url) {
   const empty = !displayUrl;
   controller.emptyState?.classList.toggle('active', empty);
   controller.emptyState?.setAttribute('aria-hidden', String(!empty));
+}
+
+// Show or clear the browser panel's load-error state. The headline always comes
+// from a plain-language explanation (window.YanBrowserErrors); the exact error
+// code/description is kept in the collapsible details row.
+function setBrowserErrorState(controller, error) {
+  const el = controller?.errorState;
+  if (!el) return;
+  if (!error) {
+    el.hidden = true;
+    controller.errorInfo = null;
+    return;
+  }
+  clearTimeout(controller.navigationErrorTimer);
+  const info = window.YanBrowserErrors?.describe(error.code, error)
+    || { kind: 'net', title: '无法打开该页面', hint: '加载失败，请重试或检查地址是否正确。' };
+  controller.errorInfo = {
+    kind: info.kind || 'net',
+    title: info.title,
+    hint: info.hint || '',
+    code: Number(error.code) || 0,
+    description: String(error.description || ''),
+    url: String(error.url || '')
+  };
+  const title = el.querySelector('[data-browser-role="error-title"]');
+  const hint = el.querySelector('[data-browser-role="error-hint"]');
+  const detail = el.querySelector('[data-browser-role="error-detail"]');
+  let host = '';
+  try { host = new URL(error.url).hostname; } catch {}
+  const reason = ({
+    '-102': '拒绝建立连接', '-7': '的响应时间过长', '-118': '的响应时间过长',
+    '-101': '的连接已重置', '-105': '的服务器 IP 地址无法找到', '-137': '的服务器 IP 地址无法找到',
+    '-324': '未发送任何数据', '-109': '无法连接'
+  })[String(Number(error.code))];
+  if (title) title.textContent = error.crash ? '页面已崩溃' : '无法访问此站点';
+  if (hint) hint.textContent = reason && host ? `${host} ${reason}` : info.hint || '';
+  if (detail) {
+    detail.textContent = Number(error.code) === -7 ? 'ERR_TIMED_OUT'
+      : String(error.description || '').trim().replace(/^net::/, '') || (Number(error.code) ? `错误码 ${Number(error.code)}` : '');
+    detail.title = String(error.url || '');
+  }
+  el.dataset.kind = info.kind || 'net';
+  el.hidden = false;
 }
 
 function waitForBrowserDomReady(controller, timeoutMs = 5000) {
@@ -23489,7 +22973,23 @@ function syncBrowserFocusPromptStatus() {
   label.textContent = text;
 }
 
+function isFloatingComposerActive() {
+  return browserFocusMode || $('#app')?.classList.contains('panel-composer-mode');
+}
+
+function observeFloatingComposer() {
+  if (browserFocusComposerObserver || typeof ResizeObserver !== 'function') return;
+  browserFocusComposerObserver = new ResizeObserver(() => {
+    if (isFloatingComposerActive()) updateBrowserFocusComposerInset();
+  });
+  for (const id of ['composerStage', 'browserFocusConversationDock']) {
+    const node = document.getElementById(id);
+    if (node) browserFocusComposerObserver.observe(node);
+  }
+}
+
 function setBrowserFocusComposerMode(mode, { focus = false } = {}) {
+  observeFloatingComposer();
   const next = ['standby', 'expanded', 'minimized'].includes(mode) ? mode : 'standby';
   browserFocusComposerMode = next;
   const app = $('#app');
@@ -23522,7 +23022,19 @@ function updateBrowserFocusComposerInset() {
   app.style.setProperty('--focus-composer-height', `${Math.max(92, height)}px`);
 }
 
+// Full-screen panels decide whether the floating quick input is offered: the
+// temporary conversation has its own composer, and a task with no messages has
+// nothing to preview in the "latest message" dock.
+function syncBrowserFocusComposerAvailability() {
+  const app = $('#app');
+  if (!app) return;
+  const activeTab = getActiveRightSidebarTab();
+  app.classList.toggle('browser-focus-suppress-composer', currentMainPage !== 'code-review' && activeTab?.type === 'interjection');
+  app.classList.toggle('browser-focus-hide-recent', getSessionMessageCount(state.currentSession) === 0);
+}
+
 function setBrowserFocusMode(enabled) {
+  if (enabled && $('#app').classList.contains('pr-diff-open')) return;
   const active = getActiveRightSidebarTab();
   const next = !!enabled;
   if (browserFocusMode === next) {
@@ -23539,24 +23051,20 @@ function setBrowserFocusMode(enabled) {
       || `${Math.round($('#rightSidebar')?.getBoundingClientRect().width || 360)}px`;
   }
   browserFocusMode = next;
+  if (!next) fullChatSelected = false;
+  syncFullChatTab();
+  renderRightSidebarTabs();
   $('#app')?.classList.toggle('browser-focus-mode', next);
+  syncBrowserFocusComposerAvailability();
   if (!next && browserFocusStoredRightWidth) {
     const requested = parseFloat(browserFocusStoredRightWidth) || 360;
     const leftWidth = $('#app')?.classList.contains('sidebar-hidden') ? 0 : ($('#sidebar')?.getBoundingClientRect().width || 0);
-    const maxWidth = Math.max(280, window.innerWidth - leftWidth - 420 - 12);
+    const maxWidth = Math.max(280, window.innerWidth - ($('#appRail')?.offsetWidth || 0) - leftWidth - 494 - 12);
     const restored = Math.max(280, Math.min(maxWidth, requested));
     document.documentElement.style.setProperty('--rs-w', `${restored}px`);
     browserFocusStoredRightWidth = '';
   }
-  if (!browserFocusComposerObserver && typeof ResizeObserver === 'function') {
-    browserFocusComposerObserver = new ResizeObserver(() => {
-      if (browserFocusMode) updateBrowserFocusComposerInset();
-    });
-    const composerStage = $('#composerStage');
-    const conversationDock = $('#browserFocusConversationDock');
-    if (composerStage) browserFocusComposerObserver.observe(composerStage);
-    if (conversationDock) browserFocusComposerObserver.observe(conversationDock);
-  }
+  observeFloatingComposer();
   if (next) {
     setBrowserFocusComposerMode('standby');
     closeAllBrowserSettingsMenus();
@@ -23593,7 +23101,7 @@ $('#browserFocusChatToggle')?.addEventListener('click', () => {
 });
 
 document.addEventListener('pointerdown', event => {
-  if (!browserFocusMode || browserFocusComposerMode !== 'expanded') return;
+  if (!isFloatingComposerActive() || browserFocusComposerMode !== 'expanded') return;
   if ($('#chatMainColumn')?.classList.contains('permission-pending')) return;
   if (event.target.closest?.('#composerStage, #browserFocusConversationDock, #agentPermissionPanel')) return;
   setBrowserFocusComposerMode('standby');
@@ -23610,7 +23118,7 @@ function closeAllBrowserSettingsMenus(exceptTabId = '') {
 function updateBrowserZoomControl(controller) {
   if (!controller?.zoomValue) return;
   controller.zoomValue.textContent = controller.manualZoom == null
-    ? '自动'
+    ? `${Math.round((controller.zoom || 1) * 100)}%`
     : `${Math.round(controller.manualZoom * 100)}%`;
 }
 
@@ -23668,7 +23176,7 @@ function currentBrowserScope() {
 }
 
 function browserControllerVisibleInCurrentSession(controller) {
-  if (currentWindowView !== 'main' || currentMainPage !== 'chat') return false;
+  if (currentMainPage !== 'chat') return false;
   if (!controller?.agentOwned) return true;
   return browserControllerMatchesScope(controller, currentBrowserScope());
 }
@@ -23678,7 +23186,7 @@ function getAgentBrowserController(runId = '', scope = null) {
   if (ownerRunId) {
     const tabId = agentBrowserTabsByRun.get(ownerRunId);
     const controller = tabId ? getBrowserTabController(tabId) : null;
-    if (controller && (!scope || browserControllerMatchesScope(controller, scope))) return controller;
+    if (controller && controller.agentRunId === ownerRunId && (!scope || browserControllerMatchesScope(controller, scope))) return controller;
     return null;
   }
   const active = getBrowserTabController();
@@ -23686,21 +23194,6 @@ function getAgentBrowserController(runId = '', scope = null) {
   return getBrowserTabController(lastActiveBrowserTabId)
     || [...browserTabControllers.values()].at(-1)
     || null;
-}
-
-function getReusableAgentBrowserController(scope = currentBrowserScope()) {
-  const candidates = [...browserTabControllers.values()].filter(controller => (
-    browserControllerMatchesScope(controller, scope)
-      && controller.agentControlActive !== true
-      && controller.agent
-      && controller.webview
-  ));
-  if (!candidates.length) return null;
-  const activeBrowser = getBrowserTabController(activeRightSidebarTab);
-  if (activeBrowser && candidates.includes(activeBrowser)) return activeBrowser;
-  const lastBrowser = getBrowserTabController(lastActiveBrowserTabId);
-  if (lastBrowser && candidates.includes(lastBrowser)) return lastBrowser;
-  return candidates.at(-1) || null;
 }
 
 function findRunCtxByRunId(runId) {
@@ -23726,11 +23219,11 @@ function updateBrowserAgentCursor(controller, detail = {}) {
   const cursorHotspotY = 4;
   const x = Math.max(
     -cursorHotspotX,
-    Math.min(takeoverRect.width - cursorHotspotX, webviewRect.left - takeoverRect.left + Number(detail.x || 0) - cursorHotspotX)
+    Math.min(takeoverRect.width - cursorHotspotX, webviewRect.left - takeoverRect.left + Number(detail.x || 0) * (controller.viewportScale || 1) - cursorHotspotX)
   );
   const y = Math.max(
     -cursorHotspotY,
-    Math.min(takeoverRect.height - cursorHotspotY, webviewRect.top - takeoverRect.top + Number(detail.y || 0) - cursorHotspotY)
+    Math.min(takeoverRect.height - cursorHotspotY, webviewRect.top - takeoverRect.top + Number(detail.y || 0) * (controller.viewportScale || 1) - cursorHotspotY)
   );
   const position = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
   const pressing = detail.state === 'down' || detail.state === 'drag';
@@ -23742,6 +23235,9 @@ function updateBrowserAgentCursor(controller, detail = {}) {
 
 function setBrowserAgentControl(controller, active, { runId = '', userReleased = false, skipAgentRelease = false } = {}) {
   if (!controller) return false;
+  if (active && controller.agentReleasePromise) return false;
+  if (!active && runId && controller.agentRunId !== String(runId)) return false;
+  if (active && controller.agentControlActive && controller.agentRunId !== String(runId || controller.agentRunId || '')) return false;
   if (active) controller.annotations?.stop();
   const ownerRunId = String(runId || controller.agentRunId || '');
   controller.agentRunId = ownerRunId;
@@ -23751,11 +23247,21 @@ function setBrowserAgentControl(controller, active, { runId = '', userReleased =
   controller.root?.classList.toggle('agent-controlled', !!active);
   controller.agentTakeover?.setAttribute('aria-hidden', String(!active));
   if (controller.agentInputShield) controller.agentInputShield.tabIndex = active ? 0 : -1;
-  if (active && browserControllerVisibleInCurrentSession(controller)) {
+  if (active && state.config?.browser?.agentExposure !== 'manual' && browserControllerVisibleInCurrentSession(controller)) {
     controller.agentInputShield?.focus({ preventScroll: true });
   }
   if (!active) {
-    if (!skipAgentRelease) void controller.agent?.releaseActions?.();
+    // Responsive acceptance belongs to Agent control, not the user's tab.
+    // All exits (Esc, completion, abort and control handoff) share this path.
+    if (controller.responsiveViewport) setBrowserResponsiveViewport(controller, { reset: true });
+    if (!skipAgentRelease && !controller.agentReleasePromise) {
+      const cleanup = Promise.resolve(controller.agent?.releaseActions?.());
+      controller.agentReleasePromise = cleanup;
+      const clear = () => {
+        if (controller.agentReleasePromise === cleanup) controller.agentReleasePromise = null;
+      };
+      cleanup.then(clear, clear);
+    }
     controller.agentCursor?.classList.remove('visible', 'is-pressing');
     controller.status?.classList.add('hidden');
   }
@@ -23786,7 +23292,7 @@ function getAgentBrowserRightSidebarBounds() {
     ? 0
     : ($('#sidebar')?.getBoundingClientRect().width || 0);
   const min = 280;
-  const max = Math.max(min, window.innerWidth - leftWidth - 420 - 12);
+  const max = Math.max(min, window.innerWidth - ($('#appRail')?.offsetWidth || 0) - leftWidth - 494 - 12);
   return { min, max };
 }
 
@@ -23803,7 +23309,7 @@ function expandRightSidebarForReview() {
 }
 
 function expandRightSidebarForAgentBrowser() {
-  if (browserFocusMode) return;
+  if (browserFocusMode || state.config?.browser?.agentExposure === 'manual') return;
   const root = document.documentElement;
   const current = parseFloat(getComputedStyle(root).getPropertyValue('--rs-w')) || 360;
   const { min, max } = getAgentBrowserRightSidebarBounds();
@@ -23843,6 +23349,31 @@ document.addEventListener('keydown', event => {
   toast('已退出 Agent 网页操控');
 }, true);
 
+function setBrowserResponsiveViewport(controller, options = {}) {
+  let viewport = null;
+  if (!options.reset) {
+    const width = Number(options.width);
+    const height = Number(options.height);
+    if (![width, height].every(value => Number.isInteger(value) && value >= 240 && value <= 3840)) {
+      throw new Error('视口宽高须为 240–3840 的整数');
+    }
+    viewport = { width, height };
+  }
+  controller.responsiveViewport = viewport;
+  if (!viewport) {
+    // Clear fitted-preview geometry even for a hidden/background tab, where
+    // syncBrowserViewport cannot measure the panel until it becomes visible.
+    controller.viewportScale = 1;
+    for (const property of ['position', 'top', 'left', 'width', 'height', 'transform-origin', 'transform']) {
+      controller.webview.style.removeProperty(property);
+    }
+  }
+  controller.panel.classList.toggle('responsive-viewport', !!viewport);
+  controller.root.querySelectorAll('[data-browser-zoom]').forEach(button => { button.disabled = !!viewport || controller.agentControlActive; });
+  syncBrowserViewport(controller.id);
+  return viewport;
+}
+
 function syncBrowserViewport(tabId = activeRightSidebarTab) {
   const controller = getBrowserTabController(tabId);
   if (!controller) return;
@@ -23850,7 +23381,7 @@ function syncBrowserViewport(tabId = activeRightSidebarTab) {
   controller.resizeFrame = requestAnimationFrame(() => {
     controller.resizeFrame = 0;
     const { root, panel, toolbar, webview, xScrollbar } = controller;
-    if (!root?.classList.contains('active') || !panel || !toolbar || !webview) return;
+    if ((!root?.classList.contains('active') && !controller.responsiveViewport) || !panel || !toolbar || !webview) return;
 
     const rect = panel.getBoundingClientRect();
     const width = Math.floor(rect.width);
@@ -23859,6 +23390,21 @@ function syncBrowserViewport(tabId = activeRightSidebarTab) {
     if (width < 1 || height < 1) return;
 
     panel.style.setProperty('--browser-toolbar-height', `${Math.ceil(toolbarHeight)}px`);
+    const viewport = controller.responsiveViewport;
+    if (viewport) {
+      const scale = Math.min(1, width / viewport.width, height / viewport.height);
+      controller.viewportScale = scale;
+      Object.assign(webview.style, {
+        position: 'absolute', top: `${Math.ceil(toolbarHeight)}px`,
+        left: `${Math.max(0, (width - viewport.width * scale) / 2)}px`,
+        width: `${viewport.width}px`, height: `${viewport.height}px`,
+        transformOrigin: 'top left', transform: `scale(${scale})`
+      });
+      applyBrowserZoom(controller, 1);
+      return;
+    }
+    controller.viewportScale = 1;
+    for (const property of ['position', 'top', 'left', 'transform-origin', 'transform']) webview.style.removeProperty(property);
     webview.style.width = `${width}px`;
     webview.style.height = `${height}px`;
 
@@ -23921,14 +23467,11 @@ async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', o
   }
   if (!url) return { ok: false, error: '请提供 URL 或文件路径' };
 
-  if (currentWindowView === 'main') {
-    window.YanUnderstandAnything?.close();
-    switchSidebarNav('tasks');
-  }
+  const autoExpose = state.config?.browser?.agentExposure !== 'manual';
+  if (autoExpose) switchSidebarNav('tasks');
 
   let browser = getAgentBrowserController(ownerRunId, scope);
   let created = false;
-  if (!browser) browser = getReusableAgentBrowserController(scope);
   if (!browser) {
     const tab = createRightSidebarTab('browser', {
       agentRunId: ownerRunId,
@@ -23941,12 +23484,15 @@ async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', o
     created = true;
   }
   if (!browser?.navigate) return { ok: false, error: '浏览器尚未初始化，请稍后重试' };
-  if (browserControllerVisibleInCurrentSession(browser)) {
+  renderRightSidebarTabs();
+  if (autoExpose && browserControllerVisibleInCurrentSession(browser)) {
     activateRightSidebarTab(browser.id);
     setRightSidebarAddMenuOpen(false);
     setRightSidebarOpen(true);
   }
-  setBrowserAgentControl(browser, true, { runId: ownerRunId });
+  if (!setBrowserAgentControl(browser, true, { runId: ownerRunId })) {
+    return { ok: false, error: '该标签页正被其他任务操控，请使用当前任务的独立标签页。', code: 'BROWSER_TAB_OWNED' };
+  }
   try {
     const navigation = browser.agent?.enqueueAction
       ? await browser.agent.enqueueAction(operationId, signal => browser.navigate(url, { waitForLoad: true, signal }))
@@ -23979,13 +23525,18 @@ async function executeBrowserAgentCommand(detail = {}) {
       : runCtx ? runCtx.sessionId : state.currentSession?.id || '')
   };
   if (action === 'cancel') {
+    if (!runId) return { ok: false, code: 'BROWSER_RUN_CONTEXT_MISSING' };
     const controller = getAgentBrowserController(runId);
     return { ok: true, cancelled: !!controller?.agent?.cancelOperation?.(params.operation_id || operationId) };
   }
   if (action === 'release') {
+    if (!runId) return { ok: false, code: 'BROWSER_RUN_CONTEXT_MISSING' };
     const controller = getAgentBrowserController(runId);
-    const cancelled = controller?.agent ? await controller.agent.releaseActions() : null;
-    return { ok: releaseBrowserAgentControl(runId, { skipAgentRelease: true }), released: true, cancelled };
+    // Restore before awaiting guest cleanup: a crashed or unresponsive guest
+    // must not leave the tab stuck in the last acceptance viewport.
+    const released = releaseBrowserAgentControl(runId);
+    const cancelled = controller?.agentReleasePromise ? await controller.agentReleasePromise : null;
+    return { ok: released, released: true, cancelled };
   }
   if (action === 'open' && !runCtx?.browserAnnotation) {
     const target = params.target_type === 'search'
@@ -24016,17 +23567,6 @@ async function executeBrowserAgentCommand(detail = {}) {
     controller = annotated;
     if (!controller.agentControlActive) setBrowserAgentControl(controller,true,{runId});
   }
-  // A browser tab is persistent UI state, while control ownership is scoped
-  // to a run. Rebind an idle Agent-owned tab when a sequential task starts
-  // with snapshot/status/read_page instead of opening it again.
-  if (!controller) {
-    controller = getReusableAgentBrowserController(scope);
-    if (controller) {
-      activateRightSidebarTab(controller.id);
-      setRightSidebarOpen(true);
-      setBrowserAgentControl(controller, true, { runId });
-    }
-  }
   if (!controller) {
     return { ok: false, error: '当前任务尚未创建 Agent 专属浏览器标签页。请先调用 open_builtin_browser。', code: 'BROWSER_NOT_OPEN' };
   }
@@ -24045,6 +23585,13 @@ async function executeBrowserAgentCommand(detail = {}) {
   };
 
   if (action === 'open' && runCtx?.browserAnnotation) return {ok:true,tabId:controller.id,url:controller.webview.getURL(),output:'已绑定用户注释的原页面，无需重新打开。请调用 browser_apply_annotation 修改所选元素。'};
+  if (action === 'set_viewport') return runAgentAction(() => agent.withAction(async () => {
+    const viewport = setBrowserResponsiveViewport(controller, params);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const actual = await controller.webview.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve({ width: innerWidth, height: innerHeight }))))');
+    return { ok: true, viewport: actual, requested: viewport, mode: viewport ? 'responsive' : 'auto',
+      output: `浏览器视口：${actual.width} × ${actual.height} CSS px。请重新获取快照或截图。` };
+  }));
   if (action === 'snapshot') return runAgentAction(() => agent.snapshot());
   if (action === 'read_page') return runAgentAction(() => agent.readPage());
   if (action === 'click') return runAgentAction(() => agent.click(params.ref, { button: params.button, clickCount: params.click_count }));
@@ -24082,6 +23629,7 @@ async function executeBrowserAgentCommand(detail = {}) {
       canGoBack: !!controller.webview?.canGoBack?.(),
       canGoForward: !!controller.webview?.canGoForward?.(),
       tabId: controller.id,
+      responsiveViewport: controller.responsiveViewport || null,
       dedicatedAgentTab: true,
       agentControlled: controller.agentControlActive
     };
@@ -24144,6 +23692,7 @@ function createBrowserTabController(tab) {
   const urlInput = fragment.querySelector('[data-browser-role="url"]');
   const status = fragment.querySelector('[data-browser-role="agent-status"]');
   const emptyState = fragment.querySelector('[data-browser-role="empty-state"]');
+  const errorState = fragment.querySelector('[data-browser-role="error-state"]');
   const settingsButton = fragment.querySelector('[data-browser-action="settings"]');
   const settingsMenu = fragment.querySelector('[data-browser-role="settings-menu"]');
   const zoomValue = fragment.querySelector('[data-browser-zoom="reset"]');
@@ -24168,6 +23717,31 @@ function createBrowserTabController(tab) {
     .trim();
   if (chromiumUserAgent) webview.setAttribute('useragent', chromiumUserAgent);
 
+  root.querySelectorAll('[data-start-icon]').forEach(icon => {
+    icon.innerHTML = RIGHT_SIDEBAR_TOOLS[icon.dataset.startIcon].icon;
+  });
+  root.querySelectorAll('[data-start-tool]').forEach(button => {
+    button.addEventListener('click', () => {
+      if (button.dataset.startTool === 'browser') urlInput.focus();
+      else openRightSidebarTool(button.dataset.startTool);
+    });
+  });
+  root.querySelectorAll('[data-start-url]').forEach(button => {
+    button.addEventListener('click', () => {
+      controller.navigate(button.dataset.startUrl, { waitForLoad: true })
+        .catch(error => toast(`网页加载失败：${error.message}`));
+    });
+  });
+  root.querySelectorAll('.side-start-sites img').forEach(icon => {
+    icon.addEventListener('error', () => {
+      icon.hidden = true;
+      const fallback = document.createElement('span');
+      fallback.className = 'side-start-site-fallback';
+      fallback.setAttribute('aria-hidden', 'true');
+      fallback.innerHTML = RIGHT_SIDEBAR_TOOLS.browser.icon;
+      icon.replaceWith(fallback);
+    }, { once: true });
+  });
   host.appendChild(fragment);
   const controller = {
     id: tab.id,
@@ -24178,6 +23752,7 @@ function createBrowserTabController(tab) {
     urlInput,
     status,
     emptyState,
+    errorState,
     agent: null,
     agentRunId: String(tab.agentRunId || ''),
     agentOwned: tab.agentOwned === true || !!tab.agentRunId,
@@ -24217,6 +23792,33 @@ function createBrowserTabController(tab) {
     waitingForLoad: false
   };
   browserTabControllers.set(tab.id, controller);
+  const reportActivity = () => {
+    if (!controller.domReady) return;
+    let id;
+    try { id = webview.getWebContentsId(); } catch { return; }
+    void api.browserTabActivity({ id, active: root.classList.contains('active') && !document.hidden
+      && !$('#app').classList.contains('rs-hidden') && !$('#app').classList.contains('settings-mode'),
+      protected: controller.agentOwned || controller.agentControlActive || controller.waitingForLoad })
+      .then(result => { root.dataset.sleeping = String(result.sleeping); })
+      .catch(() => {});
+  };
+  controller.lifecycleObserver = new MutationObserver(reportActivity);
+  controller.lifecycleObserver.observe(root, { attributes: true, attributeFilter: ['class'] });
+  controller.lifecycleObserver.observe($('#app'), { attributes: true, attributeFilter: ['class'] });
+  controller.lifecycleTimer = setInterval(reportActivity, 30000);
+  controller.reportActivity = reportActivity;
+  document.addEventListener('visibilitychange', reportActivity);
+  webview.addEventListener('dom-ready', reportActivity);
+  webview.addEventListener('did-finish-load', reportActivity);
+  root.querySelector('[data-browser-export-pdf]')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await api.browserExportPdf(webview.getWebContentsId());
+      if (!result.canceled) toast('PDF 已导出');
+    } catch (error) { toast(`导出失败：${error.message}`); }
+    finally { button.disabled = false; closeAllBrowserSettingsMenus(); }
+  });
   controller.annotations = window.YanBrowserAnnotations?.init(controller, {
     notify: message => toast(message),
     onAdd: async note => {
@@ -24284,6 +23886,7 @@ function createBrowserTabController(tab) {
     void syncBrowserHorizontalScroll(controller);
   });
   webview.addEventListener('did-finish-load', () => {
+    clearTimeout(controller.navigationErrorTimer);
     setBrowserPageState(controller, webview.getURL?.());
     updateBrowserTabLabel(tab.id, webview.getTitle?.(), webview.getURL?.());
     syncBrowserViewport(tab.id);
@@ -24299,17 +23902,40 @@ function createBrowserTabController(tab) {
     if (controller.consoleEntries.length > 120) controller.consoleEntries.splice(0, controller.consoleEntries.length - 120);
   });
   webview.addEventListener('did-start-navigation', event => {
-    if (event.isMainFrame === false) return;
+    if (event.isMainFrame === false || event.isInPlace) return;
+    clearTimeout(controller.navigationErrorTimer);
+    setBrowserErrorState(controller, null);
     controller.consoleEntries = [];
     controller.loadErrors = [];
+    if (!event.url || event.url === 'about:blank') return;
+    controller.navigationErrorTimer = setTimeout(() => {
+      webview.stop();
+      setBrowserErrorState(controller, { code: -7, description: '加载超时（15 秒）', url: event.url });
+    }, 15000);
   });
+  const onBrowserPageCrash = event => {
+    setBrowserErrorState(controller, {
+      crash: true,
+      code: 0,
+      description: `页面已崩溃（${event?.reason || 'crashed'}）`,
+      url: webview.getURL?.() || controller.currentUrl || ''
+    });
+  };
+  webview.addEventListener('render-process-gone', onBrowserPageCrash);
+  webview.addEventListener('crashed', onBrowserPageCrash);
   controller.scrollPollTimer = window.setInterval(() => {
+    if (document.hidden) return; // stay idle for a fast restore frame
     void syncBrowserHorizontalScroll(controller);
   }, 320);
 
   const loadOnce = (url, { signal } = {}) => new Promise((resolve, reject) => {
     let targetNavigationStarted = false;
-    const timer = setTimeout(() => finish(new Error('加载超时（15 秒）')), 15000);
+    const timer = setTimeout(() => {
+      const error = Object.assign(new Error('加载超时（15 秒）'), { code: -7, url });
+      webview.stop();
+      setBrowserErrorState(controller, { code: error.code, description: error.message, url });
+      finish(error);
+    }, 15000);
     const cleanup = () => {
       clearTimeout(timer);
       webview.removeEventListener('did-start-navigation', onStartNavigation);
@@ -24419,8 +24045,48 @@ function createBrowserTabController(tab) {
   root.querySelector('[data-browser-action="forward"]')?.addEventListener('click', () => {
     if (webview.canGoForward()) webview.goForward();
   });
-  root.querySelector('[data-browser-action="reload"]')?.addEventListener('click', () => webview.reload());
+  root.querySelector('[data-browser-action="reload"]')?.addEventListener('click', () => {
+    if (controller.errorInfo?.url) {
+      const target = controller.errorInfo.url;
+      setBrowserErrorState(controller, null);
+      controller.navigate(target, { waitForLoad: true }).catch(() => {});
+      return;
+    }
+    webview.reload();
+  });
+  root.querySelector('[data-browser-error-action="retry"]')?.addEventListener('click', () => {
+    const target = controller.errorInfo?.url || controller.currentUrl || urlInput.value;
+    setBrowserErrorState(controller, null);
+    if (!target) return;
+    controller.navigate(target, { waitForLoad: true }).catch(() => {});
+  });
+  root.querySelector('[data-browser-error-action="external"]')?.addEventListener('click', () => {
+    const target = controller.errorInfo?.url || controller.currentUrl;
+    if (target && typeof api.browserOpenLink === 'function') api.browserOpenLink(target).catch(() => {});
+  });
+  root.querySelector('[data-browser-error-action="copy"]')?.addEventListener('click', () => {
+    const target = controller.errorInfo?.url || controller.currentUrl;
+    if (!target) return;
+    const write = typeof copyMarkdownCode === 'function' ? copyMarkdownCode(target) : navigator.clipboard?.writeText?.(target);
+    Promise.resolve(write).then(() => toast('地址已复制')).catch(() => toast('复制失败'));
+  });
 
+  root.querySelectorAll('[data-browser-menu]').forEach(button => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.browserMenu;
+      closeAllBrowserSettingsMenus();
+      if (action === 'composer') {
+        controller.composerHidden = !controller.composerHidden;
+        if (browserFocusMode) setBrowserFocusComposerMode(controller.composerHidden ? 'minimized' : 'standby');
+        root.classList.toggle('browser-composer-hidden', controller.composerHidden);
+        button.textContent = controller.composerHidden ? '显示输入框' : '隐藏输入框';
+        return;
+      }
+      openSettings('browser');
+      const targets = { passwords: '#browserPasswordsManage', downloads: '#browserDownloadsManage', history: '#browserManage', clear: '#tab-browser [data-browser-clear]' };
+      if (targets[action]) settingsOverlay.querySelector(targets[action])?.click();
+    });
+  });
   settingsButton?.addEventListener('click', event => {
     event.stopPropagation();
     const opening = settingsMenu?.classList.contains('hidden');
@@ -24496,6 +24162,12 @@ function createBrowserTabController(tab) {
         mainFrame: event.isMainFrame !== false
       });
       if (controller.loadErrors.length > 60) controller.loadErrors.splice(0, controller.loadErrors.length - 60);
+    }
+    if (event.isMainFrame !== false && event.errorCode !== -3) {
+      const failedUrl = event.validatedURL || webview.getURL?.() || controller.addressDraft || '';
+      if (String(failedUrl).toLowerCase() !== 'about:blank') {
+        setBrowserErrorState(controller, { code: event.errorCode, description: event.errorDescription, url: failedUrl });
+      }
     }
     if (controller.waitingForLoad || event.isMainFrame === false || event.errorCode !== -100) return;
     const failedUrl = event.validatedURL || webview.getURL?.() || '';
@@ -24573,6 +24245,10 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
   cancelAnimationFrame(controller.resizeFrame);
   cancelAnimationFrame(controller.scrollCommandFrame);
   clearInterval(controller.scrollPollTimer);
+  clearTimeout(controller.navigationErrorTimer);
+  clearInterval(controller.lifecycleTimer);
+  controller.lifecycleObserver?.disconnect();
+  document.removeEventListener('visibilitychange', controller.reportActivity);
   controller.root.remove();
   browserTabControllers.delete(tabId);
   updateBrowserFocusControls();
@@ -24581,30 +24257,4 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
 // ============================================================
 // Boot
 // ============================================================
-// Work GUI submits through the normal execution path without navigating away.
-let palaceSubmissionPending = false;
-window.YanPalaceSubmit = async function ({ prompt, workspace = '', model } = {}) {
-  const text = String(prompt || '').trim();
-  if (!text || text.length > 16000) return { ok: false, error: '请填写有效任务目标（最多 16000 字）' };
-  if (palaceSubmissionPending || !canStartRun()) return { ok: false, error: '任务正在提交或并发任务已达上限' };
-  palaceSubmissionPending = true;
-  try {
-    const available = await api.listQuickModels();
-    const selected = (available.models || []).find(item => item.id === (model?.modelId || model?.id)
-      && item.providerId === model?.providerId && String(item.supplierId || '') === String(model?.supplierId || '')
-      && (!item.modelType || item.modelType === 'text'));
-    if (!selected) return { ok: false, error: '所选模型已不可用，请刷新模型列表' };
-    const session = await api.createSession(true, String(workspace || ''));
-    if (!session?.id) return { ok: false, error: '创建任务失败' };
-    const result = submitMessage(text, [], [], { session, modelSelection: normalizeModelSelectionSnapshot({ ...selected, modelId: selected.id }) });
-    // submitMessage owns persistence, stream handling, permissions, and completion.
-    // Its promise spans the whole run, so keep the palace responsive.
-    void result.then(outcome => {
-      if (outcome?.ok === false) toast('天宫任务未能启动：' + (outcome.error || '未知错误'));
-    }).catch(error => toast('天宫任务失败：' + error.message));
-    return { ok: true, sessionId: session.id };
-  } catch (error) {
-    return { ok: false, error: error.message };
-  } finally { palaceSubmissionPending = false; }
-};
 window.addEventListener('DOMContentLoaded', init);

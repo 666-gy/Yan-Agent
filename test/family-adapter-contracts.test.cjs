@@ -51,9 +51,11 @@ test('bundled providers restore tool names, forced choice and history with concu
   for (const [model, factory] of families) {
     const provider = factory({ name: 'audit', baseURL: 'https://local.invalid/v1', fetch: async (_url, init) => {
       const body = JSON.parse(init.body);
-      const selected = body.tools[0].function.name;
+      // The shared fetch layer sorts schemas for stable prompt caching. Forced
+      // choice identifies the selected tool, independent of its array position.
+      const selected = body.tool_choice.function.name;
+      assert.ok(body.tools.some(tool => tool.function.name === selected));
       assert.match(selected, /^[a-zA-Z0-9_-]{1,64}$/);
-      assert.equal(body.tool_choice.function.name, selected);
       const previous = body.messages.find(message => message.tool_calls);
       assert.equal(previous.tool_calls[0].function.name, selected);
       assert.equal(previous.reasoning_content, 'original thought');

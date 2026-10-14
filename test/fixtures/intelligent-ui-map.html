@@ -1,0 +1,57 @@
+<style>
+#trip-test{max-width:760px;margin:auto}#trip-test .toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}#trip-test .toolbar small{margin-left:auto;color:var(--ui-muted)}#trip-test .place{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;align-items:center;margin-top:10px}#trip-test img{width:120px;height:84px;object-fit:cover;border-radius:12px;background:var(--ui-surface)}#trip-test h2{margin:0 0 3px}#trip-test p{margin:3px 0}#trip-test #saved-list{font-size:12px;color:var(--ui-muted)}#trip-test #save-status{font-size:11px;color:var(--ui-muted)}#trip-test #offline-note{padding:20px;border-radius:16px;background:var(--ui-surface)}#trip-test #offline-note[hidden]{display:none}
+</style>
+<section id="trip-test">
+  <div id="map"></div>
+  <div id="offline-note" hidden>地图不可用，已保留地点与行程。</div>
+  <div class="toolbar"><button id="fit" type="button">全部地点</button><button id="route" type="button">示意连线</button><small>交互测试 · 底图和照片为测试素材</small></div>
+  <div class="place"><img id="photo" alt=""><div><h2 id="place-name"></h2><p id="place-detail"></p><button id="keep" type="button">加入行程</button></div></div>
+  <p id="saved-list" aria-live="polite"></p><span id="save-status" role="status"></span>
+</section>
+<script>
+(() => {
+  const places = [
+    {id:'waterfront',lat:37.8087,lng:-122.4098,label:'海滨测试点',detail:'选中地点后更新照片与详情。',photo:'https://upload.wikimedia.org/wikipedia/commons/a/a1/Yan_fixture_waterfront.png'},
+    {id:'park',lat:37.8003,lng:-122.4058,label:'公园测试点',detail:'加入行程后，重开面板继续规划。',photo:'https://upload.wikimedia.org/wikipedia/commons/b/b2/Yan_fixture_park.png'},
+    {id:'literal',lat:37.8045,lng:-122.4140,label:'<img src=x onerror="window.labelInjected=true">',detail:'特殊字符作为普通标签显示。',photo:'https://upload.wikimedia.org/wikipedia/commons/a/a1/Yan_fixture_waterfront.png'}
+  ];
+  const byId = new Map(places.map(place=>[place.id,place]));
+  const saved = window.yanUi.getState();
+  let selected = byId.has(saved?.selected) ? saved.selected : 'waterfront';
+  let itinerary = Array.isArray(saved?.itinerary) ? [...new Set(saved.itinerary.filter(id=>byId.has(id)))] : [];
+  const name = document.getElementById('place-name'), detail = document.getElementById('place-detail'), photo = document.getElementById('photo');
+  const keep = document.getElementById('keep'), savedList = document.getElementById('saved-list'), saveStatus = document.getElementById('save-status');
+  const paint = () => {
+    const place = byId.get(selected);
+    document.body.dataset.selected = selected;
+    name.textContent = place ? place.label : '测试连线';
+    detail.textContent = place ? place.detail : '仅验证路线选择，不代表道路或可行通行路线。';
+    photo.hidden = !place;
+    if(place){photo.src=place.photo;photo.alt=place.label+'测试照片';}
+    keep.disabled = !place;
+    keep.textContent = itinerary.includes(selected) ? '移出行程' : '加入行程';
+    savedList.textContent = itinerary.length ? '行程：'+itinerary.map(id=>byId.get(id).label).join(' → ') : '行程为空';
+  };
+  const persist = async () => {
+    saveStatus.dataset.saved = 'pending';
+    const ok = await window.yanUi.setState({version:1,selected,itinerary});
+    saveStatus.dataset.saved=String(ok);saveStatus.textContent=ok?'已保存':'未保存';
+  };
+  let map;
+  if(window.yanUi.capabilities.map){
+    map=window.yanUi.createMap(document.getElementById('map'),{
+      markers:places,
+      routes:[{id:'fixture-route',coordinates:[[37.8087,-122.4098],[37.8048,-122.4080],[37.8003,-122.4058]],label:'测试连线 · 非道路路线',dashed:true}],
+      onSelect:({id})=>{selected=id;paint();void persist();}
+    });
+    if(saved?.selected)map.select(selected);
+  }else{
+    document.getElementById('offline-note').hidden=false;
+    document.getElementById('fit').disabled=true;document.getElementById('route').disabled=true;
+  }
+  document.getElementById('fit').onclick=()=>map?.fit();
+  document.getElementById('route').onclick=()=>map?.select('fixture-route');
+  keep.onclick=()=>{if(!byId.has(selected))return;itinerary=itinerary.includes(selected)?itinerary.filter(id=>id!==selected):[...itinerary,selected];paint();void persist();};
+  paint();document.body.dataset.mapReady='true';
+})();
+</script>

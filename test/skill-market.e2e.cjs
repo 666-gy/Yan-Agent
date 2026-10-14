@@ -39,7 +39,12 @@ const legacyHallmarkShadow = {
   source: 'bundled',
   version: 110
 };
-fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [retiredSkill, legacyBundledSkill] }, null, 2));
+const removedUiIds = ['emil-motion', 'animate', 'apple-design', 'find-animation-opportunities', 'review-animations',
+  'greensock-gsap', 'gsap-core', 'gsap-frameworks', 'gsap-performance', 'gsap-plugins', 'gsap-react',
+  'gsap-scrolltrigger', 'gsap-timeline', 'gsap-utils', 'ui-ux-pro-max', 'liquid-glass-react', 'yan-react-bits'];
+const removedUiSkills = removedUiIds.map(id => ({ id, name: id, desc: 'retired bundled Skill', prompt: 'Old instructions.', source: 'bundled' }));
+fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [retiredSkill, legacyBundledSkill, ...removedUiSkills] }, null, 2));
+for (const skill of removedUiSkills) skillRegistry.installYanUserSkill(dataDir, skill);
 skillRegistry.installYanUserSkill(dataDir, retiredSkill);
 skillRegistry.installYanUserSkill(dataDir, legacyHallmarkShadow);
 
@@ -59,50 +64,17 @@ skillRegistry.installYanUserSkill(dataDir, legacyHallmarkShadow);
     const page = await application.firstWindow();
     await page.waitForFunction(() => document.readyState === 'complete' && typeof switchSidebarNav === 'function');
     const expectedSkills = await page.evaluate(() => window.yan.listSkills());
+    assert.ok(expectedSkills.every(skill => !removedUiIds.includes(skill.id)));
+    const startupIndex = JSON.parse(fs.readFileSync(path.join(dataDir, 'SkillStore', 'index.json'), 'utf8'));
+    assert.ok(startupIndex.entries.every(skill => !removedUiIds.includes(skill.id)));
+    for (const id of removedUiIds) assert.ok(!fs.existsSync(path.join(dataDir, 'skills', id)));
     const expectedMarketCount = expectedSkills.length;
-    const expectedCounts = new Map([
-      'code-assist',
-      'ui-beautify',
-      'web-design',
-      'agent-rules',
-      'office-assist'
-    ].map(tag => [tag, expectedSkills.filter(skill => skill.tags?.includes(tag)).length]));
-    await page.locator('.sidebar-nav-item[data-nav="skills"]').click();
+    await page.locator('[data-nav="plugins"]').click(); await page.locator('#pluginsSkillsTab').click();
     await page.locator('#pageSkills:not(.hidden)').waitFor();
     await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedMarketCount);
 
-    await page.locator('#skillFilterToggle').click();
-    const filters = await page.locator('#skillFilterMenu .skill-filter-option').evaluateAll(buttons => (
-      buttons.map(button => button.textContent.trim())
-    ));
-    assert.deepEqual(filters, ['全部', '代码辅助', 'UI美化', '网页设计', 'Agent规则', '办公辅助', '个人']);
-    assert.equal(await page.locator('.skill-tag-btn').count(), 0);
-    assert.equal(await page.locator('.capability-toolbar').count(), 0);
-    assert.equal(await page.locator('#skillFilterMenu .skill-filter-check').count(), 0);
-    await page.locator('#skillFilterToggle').click();
-
-    await page.locator('#skillSearchToggle').click();
-    await page.locator('#skillSearchPopover:not(.hidden)').waitFor();
-    const searchBox = await page.locator('#skillSearchPopover').boundingBox();
-    const searchButtonBox = await page.locator('#skillSearchToggle').boundingBox();
-    assert.ok(searchBox && searchButtonBox);
-    assert.ok(Math.abs(searchBox.y - searchButtonBox.y) < 8);
-    assert.ok(searchBox.x + searchBox.width < searchButtonBox.x);
-    await page.locator('#skillMarketSearch').fill('hyperframes');
-    await page.waitForFunction(() => document.querySelectorAll('#skillMarketGrid .skill-card').length === 1);
-    await page.locator('#skillMarketSearch').fill('');
-    await page.locator('#skillSearchToggle').click();
-
-    for (const [tag, expected] of expectedCounts) {
-      await page.locator('#skillFilterToggle').click();
-      await page.locator(`#skillFilterMenu [data-filter="${tag}"]`).click();
-      await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expected);
-      assert.equal(await page.locator('#skillMarketGrid .skill-card').count(), expected);
-    }
-
-    await page.locator('#skillFilterToggle').click();
-    await page.locator('#skillFilterMenu [data-filter="all"]').click();
-    await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedMarketCount);
+    assert.equal(await page.locator('#skillSearchToggle, #skillSearchPopover, #skillMarketSearch, #skillFilterToggle, #skillFilterMenu').count(), 0);
+    assert.equal(await page.locator('#skillSourceBtn, #skillImportBtn').count(), 2);
     assert.equal(await page.locator('#skillMarketGrid .skill-market-group').count(), 5);
     assert.equal(await page.locator('#skillMarketGrid .skill-group-grid').count(), 5);
     assert.equal(await page.locator('#skillMarketGrid .skill-card-tag').count(), 0);
@@ -116,7 +88,11 @@ skillRegistry.installYanUserSkill(dataDir, legacyHallmarkShadow);
     await page.locator('#skillDetailView:not(.hidden)').waitFor();
     await page.waitForFunction(() => document.querySelector('#pageSkills > .capability-page-header')?.classList.contains('hidden'));
     assert.equal(await page.locator('#skillDetailTitle').textContent(), 'HyperFrames');
-    assert.equal(await page.locator('.skill-detail-row').count(), 4);
+    assert.equal(await page.locator('#skillDetailContent .skill-child-row').count(), 4);
+    await page.locator('#skillDetailMarkdown[aria-busy="false"]').waitFor();
+    assert.ok(await page.locator('#skillDetailMarkdown h1').count() > 0);
+    assert.match(await page.locator('#skillDetailMarkdown').textContent(), /HTML is the source of truth/);
+    assert.equal(await page.locator('#skillDetailContent .plugin-info-section, #skillDetailContent .plugin-examples').count(), 0);
     assert.equal(await page.locator('#skillDetailView .skill-market-group-count').count(), 0);
     assert.equal(await page.locator('#skillDetailView [data-detail-action="back"]').count(), 1);
     await page.locator('#skillDetailView [data-detail-action="back"]').click();
@@ -130,9 +106,7 @@ skillRegistry.installYanUserSkill(dataDir, legacyHallmarkShadow);
     const ids = await page.locator('#skillMarketGrid .skill-card').evaluateAll(cards => cards.map(card => card.dataset.marketId));
     assert.ok(!ids.includes(retiredSkill.id));
     assert.equal(await page.locator('#skillMarketGrid [data-skill-action="remove"]').count(), 0);
-    await page.locator('#skillFilterToggle').click();
-    await page.locator('#skillFilterMenu [data-filter="office-assist"]').click();
-    await page.waitForFunction(count => document.querySelectorAll('#skillMarketGrid .skill-card').length === count, expectedCounts.get('office-assist'));
+    assert.equal(await page.locator('#skillMarketGrid .skill-card').count(), expectedMarketCount);
     await page.screenshot({ path: screenshotPath, fullPage: false });
 
     const installed = await page.evaluate(() => window.yan.listSkills());
@@ -147,10 +121,24 @@ skillRegistry.installYanUserSkill(dataDir, legacyHallmarkShadow);
     assert.ok(installed.some(skill => skill.id === legacyHallmarkShadow.id));
     assert.ok(!skillRegistry.scanYanUserSkills(dataDir).some(skill => skill.id === legacyHallmarkShadow.id));
     assert.ok(!skillRegistry.scanYanUserSkills(dataDir).some(skill => skill.id === retiredSkill.id));
+    const child = application.process();
+    const stopped = child.exitCode === null ? new Promise(resolve => child.once('exit', resolve)) : Promise.resolve();
+    await application.close(); await stopped;
+    application = await electron.launch({ executablePath: require('electron'), args: [appRoot], cwd: appRoot,
+      env: { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: userDataDir } });
+    const restarted = await application.firstWindow();
+    await restarted.waitForFunction(() => window.__YAN_APP_READY__ === true);
+    const afterRestart = await restarted.evaluate(() => window.yan.listSkills());
+    assert.ok(afterRestart.every(skill => !removedUiIds.includes(skill.id)), 'removed UI Skills must not reinstall on restart');
+    assert.equal(afterRestart.length, expectedMarketCount);
     console.log(JSON.stringify({ ok: true, screenshotPath, skills: ids }));
   } finally {
+    const child = application?.process();
+    const stopped = child && child.exitCode === null ? new Promise(resolve => child.once('exit', resolve)) : Promise.resolve();
     await application?.close().catch(() => {});
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    await stopped;
+    assert.equal(path.dirname(userDataDir), path.resolve(os.tmpdir()));
+    await fs.promises.rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   }
 })().catch(error => {
   console.error(error);

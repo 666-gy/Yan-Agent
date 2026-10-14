@@ -1,0 +1,523 @@
+/* Connection form dialog: sidebar presets + one unified panel.
+   Loaded after styles.css so it can override the shared wizard width.
+   Inputs and the joined endpoint control follow the app's pill language; the
+   two choosers are our own compact dropdowns (never a native <select> and never
+   a wrapping pill grid that would overflow). */
+
+.connection-form-dialog {
+  width: min(1040px, calc(100vw - 32px));
+}
+.connection-form-dialog .provider-dialog-shell {
+  height: min(880px, calc(100dvh - 32px));
+  max-height: min(880px, calc(100dvh - 32px));
+}
+
+.connection-form-dialog .connection-dialog-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.connection-form {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+/* Editing an existing connection hides the sidebar so it cannot be re-pointed. */
+.connection-form-dialog.is-editing .connection-form { grid-template-columns: minmax(0, 1fr); }
+.connection-form-dialog.is-editing .connection-form-side { display: none; }
+
+/* --- sidebar --- */
+.connection-form-side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 12px;
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg);
+  overflow-y: auto;
+}
+
+.connection-preset-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.892857);
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast), border-color var(--fast), color var(--fast);
+}
+
+.connection-preset-item:hover { background: var(--bg-hover); color: var(--text); }
+.connection-preset-item:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.connection-preset-item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 650;
+}
+
+.connection-preset-logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background-image: var(--provider-logo);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.connection-preset-logo.is-letter {
+  display: grid;
+  place-items: center;
+  background-color: var(--bg-elev2);
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  font-weight: 700;
+  line-height: 1;
+}
+.connection-preset-logo.is-plus {
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.connection-preset-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-preset-item.is-custom {
+  margin-top: 8px;
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.connection-preset-item.is-custom.active { border-style: solid; }
+
+/* --- main panel --- */
+.connection-form-main {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 22px 18px;
+  overflow-y: auto;
+}
+.connection-form-main > .conn-field-row,
+.connection-form-main > .conn-field,
+.connection-form-main > .conn-models-head { flex: 0 0 auto; }
+.connection-form-main > #connModels { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.conn-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+.conn-field-row {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+.conn-field-row-primary { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr); }
+.conn-field-row-secondary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+.conn-field-label {
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.conn-field-hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: calc(var(--ui-scale, 14px) * 0.821429);
+  line-height: 1.5;
+}
+.conn-field-hint.hidden { display: none; }
+
+/* Round controls, matching the rest of Yan Agent. */
+.connection-form-dialog .input {
+  min-height: 44px;
+  border-radius: var(--r-pill);
+  padding-inline: 18px;
+}
+
+/* --- custom dropdown (our own select) --- */
+.conn-select { position: relative; min-width: 0; }
+
+.conn-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg);
+  color: var(--text);
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--fast), background var(--fast), box-shadow var(--fast);
+}
+.conn-select-trigger:hover { border-color: var(--border-strong); }
+.conn-select-trigger:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Open is a quiet state, not a focus halo: the menu below already says "open". */
+.conn-select.open .conn-select-trigger { border-color: var(--border-strong); background: var(--bg-elev); }
+.conn-select-trigger:disabled { cursor: default; color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.conn-select-trigger:disabled .conn-select-chevron { opacity: 0; }
+
+.conn-select-value { flex: 1 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-lock-icon { flex: 0 0 auto; opacity: .85; }
+.conn-select-chevron { flex: 0 0 auto; opacity: .45; transition: transform var(--fast); }
+.conn-select.open .conn-select-chevron { transform: rotate(180deg); }
+
+/* Same material as the task "…" menu (agent-shell.css .task-context-menu):
+   acrylic surface, tight rows, selection shown by a leading check only. A
+   tinted + bold + trailing-check row reads as a template, not as Yan. */
+.conn-select-menu {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .12), 0 1px 3px rgb(0 0 0 / .06);
+  transform-origin: top center;
+  display: none;
+}
+.conn-select.open .conn-select-menu { display: block; animation: conn-select-in 120ms var(--ease, ease-out); }
+@keyframes conn-select-in {
+  from { opacity: 0; transform: translateY(-3px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.conn-select-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 10px 5px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: calc(var(--ui-scale, 14px) * 0.892857);
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+.conn-select-option > span:not(.conn-select-check-slot) { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-select-option:hover,
+.conn-select-option:focus-visible { background: var(--bg-hover); outline: none; }
+.conn-select-option[aria-selected="true"] { font-weight: 500; }
+/* Every row reserves the check's slot so labels stay aligned. */
+.conn-select-check { flex: 0 0 auto; width: 14px; height: 14px; color: var(--text); order: -1; }
+.conn-select-check-slot { flex: 0 0 auto; width: 14px; order: -1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-select.open .conn-select-menu { animation: none; }
+}
+
+/* Joined control: endpoint dropdown + one shared pill input. */
+.conn-endpoint-control {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg);
+  transition: border-color var(--fast), box-shadow var(--fast);
+}
+.conn-endpoint-control:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.conn-endpoint-select { flex: 0 0 auto; }
+.conn-endpoint-select .conn-select-trigger {
+  width: auto;
+  min-height: 44px;
+  padding: 0 6px 0 14px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.conn-endpoint-select .conn-select-trigger:hover { border: 0; }
+.conn-endpoint-select.open .conn-select-trigger {
+  border: 0;
+  box-shadow: none;
+  background: var(--bg-hover);
+}
+.conn-endpoint-select .conn-select-menu { right: auto; min-width: 152px; }
+.conn-endpoint-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.connection-form-dialog .conn-key-row { position: relative; }
+.connection-form-dialog .conn-key-row .input { width: 100%; padding-right: 54px; }
+.connection-form-dialog .conn-key-row .provider-eye-btn {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+}
+.connection-form-dialog .conn-key-row .provider-eye-btn:hover { background: var(--bg-hover); color: var(--text); }
+.connection-form-dialog .conn-key-row .provider-eye-btn:active { transform: translateY(-50%) scale(.96); }
+.connection-form-dialog #connApiKey[data-masked="true"] {
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+  letter-spacing: .18em;
+  font-family: var(--font-mono);
+}
+
+/* Model list header: label + a compact refresh/custom pill. */
+.conn-models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.conn-models-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg);
+  overflow: hidden;
+}
+.conn-models-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background var(--fast), color var(--fast);
+}
+.conn-models-icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+.conn-models-icon-btn.is-active { background: var(--accent-soft); color: var(--accent-text); }
+.conn-models-icon-btn:disabled { opacity: .5; cursor: default; }
+.conn-models-icon-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+.conn-models-pill-divider { width: 1px; align-self: stretch; background: var(--border); }
+
+/* One model = one row: name + type badge, a three-way capability pill and an
+   enable switch. Rows keep their full height and scroll inside #connModels. */
+/* One model = one row inside a single shared rectangular frame (#connModels):
+   rows carry no box of their own, only a divider between them. */
+.conn-model-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 9px 14px 9px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+.conn-model-row:last-child { border-bottom: 0; }
+.conn-model-row:hover { background: var(--bg-hover); }
+.conn-model-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+}
+/* Context + compaction-threshold: two standalone pill inputs. */
+.conn-model-name-input {
+  border: 0;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  padding: 0;
+  border-bottom: 1px dashed var(--border-strong);
+}
+.conn-model-name-input:focus { border-bottom-color: var(--accent); }
+.conn-model-name-input::placeholder { color: var(--text-faint); }
+.conn-model-remove {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: calc(var(--ui-scale, 14px) * 1.071429);
+  line-height: 1;
+  cursor: pointer;
+}
+.conn-model-remove:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.conn-model-remove:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.conn-model-kfield {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg);
+  transition: border-color var(--fast);
+}
+.conn-model-kfield:hover { border-color: var(--border-strong); }
+.conn-model-kinput {
+  width: 62px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  text-align: left;
+  outline: none;
+  box-shadow: none;
+}
+.conn-model-kinput::placeholder { color: var(--text-faint); }
+.conn-model-kinput::selection { background: var(--accent-soft); }
+.conn-model-kfield input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.conn-model-kfield input[type="number"]::-webkit-inner-spin-button,
+.conn-model-kfield input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.conn-model-kunit { color: var(--text-faint); font-size: calc(var(--ui-scale, 14px) * 0.785714); }
+
+/* One pill: three text capability segments plus a single enable switch. */
+.conn-model-controls {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg-elev2);
+}
+.conn-model-cap {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.785714);
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--fast), color var(--fast);
+}
+.conn-model-cap:hover { background: var(--bg-hover); color: var(--text); }
+.conn-model-cap:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.conn-model-cap[data-state="yes"] { color: var(--success); background: color-mix(in srgb, var(--success) 16%, transparent); }
+.conn-model-cap[data-state="no"] { color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, transparent); }
+.conn-model-control-divider { flex: 0 0 auto; width: 1px; align-self: stretch; margin: 5px 3px; background: var(--border); }
+.conn-model-enable { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 7px 0 3px; }
+.conn-model-enable-text { color: var(--text-dim); font-size: calc(var(--ui-scale, 14px) * 0.785714); font-weight: 550; white-space: nowrap; }
+
+/* A softer, rounded focus ring instead of the native rectangular outline. */
+.connection-form-dialog .input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.connection-form-dialog .conn-endpoint-input:focus-visible { box-shadow: none; }
+
+/* Refined enable switch, scoped to the model rows. */
+.conn-model-enable .switch {
+  width: 36px;
+  height: 20px;
+  background: color-mix(in srgb, var(--text-faint) 26%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 20%, transparent);
+  outline: none;
+  transition: background var(--fast), box-shadow var(--fast);
+}
+.conn-model-enable .switch::after {
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+.conn-model-enable .switch:checked {
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.conn-model-enable .switch:checked::after { transform: translateX(16px); }
+.conn-model-enable .switch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.conn-model-enable .switch:active:not(:disabled)::after { transform: translateX(1px); }
+.conn-model-enable .switch:checked:active:not(:disabled)::after { transform: translateX(15px); }
+
+.connection-form-main .conn-model-pill-grid { margin-top: 0; }
+
+.connection-form-foot {
+  justify-content: flex-end;
+  padding: 12px 24px 16px;
+}
+.connection-form-foot > .conn-pill {
+  flex: 0 0 auto;
+  min-width: 148px;
+}
+
+@media (max-width: 620px) {
+  .connection-form { grid-template-columns: minmax(0, 1fr); }
+  .connection-form-side {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .connection-preset-item { flex: 0 0 auto; }
+  .connection-preset-item.is-custom { margin-top: 0; margin-left: 4px; }
+  .conn-field-row { grid-template-columns: minmax(0, 1fr); }
+}

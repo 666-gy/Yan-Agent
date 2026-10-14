@@ -99,6 +99,16 @@ function createPool(maxKernels = 3) {
   return { pool, kernels };
 }
 
+test('pool hosts all 3 interactive and 10 scheduled kernels simultaneously', async t => {
+  const { pool, kernels } = createPool(13);
+  t.after(() => pool.close());
+  const runs = Array.from({ length: 13 }, (_, index) => pool.run({ runId: `capacity-${index}`, openCodeConfig: { model: `vendor/model-${index}` } }));
+  await waitFor(() => kernels.length === 13 && kernels.every(kernel => kernel.activeRuns.size === 1));
+  assert.equal(pool.maxKernels, 13);
+  for (const kernel of kernels) for (const id of kernel.activeRuns.keys()) kernel.finish(id);
+  assert.equal((await Promise.all(runs)).every(result => result.status === 'done'), true);
+});
+
 test('different OpenCode configurations run concurrently in isolated kernels', async t => {
   const { pool, kernels } = createPool();
   t.after(() => pool.close());
@@ -173,7 +183,7 @@ test('pool cancellation reaches runs waiting for kernel acquisition', async t =>
   await waitFor(() => kernels.length === 1);
   const second = pool.run({ runId: 'run-second', openCodeConfig: { model: 'vendor/second' } });
   await waitFor(() => pool.pendingPooledRuns?.has('run-second'));
-  const secondOutcome = second.then(() => null, error => error);
+  const secondOutcome = second;
 
   assert.deepEqual(await pool.cancel('run-second'), {
     ok: true,
@@ -185,6 +195,14 @@ test('pool cancellation reaches runs waiting for kernel acquisition', async t =>
   await waitFor(() => pool.hasRun('run-first'));
   kernels[0].finish('run-first');
   await first;
-  const secondError = await secondOutcome;
-  assert.equal(secondError?.name, 'AbortError');
+  const secondResult = await secondOutcome;
+  assert.equal(secondResult.status, 'interrupted');
+  assert.equal(secondResult.error, '');
+  assert.equal(secondResult.usage.input, 0);
+  assert.equal(kernels.some(kernel => kernel.hasRun('run-second')), false);
+  assert.equal(pool.hasPendingRun('run-second'), false);
+  const next = pool.run({ runId: 'run-next', openCodeConfig: { model: 'vendor/second' } });
+  await waitFor(() => pool.hasRun('run-next'));
+  kernels.find(kernel => kernel.hasRun('run-next')).finish('run-next');
+  assert.equal((await next).status, 'done');
 });

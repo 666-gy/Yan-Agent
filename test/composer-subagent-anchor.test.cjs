@@ -7,11 +7,6 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../renderer/renderer.js'), 'utf8');
-function declaration(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start >= 0, `Missing renderer function: ${name}`);
-  return source.slice(start, source.indexOf('\n}', start) + 2);
-}
 
 function harness({ hidden = false, view = 'subagent', caret = 7 } = {}) {
   const menu = { dataset: { view }, classList: { contains: () => hidden } };
@@ -25,29 +20,25 @@ function harness({ hidden = false, view = 'subagent', caret = 7 } = {}) {
     skillResets: 0,
     $: () => menu,
     getComposerCaretTextOffset: () => caret,
-    renderSubagentCallList() { context.renders++; },
     resetComposerSkillQueryAnchor() { context.skillResets++; },
     input: { addEventListener(event, handler) { context.pointerup = handler; } }
   });
   const start = source.indexOf("input.addEventListener('pointerup',");
   assert.ok(start >= 0);
   const listener = source.slice(start, source.indexOf('\n});', start) + 4);
-  vm.runInContext(`${declaration('resetComposerSubagentQueryAnchor')}\n${listener}`, context);
+  vm.runInContext(listener, context);
   return context;
 }
 
-test('clicking composer with subagent picker open resets replacement range to caret', () => {
+test('retired subagent picker no longer changes composer query state', () => {
+  assert.doesNotMatch(source, /function (?:openComposerSubagentView|refreshComposerSubagentQuery|renderSubagentCallList|toggleComposerSubagent)\(/);
   for (const caret of [0, 7, 12]) {
     const ctx = harness({ caret });
     assert.doesNotThrow(() => ctx.pointerup());
     assert.equal(ctx.composerLastCaretTextOffset, caret);
-    assert.equal(ctx.composerSubagentQueryAnchor, caret);
-    assert.equal(ctx.composerSubagentQueryEnd, caret);
-    assert.equal(ctx.composerSubagentQuery, '');
-    assert.equal(ctx.composerSubagentTriggerOffset, null);
-    assert.equal(ctx.renders, 1);
-    const text = 'existing text';
-    assert.equal(text.slice(0, ctx.composerSubagentQueryAnchor) + text.slice(ctx.composerSubagentQueryEnd), text);
+    assert.equal(ctx.composerSubagentQueryAnchor, 0);
+    assert.equal(ctx.composerSubagentQueryEnd, 5);
+    assert.equal(ctx.renders, 0);
   }
 });
 

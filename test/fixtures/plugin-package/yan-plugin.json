@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "yan-text-kit",
+  "version": "1.0.0",
+  "name": "文本工具箱",
+  "description": "统计文本中的字符、单词和行数，并按模板给出摘要。一个可直接体验的本地插件示例。",
+  "author": "Yan Agent",
+  "license": "MIT",
+  "instructions": "instructions.md",
+  "skills": [{ "id": "text-review", "name": "文本检查", "description": "读取文本，使用真实统计工具核对长度，再按模板汇报。", "path": "skills/text-review/SKILL.md" }],
+  "resources": [{ "id": "report-template", "name": "统计报告模板", "path": "templates/report.md" }],
+  "mcpServers": [{ "id": "text", "type": "local", "command": "$node", "args": ["${pluginRoot}/server.cjs"] }]
+}

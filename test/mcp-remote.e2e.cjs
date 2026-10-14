@@ -16,10 +16,21 @@ const detailScreenshotPath = path.join(outputDir, 'mcp-remote-detail.png');
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(outputDir, { recursive: true });
 
+// Electron can keep temp files open for a moment after close() on Windows, so
+// retry the cleanup instead of letting an EPERM mask the real test result.
+async function removeDirWithRetry(dir, attempts = 40) {
+  for (let i = 0; i < attempts; i += 1) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; }
+    catch { await new Promise(resolve => setTimeout(resolve, 250)); }
+  }
+  console.warn(`[e2e] could not remove temp dir: ${dir}`);
+}
+
 const TOOLS = [
   { name: 'remote_ping', description: 'Ping the remote MCP', inputSchema: { type: 'object', properties: {} } },
   { name: 'remote_echo', description: 'Echo text back', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }
 ];
+let toolListRequests = 0;
 
 const mcpServer = http.createServer((request, response) => {
   let body = '';
@@ -46,6 +57,7 @@ const mcpServer = http.createServer((request, response) => {
       return;
     }
     if (message.method === 'tools/list') {
+      toolListRequests++;
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools: TOOLS } }));
       return;
@@ -93,7 +105,8 @@ const mcpServer = http.createServer((request, response) => {
     assert.equal(probe.ok, true, probe.error || 'remote probe failed');
     assert.equal(probe.tools.length, 2);
 
-    await page.locator('.sidebar-nav-item[data-nav="mcp"]').click();
+    await page.locator('.app-rail-button[data-nav="plugins"]').click();
+    await page.locator('#pluginsMcpTab').click();
     await page.locator('#pageMcp:not(.hidden)').waitFor();
     await page.locator('#mcpPageList [data-id="e2e-remote-mcp"] .mcp-open-btn').click();
     await page.locator('#mcpDetailView:not(.hidden)').waitFor();
@@ -101,31 +114,60 @@ const mcpServer = http.createServer((request, response) => {
     assert.equal(await page.locator('#mcpDetailTitle').textContent(), 'E2E 远程 MCP');
     assert.equal(await page.locator('#mcpDetailContent .mcp-detail-url').textContent(), serverUrl);
     assert.equal(await page.locator('#mcpPageList [data-id="e2e-remote-mcp"] .mcp-card-transport').count(), 1);
+    const toggle = page.locator('#mcpDetailContent [data-mcp-detail-action="toggle"]');
+    const idle = () => page.waitForFunction(() => !document.querySelector('[data-mcp-detail-action="toggle"]').hasAttribute('aria-busy'));
+    await page.evaluate(() => {
+      window.__mcpDetailToggle = document.querySelector('[data-mcp-detail-action="toggle"]');
+      window.__mcpDetailTools = document.getElementById('mcpDetailTools').firstElementChild;
+    });
+    const probeCount = toolListRequests;
+    assert.equal(await toggle.isChecked(), true);
+    await toggle.uncheck(); await idle();
+    assert.equal(await page.evaluate(async () => (await window.yan.mcpList()).find(s => s.id === 'e2e-remote-mcp').enabled), false);
+    await toggle.check(); await idle();
+    assert.equal(await page.evaluate(async () => (await window.yan.mcpList()).find(s => s.id === 'e2e-remote-mcp').enabled), true);
+    assert.equal(toolListRequests, probeCount, 'switch updates must not start another connection probe');
+    assert.equal(await page.evaluate(() => window.__mcpDetailToggle === document.querySelector('[data-mcp-detail-action="toggle"]') && window.__mcpDetailTools === document.getElementById('mcpDetailTools').firstElementChild), true, 'switch updates preserve the detail DOM');
+    await application.evaluate(({ ipcMain }) => {
+      global.__mcpOriginalUpdate = ipcMain._invokeHandlers.get('mcp:update');
+      ipcMain.removeHandler('mcp:update');
+      ipcMain.handle('mcp:update', () => { throw new Error('测试配置保存失败'); });
+    });
+    await toggle.click(); await idle();
+    assert.equal(await toggle.isChecked(), true, 'failed saves restore the persisted switch state');
+    assert.match(await page.locator('#toast').textContent(), /测试配置保存失败/);
+    await application.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('mcp:update');
+      ipcMain.handle('mcp:update', global.__mcpOriginalUpdate);
+    });
+    await page.locator('[data-mcp-detail-action="test"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-mcp-detail-action="test"]').dataset.state === 'success');
+    assert.ok(toolListRequests > probeCount, 'explicit connection testing still probes');
+    await toggle.uncheck(); await idle();
+    await page.locator('[data-mcp-detail-action="back"]').click();
+    await page.locator('#mcpPageList [data-id="e2e-remote-mcp"] .mcp-open-btn').click();
+    await page.waitForFunction(() => document.querySelectorAll('#mcpDetailTools .mcp-tool-row').length === 2);
+    assert.equal(await toggle.isChecked(), false, 'disabled state survives reopening the detail');
     await page.screenshot({ path: detailScreenshotPath, fullPage: false });
     await page.locator('#mcpDetailView [data-mcp-detail-action="back"]').click();
     await page.locator('#mcpMarketOverview:not(.hidden)').waitFor();
 
-    // Install wizard: remote transport exposes URL/headers and can test the endpoint.
+    // The header plus button hands the request to a fresh agent session with the
+    // MCP-install skill attached; that mount is the only way to add a server in
+    // the UI now, so the manual form is no longer part of the product surface.
     await page.locator('#mcpOpenCreateBtn').click();
-    await page.locator('#mcpNewName').waitFor();
-    await page.locator('#mcpNewName').fill('向导远程服务');
-    await page.locator('#mcpCreateDialog [data-mcp-transport="remote"]').click();
-    await page.locator('#mcpWizardNextBtn').click();
-    await page.locator('#mcpNewUrl').waitFor();
-    assert.equal(await page.locator('#mcpNewCmd').isVisible(), false);
-    await page.locator('#mcpNewUrl').fill(serverUrl);
-    await page.locator('#mcpWizardNextBtn').click();
-    await page.locator('#mcpNewHeaders').waitFor();
-    await page.locator('#mcpNewHeaders').fill('Authorization: Bearer wizard-token');
-    assert.equal(await page.locator('#mcpWizardNextBtn').isHidden(), true);
-    await page.locator('#mcpTestCreateBtn').click();
-    await page.waitForFunction(() => {
-      const status = document.querySelector('#mcpCreateStatus');
-      return status && status.textContent.includes('连接成功');
-    });
-    assert.match(await page.locator('#mcpCreateStatus').textContent(), /连接成功，2 个工具/);
+    await page.waitForFunction(() => (state.selectedSkills || []).some(skill => skill.id === 'mcp-puller'));
+    assert.equal(await page.locator('.composer-skill-token').count(), 1, 'MCP install skill is mounted in the composer');
+    assert.match(await page.evaluate(() => getComposerText()), /^Install an MCP server with/);
     await page.screenshot({ path: screenshotPath, fullPage: false });
-    await page.locator('#mcpCloseCreateBtn').click();
+
+    // Test-before-create stays covered at the API layer the form used to drive.
+    const testResult = await page.evaluate(
+      url => window.yan.mcpTest({ type: 'remote', url, headers: { Authorization: 'Bearer e2e-token' } }),
+      serverUrl
+    );
+    assert.equal(testResult?.ok, true, testResult?.error || 'remote mcpTest failed');
+    assert.equal(testResult.tools.length, 2);
 
     console.log(JSON.stringify({
       ok: true,
@@ -137,7 +179,7 @@ const mcpServer = http.createServer((request, response) => {
   } finally {
     await application?.close().catch(() => {});
     await new Promise(resolve => mcpServer.close(resolve));
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    await removeDirWithRetry(userDataDir);
   }
 })().catch(error => {
   console.error(error);

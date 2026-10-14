@@ -92,6 +92,41 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-core-journal-reco
     assert.equal(result.hasToolResult, true);
     assert.equal(result.hasRecoveryNote, true);
     assert.equal(result.modelId, 'e2e-model');
+
+    const older = await page.evaluate(async () => {
+      const session = state.currentSession;
+      const base = Date.now() - 100_000;
+      session.messages = [
+        { role: 'user', content: '相同请求', ts: base },
+        { role: 'assistant', content: '', yanSynthetic: true, agentRun: { runId: `${session.id}:interrupted`, timeline: [], status: 'interrupted' } },
+        { role: 'user', content: '相同请求', ts: base + 20_000 },
+        { role: 'assistant', content: '后来已完成的回复', ts: base + 30_000 },
+        { role: 'user', content: '另一次强退', ts: base + 40_000 }
+      ];
+      await api.saveSession(session);
+      const replay = async (id, prompt, start) => recoverInterruptedOpenCodeRun({
+        runId: id, yanSessionId: session.id, startedAt: start + 100, lastEventAt: start + 10_000,
+        intent: { prompt }, events: [
+          { type: 'session.next.tool.called', data: { callID: id, tool: 'bash', input: { command: 'echo recovered' } } },
+          { type: 'session.next.tool.success', data: { callID: id, result: 'recovered' } }
+        ]
+      });
+      await replay('second-crash', '另一次强退', base + 40_000);
+      await replay('first-crash', '相同请求', base);
+      const saved = await api.getSession(session.id);
+      renderMessages(saved.messages);
+      return {
+        messages: saved.messages.map(message => ({ role: message.role, content: message.content, runId: message.agentRun?.runId || '', tools: message.agentRun?.timeline?.filter(item => item.type === 'tool_call').length || 0 })),
+        toggles: [...document.querySelectorAll('button')].filter(button => /查看工作过程/.test(button.textContent)).length
+      };
+    });
+    assert.equal(older.messages.length, 6);
+    assert.equal(older.messages[1].runId, 'first-crash');
+    assert.equal(older.messages[3].content, '后来已完成的回复');
+    assert.equal(older.messages[5].runId, 'second-crash');
+    assert.equal(older.messages[1].tools, 1);
+    assert.equal(older.messages[5].tools, 1);
+    assert.equal(older.toggles, 2, 'both crashed turns keep a work-process entry');
     assert.equal(errors.length, 0, errors.join('; '));
     console.log(JSON.stringify({ ok: true, ...result }));
   } finally {

@@ -128,6 +128,7 @@ function orbStateForPet(state) {
 }
 
 function applyState(next = {}) {
+  window.yanPetFrontend?.publish('state', next);
   currentState = {
     ...defaultState,
     ...next,
@@ -149,18 +150,34 @@ function applyState(next = {}) {
 
 function applyPetConfig(config = {}) {
   window.YanI18n?.apply(config.language || new URLSearchParams(window.location.search).get('lang') || 'zh-CN', document);
-  const selected = ['orb', 'yuexinmiao', 'deepseek', 'claude'].includes(String(config.selected || ''))
+  const selected = (['orb', 'deepseek', 'claude'].includes(String(config.selected || '')) || ((config.spriteDataUrl || ['widget', 'web'].includes(config.layout)) && /^custom-/.test(config.selected)))
     ? String(config.selected)
     : 'orb';
+  const changed = activePetId !== selected;
   activePetId = selected;
+  const scale = Math.max(0.5, Math.min(1.5, Number(config.scale) || 1));
+  const viewport = config.layout === 'web' ? config.frontend : null;
+  document.querySelector('.pet-app').style.cssText = `width:${viewport?.width || 248}px;height:${viewport?.height || 238}px;transform-origin:top left;transform:scale(${scale})`;
+  window.yanPetFrontend?.configure(config);
+  document.querySelector('.pet-stage').hidden = config.layout === 'web';
+  elements.petSprite.style.backgroundImage = config.spriteDataUrl ? `url("${config.spriteDataUrl}")` : '';
+  elements.petSprite.classList.toggle('is-static', config.layout === 'static');
   const isOrb = selected === 'orb';
   document.body.dataset.pet = selected;
   elements.petToggle.hidden = !isOrb;
   elements.statusStrip.hidden = !isOrb;
-  elements.entertainmentPet.hidden = isOrb;
-  const label = petText(config.label || '娱乐桌宠');
-  elements.entertainmentPet.setAttribute('aria-label', `${label}, click to wave, double-click to jump, drag to move`);
-  elements.entertainmentPet.title = `${label}: click to wave, double-click to jump, drag to move`;
+  elements.entertainmentPet.hidden = isOrb || config.layout === 'widget';
+  document.body.dataset.layout = config.layout || 'sprite';
+  const panel = document.getElementById('petData');
+  panel.hidden = !config.hasDataSource;
+  document.getElementById('petDataLabel').textContent = config.dataLabel || config.label || '';
+  if (changed) {
+    document.getElementById('petDataValue').textContent = '—';
+    document.getElementById('petDataStatus').textContent = '';
+  }
+  const label = petText(config.label || '桌宠');
+  elements.entertainmentPet.setAttribute('aria-label', `${label} · ${petText('单击聚焦 Yan Agent，拖动调整位置')}`);
+  elements.entertainmentPet.title = `${label} · ${petText('单击聚焦 Yan Agent，拖动调整位置')}`;
   if (isOrb) {
     clearPassiveAnimation();
     clearAnimationReturn();
@@ -172,7 +189,8 @@ function applyPetConfig(config = {}) {
       orb.destroy();
       orb = null;
     }
-    returnEntertainmentPetToIdle();
+    if (config.layout === 'web') { clearPassiveAnimation(); clearAnimationReturn(); }
+    else returnEntertainmentPetToIdle();
   }
 }
 
@@ -234,12 +252,15 @@ function bindMovableToggle(element, onClick, interaction = {}) {
 }
 
 const openCurrentTask = () => {
-  if (currentState.sessionId) bridge?.openTask(currentState.sessionId);
+  bridge?.openTask(activePetId === 'orb' ? currentState.sessionId : null);
 };
 
 bindMovableToggle(elements.petToggle, openCurrentTask);
 bindMovableToggle(elements.statusStrip, openCurrentTask);
-bindMovableToggle(elements.entertainmentPet, () => playEntertainmentReaction('waving'), {
+bindMovableToggle(elements.entertainmentPet, () => {
+  openCurrentTask();
+  playEntertainmentReaction('waving');
+}, {
   onPointerDown: clearPassiveAnimation,
   onDragStart: ({ deltaX }) => {
     entertainmentDragging = true;
@@ -281,6 +302,20 @@ applyState(defaultState);
 if (bridge) {
   bridge.onState(applyState);
   bridge.onConfig(applyPetConfig);
+  bridge.onData(data => {
+    if (data.petId !== activePetId) return;
+    window.yanPetFrontend?.publish('data', data);
+    const value = document.getElementById('petDataValue');
+    if (data.status === 'ready') {
+      value.textContent = data.text;
+      value.title = data.text;
+    }
+    document.getElementById('petDataStatus').textContent = data.status === 'error'
+      ? data.error : data.status === 'loading' ? '正在更新' : new Date(data.updatedAt).toLocaleTimeString();
+    document.getElementById('petDataRefresh').disabled = data.status === 'loading';
+  });
+  document.getElementById('petDataRefresh').addEventListener('click', () => bridge.refreshData());
+  bindMovableToggle(document.getElementById('petDataLabel'), () => bridge.openTask());
   bridge.ready();
 } else {
   const params = new URLSearchParams(location.search);

@@ -1,0 +1,76 @@
+<style>
+  .room-app{max-width:740px;margin:auto;padding:8px;color:var(--ui-text)}
+  .room-preview{display:block;width:100%;max-height:230px;border-radius:18px;background:#e7e1d8}
+  .room-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+  .room-toolbar output{font-size:14px;font-weight:600}
+  .palette-list{display:flex;gap:8px;flex-wrap:wrap}
+  .palette-list button{display:flex;align-items:center;gap:6px;padding:6px 10px}
+  .palette-list button[aria-pressed=true]{outline:2px solid var(--ui-accent);outline-offset:2px}
+  .palette-dot{width:18px;height:18px;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 1px #0002}
+  .saved-choice{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;min-height:32px;font-size:13px}
+  #saved-choice{user-select:text}#save-status{font-size:12px;color:var(--ui-muted)}
+  @media(max-width:390px){.room-toolbar{align-items:flex-start}.palette-list{gap:6px}.palette-list button{font-size:12px}.room-app{padding:6px}}
+</style>
+<main class="room-app" aria-label="房间配色">
+  <svg class="room-preview" viewBox="0 0 660 270" role="img" aria-label="所选墙色的房间预览">
+    <path id="room-wall" d="M0 0H660V204H0Z" fill="#E5D4BF"/>
+    <path d="M0 204H660V270H0Z" fill="#bca98b"/>
+    <path d="M0 204H660M128 204L86 270M288 204L271 270M458 204L480 270M617 204L655 270" fill="none" stroke="#a69273"/>
+    <rect x="38" y="28" width="136" height="145" rx="2" fill="#faf9f3"/>
+    <path d="M47 37H165V164H47Z" fill="#cddfe1"/>
+    <path d="M106 37V164M47 100H165" stroke="#faf9f3" stroke-width="7"/>
+    <path d="M270 177H544V225H270Z" fill="#796c5e"/>
+    <rect x="258" y="158" width="300" height="52" rx="16" fill="#ece5d8"/>
+    <rect x="272" y="128" width="136" height="57" rx="15" fill="#f3eee5"/>
+    <rect x="411" y="128" width="133" height="57" rx="15" fill="#f3eee5"/>
+    <rect x="295" y="139" width="48" height="40" rx="8" fill="#ac7c61"/>
+    <ellipse cx="200" cy="232" rx="60" ry="14" fill="#847465"/>
+    <path d="M164 230V246M236 230V246" stroke="#655446" stroke-width="5"/>
+    <ellipse cx="200" cy="224" rx="60" ry="14" fill="#d7bb90"/>
+    <rect x="586" y="164" width="38" height="52" rx="4" fill="#b7815e"/>
+    <path d="M605 165V77M605 123Q564 114 580 88Q609 87 605 123M605 103Q640 86 631 66Q603 64 605 103M605 146Q639 133 634 112Q607 110 605 146" fill="#61775a" stroke="#61775a" stroke-width="4"/>
+  </svg>
+  <div class="room-toolbar"><output id="selected-palette"></output><button id="save-choice" type="button">收藏配色</button></div>
+  <div class="palette-list ui-controls" role="group" aria-label="推荐墙色">
+    <button type="button" data-palette="sand" aria-pressed="true"><span class="palette-dot" style="--swatch:#E5D4BF"></span>暖沙</button>
+    <button type="button" data-palette="sage" aria-pressed="false"><span class="palette-dot" style="--swatch:#B6C1AD"></span>鼠尾草绿</button>
+    <button type="button" data-palette="blue" aria-pressed="false"><span class="palette-dot" style="--swatch:#B4C6D0"></span>雾蓝</button>
+  </div>
+  <div class="saved-choice"><output id="saved-choice" aria-label="已收藏配色">尚未收藏</output><span id="save-status" role="status"></span></div>
+</main>
+<script>
+  (() => {
+    const palettes = {
+      sand: { name: '暖沙', color: '#E5D4BF' },
+      sage: { name: '鼠尾草绿', color: '#B6C1AD' },
+      blue: { name: '雾蓝', color: '#B4C6D0' }
+    };
+    const restored = window.yanUi.getState();
+    let selected = palettes[restored?.selected] ? restored.selected : 'sand';
+    let saved = palettes[restored?.saved] ? restored.saved : null;
+    const status = document.getElementById('save-status');
+    function paint() {
+      document.getElementById('room-wall').setAttribute('fill', palettes[selected].color);
+      document.getElementById('selected-palette').textContent = palettes[selected].name;
+      document.querySelectorAll('[data-palette]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.palette === selected)));
+      document.getElementById('saved-choice').textContent = saved ? `${palettes[saved].name} · ${palettes[saved].color}` : '尚未收藏';
+    }
+    async function persist() {
+      status.dataset.persisted = 'false';
+      status.textContent = '保存中';
+      try {
+        const ok = await window.yanUi.setState({ version: 1, selected, saved });
+        status.dataset.persisted = String(ok);
+        status.textContent = ok ? '已保存' : '未保存';
+      } catch { status.textContent = '未保存'; }
+    }
+    document.querySelectorAll('[data-palette]').forEach(button => button.addEventListener('click', () => {
+      selected = button.dataset.palette;
+      paint();
+      persist();
+    }));
+    document.getElementById('save-choice').addEventListener('click', () => { saved = selected; paint(); persist(); });
+    paint();
+    document.body.dataset.miniappReady = 'true';
+  })();
+</script>

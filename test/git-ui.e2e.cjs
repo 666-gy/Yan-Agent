@@ -67,10 +67,12 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     });
     const page = await application.firstWindow();
     page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.waitForFunction(() => document.readyState === 'complete'
       && typeof refreshTaskGitStatus === 'function'
       && document.querySelector('#taskGitToolsWrap')?.dataset.bound === 'true'
       && state.currentSession);
+    await page.evaluate(() => setEmptyState(false));
     await page.locator('#taskBar:not(.hidden)').waitFor();
 
     await page.evaluate(async targetWorkspace => {
@@ -91,7 +93,7 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     await page.locator('#taskGitRefreshBtn').click();
     await page.waitForFunction(() => !document.querySelector('#taskGitRefreshBtn')?.hasAttribute('aria-busy'));
     assert.equal(await page.locator('#taskGitDiffStats').textContent(), '+3-1');
-    await page.locator('#taskGitChangesBtn').click();
+    await page.locator('#taskGitBranchOpenBtn').click();
     await page.locator('#rs-review.active').waitFor();
     await page.locator('#yanDshReviewFrame').waitFor();
     const reviewFrame = page.frameLocator('#yanDshReviewFrame');
@@ -210,11 +212,11 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     await page.evaluate(() => expandRightSidebarForReview());
     await reviewFrame.locator('.sidenav .navitem', { hasText: 'pet.js' }).click();
 
-    await page.locator('#taskGitHubBtn').click();
-    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    await page.locator('#taskGitBranchBtn').click();
+    await page.locator('#taskGitBranchPopover:not(.hidden)').waitFor();
     await page.locator('#taskGitCommitOpenBtn').click();
     await page.locator('#taskGitCommitDialog[open]').waitFor();
-    assert.equal(await page.locator('#taskGitPanel').isVisible(), false);
+    assert.equal(await page.locator('#taskGitBranchPopover').isVisible(), false);
 
     await page.locator('#taskGitCommitBranchBtn').click();
     assert.equal(await page.locator('[data-task-git-commit-branch="main"]').count(), 1);
@@ -232,8 +234,9 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     await page.waitForFunction(() => document.querySelector('#taskGitBranchName')?.textContent === 'feature/test');
     assert.equal(runGit(['show', '-s', '--format=%s', 'HEAD']), generatedMessage);
 
-    await page.locator('#taskGitBranchBtn').click();
-    await page.locator('#taskGitGraphBtn').click();
+    await page.locator('#taskGitHubBtn').click();
+    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    await page.locator('#taskGitGraphOpenBtn').click();
     await page.locator('#taskGitGraphDialog[open]').waitFor();
     await page.waitForFunction(() => document.querySelector('#taskGitGraphList')?.textContent.includes('Merged PR work'));
     assert.match(await page.locator('#taskGitGraphList').textContent(), /origin\/pr-1/);
@@ -260,16 +263,10 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
       updateTaskBar();
       await refreshTaskGitStatus({ force: true });
     }, nonRepoWorkspace);
-    await page.locator('#taskGitBranchWrap:not(.hidden)').waitFor();
-    assert.equal(await page.locator('#taskGitBranchBtn').isEnabled(), true);
-    await page.locator('#taskGitBranchBtn').click();
-    await page.locator('#taskGitCreateBranchBtn').click();
-    await page.locator('#gitActionDialog[open]').waitFor();
-    await page.locator('#gitActionFields input[name="name"]').fill('feature/non-repo');
-    await page.locator('#gitActionSubmit').click();
-    await page.locator('#gitActionDialog:not([open])').waitFor({ state: 'hidden' });
-    await page.waitForFunction(() => document.querySelector('#taskGitBranchName')?.textContent === 'feature/non-repo');
-    assert.equal(execFileSync('git', ['-C', nonRepoWorkspace, 'branch', '--show-current'], { encoding: 'utf8', windowsHide: true }).trim(), 'feature/non-repo');
+    // A workspace that is not a repository hides the whole Git surface: no branch
+    // capsule and no PR button, so no branch can be created from the task bar.
+    assert.equal(await page.locator('#taskGitBranchWrap').isVisible(), false, 'non-repo hides the branch capsule');
+    assert.equal(await page.locator('#taskGitPrToggleBtn, #taskGitPrNotify').count(), 0, 'PR browsing lives in the code review page');
     assert.deepEqual(pageErrors, []);
 
     console.log(JSON.stringify({

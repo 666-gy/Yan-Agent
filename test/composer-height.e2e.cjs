@@ -35,6 +35,23 @@ function lines(count, prefix = 'composer growth line') {
       && typeof state !== 'undefined'
       && !!document.querySelector('#composerResizeHandle')
     ));
+    // The composer keeps wiring its input listener for a moment after load; a
+    // write that lands before that is dropped, which left the first sample stuck
+    // at the floor and read as "four lines did not grow". Wait for one write to
+    // actually stick, then clear it, so every later sample is deterministic.
+    await page.waitForFunction(() => {
+      const input = document.querySelector('#composerInput');
+      if (!input) return false;
+      try {
+        setComposerText('warmup');
+        syncComposerAfterInput();
+      } catch {
+        return false;
+      }
+      return input.textContent === 'warmup';
+    }, null, { timeout: 15000, polling: 100 });
+    await page.evaluate(() => { setComposerText(''); syncComposerAfterInput(); });
+    await page.waitForTimeout(120);
 
     const result = await page.evaluate(async () => {
       const composer = document.querySelector('#composer');
@@ -149,7 +166,13 @@ function lines(count, prefix = 'composer growth line') {
     }));
   } finally {
     await application?.close();
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    // Windows may still hold the userData dir for a moment after close; a
+    // cleanup failure must never mask the real test result.
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+    } catch (cleanupError) {
+      console.warn(`cleanup skipped: ${cleanupError?.message || cleanupError}`);
+    }
   }
 })().catch(error => {
   console.error(error);

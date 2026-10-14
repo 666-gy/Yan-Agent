@@ -1,0 +1,281 @@
+/* Remote control (WebUI) · independent workspace reached from the app rail.
+ * Section label sits above a settings-style option card; the page follows the
+ * settings workspace materials, including wallpaper transparency.
+ */
+.remote-page-layer {
+  position: absolute;
+  z-index: 79;
+  top: 40px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--text);
+  --bg: var(--settings-canvas);
+  --bg-elev: var(--settings-surface);
+  --bg-elev2: var(--settings-control);
+  --bg-soft: var(--settings-surface);
+  --bg-hover: var(--settings-hover);
+  --bg-active: var(--settings-selected);
+  --sidebar-bg: var(--settings-sidebar);
+  --border: var(--settings-border);
+  --border-soft: var(--settings-divider);
+  --border-strong: var(--settings-border-strong);
+  --text: var(--settings-text);
+  --text-dim: var(--settings-text-secondary);
+  --text-faint: var(--settings-text-muted);
+  --accent: var(--settings-accent);
+  --accent-soft: var(--settings-accent-soft);
+  --color-focus: var(--settings-accent);
+  background: var(--sidebar-bg);
+}
+.remote-page-layer.hidden { display: none; }
+#tab-remote .remote-section { max-width: 720px; margin-bottom: 28px; }
+.app #remotePage { left: var(--app-rail-w); border-top-left-radius: var(--r-xl); overflow: hidden; }
+
+/* Wallpaper: the workspace backboard goes transparent so the wallpaper stays
+   visible, and the option card switches to the shared wallpaper material. */
+.app.wallpaper-enabled.wallpaper-compat .remote-page-layer { background: var(--mat-panel, transparent); }
+.app.wallpaper-enabled.wallpaper-compat .remote-panel { background: var(--mat-card, var(--bg-elev)); }
+
+/* The remote workspace is a sibling overlay: remove the app layout from paint
+   and hit testing while it is open, exactly like the settings workspace. */
+.app.remote-mode > .layout { visibility: hidden; pointer-events: none; }
+.app.remote-mode #rightSidebar,
+.app.remote-mode #rightResizeHandle,
+.app.remote-mode .right-sidebar-fixed-toggle {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.app.remote-mode #todoProgressHost,
+.app.remote-mode #composerStage,
+.app.remote-mode #browserFocusConversationDock,
+.app.remote-mode #browserFocusStandbyShell,
+.app.remote-mode #browserFocusMinimizedShell,
+.app.remote-mode #browserFocusComposerCollapse {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Rail: the Remote entry sits directly below the Extensions entry. */
+.app.remote-mode .app-rail-button.active { background: transparent; }
+.app.remote-mode .app-rail-remote { background: var(--bg-active); color: var(--text); }
+.app.remote-mode .app-rail-remote:hover { border-color: transparent; }
+
+.remote-page-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: transparent;
+}
+.remote-page-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 56px clamp(24px, 5vw, 88px) 72px;
+}
+.remote-page-scroll > * {
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.remote-hero { margin: 0 auto 40px; }
+.remote-hero-title { margin: 0; color: var(--text); font: 600 30px/1.25 var(--font-display); }
+.remote-hero-sub { margin: 12px 0 0; color: var(--text-dim); font-size: var(--text-base); line-height: 1.6; }
+
+.remote-section-title {
+  margin: 0 0 18px;
+  color: var(--text);
+  font-size: calc(var(--ui-scale, 14px) * 1);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.remote-section + .remote-section { margin-top: 44px; }
+.remote-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 18px;
+}
+.remote-section-head .remote-section-title { margin: 0; }
+
+.remote-qr-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg-elev2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background-color var(--dur-micro) ease, border-color var(--dur-micro) ease;
+}
+.remote-qr-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.remote-qr-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.remote-qr-btn svg { width: 16px; height: 16px; }
+
+.remote-qr-result {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+.remote-qr-result[hidden] { display: none; }
+.remote-qr-canvas {
+  display: inline-flex;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #fff;
+}
+.remote-qr-canvas svg { display: block; width: 220px; height: 220px; }
+
+.remote-panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elev);
+}
+
+.remote-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  min-height: 78px;
+  padding: 16px 22px;
+}
+.remote-row:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--border-soft);
+  pointer-events: none;
+}
+
+.remote-row-heading { flex: 1; min-width: 0; }
+.remote-row-heading h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.remote-row-heading p {
+  margin: 3px 0 0;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.821429);
+  line-height: 1.45;
+}
+
+.remote-row-value {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+.remote-address-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 6px 4px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg-elev2);
+}
+.remote-address {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+.remote-address[data-state="error"] { color: var(--text-faint); cursor: default; }
+
+.remote-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color var(--dur-micro) ease, color var(--dur-micro) ease;
+}
+.remote-copy:hover { background: var(--bg-hover); color: var(--text); }
+.remote-copy:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.remote-copy[data-state="success"] { color: var(--success); }
+
+.remote-refresh {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color var(--dur-micro) ease, color var(--dur-micro) ease, border-color var(--dur-micro) ease;
+}
+.remote-refresh:hover { color: var(--text); background: var(--bg-hover); }
+.remote-refresh:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.remote-refresh:disabled { cursor: progress; }
+.remote-refresh svg { width: 18px; height: 18px; }
+.remote-refresh.is-loading svg { animation: remote-refresh-spin .8s linear infinite; }
+
+@keyframes remote-refresh-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 720px) {
+  .remote-page-scroll { padding: 32px 20px 56px; }
+  .remote-hero-title { font-size: 26px; }
+  .remote-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .remote-row-value { justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-refresh.is-loading svg { animation: none; }
+}

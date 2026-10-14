@@ -31,7 +31,11 @@ const electronStub = {
     on: () => {},
     once: () => {},
     whenReady: () => new Promise(() => {}),
-    commandLine: { appendSwitch: () => {}, appendArgument: () => {} }
+    commandLine: { appendSwitch: () => {}, appendArgument: () => {}, hasSwitch: () => false },
+    isPackaged: false,
+    getAppPath: () => stubDataDir,
+    getLoginItemSettings: () => ({}),
+    setLoginItemSettings: () => {}
   },
   BrowserWindow: class StubWindow {},
   Tray: class StubTray {},
@@ -41,6 +45,9 @@ const electronStub = {
   shell: {},
   Menu: { buildFromTemplate: () => null, setApplicationMenu: () => {} },
   nativeImage: { createFromPath: () => ({}), createEmpty: () => ({}) },
+  nativeTheme: { on: () => {}, removeListener: () => {}, shouldUseDarkColors: false, shouldUseDarkColorsForSystemIntegratedUI: false },
+  safeStorage: { isEncryptionAvailable: () => false, encryptString: () => Buffer.from(''), decryptString: () => '' },
+  desktopCapturer: { getSources: async () => [] },
   webContents: { fromId: () => null },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),

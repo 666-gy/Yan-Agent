@@ -172,11 +172,16 @@ test('session permission rules preserve patterned policies and plan restrictions
     yanSkillDirectory: skillDirectory,
     permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true }
   });
+  // Cross-workspace access is unrestricted in every access mode, so external
+  // directories collapse to a single allow rule instead of a skill-scoped ask.
   assert.equal(rules.some(rule => (
     rule.permission === 'external_directory'
-      && rule.pattern === skillDirectory
+      && rule.pattern === '*'
       && rule.action === 'allow'
   )), true);
+  assert.equal(rules.some(rule => (
+    rule.permission === 'external_directory' && rule.action !== 'allow'
+  )), false);
   assert.equal(rules.some(rule => (
     rule.permission === 'bash'
       && rule.pattern === 'git status*'
@@ -264,8 +269,40 @@ test('turns source attachments into text before creating OpenCode file parts', (
     });
     assert.equal(parts[1].type, 'text');
     assert.equal(parts[1].text.includes('int main'), true);
-    assert.equal(parts[2].type, 'file');
-    assert.equal(parts[2].mime, 'image/png');
+    assert.equal(parts[1].text.includes(`Path: ${source}\n`), true);
+    assert.equal(parts[2].text, `[Attached image: diagram.png]\nPath: ${image}`);
+    assert.equal(parts[3].type, 'file');
+    assert.equal(parts[3].mime, 'image/png');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('attachment paths remain absolute for HTML, truncated text and non-text fallbacks', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-attachment-path-'));
+  try {
+    const fixtures = [
+      ['页面 preview.html', '<html>鹈鹕</html>'],
+      ['large.txt', 'x'.repeat(512 * 1024 + 1)],
+      ['empty.txt', ''],
+      ['invalid.txt', Buffer.from([0, 1, 2])],
+      ['archive.bin', Buffer.from([0, 1, 2])]
+    ];
+    const attachments = fixtures.map(([name, content]) => {
+      const file = path.join(root, name);
+      fs.writeFileSync(file, content);
+      return { name, path: path.relative(process.cwd(), file) };
+    });
+    const parts = buildPromptParts({ prompt: '看看附件', attachments });
+    for (let i = 0; i < fixtures.length; i++) {
+      assert.equal(parts[i + 1].type, 'text');
+      assert.equal(parts[i + 1].text.split('\n')[1], `Path: ${path.join(root, fixtures[i][0])}`);
+    }
+    assert.equal(parts[1].text, `[Attached text file: 页面 preview.html]\nPath: ${path.join(root, fixtures[0][0])}\n\n<html>鹈鹕</html>`);
+    assert.equal(parts[2].text.endsWith('\n[Attachment truncated after 512 KiB]'), true);
+    assert.match(parts[3].text, /not readable as text/);
+    assert.match(parts[4].text, /not readable as text/);
+    assert.match(parts[5].text, /Attached binary file/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -606,7 +643,10 @@ test('configures Anthropic-compatible gateways with the native provider', () => 
     baseUrl: 'https://ark.example.com',
     apiKey: 'secret-key'
   });
-  assert.equal(config.provider['custom-ark'].npm, '@ai-sdk/anthropic');
+  // The gateway speaks Messages to a Claude model, so the antl preset owns the
+  // endpoint: it wraps @ai-sdk/anthropic rather than replacing it, and is the
+  // only layer that places the cache breakpoints the API requires.
+  assert.match(config.provider['custom-ark'].npm, /opencode-antl-provider/);
   assert.equal(config.provider['custom-ark'].options.baseURL, 'https://ark.example.com/v1');
   assert.equal(config.provider['custom-ark'].options.headers.Authorization, 'Bearer secret-key');
   assert.equal('yanDsmlCompatibility' in config.provider['custom-ark'].options, false);
@@ -891,7 +931,7 @@ test('optimized provider presents one complete tool call to the AI SDK', async (
   assert.equal(parts.at(-1).type, 'finish');
 });
 
-test('bounds provider reservation and tool output for stable multi-step prefill', () => {
+test('honors catalog output budget and bounds tool output for stable multi-step prefill', () => {
   const config = buildOpenCodeConfig({
     providerId: 'openai',
     modelId: 'gpt-5.6-sol',
@@ -901,14 +941,33 @@ test('bounds provider reservation and tool output for stable multi-step prefill'
       { id: 'alpha', command: 'alpha', enabled: true }
     ]
   });
-  assert.equal(config.provider.openai.models['gpt-5.6-sol'].limit.output, 32_768);
+  assert.equal(config.provider.openai.models['gpt-5.6-sol'].limit.output, 384_000);
   assert.equal(config.provider.openai.models['gpt-5.6-sol'].limit.context, 1_000_000);
+  assert.equal(config.provider.openai.models['gpt-5.6-sol'].limit.input, 1_000_000);
   assert.deepEqual(config.tool_output, { max_lines: 800, max_bytes: 98_304 });
   assert.equal(config.compaction.preserve_recent_tokens, 24_000);
   assert.deepEqual(Object.keys(config.mcp), ['alpha', 'zeta']);
   assert.equal('yan' in config, false);
   assert.equal('yanInputTokensPerSecond' in config.provider.openai.options, false);
   assert.equal('yanInputThroughputBaseline' in config.provider.openai.options, false);
+});
+
+test('user-set output budget is honored above the default ceiling', () => {
+  const config = buildOpenCodeConfig({
+    providerId: 'openai',
+    modelId: 'gpt-5.6',
+    capabilities: { contextWindow: 200_000, maxOutputTokens: 64_000, userMaxOutputTokens: 64_000 }
+  });
+  assert.equal(config.provider.openai.models['gpt-5.6'].limit.output, 64_000);
+});
+
+test('user-set output budget is still bounded by the context window', () => {
+  const config = buildOpenCodeConfig({
+    providerId: 'openai',
+    modelId: 'gpt-5.6',
+    capabilities: { contextWindow: 50_000, maxOutputTokens: 80_000, userMaxOutputTokens: 80_000 }
+  });
+  assert.equal(config.provider.openai.models['gpt-5.6'].limit.output, 49_999);
 });
 
 test('preserves nested OpenCode validation details', () => {
@@ -984,4 +1043,15 @@ test('provider fetch keeps replay history untouched for non-DeepSeek providers',
     })
   });
   assert.equal('reasoning_content' in bodySeen.messages[0], false);
+});
+
+
+test('malformed parameter markup never dispatches an empty shell call', () => {
+  const dsml = '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="bash"><｜｜DSML｜｜parameter name="command" string="true">echo hello</｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>';
+  const result = recoverDsmlToolCalls(dsml, new Set(['bash']));
+  assert.equal(result.calls.length, 0);
+  assert.match(result.error, /incomplete parameter/);
+  const generic = recoverGenericToolCalls('<tool_calls><invoke name="bash"><parameter name="command">echo hello</invoke></tool_calls>', new Set(['bash']));
+  assert.equal(generic.calls.length, 0);
+  assert.match(generic.error, /incomplete parameter/);
 });

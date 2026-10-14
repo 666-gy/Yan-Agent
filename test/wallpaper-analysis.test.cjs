@@ -51,8 +51,8 @@ test('missing pixels fall back to neutral metrics', () => {
 test('resolveWallpaperPath allows built-in wallpapers and blocks outside files', () => {
   const rendererRoot = 'C:\\app\\renderer';
   const uploads = 'C:\\data\\uploads';
-  const builtIn = resolveWallpaperPath('assets/wallpapers/%E5%89%91%E4%B8%8E%E6%A8%B1.jpg', { rendererRoot, roots: [] });
-  assert.equal(builtIn, 'C:\\app\\renderer\\assets\\wallpapers\\剑与樱.jpg');
+  const builtIn = resolveWallpaperPath('assets/wallpapers/%E3%80%90%E5%93%B2%E9%A3%8E%E5%A3%81%E7%BA%B8%E3%80%91%E5%A4%9C%E7%A9%BA-%E5%A4%A9%E4%BD%93-%E5%A4%A9%E7%A9%BA.jpg', { rendererRoot, roots: [] });
+  assert.equal(builtIn, 'C:\\app\\renderer\\assets\\wallpapers\\【哲风壁纸】夜空-天体-天空.jpg');
   const outside = resolveWallpaperPath('C:\\Windows\\win.ini', { rendererRoot, roots: [uploads] });
   assert.equal(outside, '');
   const uploaded = resolveWallpaperPath('file:///C:/data/uploads/w1.png', { rendererRoot, roots: [uploads] });

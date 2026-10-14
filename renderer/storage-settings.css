@@ -1,0 +1,26 @@
+#tab-storage { max-width: 980px; }
+.settings-page-layer[data-active-tab="storage"] .settings-page-heading { max-width: 980px; }
+.settings-page-layer[data-active-tab="storage"] #settingsSectionTitle { display: flex; align-items: center; gap: 10px; }
+.settings-page-layer[data-active-tab="storage"] #settingsSectionTitle svg { width: 26px; height: 26px; flex-shrink: 0; }
+.storage-device-heading h2 { margin: 0 0 7px; font-size: 17px; font-weight: 600; }
+.storage-device-heading p { margin: 0; color: var(--text-dim); font-size: 13px; }
+.storage-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 27px 0 15px; }
+.storage-summary strong { font-size: 14px; font-weight: 500; }
+.storage-button { flex-shrink: 0; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--bg-elev2); color: var(--text); padding: 6px 17px; min-height: 32px; font: inherit; font-size: 13px; cursor: pointer; }
+.storage-button:hover:not(:disabled) { background: var(--bg-hover); }
+.storage-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+.storage-button:disabled { opacity: .4; cursor: not-allowed; }
+.storage-bar { display: flex; height: 24px; border-radius: 10px; overflow: hidden; background: var(--bg-hover); }
+.storage-bar > span { min-width: 0; flex-shrink: 1; }
+.storage-legend { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.storage-category { display: flex; align-items: center; gap: 7px; font-size: 12px; white-space: nowrap; }
+.storage-category i { width: 9px; height: 9px; flex-shrink: 0; border-radius: 50%; }
+.storage-size { display: block; padding-left: 16px; margin-top: 8px; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+.storage-location { display: flex; flex-direction: column; gap: 6px; margin-top: 24px; color: var(--text-dim); font-size: 12px; overflow-wrap: anywhere; }
+.storage-actions { margin-top: 32px; }
+.storage-card { border: 1px solid var(--border); border-radius: 14px; margin-bottom: 24px; overflow: hidden; }
+.storage-action-row { display: flex; align-items: center; justify-content: space-between; padding: 20px; gap: 20px; }
+.storage-action-row + .storage-action-row { border-top: 1px solid var(--border); }
+.storage-action-row h3 { font-size: 14px; font-weight: 500; margin: 0 0 7px; }
+.storage-action-row p { font-size: 12px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+@media (max-width: 850px) { .storage-legend { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 20px; } .storage-action-row { padding: 16px; gap: 12px; } }

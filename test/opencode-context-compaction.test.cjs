@@ -92,6 +92,32 @@ test('builds OpenCode limits from explicit settings instead of inferred model li
   }).softThreshold, 1_500_000);
 });
 
+// The kernel's auto-compaction line is `limit.input - reserved` when input is
+// declared, else `limit.context - limit.output`. Without `input`, a 384k
+// output budget on a 1000k window would compact at ~616k, well before the
+// user's 800k threshold.
+test('large output budget does not pull compaction ahead of the user threshold', () => {
+  const config = buildOpenCodeConfig({
+    providerId: 'custom',
+    providerName: 'Custom',
+    modelId: 'ds-v4.1',
+    modelName: 'ds-v4.1',
+    contextWindow: 1_000_000,
+    compactionThreshold: 800_000,
+    capabilities: {
+      contextWindow: 1_000_000,
+      maxOutputTokens: 384_000,
+      userMaxOutputTokens: 384_000
+    }
+  });
+  const limit = config.provider.custom.models['ds-v4.1'].limit;
+  assert.equal(limit.output, 384_000);
+  assert.equal(limit.input, 1_000_000);
+  const kernelTrigger = limit.input - config.compaction.reserved;
+  assert.ok(kernelTrigger >= 800_000, `kernel compacts at ${kernelTrigger}, before the 800k threshold`);
+  assert.equal(config.compaction.threshold, 800_000);
+});
+
 test('converts decimal k values and normalizes invalid persisted thresholds', () => {
   assert.equal(contextKToTokens('128.5'), 128_500);
   assert.equal(contextTokensToK(128_500), '128.5');

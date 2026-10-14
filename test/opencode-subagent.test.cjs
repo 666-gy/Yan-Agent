@@ -2,9 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildOpenCodeConfig,
+  builderSessionPermissionForRun,
   combineSystem,
   isAssistantImmediatePartEvent,
   nextSubagentPermission,
+  releaseReadSubagentSlot,
+  permissionForRun,
   permissionRulesForRun,
   sessionPermissionForRun
 } = require('../lib/opencode-sidecar');
@@ -13,27 +16,27 @@ function ruleFor(rules, permission) {
   return rules.find(rule => rule.permission === permission && rule.pattern === '*');
 }
 
-test('provider dispatch preserves turn-selected roles in the model system prompt', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const vm = require('node:vm');
-  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
-  const dispatch = main.slice(main.indexOf('const task = providerAdapter.startTurn({'));
-  const expression = dispatch.match(/^\s*subagentRoles: (.+),\r?$/m)?.[1];
-  assert.ok(expression, 'provider dispatch must define the per-turn roles');
-  for (const selected of [['mapper'], ['tracer', 'reverser'], []]) {
-    const roles = vm.runInNewContext(expression, {
-      request: { subagentRoles: selected },
-      cfg: { agent: { subagentRoles: { explorer: true, mapper: true, tracer: true, reverser: true } } }
-    });
-    assert.deepEqual(roles, selected);
+const { startRun } = require('../lib/run-orchestrator');
+const { createRunContext } = require('./helpers/run-context.cjs');
+const { builderPermissionRequestAllowed } = require('../lib/subagent');
+
+test('provider dispatch preserves turn-selected roles in the model system prompt', async t => {
+  for (const selected of [['mapper'], ['tracer', 'reverser'], [], undefined, 'mapper']) {
+    const fixture = createRunContext(t);
+    const result = await startRun(fixture.ctx, { runId: 'roles-test', prompt: 'hello', subagentRoles: selected });
+    assert.equal(result.ok, true);
+    const roles = fixture.calls.provider[0].request.subagentRoles;
+    assert.deepEqual(roles, Array.isArray(selected) ? selected : []);
+    assert.deepEqual(fixture.calls.core[0].intent.subagentRoles, roles);
     const system = combineSystem({ subagentRoles: roles });
-    if (selected.length) {
+    if (roles.length) {
       const labels = { mapper: 'Sub Mapper Agent', tracer: 'Sub Tracer Agent', reverser: 'Sub Reverser Agent' };
-      assert.ok(system.includes(`The user explicitly selected these roles for this turn: ${selected.map(role => labels[role]).join(', ')}`));
+      assert.ok(system.includes('The user explicitly selected these roles for this turn: ' + roles.map(role => labels[role]).join(', ')));
     } else {
       assert.ok(!system.includes('The user explicitly selected these roles for this turn:'));
     }
+    fixture.complete({ status: 'done', text: 'done' });
+    await fixture.idle;
   }
 });
 
@@ -118,7 +121,18 @@ test('enabling native subagents exposes bounded child agents to the parent', () 
   assert.equal(config.agent.explorer.permission.edit, 'deny');
   assert.equal(config.agent.explorer.permission.question, 'deny');
   assert.equal(config.agent.explorer.permission['yan_skills_*'], 'allow');
-  assert.equal(config.agent.explorer.permission.external_directory, 'deny');
+  assert.equal(config.agent.explorer.permission.external_directory, 'allow');
+  // Cross-workspace work is unrestricted for the parent and for every child,
+  // so a subagent can read/write a sibling copy of the project like the parent.
+  for (const role of ['explorer', 'builder', 'mapper', 'researcher', 'reverser', 'reviewer', 'tester', 'tracer']) {
+    assert.equal(config.agent[role].permission.external_directory, 'allow', `${role} must allow external directories`);
+  }
+  assert.equal(
+    builderSessionPermissionForRun({ permissions: { allowFileWrite: true } })
+      .find(rule => rule.permission === 'external_directory')?.action,
+    'allow',
+    'a native builder child session must allow external directories'
+  );
   assert.match(config.agent.explorer.prompt, /High-throughput execution contract/);
   assert.match(config.agent.explorer.prompt, /batch independent read\/glob\/grep/);
   assert.match(config.agent.explorer.prompt, /yan_skills_read_skill/);
@@ -200,12 +214,38 @@ test('no-workspace sessions preserve the guarded task permission', () => {
   assert.equal(ruleFor(enabled, 'task')?.action, 'ask');
 });
 
-test('parent task permission has a hard child limit', () => {
+test('parent task permission bounds occupied slots', () => {
   const run = { subagentPermissionCount: 0, subagentMaxChildren: 2 };
   assert.deepEqual(nextSubagentPermission(run), { granted: true, used: 1, limit: 2 });
   assert.deepEqual(nextSubagentPermission(run), { granted: true, used: 2, limit: 2 });
   assert.deepEqual(nextSubagentPermission(run), { granted: false, used: 2, limit: 2 });
   assert.equal(run.subagentPermissionCount, 2);
+});
+
+test('read-only capacity queues later waves and ignores repeated completion', async () => {
+  const run = { subagentMaxChildren: 2, subagentPermissionCount: 0, subagentReadClaims: new Set(), subagentPermissionQueue: [] };
+  const started = [];
+  const start = id => {
+    assert.equal(nextSubagentPermission(run).granted, true);
+    run.subagentReadClaims.add(id);
+    started.push(id);
+  };
+  start('a'); start('b');
+  run.subagentPermissionQueue.push(() => start('c'), () => start('d'));
+  await releaseReadSubagentSlot(run, 'a', 'running');
+  assert.deepEqual(started, ['a', 'b']);
+  await releaseReadSubagentSlot(run, 'a', 'completed');
+  assert.deepEqual(started, ['a', 'b', 'c']);
+  assert.equal(run.subagentPermissionCount, 2);
+  await releaseReadSubagentSlot(run, 'a', 'completed');
+  assert.equal(started.length, 3);
+  await releaseReadSubagentSlot(run, 'b', 'error');
+  assert.deepEqual(started, ['a', 'b', 'c', 'd']);
+  await releaseReadSubagentSlot(run, 'c', 'completed');
+  run.subagentPermissionQueue.push(() => start('e'));
+  await releaseReadSubagentSlot(run, 'd', 'cancelled', { aborted: true });
+  assert.equal(started.length, 4);
+  assert.equal(run.subagentPermissionCount, 0);
 });
 
 test('mapper, tracer and reverser ship as independent tool-capable child agents', () => {
@@ -264,4 +304,42 @@ test('analysis tools honor file-read permissions for parent and analyst children
     assert.equal(config.agent[role].permission['yan_analysis_*'], 'deny');
     assert.equal(config.agent[role].tools.bash, true);
   }
+});
+
+test('external directories are allowed in every access mode and without a workspace', () => {
+  for (const accessMode of ['request', 'delegate', 'full']) {
+    assert.equal(
+      permissionForRun({ accessMode, permissions: { allowFileRead: true, allowFileWrite: true } }).external_directory,
+      'allow',
+      `${accessMode} must allow external directories`
+    );
+    for (const hasUserWorkspace of [true, false]) {
+      const rules = sessionPermissionForRun({
+        hasUserWorkspace,
+        accessMode,
+        permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true }
+      });
+      const external = rules.filter(rule => rule.permission === 'external_directory');
+      assert.equal(external.length > 0, true, `${accessMode}/${hasUserWorkspace} must declare external_directory`);
+      assert.equal(
+        external.every(rule => rule.action === 'allow'),
+        true,
+        `${accessMode}/${hasUserWorkspace} must allow every external_directory rule`
+      );
+    }
+  }
+  // Bash is the escape hatch that made the old restriction feel arbitrary:
+  // it must keep working across workspaces too.
+  const rules = permissionRulesForRun({ hasUserWorkspace: true, accessMode: 'request', permissions: { allowFileRead: true } });
+  assert.equal(rules.find(rule => rule.permission === 'bash' && rule.pattern === '*')?.action, 'ask');
+});
+
+test('child permission requests allow external directories like the parent', () => {
+  assert.equal(builderPermissionRequestAllowed({ permission: 'external_directory' }, true), true);
+  assert.equal(builderPermissionRequestAllowed({ permission: 'external_directory' }, false), true);
+  assert.equal(builderPermissionRequestAllowed({ permission: 'read' }, true), true);
+  // Write still follows the run's file-write permission, and shell stays bounded.
+  assert.equal(builderPermissionRequestAllowed({ permission: 'edit' }, false), false);
+  assert.equal(builderPermissionRequestAllowed({ permission: 'write' }, true), true);
+  assert.equal(builderPermissionRequestAllowed({ permission: 'bash', patterns: ['rm -rf /'] }, true), false);
 });

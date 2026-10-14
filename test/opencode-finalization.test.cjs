@@ -66,6 +66,9 @@ test('does not treat whitespace-only provider chunks as a visible model response
 function fakeClient(directory, promptHandler, existingSession = null, options = {}) {
   const messages = [...(Array.isArray(options.initialMessages) ? options.initialMessages : [])];
   const calls = { create: [], get: [], update: [], delete: [], prompt: [], promptAsync: [], abort: [] };
+  // Like the kernel, `update` answers with the whole session it changed, including
+  // one this run just created, not only a session that existed beforehand.
+  let current = existingSession;
   const client = {
     session: {
       get: async payload => {
@@ -74,11 +77,12 @@ function fakeClient(directory, promptHandler, existingSession = null, options = 
       },
       create: async payload => {
         calls.create.push(payload);
-        return { data: { id: 'workspace-session', directory: payload.directory } };
+        current = { id: 'workspace-session', directory: payload.directory };
+        return { data: current };
       },
       update: async payload => {
         calls.update.push(payload);
-        return { data: { ...existingSession, permission: payload.permission } };
+        return { data: { ...current, permission: payload.permission } };
       },
       delete: async payload => {
         calls.delete.push(payload);
@@ -128,6 +132,84 @@ function waitForSignal(signal) {
   if (signal?.aborted) return Promise.resolve();
   return new Promise(resolve => signal?.addEventListener('abort', resolve, { once: true }));
 }
+
+test('hello and read-only runs ignore incidental changes in final and recovered review', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-noop-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  for (const readOnly of [false, true]) {
+    const fixture = fakeClient(directory, () => {
+      fs.writeFileSync(path.join(directory, 'incidental.txt'), 'changed by another process');
+      return assistant('reply', [
+        ...(readOnly ? [{ type: 'tool', tool: 'read', state: { status: 'completed', input: { filePath: 'README.md' } } }] : []),
+        { type: 'text', text: '你好' }
+      ]);
+    }, null, { events: [{ type: 'session.diff', properties: { sessionID: 'workspace-session', diff: [{ file: 'incidental.txt', additions: 1 }] } }] });
+    fixture.client.session.diff = async () => ({ data: [{ file: 'incidental.txt', additions: 1 }] });
+    const sidecar = new OpenCodeSidecar({ appRoot: process.cwd(), dataDir: directory });
+    sidecar.client = fixture.client;
+    sidecar.start = async () => ({ ok: true });
+    const events = [];
+    const result = await sidecar.run({ runId: `noop-${readOnly}`, workspace: directory, hasUserWorkspace: true,
+      prompt: '你好', providerId: 'test', modelId: 'test', reasoningSummary: 'none' }, event => events.push(event));
+    assert.equal(result.status, 'done');
+    assert.deepEqual(result.changes, []);
+    assert.deepEqual(result.rollbackChanges, []);
+    assert.equal(events.some(event => event.type === 'session.diff'), false);
+    assert.deepEqual(await sidecar.sessionChanges({ sessionId: 'workspace-session', directory }), []);
+  }
+});
+
+test('shell and delegated writes remain reviewable while runtime bookkeeping is excluded', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-write-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  for (const tool of ['bash', 'task']) {
+    const fixture = fakeClient(directory, () => {
+      fs.mkdirSync(path.join(directory, 'opencode-runtime'), { recursive: true });
+      fs.writeFileSync(path.join(directory, 'opencode-runtime', 'state.json'), '{}');
+      fs.writeFileSync(path.join(directory, `${tool}.txt`), 'task output');
+      return assistant('reply', [{ type: 'tool', tool, state: { status: 'completed', input: {}, output: 'done' } },
+        { type: 'text', text: '完成' }]);
+    });
+    fixture.client.session.diff = async () => ({ data: [{ file: 'opencode-runtime/state.json', additions: 1 }] });
+    const sidecar = new OpenCodeSidecar({ appRoot: process.cwd(), dataDir: directory });
+    sidecar.client = fixture.client;
+    sidecar.start = async () => ({ ok: true });
+    const result = await sidecar.run({ runId: tool, workspace: directory, hasUserWorkspace: true,
+      prompt: '写入文件', providerId: 'test', modelId: 'test', reasoningSummary: 'none' });
+    assert.equal(result.status, 'done');
+    assert.ok(result.changes.some(file => path.basename(file.file || file.path) === `${tool}.txt`));
+    assert.equal(result.changes.some(file => /opencode-runtime/.test(file.file || file.path)), false);
+  }
+});
+
+test('completed reasoning gets a model summary before finalization without changing the main answer', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-progress-summary-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const fixture = fakeClient(directory, () => assistant('main-body', [
+    { id: 'reason-1', type: 'reasoning', text: '已定位到配置中的旧端口，下一步修改。' },
+    { id: 'answer-1', type: 'text', text: '主任务的完整回复。' }
+  ]), { id: 'workspace-session', directory });
+  fixture.client.session.create = async payload => ({ data: { id: 'summary-session', directory: payload.directory } });
+  fixture.client.session.prompt = async payload => {
+    fixture.calls.prompt.push(payload);
+    return { data: { parts: [{type:'text', text:'已定位旧端口，准备修改配置'}] } };
+  };
+  const sidecar = new OpenCodeSidecar({ appRoot: process.cwd(), dataDir: directory });
+  sidecar.client = fixture.client;
+  sidecar.start = async () => ({ ok: true });
+  const events = [];
+  const result = await sidecar.run({runId:'summary-integration', openCodeSessionId:'workspace-session', workspace:directory,
+    hasUserWorkspace:true, prompt:'查找端口配置', providerId:'test', modelId:'test'}, event => events.push(event));
+  assert.equal(result.text, '主任务的完整回复。');
+  assert.equal(fixture.calls.promptAsync.length, 1);
+  assert.equal(fixture.calls.prompt.length, 1);
+  assert.equal(fixture.calls.prompt[0].sessionID, 'summary-session');
+  const summaryIndex = events.findIndex(event => event.type === 'yan.reasoning.summary' && event.data.summaryStatus === 'ready');
+  assert.ok(summaryIndex >= 0);
+  assert.equal(events[summaryIndex].data.key, 'reasoning:reason-1');
+  assert.equal(events[summaryIndex].data.summary, '已定位旧端口，准备修改配置');
+  assert.ok(summaryIndex < events.findIndex(event => event.type === 'yan.opencode.finished'));
+});
 
 test('normal coding preserves its final body without followups for missing, failed or stale checks and builders', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-check-pass-'));
@@ -663,14 +745,19 @@ test('creates a workspace-bound session when a Yan task leaves Blank', async () 
     history: [{ role: 'user', content: '此前任务上下文' }]
   });
 
-  assert.equal(fixture.calls.update.length, 0);
+  assert.equal(fixture.calls.update.length, 1);
+  assert.equal(fixture.calls.update[0].permission.length, 2, 'new sessions append only the plugin namespace tail before prompting');
+  assert.equal(fixture.calls.update[0].permission[0].permission, 'yanp_*');
+  assert.match(fixture.calls.update[0].permission[1].permission, /^yanp_[a-f0-9]{16}_\*$/);
   assert.equal(fixture.calls.create.length, 1);
   assert.equal(fixture.calls.create[0].directory, directory);
   assert.equal(fixture.calls.delete.length, 0);
   assert.equal(fixture.calls.prompt.length, 0);
   assert.match(fixture.calls.promptAsync[0].system, /Yan installed Skill catalog/);
   assert.match(fixture.calls.promptAsync[0].system, /demo-skill/);
-  assert.deepEqual(fixture.calls.promptAsync[0].tools, { task: true });
+  // The legacy prompt `tools` map would replace the session's permission rules
+  // and drop the plugin ones; task comes from the build agent's config instead.
+  assert.equal(fixture.calls.promptAsync[0].tools, undefined);
   assert.equal(result.openCodeSessionId, 'workspace-session');
   assert.equal(result.text, '已进入工作区。');
   assert.equal(result.usage.input, 1);
@@ -775,7 +862,9 @@ test('uses the model final response without issuing a second summary prompt', as
 
   assert.equal(fixture.calls.promptAsync.length, 1);
   assert.equal(events.filter(event => event.type === 'yan.model.request.started').length, 1);
-  assert.deepEqual(fixture.calls.promptAsync[0].tools, { task: true });
+  // The legacy prompt `tools` map would replace the session's permission rules
+  // and drop the plugin ones; task comes from the build agent's config instead.
+  assert.equal(fixture.calls.promptAsync[0].tools, undefined);
   assert.equal(result.summaryStarted, true);
   assert.equal(result.status, 'done');
   assert.equal(result.text, '环境检查完成。');

@@ -1,0 +1,12 @@
+* { box-sizing: border-box; }
+#pointer-feedback { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; font-family: Inter, 'Segoe UI', system-ui, sans-serif; pointer-events: none; }
+.control-overlay { position: absolute; inset: 0; pointer-events: none; }
+.control-overlay::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, #248dff42, transparent 15%, transparent 85%, #248dff42), linear-gradient(180deg, #248dff39, transparent 16%, transparent 84%, #248dff39); filter: blur(14px); opacity: .95; }
+.control-overlay::after { content: ""; position: absolute; inset: 0; border: 2px solid #51afff9c; box-shadow: inset 0 0 88px 16px #1e8fff4f, 0 0 28px #238eff75; animation: breathe 2.8s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .62; box-shadow: inset 0 0 110px 20px #1e8fff62, 0 0 38px #238eff8c; } }
+.status-pill { pointer-events: auto; position: absolute; z-index: 3; top: 18px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px 0 8px; border: 1px solid #8bc9ff70; border-radius: 999px; background: #0c1b31ed; box-shadow: 0 10px 28px #0007, 0 0 24px #248dff59, inset 0 1px #ffffff20; color: #f4f9ff; font-size: 13px; white-space: nowrap; backdrop-filter: blur(18px); }
+.control-skill-icon { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 7px; object-fit: cover; box-shadow: 0 0 0 1px #9ed4ff52, 0 0 12px #2e9eff76; }
+.esc { display: inline-flex; align-items: center; height: 28px; padding: 0 9px; border: 1px solid #afcfff46; border-radius: 999px; color: #d3e5ff; font-size: 11px; background: #ffffff0d; }
+.status-pill { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .control-overlay::after { animation: none; } }

@@ -1,0 +1,183 @@
+/* Copied from styles.css and agent-shell.css by sync-webui-workspace.cjs. */
+.new-task-workspace {
+  --text: var(--ink); --text-dim: var(--muted); --text-muted: var(--muted);
+  --border: var(--composer-rule); --border-strong: var(--composer-rule);
+  --bg-elev: var(--composer-surface); --bg-elev2: var(--hover); --bg-hover: var(--hover);
+  --r-lg: 14px; --r-pill: 999px; --ui-scale: 14px; --color-focus: var(--muted);
+  --shadow-lg: 0 8px 32px var(--shadow);
+}
+.task-bar-folder-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.task-bar-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--bg-elev2);
+  border: 1px solid var(--border);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  color: var(--text-dim);
+  max-width: 260px;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.task-bar-folder:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.task-bar-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.task-bar-folder:disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+.task-bar-folder-open-glyph { display: none; }
+.workspace-choice-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 70;
+  min-width: 176px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+.workspace-choice-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.892857);
+  font-weight: 550;
+  text-align: left;
+  white-space: nowrap;
+}
+.workspace-choice-item:hover { background: var(--bg-hover); color: var(--text); }
+.new-task-workspace:not([hidden]) {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  height: 32px;
+  margin: 0 24px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.new-task-workspace-slot { min-width: 0; }
+.new-task-workspace #taskBarFolderWrap { display: flex; min-width: 0; }
+.new-task-workspace #taskBarFolder {
+  height: 28px;
+  min-width: 0;
+  max-width: min(360px, 100%);
+  gap: 7px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--text-dim);
+  font-size: calc(var(--ui-scale, 14px) * 0.857143);
+  font-weight: 400;
+}
+.new-task-workspace #taskBarFolder:hover:not(:disabled),
+.new-task-workspace #taskBarFolder[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.new-task-workspace #taskBarFolder:active:not(:disabled) { background: color-mix(in srgb, var(--text) 11%, transparent); }
+.new-task-workspace #taskBarFolder:focus-visible,
+.new-task-workspace .workspace-choice-item:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.new-task-workspace #taskBarFolder:disabled { opacity: .5; cursor: wait; }
+.new-task-workspace #taskBarFolder[aria-busy="true"] { opacity: .65; }
+.new-task-workspace #taskBarFolder[data-state="error"] { color: var(--danger); }
+.new-task-workspace #taskBarFolder[data-state="success"] { color: var(--text); }
+.new-task-workspace #taskBarFolder > svg { flex-shrink: 0; }
+.new-task-workspace .workspace-choice-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  max-width: min(320px, calc(100vw - 48px));
+}
+.workspace-choice-menu {
+  width: 300px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 20px;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+}
+.workspace-choice-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: calc(var(--ui-scale, 14px) * 1.0);
+  line-height: 20px;
+  font-weight: 400;
+}
+.workspace-choice-search > svg,
+.workspace-choice-item > svg { flex-shrink: 0; }
+.workspace-choice-item > span { overflow: hidden; text-overflow: ellipsis; }
+.workspace-choice-recent .workspace-choice-item { color: var(--text); }
+.workspace-choice-item[aria-pressed="true"] { background: var(--bg-hover); }
+.workspace-choice-actions { margin-top: 5px; padding-top: 6px; position: relative; }
+.workspace-choice-actions::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: var(--border);
+}
+.workspace-choice-empty { padding: 12px 10px; color: var(--text-muted); font-size: calc(var(--ui-scale, 14px) * 0.928571); }
+/* The new-task workspace picker and the branch picker open side by side; keep the
+   two panels at the same proportions (smaller workspace list, larger branch list). */
+.new-task-workspace .workspace-choice-menu {
+  width: 252px;
+  padding: 5px;
+  border-radius: 16px;
+}
+.new-task-workspace .workspace-choice-search {
+  gap: 8px;
+  margin: 0 6px 4px;
+  padding: 6px 4px;
+}
+.new-task-workspace #workspaceChoiceSearch {
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+  line-height: 18px;
+}
+.new-task-workspace .workspace-choice-item {
+  gap: 8px;
+  min-height: 29px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  font-size: calc(var(--ui-scale, 14px) * 0.928571);
+  line-height: 18px;
+}
+.new-task-workspace .workspace-choice-empty {
+  padding: 10px 9px;
+  font-size: calc(var(--ui-scale, 14px) * 0.892857);
+}
+
+/* Adapt only the strip's width to the standalone WebUI composer. */
+#newTaskWorkspace { flex: 0 0 32px; align-self: center; width: calc(100% - 48px); max-width: 712px; }
+.workspace-choice-item { border: 0; background: transparent; }
+.new-task-workspace-slot { max-width: 100%; }

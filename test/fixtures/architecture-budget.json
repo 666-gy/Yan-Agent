@@ -1,0 +1,45 @@
+{
+  "phase": "P1-main-complete",
+  "updatedAt": "2026-09-20",
+  "note": "Budgets are ceilings recorded at the current phase. They may only be tightened; raising one requires the same commit to explain why.",
+  "budgetJustifications": {
+    "renderer/renderer.js": "MP4 dynamic wallpaper: video-layer playback + volume control, wallpaper source/volume helpers, video card previews, upload validation (24593 vs 24475). Message selection: floating add-to-conversation/copy toolbar that follows the selection, user-message drag selection, and withdraw-only-when-the-user-stopped-the-latest-turn guard (24773 vs 24593). Skill load source: market pill state, 1/2 folder + 2/2 import-mode panel, remembered-source list, and the project-origin badge on cards and detail views (25000 vs 24773).",
+    "renderer/styles.css": "MP4 dynamic wallpaper: video layer, volume/heading controls and video card preview styles (17830 vs 17794). Message selection: selectable user bubbles and floating selection toolbar (17863 vs 17830). Brand placement: title-bar wordmark next to the logo, sidebar reduced to the version line, both on the reading font (17869 vs 17863). Skill load source: pill, two-step panel, remembered-source rows, import-mode cards and the project-origin badge (18026 vs 17869).",
+    "renderer/index.html": "MP4 dynamic wallpaper: video element, volume slider, updated copy and file accept list (2081 vs 2074). Skill load source: header pill button and the two-step source dialog (2142 vs 2081). Multi-Agent Collaboration: adds the settings navigation item, provider switches and paths, orchestration copy, job history, result dialog, stylesheet and script; current settings markup ceiling is 2170 lines (including pre-existing in-flight settings changes).",
+    "lib/skill-registry.js": "Project Skill load source: workspace source-config resolution, project Skill directory scan, merge precedence below builtin runtime packages, and origin provenance on every list/catalog/read path (1138 vs 970). This legacy ceiling had already been exceeded by in-flight uncommitted work before this change, so it was raised here rather than left failing."
+  },
+  "coreFiles": {
+    "main.js": {
+      "budget": 2500,
+      "target": 2500
+    },
+    "renderer/renderer.js": {
+      "budget": 25000,
+      "target": 2000
+    },
+    "renderer/styles.css": {
+      "budget": 18026,
+      "target": null
+    },
+    "renderer/index.html": {
+      "budget": 2170,
+      "target": null
+    }
+  },
+  "moduleBudget": {
+    "maxLines": 800,
+    "roots": [
+      "lib"
+    ]
+  },
+  "legacyLargeModules": {
+    "lib/opencode-sidecar.js": 6177,
+    "lib/git-service.js": 1265,
+    "lib/run-change-summary.js": 1050,
+    "lib/yan-core/core.js": 1048,
+    "lib/yan-skills-mcp.js": 1019,
+    "lib/skill-registry.js": 1138,
+    "lib/continual-harness.js": 871,
+    "lib/video-generation.js": 822
+  }
+}

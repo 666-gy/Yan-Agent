@@ -7,6 +7,12 @@ contextBridge.exposeInMainWorld('yanPet', {
   startDrag: () => ipcRenderer.send('pet:drag-start'),
   stopDrag: () => ipcRenderer.send('pet:drag-end'),
   close: () => ipcRenderer.send('pet:close'),
+  refreshData: () => ipcRenderer.send('pet:refresh-data'),
+  onData: cb => {
+    const handler = (_event, data) => cb(data);
+    ipcRenderer.on('pet:data', handler);
+    return () => ipcRenderer.removeListener('pet:data', handler);
+  },
   onState: (cb) => {
     const handler = (_event, state) => cb(state);
     ipcRenderer.on('pet:state', handler);

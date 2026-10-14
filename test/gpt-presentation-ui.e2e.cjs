@@ -92,15 +92,15 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-gpt-presentation-
       },
       working: {
         mode: 'gpt-action-progress',
-        gptChainCount: 3,
-        legacyThinkingCount: 0,
-        lineTexts: ['先分析任务', '准备执行', '整理结果'],
+        gptChainCount: 2,
+        legacyThinkingCount: 1,
+        lineTexts: ['准备执行', '整理结果'],
         shineCount: 1,
         toolCount: 1,
-        childOrder: ['thinking_group', 'tool_group', 'thinking_group', 'text', 'thinking_group'],
-        chainTexts: [['先分析任务'], ['准备执行'], ['整理结果']]
+        childOrder: ['thinking', 'tool_group', 'thinking_group', 'text', 'thinking_group'],
+        chainTexts: [['准备执行'], ['整理结果']]
       },
-      completed: { gptChainCount: 1, shineCount: 0 },
+      completed: { gptChainCount: 0, shineCount: 0 },
       standard: { detailsCount: 1, gptChainCount: 0 }
     });
     console.log(JSON.stringify({ ok: true, result }));

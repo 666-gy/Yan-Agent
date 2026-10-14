@@ -30,7 +30,11 @@ const electronStub = {
     on: () => {},
     once: () => {},
     whenReady: () => new Promise(() => {}),
-    commandLine: { appendSwitch: () => {}, appendArgument: () => {} }
+    commandLine: { appendSwitch: () => {}, appendArgument: () => {}, hasSwitch: () => false },
+    isPackaged: false,
+    getAppPath: () => stubDataDir,
+    getLoginItemSettings: () => ({}),
+    setLoginItemSettings: () => {}
   },
   BrowserWindow: class StubWindow {},
   Tray: class StubTray {},
@@ -44,6 +48,9 @@ const electronStub = {
   shell: {},
   Menu: { buildFromTemplate: () => null, setApplicationMenu: () => {} },
   nativeImage: { createFromPath: () => ({}), createEmpty: () => ({}) },
+  nativeTheme: { on: () => {}, removeListener: () => {}, shouldUseDarkColors: false, shouldUseDarkColorsForSystemIntegratedUI: false },
+  safeStorage: { isEncryptionAvailable: () => false, encryptString: () => Buffer.from(''), decryptString: () => '' },
+  desktopCapturer: { getSources: async () => [] },
   webContents: { fromId: () => null },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
@@ -104,44 +111,80 @@ test('real builders: blank task and workspace task share one signature', () => {
   fs.mkdirSync(workspace, { recursive: true });
   const blankMcp = main.__test.getOpenCodeMcpServers({}, { workspace: '', workMode: 'normal' });
   const wsMcp = main.__test.getOpenCodeMcpServers({}, { workspace, workMode: 'normal' });
+  const pluginServer = wsMcp.find(server => server.id === 'yan_plugin');
+  assert.ok(pluginServer, 'yan_plugin built-in server is registered');
+  assert.equal(pluginServer.enabled, true);
+  assert.equal(pluginServer.deferred, undefined);
+  assert.equal(pluginServer.runtime, 'yan-plugin');
+  assert.ok(pluginServer.args.some(arg => arg.endsWith('yan-plugin-mcp.js')));
   const blank = main.__test.getOpenCodeRuntimeConfig({}, { mcpServers: blankMcp, workspace: '', taskId: 't1', skillOnly: false });
   const withWs = main.__test.getOpenCodeRuntimeConfig({}, { mcpServers: wsMcp, workspace, taskId: 't2', skillOnly: false });
   assert.equal(signatureOf(blank), signatureOf(withWs));
 });
 
-test('real builders: context settings enter the OpenCode config signature', () => {
-  const runtimeConfig = context => ({
+test('real builders: a configured MCP set keeps the prewarm and run signatures identical', () => {
+  // Regression: codegraph used to resolve only when the run had a workspace, so
+  // the kernel prewarmed with no run options never matched and every first turn
+  // spawned a fresh kernel. The prewarm builds its servers with NO run options.
+  const cfg = {
+    mcpServers: [
+      { id: 'mcp_default_playwright', name: 'Playwright', command: 'npx', args: ['-y', '@playwright/mcp@latest'], enabled: true },
+      { id: 'mcp_default_codegraph', name: 'CodeGraph', command: 'codegraph', runtime: 'codegraph', enabled: true },
+      { id: 'mcp_1790004857986', name: 'ReactBits MCP', command: 'npx', args: ['-y', 'react-bits-mcp-server'], enabled: true }
+    ]
+  };
+  const workspace = path.join(stubDataDir, 'ws-parity');
+  fs.mkdirSync(workspace, { recursive: true });
+  const build = mcpOptions => main.__test.getOpenCodeRuntimeConfig(cfg, {
+    mcpServers: main.__test.getOpenCodeMcpServers(cfg, mcpOptions),
+    taskId: 'yan-task-parity',
+    skillOnly: false
+  });
+  const prewarm = build({});
+  assert.equal(signatureOf(build({ workspace: '', workMode: 'normal', evolutionMode: false })), signatureOf(prewarm));
+  assert.equal(signatureOf(build({ workspace, workMode: 'normal', evolutionMode: false })), signatureOf(prewarm));
+});
+
+test('real builders: switching models applies each model context instead of the legacy global context', () => {
+  const runtimeConfig = modelId => ({
     api: {
-      provider: 'glm',
-      model: 'context-test-model',
-      providerActiveSupplierIds: { glm: 'official' },
+      provider: 'conn-context-test',
+      model: modelId,
+      connections: [{
+        id: 'conn-context-test', providerId: 'conn-context-test', supplierId: 'official',
+        preset: 'openai', customModels: ['model-a', 'model-b'],
+        modelFlags: {
+          'model-a': { contextWindow: 100_000, compactionThreshold: 70_000 },
+          'model-b': { contextWindow: 200_000, compactionThreshold: 150_000 }
+        }
+      }],
+      providerActiveSupplierIds: { 'conn-context-test': 'official' },
       providerSuppliers: {
-        glm: [{
+        'conn-context-test': [{
           id: 'official',
           name: 'Context test',
           kind: 'official',
           baseUrl: 'https://example.invalid/v1',
           apiKey: 'test-key',
-          models: [{ id: 'context-test-model', name: 'Context test model' }]
+          models: [{ id: 'model-a', name: 'Model A' }, { id: 'model-b', name: 'Model B' }]
         }]
       }
     },
-    agentModel: { providerId: 'glm', supplierId: 'official', modelId: 'context-test-model' },
-    context
+    agentModel: { providerId: 'conn-context-test', supplierId: 'official', modelId },
+    context: { maxTokens: 1_000_000, compactionThreshold: 800_000 }
   });
-  const first = main.__test.getOpenCodeRuntimeConfig(runtimeConfig({
-    maxTokens: 1_000_000,
-    compactionThreshold: 800_000
-  }));
-  const second = main.__test.getOpenCodeRuntimeConfig(runtimeConfig({
-    maxTokens: 2_000_000,
-    compactionThreshold: 1_500_000
-  }));
+  const firstConfig = runtimeConfig('model-a');
+  main.__test.configStore.saveConfig(firstConfig);
+  main.__test.configStore.loadConfig(); // Register the connection as production config loading does.
+  const first = main.__test.getOpenCodeRuntimeConfig(firstConfig);
+  const second = main.__test.getOpenCodeRuntimeConfig(runtimeConfig('model-b'));
+  const firstProvider = Object.values(first.provider).find(item => item?.models);
+  const secondProvider = Object.values(second.provider).find(item => item?.models);
   assert.notEqual(signatureOf(first), signatureOf(second));
-  const provider = Object.values(second.provider).find(item => item?.models);
-  const modelId = Object.keys(provider.models)[0];
-  assert.equal(provider.models[modelId].limit.context, 2_000_000);
-  assert.equal(second.compaction.threshold, 1_500_000);
+  assert.equal(firstProvider.models['model-a'].limit.context, 100_000);
+  assert.equal(first.compaction.threshold, 70_000);
+  assert.equal(secondProvider.models['model-b'].limit.context, 200_000);
+  assert.equal(second.compaction.threshold, 150_000);
 });
 
 test('media MCP env carries no per-run workspace and points at the registry', () => {
@@ -153,13 +196,12 @@ test('media MCP env carries no per-run workspace and points at the registry', ()
   assert.equal(JSON.stringify(server.env).includes('should-not-appear'), false);
 });
 
-test('real runtime config declares native image input when visual relay is disabled', () => {
+test('a multimodal main model declares native image input; media relay follows the user selection', () => {
   const providerId = 'glm';
   const supplierId = 'official';
-  const modelId = 'future-native-vision-model';
+  const modelId = 'glm-4.6v-flash';
   const cfg = {
     api: {
-      visionRelayEnabled: false,
       providerSuppliers: {
         [providerId]: [{
           id: supplierId,
@@ -167,7 +209,7 @@ test('real runtime config declares native image input when visual relay is disab
           kind: 'official',
           baseUrl: 'https://example.invalid/v1',
           apiKey: 'test-key',
-          models: [{ id: modelId, name: 'Future Native Vision Model' }]
+          models: []
         }]
       },
       providerActiveSupplierIds: { [providerId]: supplierId },
@@ -183,7 +225,15 @@ test('real runtime config declares native image input when visual relay is disab
 
   const mediaServer = main.__test.buildYanMediaMcpServer(cfg, appRoot);
   const mediaRuntime = JSON.parse(Buffer.from(mediaServer.env.YAN_MEDIA_RUNTIME, 'base64').toString('utf8'));
-  assert.equal(mediaRuntime.vision.enabled, false);
+  assert.equal(mediaRuntime.vision.enabled, false, 'no relay model is selected yet');
+
+  cfg.api.visionRelayModels = [{ providerId, supplierId, modelId }];
+  const relayRuntime = JSON.parse(Buffer.from(
+    main.__test.buildYanMediaMcpServer(cfg, appRoot).env.YAN_MEDIA_RUNTIME,
+    'base64'
+  ).toString('utf8'));
+  assert.equal(relayRuntime.vision.enabled, true);
+  assert.equal(relayRuntime.vision.models[0].modelId, modelId);
 });
 
 test('task MCP capability flags do not change the shared kernel signature', () => {

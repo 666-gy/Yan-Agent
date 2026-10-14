@@ -1,0 +1,7 @@
+HyperFrames by HeyGen
+Upstream author: HeyGen
+Source: openai/plugins @ 1dc195897af4161d039b80d8471ec0a10c9bbc89, plugins/hyperframes
+Upstream license declaration: .codex-plugin/plugin.json (Apache-2.0)
+Upstream workflow files are unmodified and verified against Git blob hashes.
+Yan supplies yan-plugin.json, instructions.md and the catalog adapter.
+Frameworks, external services and dependencies retain their own licenses.

@@ -1,0 +1,14 @@
+<section id="orbit-demo" aria-label="日照方向探索">
+  <div class="scene"><div class="sun" aria-hidden="true"></div><div class="planet" aria-hidden="true"></div></div>
+  <label for="angle">光照方向 <output id="degrees">45°</output></label>
+  <input id="angle" type="range" min="0" max="360" value="45">
+  <p class="ui-muted">示意模型，拖动观察球面明暗。</p>
+</section>
+<style>
+#orbit-demo{max-width:520px;margin:auto}
+#orbit-demo .scene{position:relative;display:grid;place-items:center;height:240px;background:transparent}
+#orbit-demo .planet{width:160px;height:160px;border-radius:50%;background:linear-gradient(45deg,var(--ui-series-4),color-mix(in srgb,var(--ui-bg) 94%,var(--ui-text)) 75%);box-shadow:inset -12px -8px 25px color-mix(in srgb,var(--ui-text) 8%,transparent)}
+#orbit-demo .sun{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--ui-series-2);transform:rotate(45deg) translateX(112px)}
+#orbit-demo label{display:flex;justify-content:space-between}
+</style>
+<script>(()=>{const r=document.getElementById('orbit-demo'),input=r.querySelector('input');input.oninput=()=>{r.querySelector('output').textContent=input.value+'°';r.querySelector('.planet').style.background='linear-gradient('+input.value+'deg,var(--ui-series-4),color-mix(in srgb,var(--ui-bg) 94%,var(--ui-text)) 75%)';r.querySelector('.sun').style.transform='rotate('+input.value+'deg) translateX(112px)'}})();</script>

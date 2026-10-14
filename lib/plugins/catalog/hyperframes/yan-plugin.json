@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "id": "hyperframes",
+  "name": "HyperFrames by HeyGen",
+  "version": "0.1.2",
+  "description": "将 HTML 制作为视频，包含编排、GSAP 动画、CLI 与网站转视频工作流。",
+  "author": "HeyGen",
+  "license": "Apache-2.0",
+  "instructions": "instructions.md",
+  "skills": [
+    {
+      "id": "gsap",
+      "name": "gsap",
+      "description": "GSAP animation reference for HyperFrames. Covers gsap.to(), from(), fromTo(), easing, stagger, defaults, timelines (gsap.timeline(), position parameter, labels, nesting, playback), and performance (transforms, will-change, quickTo). Use when writing GSAP animations in HyperFrames compositions.",
+      "path": "skills/gsap/SKILL.md"
+    },
+    {
+      "id": "hyperframes-cli",
+      "name": "hyperframes-cli",
+      "description": "HyperFrames CLI tool — hyperframes init, lint, inspect, preview, render, transcribe, tts, doctor, browser, info, upgrade, compositions, docs, benchmark. Use when scaffolding a project, linting, validating, inspecting visual layout in compositions, previewing in the studio, rendering to video, transcribing audio, generating TTS, or troubleshooting the HyperFrames environment.",
+      "path": "skills/hyperframes-cli/SKILL.md"
+    },
+    {
+      "id": "hyperframes-registry",
+      "name": "hyperframes-registry",
+      "description": "Install and wire registry blocks and components into HyperFrames compositions. Use when running hyperframes add, installing a block or component, wiring an installed item into index.html, or working with hyperframes.json. Covers the add command, install locations, block sub-composition wiring, component snippet merging, and registry discovery.",
+      "path": "skills/hyperframes-registry/SKILL.md"
+    },
+    {
+      "id": "hyperframes",
+      "name": "hyperframes",
+      "description": "Create video compositions, animations, title cards, overlays, captions, voiceovers, audio-reactive visuals, and scene transitions in HyperFrames HTML. Use when asked to build any HTML-based video content, add captions or subtitles synced to audio, generate text-to-speech narration, create audio-reactive animation (beat sync, glow, pulse driven by music), add animated text highlighting (marker sweeps, hand-drawn circles, burst lines, scribble, sketchout), or add transitions between scenes (crossfades, wipes, reveals, shader transitions). Covers composition authoring, timing, media, and the full video production workflow. For CLI commands (init, lint, preview, render, transcribe, tts) see the hyperframes-cli skill.",
+      "path": "skills/hyperframes/SKILL.md"
+    },
+    {
+      "id": "website-to-hyperframes",
+      "name": "website-to-hyperframes",
+      "description": "Capture a website and create a HyperFrames video from it. Use when: (1) a user provides a URL and wants a video, (2) someone says \"capture this site\", \"turn this into a video\", \"make a promo from my site\", (3) the user wants a social ad, product tour, or any video based on an existing website, (4) the user shares a link and asks for any kind of video content. Even if the user just pastes a URL — this is the skill to use.\n",
+      "path": "skills/website-to-hyperframes/SKILL.md"
+    }
+  ],
+  "resources": [
+    {
+      "id": "file-bf279e3c3f1b0239",
+      "name": "skills/gsap/agents/openai.yaml",
+      "path": "skills/gsap/agents/openai.yaml"
+    },
+    {
+      "id": "file-62d406751afea10d",
+      "name": "skills/gsap/references/effects.md",
+      "path": "skills/gsap/references/effects.md"
+    },
+    {
+      "id": "file-dd47bba1ac824889",
+      "name": "skills/gsap/scripts/extract-audio-data.py",
+      "path": "skills/gsap/scripts/extract-audio-data.py"
+    },
+    {
+      "id": "file-f2df5c913bee0184",
+      "name": "skills/hyperframes-cli/agents/openai.yaml",
+      "path": "skills/hyperframes-cli/agents/openai.yaml"
+    },
+    {
+      "id": "file-0e8b19656e3f0ef2",
+      "name": "skills/hyperframes-registry/agents/openai.yaml",
+      "path": "skills/hyperframes-registry/agents/openai.yaml"
+    },
+    {
+      "id": "file-73c69a0891f70ecd",
+      "name": "skills/hyperframes-registry/examples/add-block.md",
+      "path": "skills/hyperframes-registry/examples/add-block.md"
+    },
+    {
+      "id": "file-da416c70e451a474",
+      "name": "skills/hyperframes-registry/examples/add-component.md",
+      "path": "skills/hyperframes-registry/examples/add-component.md"
+    },
+    {
+      "id": "file-1d7e68c18960ccf4",
+      "name": "skills/hyperframes-registry/references/demo-html-pattern.md",
+      "path": "skills/hyperframes-registry/references/demo-html-pattern.md"
+    },
+    {
+      "id": "file-baead02c3640f2a0",
+      "name": "skills/hyperframes-registry/references/discovery.md",
+      "path": "skills/hyperframes-registry/references/discovery.md"
+    },
+    {
+      "id": "file-b1197b69301c59ff",
+      "name": "skills/hyperframes-registry/references/install-locations.md",
+      "path": "skills/hyperframes-registry/references/install-locations.md"
+    },
+    {
+      "id": "file-9ca1315ea97b5cd6",
+      "name": "skills/hyperframes-registry/references/wiring-blocks.md",
+      "path": "skills/hyperframes-registry/references/wiring-blocks.md"
+    },
+    {
+      "id": "file-26c22017936caab7",
+      "name": "skills/hyperframes-registry/references/wiring-components.md",
+      "path": "skills/hyperframes-registry/references/wiring-components.md"
+    },
+    {
+      "id": "file-fd4badbb2a47dab6",
+      "name": "skills/hyperframes/agents/openai.yaml",
+      "path": "skills/hyperframes/agents/openai.yaml"
+    },
+    {
+      "id": "file-d3210f38a8308a42",
+      "name": "skills/hyperframes/data-in-motion.md",
+      "path": "skills/hyperframes/data-in-motion.md"
+    },
+    {
+      "id": "file-c271a81372cb3488",
+      "name": "skills/hyperframes/house-style.md",
+      "path": "skills/hyperframes/house-style.md"
+    },
+    {
+      "id": "file-c9a858ee850ac3dc",
+      "name": "skills/hyperframes/palettes/bold-energetic.md",
+      "path": "skills/hyperframes/palettes/bold-energetic.md"
+    },
+    {
+      "id": "file-4915a77554b0ec71",
+      "name": "skills/hyperframes/palettes/clean-corporate.md",
+      "path": "skills/hyperframes/palettes/clean-corporate.md"
+    },
+    {
+      "id": "file-ed402088873f6ce5",
+      "name": "skills/hyperframes/palettes/dark-premium.md",
+      "path": "skills/hyperframes/palettes/dark-premium.md"
+    },
+    {
+      "id": "file-54afdc94650f3abb",
+      "name": "skills/hyperframes/palettes/jewel-rich.md",
+      "path": "skills/hyperframes/palettes/jewel-rich.md"
+    },
+    {
+      "id": "file-b03832b790116617",
+      "name": "skills/hyperframes/palettes/monochrome.md",
+      "path": "skills/hyperframes/palettes/monochrome.md"
+    },
+    {
+      "id": "file-ec7804dcd440b094",
+      "name": "skills/hyperframes/palettes/nature-earth.md",
+      "path": "skills/hyperframes/palettes/nature-earth.md"
+    },
+    {
+      "id": "file-45e708f22e05f4fc",
+      "name": "skills/hyperframes/palettes/neon-electric.md",
+      "path": "skills/hyperframes/palettes/neon-electric.md"
+    },
+    {
+      "id": "file-c8e80480d6b17355",
+      "name": "skills/hyperframes/palettes/pastel-soft.md",
+      "path": "skills/hyperframes/palettes/pastel-soft.md"
+    },
+    {
+      "id": "file-7908342192e06fcb",
+      "name": "skills/hyperframes/palettes/warm-editorial.md",
+      "path": "skills/hyperframes/palettes/warm-editorial.md"
+    },
+    {
+      "id": "file-630a9cab77d673f2",
+      "name": "skills/hyperframes/patterns.md",
+      "path": "skills/hyperframes/patterns.md"
+    },
+    {
+      "id": "file-c8ed4cd4657148bb",
+      "name": "skills/hyperframes/references/audio-reactive.md",
+      "path": "skills/hyperframes/references/audio-reactive.md"
+    },
+    {
+      "id": "file-d1595eab09db0533",
+      "name": "skills/hyperframes/references/captions.md",
+      "path": "skills/hyperframes/references/captions.md"
+    },
+    {
+      "id": "file-cd7a6635e3aa9973",
+      "name": "skills/hyperframes/references/css-patterns.md",
+      "path": "skills/hyperframes/references/css-patterns.md"
+    },
+    {
+      "id": "file-ae3e6576c6636892",
+      "name": "skills/hyperframes/references/dynamic-techniques.md",
+      "path": "skills/hyperframes/references/dynamic-techniques.md"
+    },
+    {
+      "id": "file-f4ca754a307234d4",
+      "name": "skills/hyperframes/references/motion-principles.md",
+      "path": "skills/hyperframes/references/motion-principles.md"
+    },
+    {
+      "id": "file-acafb99dd56f98c6",
+      "name": "skills/hyperframes/references/transcript-guide.md",
+      "path": "skills/hyperframes/references/transcript-guide.md"
+    },
+    {
+      "id": "file-5704d31bfc6c7245",
+      "name": "skills/hyperframes/references/transitions.md",
+      "path": "skills/hyperframes/references/transitions.md"
+    },
+    {
+      "id": "file-c50859180967cd80",
+      "name": "skills/hyperframes/references/transitions/catalog.md",
+      "path": "skills/hyperframes/references/transitions/catalog.md"
+    },
+    {
+      "id": "file-f54ffca48fb2d32a",
+      "name": "skills/hyperframes/references/transitions/css-3d.md",
+      "path": "skills/hyperframes/references/transitions/css-3d.md"
+    },
+    {
+      "id": "file-489b2381a2e8ace1",
+      "name": "skills/hyperframes/references/transitions/css-blur.md",
+      "path": "skills/hyperframes/references/transitions/css-blur.md"
+    },
+    {
+      "id": "file-8079e28362fe953f",
+      "name": "skills/hyperframes/references/transitions/css-cover.md",
+      "path": "skills/hyperframes/references/transitions/css-cover.md"
+    },
+    {
+      "id": "file-477bcdc66dc279f6",
+      "name": "skills/hyperframes/references/transitions/css-destruction.md",
+      "path": "skills/hyperframes/references/transitions/css-destruction.md"
+    },
+    {
+      "id": "file-2a25ce55e8cddfe6",
+      "name": "skills/hyperframes/references/transitions/css-dissolve.md",
+      "path": "skills/hyperframes/references/transitions/css-dissolve.md"
+    },
+    {
+      "id": "file-3fcb7b23f0552174",
+      "name": "skills/hyperframes/references/transitions/css-distortion.md",
+      "path": "skills/hyperframes/references/transitions/css-distortion.md"
+    },
+    {
+      "id": "file-cab45d19f0f7717c",
+      "name": "skills/hyperframes/references/transitions/css-grid.md",
+      "path": "skills/hyperframes/references/transitions/css-grid.md"
+    },
+    {
+      "id": "file-216f0f6e071cddb6",
+      "name": "skills/hyperframes/references/transitions/css-light.md",
+      "path": "skills/hyperframes/references/transitions/css-light.md"
+    },
+    {
+      "id": "file-b9faa74c3c069785",
+      "name": "skills/hyperframes/references/transitions/css-mechanical.md",
+      "path": "skills/hyperframes/references/transitions/css-mechanical.md"
+    },
+    {
+      "id": "file-645e60307c075425",
+      "name": "skills/hyperframes/references/transitions/css-other.md",
+      "path": "skills/hyperframes/references/transitions/css-other.md"
+    },
+    {
+      "id": "file-c651788e481be1d1",
+      "name": "skills/hyperframes/references/transitions/css-push.md",
+      "path": "skills/hyperframes/references/transitions/css-push.md"
+    },
+    {
+      "id": "file-fe7f3d244d94e451",
+      "name": "skills/hyperframes/references/transitions/css-radial.md",
+      "path": "skills/hyperframes/references/transitions/css-radial.md"
+    },
+    {
+      "id": "file-874c6ba990b9d0ea",
+      "name": "skills/hyperframes/references/transitions/css-scale.md",
+      "path": "skills/hyperframes/references/transitions/css-scale.md"
+    },
+    {
+      "id": "file-2b7e9ac4f41ec09d",
+      "name": "skills/hyperframes/references/tts.md",
+      "path": "skills/hyperframes/references/tts.md"
+    },
+    {
+      "id": "file-5cc4e196cf57e514",
+      "name": "skills/hyperframes/references/typography.md",
+      "path": "skills/hyperframes/references/typography.md"
+    },
+    {
+      "id": "file-dbf42e723a385804",
+      "name": "skills/hyperframes/scripts/animation-map.mjs",
+      "path": "skills/hyperframes/scripts/animation-map.mjs"
+    },
+    {
+      "id": "file-0f4d8c990cf5cff7",
+      "name": "skills/hyperframes/scripts/contrast-report.mjs",
+      "path": "skills/hyperframes/scripts/contrast-report.mjs"
+    },
+    {
+      "id": "file-cc80d67b62097949",
+      "name": "skills/hyperframes/visual-styles.md",
+      "path": "skills/hyperframes/visual-styles.md"
+    },
+    {
+      "id": "file-41a59851beb3516f",
+      "name": "skills/website-to-hyperframes/agents/openai.yaml",
+      "path": "skills/website-to-hyperframes/agents/openai.yaml"
+    },
+    {
+      "id": "file-795748bab12adeeb",
+      "name": "skills/website-to-hyperframes/references/step-1-capture.md",
+      "path": "skills/website-to-hyperframes/references/step-1-capture.md"
+    },
+    {
+      "id": "file-496a9d03a46e272d",
+      "name": "skills/website-to-hyperframes/references/step-2-design.md",
+      "path": "skills/website-to-hyperframes/references/step-2-design.md"
+    },
+    {
+      "id": "file-9772190016db80fb",
+      "name": "skills/website-to-hyperframes/references/step-3-script.md",
+      "path": "skills/website-to-hyperframes/references/step-3-script.md"
+    },
+    {
+      "id": "file-54ad3d788a6c880d",
+      "name": "skills/website-to-hyperframes/references/step-4-storyboard.md",
+      "path": "skills/website-to-hyperframes/references/step-4-storyboard.md"
+    },
+    {
+      "id": "file-4d11c28bee0659b7",
+      "name": "skills/website-to-hyperframes/references/step-5-vo.md",
+      "path": "skills/website-to-hyperframes/references/step-5-vo.md"
+    },
+    {
+      "id": "file-89fec7a273fdc6a2",
+      "name": "skills/website-to-hyperframes/references/step-6-build.md",
+      "path": "skills/website-to-hyperframes/references/step-6-build.md"
+    },
+    {
+      "id": "file-5ff42a7204fa9f19",
+      "name": "skills/website-to-hyperframes/references/step-7-validate.md",
+      "path": "skills/website-to-hyperframes/references/step-7-validate.md"
+    },
+    {
+      "id": "file-e253616059bfa8de",
+      "name": "skills/website-to-hyperframes/references/techniques.md",
+      "path": "skills/website-to-hyperframes/references/techniques.md"
+    },
+    {
+      "id": "license",
+      "name": "License",
+      "path": "LICENSE.txt"
+    },
+    {
+      "id": "notice",
+      "name": "Source and attribution",
+      "path": "NOTICE.txt"
+    }
+  ],
+  "mcpServers": []
+}
