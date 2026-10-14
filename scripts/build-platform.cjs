@@ -18,6 +18,9 @@ for (const script of ['bundle:katex', 'bundle:opencode-provider', 'bundle:dsh-re
 run([path.join(root, 'scripts/prepare-platform-runtime.cjs')]);
 run([path.join(root, 'scripts/write-build-manifest.cjs')]);
 const builder = require.resolve('electron-builder/cli.js');
+// electron-builder 24 defaults tar.gz to single-threaded level 9, even with
+// normal compression. Level 5 avoids spending minutes on a marginal size gain.
+if (requested === 'linux' && !process.env.ELECTRON_BUILDER_COMPRESSION_LEVEL) process.env.ELECTRON_BUILDER_COMPRESSION_LEVEL = '5';
 run([builder, '--config', 'build/electron-builder-platform.js', requested === 'linux' ? '--linux' : '--mac', `--${process.arch}`,
   ...(process.argv.includes('--dir') ? ['--dir'] : []), '--publish', 'never']);
 run([path.join(root, 'scripts/verify-platform-package.cjs')]);

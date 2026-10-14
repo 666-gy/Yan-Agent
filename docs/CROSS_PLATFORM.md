@@ -24,4 +24,4 @@ node --test test/platform-runtime.test.cjs
 YAN_PLATFORM_EXECUTABLE="$PWD/dist/linux-x64/linux-unpacked/yan-agent" xvfb-run -a node test/platform-startup.e2e.cjs
 ```
 
-Linux 无图形构建机需要安装 xvfb 及 Electron 的 GTK/NSS/音频系统库。自动测试使用独立用户目录，不读取现有账号配置。实际模型请求、所有插件与各桌面发行版仍需要后续实机验证。
+Linux 无图形构建机需要安装 xvfb 及 Electron 的 GTK/NSS/音频系统库。系统没有中文字体时安装 `fonts-noto-cjk`，避免中文显示为方框。自动测试使用独立用户目录，不读取现有账号配置。实际模型请求、所有插件与各桌面发行版仍需要后续实机验证。
