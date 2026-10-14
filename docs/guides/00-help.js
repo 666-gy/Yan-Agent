@@ -1,0 +1,12 @@
+/* Public help entry point. Keep topic links aligned with loaded guide IDs. */
+(() => {
+  const { p, list, steps, note, table, section: s, doc, add } = window.YanGuide;
+  add(doc('help', '帮助中心', '开始使用', 'Yan Agent 1.7.0 正式版 使用手册。从第一次连接模型，到工程交付、工具协作与日常管理。', [
+    s('start', '第一次使用', steps(['<a href="#quickstart">快速开始</a>：安装、连接模型、选择工作区，完成第一条任务。','<a href="#interface">认识主界面</a>：找到任务、输入框和右侧面板。','<a href="#models">配置模型与 API</a>：核对服务、格式、模型角色和额度。','<a href="#chat">输入与运行任务</a>：提交需求，处理审批并检查交付。']) + note('Yan 是桌面执行环境。模型服务需要你自己的连接或凭据，插件和外部智能体可能另需账号。下载资产以 GitHub Releases 实际发布为准。')),
+    s('tasks', '工作与协作', table(['你要做什么','阅读指南'], [['组织和恢复对话','<a href="#manage">管理聊天与恢复</a>'],['理解项目、修改代码、运行命令','<a href="#workspace">工作区与工程操作</a>'],['先做方案或持续推进目标','<a href="#modes">工作方式与上下文</a>'],['并行分工 / 使用外部桌面智能体','<a href="#agents">子代理与外部智能体</a>'],['检查文件差异、反馈问题','<a href="#review">文件审阅与批注</a>'],['提交推送、PR、Issue 与自动审查','<a href="#git">Git、PR 与代码审查</a>'],['隔离修改和恢复工作副本','<a href="#worktrees">托管 Worktrees</a>'],['操作网页、批注页面、验收前端','<a href="#browser">内置浏览器与网页验收</a>']])),
+    s('capabilities', '工具与扩展', table(['能力','阅读指南'], [['安装专业功能并连接账号','<a href="#plugins">插件与账号连接</a>'],['选择、导入或创建任务技能','<a href="#skills">技能与项目规则</a>'],['连接本地或远程工具','<a href="#mcp">MCP 工具与内置服务</a>'],['图片理解、编辑、生成、视频与绘图','<a href="#media">多模态、图片与视频</a>'],['操作 Windows 应用 / 截取窗口','<a href="#computer">电脑操控与应用快照</a>'],['在手机上继续电脑任务','<a href="#remote">局域网 WebUI</a>'],['录音转写与朗读','<a href="#voice">语音输入与朗读</a>'],['对话中的可交互小程序','<a href="#intelligent-ui">Intelligent UI</a>'],['桌面入口与自定义形象','<a href="#pets">Domml 与虚拟宠物</a>']])),
+    s('settings', '配置与数据', table(['需要调整什么','阅读指南'], [['服务商、协议、适配器和模型','<a href="#models">模型与 API 连接</a>'],['token、缓存、延迟与费用','<a href="#usage">用量、费用与性能</a>'],['界面、壁纸、通知及快速输入','<a href="#settings">设置与个性化</a>'],['协作偏好与本地记忆','<a href="#memory">记忆与自定义说明</a>'],['读取写入权限、审批与数据流向','<a href="#permissions">权限、沙盒与数据安全</a>'],['浏览器登录与通行密钥','<a href="#passwords">密码与通行密钥</a>'],['磁盘占用、清理、备份与迁移','<a href="#storage">存储、清理与备份</a>']])),
+    s('support', '速查与问题处理', list(['<a href="#shortcuts">快捷键与操作速查</a>：按键和功能入口。','<a href="#troubleshooting">常见问题与故障排查</a>：按现象检查并准备反馈。','<a href="#installation">安装、更新与开发</a>：版本资产、更新准备与源码运行。','<a href="#updates">更新日志</a>：查看 1.7.0 正式版 的版本变化。']) + p('使用左侧文档导航切换专题，右侧目录定位本页操作；窄屏目录显示在正文上方。按 Ctrl+K，输入功能名称、操作或错误关键词。')),
+    s('availability', '功能状态', p('本手册以当前项目的应用入口与实现为依据。Intelligent UI 属于实验室功能。模型、插件、MCP 和外部应用的实际可用性取决于你配置的服务、账号、网络和系统环境。')),
+  ]));
+})();

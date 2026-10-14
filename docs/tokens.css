@@ -1,0 +1,42 @@
+/* Hallmark · macrostructure: Long Document · theme: studied-DNA · source: user screenshot */
+:root {
+  color-scheme: dark;
+  --color-paper: oklch(14.5% 0 0);
+  --color-surface: oklch(19% 0 0);
+  --color-hover: oklch(25% 0 0);
+  --color-ink: oklch(95% 0 0);
+  --color-muted: oklch(72% 0 0);
+  --color-rule: oklch(28% 0 0);
+  --color-accent: oklch(95% 0 0);
+  --color-accent-ink: oklch(14.5% 0 0);
+  --color-focus: oklch(74% 0.12 280);
+  --color-lilac: oklch(83% 0.065 290);
+  --color-panel: oklch(27% 0.036 290);
+  --color-panel-ink: oklch(93% 0.025 290);
+  --color-backdrop: oklch(0% 0 0 / 0.7);
+  /* Serif-led: headings and reading text in Song; UI controls stay in a quiet sans. */
+  --font-serif: "Source Serif 4", "Noto Serif SC Site", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --font-sans: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --font-body: var(--font-serif);
+  --font-display: var(--font-serif);
+  --font-ui: var(--font-sans);
+  --font-code: "Cascadia Code", ui-monospace, monospace;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-display: clamp(2.5rem, 4.2vw, 4.5rem);
+  --radius-sm: 999px;
+  --radius-md: 24px;
+  --radius-pill: 999px;
+  --rule-thin: 1px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-short: 150ms;
+}

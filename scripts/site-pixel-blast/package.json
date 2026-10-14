@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "esbuild": "0.25.9",
+    "postprocessing": "6.39.5",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "three": "0.180.0"
+  }
+}
