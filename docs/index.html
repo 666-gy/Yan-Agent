@@ -1,230 +1,86 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="description" content="ViaTum Lab 构建多场景统一 Harness 基础设施 ViaHarness：为每个任务选择合适的智能，让同一套能力跨金融、医疗、教育、科研与政务迁移。">
-  <meta property="og:title" content="ViaTum Lab｜构建跨场景智能基础设施">
-  <meta property="og:description" content="一个统一入口，为每个任务选择模型与策略，并把 Harness 能力迁移到金融、医疗、教育、科研与政务场景。">
-  <meta property="og:type" content="website">
-  <title>ViaTum Lab｜构建跨场景智能基础设施</title>
-  <link rel="icon" type="image/svg+xml" href="assets/viatum-logo.svg">
-  <link rel="stylesheet" href="assets/viatum.css?v=20260923-team-carousel">
-  <script src="assets/viatum.js?v=20260923-team-carousel" defer></script>
-</head>
-<body>
-  <a class="skip-link" href="#main">跳到正文</a>
-  <header class="header">
-    <div class="container nav-inner">
-      <a href="#" class="brand" aria-label="ViaTum Lab 首页"><img src="assets/viatum-logo.svg" width="44" height="26" alt=""><span>ViaTum <span class="brand-light">Lab</span></span></a>
-      <button class="menu-toggle" aria-expanded="false" aria-controls="navigation" aria-label="打开导航"><span></span><span></span></button>
-      <nav id="navigation" aria-label="主导航">
-        <a href="#product">产品介绍</a><a href="#scenarios">应用场景</a><a href="#research">前沿探索</a><a href="#work">开源客户端</a><a href="#about">关于我们</a>
-        <a href="#contact" class="nav-contact">与我们交流 <span aria-hidden="true">↗</span></a>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Yan Agent | 开源AI智能体</title>
+    <meta
+      name="description"
+      content="Yan Agent 官方网站与使用指南。配置模型、连接工作区、使用插件，并查阅版本更新。"
+    />
+    <link rel="icon" href="assets/logo-light.ico" />
+    <link rel="preload" href="assets/fonts/noto-serif-sc-site.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="site.css?v=download-height-31" />
+    <script src="site-shots.js?v=home-guide-cards-22" defer></script>
+    <script src="site-content.js?v=help-interface-tools-20" defer></script>
+    <script src="guides/00-help.js?v=release-1.7.0" defer></script>
+    <script src="guides/01-start.js?v=repo-owner-33" defer></script>
+    <script src="guides/02-work.js?v=remove-voice-call-21" defer></script>
+    <script src="guides/03-services.js?v=plugins-playwright-25" defer></script>
+    <script src="guides/04-browser-desktop.js?v=computer-share-md-27" defer></script>
+    <script src="guides/05-settings-support.js?v=repo-owner-33" defer></script>
+    <script src="site-release.js?v=release-1.7.0" defer></script>
+    <link rel="stylesheet" href="site-pixel-blast.css" />
+    <script src="site-pixel-blast.js?v=closing-pixels-7" defer></script>
+    <script src="site.js?v=repo-owner-33" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+    <header class="header">
+      <a class="brand" href="#home" aria-label="Yan Agent 首页"
+        ><img src="assets/logo-light.ico" width="32" height="32" alt="" /><span
+          >Yan Agent</span
+        ></a
+      >
+      <nav id="primary-navigation" class="primary-nav" aria-label="主导航">
+        <a href="#home" data-nav="home">首页</a
+        ><a href="#help" data-nav="docs">帮助</a
+        ><a href="#updates" data-nav="updates">更新</a
+        ><a href="#download" data-nav="download">下载</a>
       </nav>
-    </div>
-  </header>
-  <main id="main">
-    <section class="hero container" aria-labelledby="hero-title">
-      <div class="hero-copy">
-        <div class="eyebrow"><span class="status-dot"></span> VIATUM LAB PRESENTS VIAHARNESS</div>
-        <h1 id="hero-title">构建跨场景<br><span class="hero-final">智能基础设施<span class="accent">。</span></span></h1>
-        <p class="hero-english">One intelligent layer.<br>Across real-world <em>domains.</em></p>
-        <p class="hero-description">ViaHarness 是多场景统一 Harness 基础设施。<br class="desktop-break">在任务内选择模型、Skill 与策略，在场景间迁移执行、记忆、评测与控制能力。</p>
-        <div class="hero-actions"><a class="button button-dark" href="#product">探索 ViaHarness <span aria-hidden="true">↗</span></a><a class="text-link" href="#scenarios">查看跨场景迁移 <span aria-hidden="true">↓</span></a></div>
+      <div class="header-actions">
+<button id="header-menu" class="icon-button" aria-label="展开主导航" aria-expanded="false" aria-controls="primary-navigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14M5 16h14"/></svg></button>
       </div>
-      <div class="hero-art" role="img" aria-label="架构示意：基础模型经过 ViaHarness，连接金融、医疗、教育、科研和政务场景。">
-        <div class="art-top"><span>FIG. 01 / UNIFIED HARNESS INFRASTRUCTURE</span><span class="art-cross">+</span></div>
-        <svg class="layer-art" viewBox="0 0 600 580" fill="none" aria-hidden="true">
-          <defs>
-            <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#c3c8d0" opacity=".6"/></pattern>
-            <linearGradient id="layer-fill" x1="110" y1="230" x2="490" y2="355" gradientUnits="userSpaceOnUse"><stop stop-color="#788699" stop-opacity=".16"/><stop offset="1" stop-color="#788699" stop-opacity=".03"/></linearGradient>
-          </defs>
-          <rect x="14" y="12" width="572" height="555" fill="url(#dots)"/>
-          <g stroke="#d2d7df" stroke-width="1"><path d="M300 60V507" stroke-dasharray="3 7"/><path d="M65 184V409M535 184V409" stroke-dasharray="3 7"/><path d="M65 184 300 75 535 184 300 293Z" fill="#ffffff" fill-opacity=".82"/><path d="M65 184v14l235 109 235-109v-14M300 293v14"/><path d="M65 395 300 286 535 395 300 504Z" fill="#ffffff" fill-opacity=".85"/><path d="M65 395v14l235 109 235-109v-14M300 504v14"/></g>
-          <g class="middle-layer"><path d="M49 287 300 170 551 287 300 404Z" fill="url(#layer-fill)" stroke="#737e8e" stroke-width="1.5"/><path d="M49 287v23l251 117 251-117v-23M300 404v23" stroke="#737e8e" stroke-width="1.5"/><path d="m85 287 215-100 215 100-215 100Z" stroke="#737e8e" stroke-opacity=".28"/><path d="m122 287 178-83 178 83-178 83Z" stroke="#737e8e" stroke-opacity=".22"/><path d="m159 287 141-66 141 66-141 66Z" stroke="#737e8e" stroke-opacity=".16"/></g>
-          <g fill="#ffffff" stroke="#b8bec8"><circle cx="300" cy="118" r="5"/><circle cx="193" cy="169" r="5"/><circle cx="407" cy="169" r="5"/><path d="m198 169 102-46 102 46M198 174l102 46 102-46"/><circle cx="300" cy="222" r="5"/></g>
-          <g fill="#737e8e"><circle cx="49" cy="287" r="4"/><circle cx="551" cy="287" r="4"/><circle cx="300" cy="404" r="4"/></g>
-          <path class="flow-line" d="M300 43v29M552 339v72l-82 40" stroke="#737e8e" stroke-width="1.5" stroke-dasharray="5 5"/><path d="m545 401 7 10 7-10" stroke="#737e8e"/>
-          <g fill="#747984" font-family="Arial, sans-serif" font-size="10" letter-spacing="2"><text x="332" y="79">FOUNDATION MODELS</text><text x="332" y="508">REAL-WORLD APPLICATIONS</text></g>
-          <g transform="translate(230 278) rotate(25)"><rect x="-10" y="-24" width="165" height="45" rx="2" fill="#ffffff"/><text fill="#363d47" font-family="Arial, sans-serif" font-size="22" font-weight="600" letter-spacing="-1">ViaHarness</text></g>
-          <g stroke="#929aa6" stroke-width="1.5"><path d="m233 425 16-8 16 8-16 8Zm0 0v13l16 8 16-8v-13M249 433v13"/><path d="m285 401 16-8 16 8-16 8Zm0 0v13l16 8 16-8v-13M301 409v13"/><path d="m337 425 16-8 16 8-16 8Zm0 0v13l16 8 16-8v-13M353 433v13"/></g>
-        </svg>
-        <div class="art-bottom"><span><i></i> MODELS → VIAHARNESS → REAL-WORLD DOMAINS</span><span>01 — ∞</span></div>
+    </header>
+    <nav class="category-nav" aria-label="指南分类">
+      <a href="#quickstart" data-category="开始使用">开始使用</a
+      ><a href="#workspace" data-category="工作与协作">工作与协作</a
+      ><a href="#plugins" data-category="扩展能力">扩展能力</a
+      ><a href="#models" data-category="配置与安全">配置与安全</a>
+    </nav>
+    <div id="page"></div>
+    <dialog id="search-dialog" aria-labelledby="search-label">
+      <div class="search-head">
+        <label id="search-label" for="search-input">搜索 Yan Agent 文档</label
+        ><button class="icon-button" id="search-close" aria-label="关闭搜索">
+          ×
+        </button>
       </div>
-      <div class="hero-foot"><span>ONE CORE. CROSS-SCENARIO INFRASTRUCTURE.</span><a href="#product" aria-label="向下了解 ViaHarness">向下探索 <span aria-hidden="true">↓</span></a></div>
-    </section>
-
-    <section class="product-section section container" id="product" aria-labelledby="product-title">
-      <div class="section-heading"><span class="eyebrow">01 / VIAHARNESS</span><p>多场景统一 Harness 基础设施</p></div>
-      <div class="product-grid">
-        <div class="product-copy">
-          <div class="product-name"><img class="viaharness-logo" src="assets/viaharness-logo.png" width="286" height="98" alt="ViaHarness"><span>Unified Harness Infrastructure</span></div>
-          <h2 id="product-title">一个统一入口，<br>连接每个任务与场景。</h2>
-          <p class="product-lead">让每个任务获得合适的模型和策略，让同一套 Harness 能力迁移到不同领域。</p>
-          <p class="section-description">继续使用熟悉的 Codex、Claude Code 或 Cursor。ViaHarness 理解任务、执行阶段与领域约束，在成本、速度和质量之间选择模型、Skill 与策略。</p>
-          <div class="product-actions"><a class="button button-dark" href="mailto:axiom@viatumlab.com?subject=ViaHarness%20%E4%BA%A7%E5%93%81%E6%8E%A5%E5%85%A5%E5%92%A8%E8%AF%A2">咨询产品接入 <span aria-hidden="true">↗</span></a><a class="text-link" href="#integration">了解接入方式 <span aria-hidden="true">↓</span></a></div>
-          <p class="product-boundary">终端负责执行，模型负责推理，ViaHarness 负责做出选择并承载可迁移能力。</p>
-        </div>
-        <div class="routing-demo">
-          <div class="routing-header"><span class="eyebrow">TASK-AWARE ROUTING</span><span>路由策略示意</span></div>
-          <div class="terminal-row"><span>Codex</span><span>Claude Code</span><span>Cursor</span></div>
-          <div class="routing-connector" aria-hidden="true">↓</div>
-          <div class="routing-core"><span>ViaHarness <small>ONE API KEY</small></span><code>model = "auto"</code></div>
-          <div class="routing-tabs" role="tablist" aria-label="任务路由示例">
-            <button id="route-edit" role="tab" aria-selected="true" aria-controls="route-panel-edit" tabindex="0">日常修改</button>
-            <button id="route-build" role="tab" aria-selected="false" aria-controls="route-panel-build" tabindex="-1">复杂开发</button>
-            <button id="route-debug" role="tab" aria-selected="false" aria-controls="route-panel-debug" tabindex="-1">失败诊断</button>
-            <button id="route-review" role="tab" aria-selected="false" aria-controls="route-panel-review" tabindex="-1">安全审查</button>
-          </div>
-          <div class="routing-panel" id="route-panel-edit" role="tabpanel" aria-labelledby="route-edit" tabindex="0">
-            <div class="route-stage"><span>当前阶段 / 修改代码</span><span>01</span></div><h3>快速模型 <span>+ 按需升级</span></h3><p>小范围修改优先使用低延迟、低成本模型；测试失败或结果不确定时，再升级推理能力。</p><div class="route-skill"><span>SKILL</span><code>Frontend Implementation</code></div>
-          </div>
-          <div class="routing-panel" id="route-panel-build" role="tabpanel" aria-labelledby="route-build" tabindex="0" hidden>
-            <div class="route-stage"><span>当前阶段 / 规划与实现</span><span>02</span></div><h3>强编码模型 <span>+ 长上下文</span></h3><p>为跨文件、跨模块的功能开发选择更强的代码理解能力，并在实现过程中维持稳定上下文。</p><div class="route-skill"><span>SKILL</span><code>Architecture Review</code></div>
-          </div>
-          <div class="routing-panel" id="route-panel-debug" role="tabpanel" aria-labelledby="route-debug" tabindex="0" hidden>
-            <div class="route-stage"><span>当前阶段 / 诊断与修复</span><span>03</span></div><h3>强推理模型 <span>+ 诊断策略</span></h3><p>根据编译错误或测试结果调整策略，追踪问题原因，再通过测试验证修复。</p><div class="route-skill"><span>SKILL</span><code>Bug Diagnosis</code></div>
-          </div>
-          <div class="routing-panel" id="route-panel-review" role="tabpanel" aria-labelledby="route-review" tabindex="0" hidden>
-            <div class="route-stage"><span>当前阶段 / 验收与复核</span><span>04</span></div><h3>独立审查模型 <span>+ 检查清单</span></h3><p>以独立策略检查正确性、安全性、兼容性和回归风险，为关键修改提供复核。</p><div class="route-skill"><span>SKILL</span><code>Security Review</code></div>
-          </div>
-          <div class="routing-providers"><span>OpenAI</span><span>Anthropic</span><span>Gemini</span><span>DeepSeek</span><span>…</span></div>
-        </div>
-      </div>
-      <div class="product-features">
-        <article><span class="eyebrow">01 / UNDERSTAND</span><h3>理解任务，也理解阶段</h3><p>从需求、工具调用和执行结果中识别当前工作，随规划、实现、测试与验收动态调整策略。</p></article>
-        <article><span class="eyebrow">02 / ORCHESTRATE</span><h3>模型与 Skill，一起选择</h3><p>自动路由适合的模型，配合领域知识、检查清单与验收条件；渠道不可用时自动容灾。</p></article>
-        <article><span class="eyebrow">03 / CONTROL</span><h3>成本可控，决策可解释</h3><p>按预算、延迟与质量要求分配能力，记录选择原因、成本、耗时及重试，让每次升级有据可查。</p></article>
-      </div>
-      <div class="integration" id="integration">
-        <div class="integration-copy"><span class="eyebrow">ONE KEY. YOUR EXISTING WORKFLOW.</span><h3>接入一次，沿用你的工作方式。</h3><p>将终端的 API 地址指向 ViaHarness，设置 API Key，并使用虚拟模型 <code>auto</code>。本地代码、命令和工具仍由你的终端执行。</p><p class="team-note">面向团队：统一供应商与成员额度，管理数据策略、模型权限和使用成本。</p></div>
-        <details class="config-example"><summary><span>查看接入示例 <small>Codex · 配置示意</small></span><span class="details-icon" aria-hidden="true">+</span></summary><div class="config-content"><p>以下为配置示意。请将示例地址替换为实际服务地址，并在本地设置自己的密钥。</p><pre><code>model = "auto"
-model_provider = "harness"
-
-[model_providers.harness]
-name = "ViaHarness"
-base_url = "https://api.example.com/v1"
-wire_api = "responses"
-env_key = "HARNESS_API_KEY"</code></pre><span class="config-label">在本地终端设置环境变量</span><pre><code>export HARNESS_API_KEY="&lt;你的 API Key&gt;"</code></pre><p>其他终端请使用各自支持的自定义模型服务配置方式。</p></div></details>
-      </div>
-    </section>
-
-    <section class="scenario-section section container" id="scenarios" aria-labelledby="scenarios-title">
-      <div class="section-heading"><span class="eyebrow">02 / CROSS-SCENARIO PORTABILITY</span><p>一次构建，跨场景迁移。</p></div>
-      <div class="scenario-intro">
-        <div><h2 id="scenarios-title">复用共同内核，<br>适配领域最后一公里。</h2></div>
-        <div><p>ViaHarness 将执行编排、上下文、记忆、评测和控制沉淀为统一底座。进入新场景时，复用稳定内核，只需配置领域知识、专业工具、规则与反馈。</p><p class="scenario-manifesto">Build the core once. Adapt the last mile.</p></div>
-      </div>
-      <div class="migration-map">
-        <div class="migration-core">
-          <div class="migration-core-head"><span class="eyebrow">REUSABLE CORE</span><strong>ViaHarness Core</strong><span>统一、可迁移的能力层</span></div>
-          <div class="core-capabilities"><span>执行与编排</span><span>上下文与记忆</span><span>模型与 Skill 路由</span><span>评测与反馈</span><span>权限与审计</span></div>
-        </div>
-        <div class="migration-axis" aria-hidden="true"><span>同一套核心能力</span><i></i><b>→</b><span>领域适配层</span></div>
-        <div class="scenario-explorer">
-          <div class="scenario-tabs" role="tablist" aria-label="ViaHarness 跨场景能力">
-            <button id="scene-finance" role="tab" aria-selected="true" aria-controls="scene-panel-finance" tabindex="0"><span>01</span>金融</button>
-            <button id="scene-health" role="tab" aria-selected="false" aria-controls="scene-panel-health" tabindex="-1"><span>02</span>医疗</button>
-            <button id="scene-education" role="tab" aria-selected="false" aria-controls="scene-panel-education" tabindex="-1"><span>03</span>教育</button>
-            <button id="scene-research" role="tab" aria-selected="false" aria-controls="scene-panel-research" tabindex="-1"><span>04</span>科研</button>
-            <button id="scene-government" role="tab" aria-selected="false" aria-controls="scene-panel-government" tabindex="-1"><span>05</span>政务</button>
-          </div>
-          <article class="scenario-panel" id="scene-panel-finance" role="tabpanel" aria-labelledby="scene-finance" tabindex="0"><div class="scenario-copy"><span class="eyebrow">FINANCE</span><h3>让复杂流程可控、可追溯。</h3><p>面向研究、分析、运营和审查流程，组合数据工具、权限边界与独立复核策略。</p></div><dl><div><dt>复用</dt><dd>任务运行时 · 模型路由 · 审计轨迹</dd></div><div><dt>适配</dt><dd>金融知识 · 风控规则 · 专业数据工具</dd></div></dl></article>
-          <article class="scenario-panel" id="scene-panel-health" role="tabpanel" aria-labelledby="scene-health" tabindex="0" hidden><div class="scenario-copy"><span class="eyebrow">HEALTHCARE</span><h3>让证据、边界与人工确认贯穿流程。</h3><p>面向知识检索、文档处理和辅助工作流，强调来源追踪、权限控制与关键节点确认。</p></div><dl><div><dt>复用</dt><dd>知识检索 · 工作流编排 · 结果追踪</dd></div><div><dt>适配</dt><dd>医学知识 · 隐私边界 · 人工确认规则</dd></div></dl></article>
-          <article class="scenario-panel" id="scene-panel-education" role="tabpanel" aria-labelledby="scene-education" tabindex="0" hidden><div class="scenario-copy"><span class="eyebrow">EDUCATION</span><h3>让学习与教学工作流持续适应。</h3><p>连接内容、学习进度和教学工具，为不同角色配置个性化路径与质量反馈。</p></div><dl><div><dt>复用</dt><dd>长期记忆 · 多工具协作 · 质量评测</dd></div><div><dt>适配</dt><dd>课程知识 · 教学目标 · 角色与节奏</dd></div></dl></article>
-          <article class="scenario-panel" id="scene-panel-research" role="tabpanel" aria-labelledby="scene-research" tabindex="0" hidden><div class="scenario-copy"><span class="eyebrow">RESEARCH</span><h3>让想法、实验与证据形成闭环。</h3><p>贯通文献理解、实验执行、结果分析与审阅，把研究轨迹沉淀为可复现的系统能力。</p></div><dl><div><dt>复用</dt><dd>长任务状态 · 工具编排 · 反馈循环</dd></div><div><dt>适配</dt><dd>学科知识 · 实验工具 · 证据标准</dd></div></dl></article>
-          <article class="scenario-panel" id="scene-panel-government" role="tabpanel" aria-labelledby="scene-government" tabindex="0" hidden><div class="scenario-copy"><span class="eyebrow">PUBLIC SECTOR</span><h3>让专业流程稳定落地。</h3><p>面向政策、文档和服务流程，连接组织知识与既有系统，保留清晰的权限和操作记录。</p></div><dl><div><dt>复用</dt><dd>流程执行 · 知识连接 · 全程审计</dd></div><div><dt>适配</dt><dd>政策规则 · 组织权限 · 本地系统接口</dd></div></dl></article>
-        </div>
-      </div>
-      <div class="scenario-footer"><span>REUSABLE CORE</span><i>×</i><span>DOMAIN ADAPTATION</span><b>=</b><strong>VIAHARNESS</strong></div>
-    </section>
-
-    <section class="harness-section section container" id="harness" aria-labelledby="harness-title">
-      <div class="section-heading"><span class="eyebrow">03 / THE MISSING LAYER</span><p>模型之上，应用之下。</p></div>
-      <div class="harness-grid">
-        <div><h2 id="harness-title">智能与行动之间，<br>需要一层 <span class="serif">Harness.</span></h2><p class="section-description">模型提供通用智能，ViaHarness 提供工作的环境。我们将工具、上下文、记忆与执行控制连接起来，构建可复用、可迁移的 Agent 系统底座。</p><a class="text-link small-link" href="#research">了解我们的研究 <span aria-hidden="true">↗</span></a></div>
-        <div class="architecture">
-          <div class="architecture-edge"><span>基础模型</span><span>Reasoning · Multimodal</span></div>
-          <div class="connector" aria-hidden="true">↓</div>
-          <div class="architecture-core"><div class="core-heading"><span>ViaHarness</span><span class="eyebrow">OUR FOCUS</span></div>
-            <div class="harness-tabs" role="tablist" aria-label="Harness 核心能力"><button id="tab-runtime" role="tab" aria-selected="true" aria-controls="panel-runtime" tabindex="0">执行与编排</button><button id="tab-context" role="tab" aria-selected="false" aria-controls="panel-context" tabindex="-1">上下文与记忆</button><button id="tab-feedback" role="tab" aria-selected="false" aria-controls="panel-feedback" tabindex="-1">评测与反馈</button></div>
-            <div class="tab-panel" id="panel-runtime" role="tabpanel" aria-labelledby="tab-runtime" tabindex="0"><p>将目标拆解为工具调用与协作任务，管理长程状态，让执行过程可追踪、可恢复。</p><span class="panel-label">PLAN / EXECUTE / RECOVER</span></div>
-            <div class="tab-panel" id="panel-context" role="tabpanel" aria-labelledby="tab-context" tabindex="0" hidden><p>连接领域知识与多模态信息，组织工作记忆与检索，让 Agent 在长任务中保留关键上下文。</p><span class="panel-label">CONTEXT / MEMORY / KNOWLEDGE</span></div>
-            <div class="tab-panel" id="panel-feedback" role="tabpanel" aria-labelledby="tab-feedback" tabindex="0" hidden><p>用场景评测检验交付结果，追溯失败原因，将执行轨迹沉淀为下一轮系统优化的依据。</p><span class="panel-label">EVALUATE / TRACE / IMPROVE</span></div>
-          </div>
-          <div class="connector" aria-hidden="true">↓</div>
-          <div class="architecture-edge"><span>真实应用</span><span>开发工具 · 垂直行业 · 专业工作流</span></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="research-section section container" id="research" aria-labelledby="research-title">
-      <div class="section-heading"><span class="eyebrow">04 / RESEARCH DIRECTIONS</span><p>围绕 RSI，构建从执行反馈到能力升级的闭环。</p></div>
-      <h2 id="research-title">围绕执行，<br>持续探索。</h2>
-      <div class="research-list">
-        <article class="research-item"><span class="research-number">01</span><div><span class="research-en">EXECUTION-GROUNDED LEARNING</span><h3>从执行轨迹中学习</h3></div><p>将工具调用、任务结果、失败路径与人工反馈转化为可学习的信号，让 Harness 理解哪些策略真正提高任务成功率。</p><span class="research-symbol" aria-hidden="true">⌁</span></article>
-        <article class="research-item"><span class="research-number">02</span><div><span class="research-en">RECURSIVE SELF-IMPROVEMENT</span><h3>递归自我改进</h3></div><p>围绕 RSI 研究 Harness 如何生成、评测并迭代模型路由、Skill、工作流与记忆策略，形成持续自我优化的闭环。</p><span class="research-symbol" aria-hidden="true">↻</span></article>
-        <article class="research-item"><span class="research-number">03</span><div><span class="research-en">VERIFIABLE EVOLUTION</span><h3>可验证的安全演化</h3></div><p>通过场景基准、独立评测、版本追踪与回退机制验证每次能力升级，让系统进化可度量、可解释、可控制。</p><span class="research-symbol" aria-hidden="true">◎</span></article>
-      </div>
-    </section>
-
-    <section class="work-section" id="work" aria-labelledby="work-title">
-      <div class="container section"><div class="section-heading"><span class="eyebrow">05 / OUR OPEN-SOURCE CLIENT</span><span class="work-tag"><span class="status-dot"></span> OPEN SOURCE CLIENT</span></div>
-        <div class="work-grid"><div class="work-copy"><span class="case-label">VIAHARNESS × YAGENT</span><h2 id="work-title">YAgent<span class="accent">.</span></h2><p class="work-subtitle">孵化出的一个开源客户端。</p><p class="work-description">YAgent（Yan-Agent）是我们面向真实工作区的开源桌面客户端，支持 Windows x64 与 macOS Apple Silicon。ViaHarness 负责选择模型与策略，YAgent 负责连接本地代码、工具与多 Agent 协作，将执行过程和文件变化交付给你审阅。</p><p class="client-pairing">搭配 ViaHarness 使用，发挥 <strong>MAX</strong> 效果。</p><div class="work-tags"><span>Windows + macOS</span><span>长任务恢复</span><span>工具与 MCP</span><span>变更审阅</span></div><div class="work-actions"><a href="product-intro.html" class="button button-light">探索 YAgent <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/ViaTumLab/YAgent" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a></div></div>
-        <div class="case-diagram" aria-label="YAgent 工作流示意"><div class="diagram-title"><span class="yan-mark">Y<span>↗</span></span><span>Yan Agent <span class="diagram-muted">/ Workspace</span></span><span class="diagram-dots" aria-hidden="true">···</span></div><div class="diagram-content"><div class="diagram-caption">YAGENT WORKSPACE <span>工作流示意</span></div><div class="task-input"><span class="input-symbol" aria-hidden="true">↳</span>理解项目，完成修改，交付可审阅的结果。</div><div class="task-line" aria-hidden="true"></div><div class="agent-core"><span class="core-icon" aria-hidden="true">✳</span><div>Yan Core<span>任务状态 · 上下文 · 执行记录</span></div><span class="core-indicator" aria-hidden="true"></span></div><div class="branch-lines" aria-hidden="true"><i></i><i></i><i></i></div><div class="agent-tools"><div><span aria-hidden="true">⌕</span>项目理解<small>Explore</small></div><div><span aria-hidden="true">⌘</span>工具执行<small>Build</small></div><div><span aria-hidden="true">⊞</span>变更审阅<small>Review</small></div></div><div class="diagram-result"><span aria-hidden="true">↳</span><span>文件变化与执行记录</span><span class="result-label">交付给你审阅</span></div></div><div class="diagram-footer"><span><i></i> BUILT ON OPENCODE</span><span>WINDOWS + macOS ↗</span></div></div></div>
-      </div>
-    </section>
-
-    <section class="about-section section container" id="about" aria-labelledby="about-title">
-      <div class="about-team">
-        <span class="eyebrow">06 / ABOUT VIATUM</span>
-        <div class="team-carousel" role="region" aria-roledescription="轮播" aria-label="核心团队" tabindex="0">
-          <div class="team-card-heading"><span>核心团队</span><span>THE PEOPLE</span></div>
-          <div class="team-slides" id="team-slides">
-            <article class="team-slide" role="group" aria-roledescription="幻灯片" aria-label="1 / 5：靳宏博">
-              <div class="team-portrait" aria-hidden="true"><img src="assets/team/axiom.jpg" width="100" height="100" alt="" decoding="async"><i>VIATUM / PEOPLE</i></div>
-              <div class="team-person"><span class="team-role">创始人 · CEO</span><h3>靳宏博</h3><p class="team-english">AxiomJin</p><p class="team-school">北京大学</p><p class="team-field">ViaTum Lab</p><a href="https://github.com/AxiomJin" target="_blank" rel="noopener noreferrer">个人主页 <span aria-hidden="true">↗</span></a></div>
-            </article>
-            <article class="team-slide" role="group" aria-roledescription="幻灯片" aria-label="2 / 5：张文昊" hidden>
-              <div class="team-portrait" aria-hidden="true"><img src="assets/team/vince.jpg" width="100" height="100" alt="" decoding="async"><i>VIATUM / PEOPLE</i></div>
-              <div class="team-person"><span class="team-role">联合创始人 · Harness 负责人</span><h3>张文昊</h3><p class="team-english">Vince</p><p class="team-school">北京大学</p><p class="team-field">ViaTum Lab</p><a href="https://github.com/whu125" target="_blank" rel="noopener noreferrer">个人主页 <span aria-hidden="true">↗</span></a></div>
-            </article>
-            <article class="team-slide" role="group" aria-roledescription="幻灯片" aria-label="3 / 5：田景绮" hidden>
-              <div class="team-portrait" aria-hidden="true"><img src="assets/team/jingqi.jpg" width="100" height="100" alt="" decoding="async"><i>VIATUM / PEOPLE</i></div>
-              <div class="team-person"><span class="team-role">联合创始人 · 技术负责人</span><h3>田景绮</h3><p class="team-english">Jingqi Tian</p><p class="team-school">清华大学</p><p class="team-field">ViaTum Lab</p><a href="https://trilarflagz.github.io/" target="_blank" rel="noopener noreferrer">个人主页 <span aria-hidden="true">↗</span></a></div>
-            </article>
-            <article class="team-slide" role="group" aria-roledescription="幻灯片" aria-label="4 / 5：Ryan Liu" hidden>
-              <div class="team-portrait" aria-hidden="true"><img src="assets/team/ryan.jpg" width="100" height="100" alt="" decoding="async"><i>VIATUM / PEOPLE</i></div>
-              <div class="team-person"><span class="team-role">联合创始人 · 科研负责人</span><h3>Ryan Liu</h3><p class="team-english">RESEARCH LEAD</p><p class="team-school">北京大学</p><p class="team-field">ViaTum Lab</p><a href="https://github.com/farewellthree" target="_blank" rel="noopener noreferrer">个人主页 <span aria-hidden="true">↗</span></a></div>
-            </article>
-            <article class="team-slide" role="group" aria-roledescription="幻灯片" aria-label="5 / 5：李革" hidden>
-              <div class="team-portrait" aria-hidden="true"><img src="assets/team/geli.jpg" width="100" height="100" alt="" decoding="async"><i>VIATUM / PEOPLE</i></div>
-              <div class="team-person"><span class="team-role">首席科学家</span><h3>李革</h3><p class="team-english">Ge Li</p><p class="team-school">北京大学信息工程学院</p><p class="team-field">多媒体处理 · 人工智能与数据挖掘</p><a href="https://www.ece.pku.edu.cn/info/1046/2658.htm" target="_blank" rel="noopener noreferrer">学术主页 <span aria-hidden="true">↗</span></a></div>
-            </article>
-          </div>
-          <div class="team-controls">
-            <span class="team-counter" aria-live="polite" aria-atomic="true"><b>01</b><span> / 05</span></span>
-            <div class="team-pagination" aria-label="选择成员"><button type="button" aria-label="查看靳宏博" aria-pressed="true" data-team-index="0"></button><button type="button" aria-label="查看张文昊" aria-pressed="false" data-team-index="1"></button><button type="button" aria-label="查看田景绮" aria-pressed="false" data-team-index="2"></button><button type="button" aria-label="查看Ryan Liu" aria-pressed="false" data-team-index="3"></button><button type="button" aria-label="查看李革" aria-pressed="false" data-team-index="4"></button></div>
-            <div class="team-arrows"><button type="button" data-team-step="-1" aria-controls="team-slides" aria-label="上一位成员">←</button><button type="button" data-team-step="1" aria-controls="team-slides" aria-label="下一位成员">→</button></div>
-          </div>
-        </div>
-        <a class="team-repository" href="https://github.com/ViaTumLab/ViaTumLab" target="_blank" rel="noopener noreferrer"><span>完整团队与研究方向</span><span>GitHub ↗</span></a>
-      </div>
-      <div class="about-copy">
-        <h2 id="about-title">在研究与真实世界之间，<br>构建下一层可能。</h2>
-        <p>ViaTum Lab 是一家构建 Harness 中间层的前沿实验室。我们将算法研究、系统工程与产品实践连接起来，探索智能体如何跨任务、跨场景持续工作。</p>
-        <p class="team-background">创始团队来自北京大学与清华大学，汇聚多名顶尖基础模型团队成员，团队孵化于国家重点实验室。</p>
-        <p>ViaHarness 是我们的多场景统一 Harness 基础设施，YAgent 是与其配套的开源客户端。两者连接智能选择、本地执行和结果审阅，形成从基础设施到用户工作区的完整产品结构。</p>
-        <div class="about-principles"><span>Research</span><i aria-hidden="true">↗</i><span>Infrastructure</span><i aria-hidden="true">↗</i><span>Real-world impact</span></div>
-
-
-      </div>
-    </section>
-
-    <section class="contact-section container" id="contact" aria-labelledby="contact-title"><div><span class="eyebrow">LET’S BUILD THE NEXT LAYER</span><h2 id="contact-title">让下一个想法，<br>真正运行起来。</h2><p>研究交流、技术合作，或一起探索新的应用。</p></div><div class="contact-actions"><a class="contact-link" href="mailto:axiom@viatumlab.com">与 ViaTum Lab 交流 <span aria-hidden="true">↗</span></a><div class="email-row"><span>axiom@viatumlab.com</span><button class="copy-email" type="button" aria-label="复制联系邮箱">复制邮箱</button></div><span class="copy-status" role="status" aria-live="polite"></span></div></section>
-  </main>
-  <footer class="container footer"><a href="#" class="brand"><img src="assets/viatum-logo.svg" width="38" height="22" alt=""><span>ViaTum <span class="brand-light">Lab</span></span></a><span>© <span id="year">2026</span> ViaTum Lab</span><a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">粤ICP备2026125970号-1</a><a href="https://github.com/ViaTumLab/ViaTumLab" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a><a href="#" class="back-top">回到顶部 <span aria-hidden="true">↑</span></a></footer>
-</body>
+      <input
+        id="search-input"
+        type="search"
+        placeholder="例如：模型配置、插件、工作区"
+        autocomplete="off"
+      />
+      <div id="search-results" aria-live="polite"></div>
+      <p class="search-help">输入关键词查找指南 · Esc 关闭</p>
+    </dialog>
+    <noscript
+      ><main class="no-script">
+        <h1>Yan Agent</h1>
+        <p>
+          面向真实工作区的 Windows 桌面
+          Agent。连接你选择的模型，让它读取项目、使用工具、操作内置浏览器，并交付文件变化供你审阅。
+        </p>
+        <p>
+          请启用 JavaScript 查看指南，或阅读
+          <a href="https://github.com/ViaTumLab/Yan-Agent#readme">完整 README</a
+          >。
+        </p>
+      </main></noscript
+    >
+  </body>
 </html>

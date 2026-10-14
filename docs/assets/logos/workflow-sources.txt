@@ -1,0 +1,5 @@
+Outlook full-color logo: Microsoft Office CDN
+https://res.cdn.office.net/files/fabric-cdn-prod_20221201.001/assets/brand-icons/product/svg/outlook_48x1.svg
+Figma full-color logo: https://raw.githubusercontent.com/pheralb/svgl/main/static/library/figma.svg
+Gmail full-color logo: https://raw.githubusercontent.com/pheralb/svgl/main/static/library/gmail.svg
+Other assets reused from Yan Agent brand and skill logos.
