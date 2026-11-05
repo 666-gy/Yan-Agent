@@ -2,151 +2,203 @@
 
 # Yan Agent
 
-### Build with agents, from the first idea to the final review
+### The best way to build with agents
 
-**An open-source AI workspace that reads, edits, executes, and verifies.**
+**From understanding a project to changing, running and verifying it — hand engineering work to an AI workspace that actually acts.**
 
 [中文](README.md) · [English](README.en.md)
 
-[Download for Windows](https://github.com/ViaTumLab/Yan-Agent/releases/download/v1.7.0/Yan.Agent.Setup.v1.7.0.exe) · [Baidu mirror · code: code](https://pan.baidu.com/s/1KZIFg29V7Ks89pvEWiY4mw?pwd=code) · [Releases](https://github.com/ViaTumLab/Yan-Agent/releases) · [Issues](https://github.com/ViaTumLab/Yan-Agent/issues)
+[![Version](https://img.shields.io/badge/version-1.8.0-97cdcf)](https://github.com/ViaTumLab/Yan-Agent/releases)
+![Windows](https://img.shields.io/badge/Windows-x64-0078D4)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**v1.7.0 · Windows x64 · MIT License**
+[Download for Windows](https://github.com/ViaTumLab/Yan-Agent/releases) · [Releases](https://github.com/ViaTumLab/Yan-Agent/releases) · [Issues](https://github.com/ViaTumLab/Yan-Agent/issues) · [Website](https://yanagent.top)
 
 </div>
 
-![Yan Agent desktop workspace](.github/readme/desktop.png)
+![Yan Agent home screen: system title bar, left navigation, task conversation and composer](.github/readme/desktop.png)
 
-Yan Agent is an open-source AI agent for Windows. Give it a goal, a project, and access to your preferred model service. It reads files, investigates problems, edits code, runs commands, and uses browser, testing, and desktop tools to check its work in your actual workspace.
+Yan Agent is an open-source Windows desktop AI agent. You bring the goal, the project and a model service; it reads files, traces problems, edits code, runs commands and verifies results inside the real workspace using browsers, tests and desktop tools.
 
-**Projects, conversations, subagents, the browser, file changes, and tool execution revolve around the same task.** Follow progress, add instructions, inspect deliverables, and focus on the decisions that need you.
+v1.8.0 moves the runtime to **Yan Kernel V2** and adds agent modes, nested sessions, dynamic workflow orchestration and scheduled tasks. Projects, conversations, subagents, browser, diffs and tool runs still revolve around one task: you can follow progress, add requirements and inspect deliverables at any time.
 
-## What can you work on with Yan?
+## What's new in v1.8.0
 
-| Your goal | How Yan approaches it |
+| Capability | Details |
 | --- | --- |
-| Fix a difficult bug | Read the project and logs, trace execution, implement a fix, and run relevant tests. |
-| Add a feature | Understand conventions, split frontend and backend work, edit code, and check integration. |
-| Turn a design into a page | Implement the design and inspect interactions and screen sizes in the browser. |
-| Review code changes | Read diffs and context, identify specific issues, answer questions, and iterate on feedback. |
-| Work in a desktop application | Operate Windows applications within granted permissions and use snapshots for context. |
-| Continue a long task | Inspect progress, adjust the plan, add context, and resume execution. |
+| Yan Kernel V2 | A private Node kernel with rewritten startup, cancellation, shutdown and process cleanup; tasks read, modify and verify directly in the workspace. |
+| Agent modes | Standard, Minimal, Creative, Daily and Uncensored, plus saved custom agents, switchable when starting a task. |
+| Nested sessions | Up to 4 child sessions inside one task, with human-in-the-loop collaboration, per-child models and acceptance by the main session. |
+| Dynamic workflows | Organize multi-stage work by goal, members, stages and tasks; dependencies unlock only after acceptance, with pause and resume. |
+| Scheduled tasks | Run recurring work automatically in a dedicated conversation on a daily or weekly schedule. |
+| System title bar | Sidebar toggle, File / View / Help menus and window controls in one bar. |
+| Two browser acceptance levels | Quick runs one batched check; Rigorous covers multiple viewports, interactions and before/after frames. |
+| Work-process rendering | Usage updates per turn, context components and goal progress refresh live, and tool runs end with natural prose. |
 
-Combine these workflows in one task: change code, launch a preview, check the page, and organize the resulting files. Available tools depend on enabled plugins, model capabilities, and permissions.
+## What can you hand to Yan?
 
-## Engineering work, grounded in your project
-
-From elusive bugs and changes spanning multiple modules to new features, Yan works with the actual project. The workspace supplies files and context, the terminal runs commands and tests, and the review panel makes changes visible.
-
-- **Understand:** Locate files and symbols, map relationships, and trace implementation paths.
-- **Implement:** Edit files, run development commands, and respond to execution feedback.
-- **Verify:** Use tests, browser interactions, and screenshots to check the outcome.
-- **Stay involved:** Add guidance while a task runs or queue a follow-up message.
-
-> Fix the issue where refreshing the page signs the user out. Trace frontend session restoration and backend authentication first. Keep the existing UI. Verify login, refresh, logout, and incorrect-password handling, then explain which files changed.
-
-## Multiple subagents, one shared goal
-
-Split complex work across roles: one agent explores code, another implements changes, and another reviews the outcome. The main agent organizes work, combines evidence, and handles integration checks. Inspect progress and outputs in the subagent panel.
-
-![Subagent collaboration](.github/readme/agents.png)
-
-| Role | Suitable work |
+| Your goal | How Yan works |
 | --- | --- |
-| Explore | Locate files, symbols, and workspace facts. |
-| Review | Identify concrete defects and implementation risks. |
-| Research | Consult documentation and external sources. |
-| Test | Run tests and diagnostics. |
-| Build | Implement and verify code within a defined scope. |
-| Mapper | Map repository structure, module boundaries, and data flow. |
-| Tracer | Investigate deep call chains and algorithm paths. |
-| Reverser | Analyze unfamiliar protocols and behavior, then validate results. |
+| Fix a hard-to-reproduce bug | Read the project and logs, trace the call path, propose and implement a fix, then run the relevant tests. |
+| Build a feature in an existing project | Understand project conventions, split frontend and backend work, change code and check integration. |
+| Turn a design into a working page | Implement the page with design and frontend tools, then check interactions and screen sizes in the browser. |
+| Review a batch of changes | Read diffs and context, point out concrete issues, answer review questions and keep iterating. |
+| Tidy up content in desktop apps | Operate Windows apps after authorization, using app snapshots to understand the current screen. |
+| Keep a long task moving | Review existing progress and file changes, adjust the plan, add context and continue. |
+| Let work run on schedule | Create scheduled tasks for reminders, checks or recurring work at a set time. |
 
-Assign different models to different roles, or let them follow the main model. Independent tasks can use worktrees to isolate working directories and reduce interference between concurrent edits.
+These scenarios combine: one task can change code, start a local preview, check a page, organize results and deliver files. Available tools depend on enabled plugins, model capabilities and your authorization.
 
-> Investigate frontend login and backend sessions in parallel. Have each agent provide evidence. Consolidate the findings, implement the fix, and run integration checks.
+## Handle engineering work efficiently
 
-## Bring your existing agents into the workflow
+From elusive bugs and cross-module changes to new features, Yan works inside the actual project. The workspace provides file and project context, the terminal runs commands and tests, and the review panel shows what changed.
 
-Yan connects with the **Codex, Claude, and Reasonix Studio** desktop agents. Use the agent directory to inspect details, detect installed applications, configure paths, dispatch tasks, and collect results.
+- **Understand first:** find files and symbols, map module relationships, trace implementation paths.
+- **Implement in place:** edit files, run dev commands and respond to execution feedback.
+- **Verify with real results:** check outcomes through tests, browser actions and screenshots.
+- **Stay involved:** steer or queue messages while a task runs, and correct course early.
 
-Delegate a stage to an external agent, follow collaboration in Yan, and use the results to move forward. You retain control over sign-in, workspace trust, and approvals required by the external application.
+For example:
 
-## Review the result, from files to pull requests
+> Fix the bug where refreshing the page after login logs the user out. Trace frontend session restore and backend auth first, keep the existing UI, then verify login, refresh, logout and wrong-password paths, and tell me which files changed.
 
-Before committing, understand the scope of the changes, why they were made, and how they were checked.
+## Five agent modes for different work
 
-- Inspect file trees and code diffs.
-- Leave review comments and return feedback to the task.
-- Organize work with Git branches, commits, and worktrees.
-- Work with pull requests and issues, and ask questions about changes.
-- Archive managed worktrees while preserving their work, then restore them when needed.
+The mode menu above the composer decides which system prompt and tool set a task uses. The choice is saved with the task; switching the menu does not change a task that is already running.
 
-![Code review](.github/readme/review.png)
+| Mode | Best for |
+| --- | --- |
+| Standard | Full development environment with all tools; the default. |
+| Minimal | Very little context and very few exposed tools; useful for playground tests. |
+| Creative | Create plugins, skills, pets or custom agents and personalize Yan Agent. |
+| Daily | Everyday chat, web search, image and video generation; switch back to Standard for development. |
+| Uncensored | Uncensored system prompt with all tools; responsibility rests with the user. |
 
-## Browser and desktop tools for practical verification
+When you need a fixed configuration, create and save a **custom agent**; it appears in the same menu for later tasks. Agent modes change prompts and available tools — read/write, network and approval boundaries still come from permission settings.
+
+## One task, four ways to collaborate
+
+Yan offers four complementary ways to divide work; combine them as complexity grows.
+
+### Nested sessions
+
+Split one task into subtasks and create up to **4 child sessions**. Children support human-in-the-loop conversation and can use different models; you and the main session accept the combined result.
+
+### Subagents
+
+The main agent creates and names subagents as needed. They inherit its permissions and run up to 10 concurrently. The subagent panel shows each subagent's name, current action and elapsed time; it shows the pending count and lets you cancel selected subagents. Subagents have no preset roles — their responsibilities come from the dispatch.
+
+### Dynamic workflow orchestration
+
+For multi-stage work, the main agent registers a goal, members, stages and tasks, then advances in dependency order. The "workflow orchestration" panel lists tasks and owners per stage, with states for pending, running, awaiting review, accepted, completed, needs attention, interrupted and paused.
+
+Dependent tasks unlock only after their upstream task is explicitly accepted. Every submitted task is reviewed — accept it, or request rework with concrete evidence. Write scopes coordinate task boundaries; they do not grant extra permissions.
+
+### External desktop agents
+
+Yan connects to desktop agents such as **Codex** and **Claude**. Inspect details in the agent catalog, detect local programs, configure paths, then dispatch tasks and collect results. App login, directory trust and the external app's own approvals remain in your hands.
+
+## Scheduled tasks: work that happens on time
+
+Scheduled tasks let Yan run recurring work at a set time. Creation has three pages: **Description** for what each run should do, **When** for workspace, daily or weekly frequency and time, and **Model** for the model and reasoning level of that task.
+
+- Each scheduled task has its own conversation and runs once when due.
+- Chatting in that conversation is a manual follow-up; it does not trigger another scheduled run.
+- Reminder tasks output a single reminder; tasks needing facts, checks or actions actually perform them and report results.
+
+## From diffs to pull requests
+
+Before committing you need more than "done": you need scope, rationale and verification.
+
+- Inspect the file tree and code diffs to see actual changes.
+- Add review comments and send feedback back into the task.
+- Manage branches, commits and worktrees alongside the task.
+- Handle PRs and issues, with review and Q&A around the change.
+- Archive managed worktrees with their results and restore them later.
+
+## Browser and computer use, beyond the terminal
 
 ### Built-in browser
 
-Open a local preview or online site, sign in, check forms, exercise interactions, and verify wide and narrow layouts. The browser includes tabs, history, downloads, page annotations, and PDF export. Idle background tabs can freeze and resume to reduce resource use.
+Web pages join the task workflow directly. Open a local preview or a live page, sign in, check forms, test interactions and verify both wide and narrow layouts.
 
-### Windows application control
+Browser acceptance has two levels: **Quick** runs one batched check and asks for approval to upgrade on high-risk pages such as 3D/WebGL, login or payment; **Rigorous** covers multiple viewports, interactions and before/after frames. Tabs can be reused or dragged into a separate window, and the browser also provides history, downloads, page annotations and PDF export.
 
-Operate applications within the permissions you grant. Manage always-allowed applications, inspect previously controlled applications and their accumulated experience, and download that experience as **Markdown** for reading, backup, or sharing.
+### Windows app control
 
-### Application snapshots
+Let Yan operate desktop apps within the permissions you grant. Manage always-allowed apps, review apps it has controlled and the experience it accumulated, and download that experience as a **Markdown file** for reading, backup or sharing.
 
-When a screen is easier to show than describe, capture an external application window with a configured shortcut. Add its screenshot, application information, and your question to the conversation. Snapshot text can also be inspected.
+### App snapshots
 
-## Connect tools, skills, and services
+When describing a screen is hard, show it. Configure a shortcut, capture the external app window, then attach the screenshot, app info and your question to the chat; you can also read the text in a snapshot.
 
-Yan's extension system includes **plugins, agents, skills, and MCP**. Install and configure extensions so each task has the methods and tools it needs.
+## Put tools, skills and services in one place
 
-![Plugin interface](.github/readme/plugins.png)
+Extensions consist of **plugins, agents, skills and MCP**. Install, configure, enable or disable them so tasks get the methods and tools they need.
 
-- **Plugins:** Install specialized capabilities, read examples, connect accounts, and control individual skill switches.
-- **Skills:** Use built-in methods or import skill directories from other agents by linking or copying them.
-- **Project rules:** Supply conventions, build commands, and project boundaries. Configure general preferences through custom instructions.
-- **MCP:** Connect local or remote services and load tools and context as needed.
+- **Plugins:** install professional capabilities, read details and examples, connect required accounts, and check for updates from the "Details" side.
+- **Skills:** use built-in working methods or import skill directories from other agents, maintained by link or copy.
+- **Project rules:** give the agent code conventions, build steps and project boundaries; global preferences live in custom instructions.
+- **MCP:** connect local or remote tool services and load tools and context on demand.
 
-Examples include Figma, Canva, Playwright, Remotion, and HyperFrames, covering design, browser automation, and video creation. Services may require their own accounts, runtimes, and permissions.
+Common extensions include Figma, Canva, Playwright, Remotion and HyperFrames, covering design, browser automation and video production. The new **Magpie-for-Yan-Agent** plugin brings your subscriptions into Yan Agent.
 
-## Choose the models that fit your work
+### Ten built-in services
 
-Yan supports multiple connections and provider adapter paths, including OpenAI, Anthropic, Gemini, DeepSeek, Qwen, GLM, and Kimi. Select models per task, assign models to subagents, and manage context, reasoning, and output settings.
+Yan ships these services; you do not need to install them as third-party MCP servers. Some are not connected by default and activate on demand.
 
-- **Independent task choices:** Different tasks can use different models.
-- **Centralized connections:** Configure endpoints, protocols, API keys, and enabled models.
-- **Multimodal workflows:** Configure text, image, and video services and work with visual context.
-- **Visible usage:** Inspect tokens, caching, and speed to understand cost and performance.
+| Service | Responsibility |
+| --- | --- |
+| Yan Skills | Find, install, list, read and remove skills and skill resources. |
+| Yan Built-in Browser | Drive the right-side browser for reading, interaction and visual acceptance. |
+| Yan Web | Read known URLs as text, save static assets and fetch page resources. |
+| Yan Session | Authorized cross-task/workspace handoff, external agent collaboration and Intelligent UI. |
+| Yan Continual Harness | Queue repeated failures and reusable tactics for evidence-based refinement after a turn. |
+| Yan Analysis | Repository maps, symbol outlines, call trees and BM25 code/history search. |
+| Yan Workspace | Task-level git worktrees and code_impact reverse dependency analysis. |
+| Yan MCP | Verify official sources, then install, verify and remove MCP servers. |
+| Yan Plugin | Browse, validate and install Yan plugins. |
+| Yan Provider | Probe a provider's model catalog, write the connection and bind text/image/video models. |
 
-Model availability, tool calling, context limits, and media capabilities depend on the service. Yan Agent is open source; model and third-party services apply their own billing policies.
+## Choose your own models
 
-## A desktop experience for everyday work
+Yan supports multiple connections and provider paths, including OpenAI, Anthropic, Gemini, DeepSeek, Qwen, GLM and Kimi. Pick models per task, assign a model to nested sessions, and manage context, reasoning and output parameters.
 
-View and edit images with zoom, annotations, text, and comments. Voice input and read-aloud offer additional ways to enter and consume content. Rename, pin, archive, reference, and export conversations, and open deliverables through links.
+- **Per-task models:** different tasks can use different models.
+- **One-sentence provider setup:** give a Base URL, API key and model names; Yan probes the catalog and writes the connection.
+- **Unified connections:** configure endpoint, protocol, API key and enabled models.
+- **Multimodal chains:** configure text, image and video services for tasks with visual context.
+- **Visible usage:** the usage component updates per turn with the latest request's context and usage estimate.
 
-Configure fonts, sizes, themes, wallpapers, sounds, and notifications for the way you work. Manage memory and accumulated experience in settings.
+Model lists, tool calling, context length and media generation depend on the actual service. Yan Agent is open source; models and third-party services bill under their own terms.
 
-### Step away from the computer and keep track of tasks
+## Everyday experience beyond code
 
-The **LAN WebUI** lets you inspect and manage desktop tasks from a phone or another device. Both devices must share a local network, and the computer running Yan must remain powered on, connected, and serving the WebUI.
+Image viewing and editing support zoom, annotations, text and comments; voice input and read-aloud add options for input and reading. Chats can be renamed, pinned, archived, quoted and exported, and key artifacts open directly from links.
 
-## Start your first task
+v1.8.0 also brings a new system title bar, the capsule panel, a startup animation, a confetti easter egg, auto-archiving of inactive chats and clearer blue-dot notifications. Configure fonts, sizes, themes, wallpapers, sounds and notifications to suit long sessions. Memory can be toggled per conversation or managed in settings.
 
-1. **Install:** Download the Windows x64 installer above and launch the application.
-2. **Connect a model:** Add an endpoint, API key, and protocol, then refresh and enable models.
-3. **Choose a workspace:** Open a project directory or a workspace for the current task.
-4. **Describe the deliverable:** Explain what to build, what to preserve, and how to verify completion. Add attachments, plugins, or skills as needed.
-5. **Follow and steer:** Watch tool activity and subagent progress, handle approvals, and add guidance.
-6. **Review:** Inspect file changes, deliverables, and validation before committing or iterating.
+### Leave the desk, keep managing tasks
 
-Start with a bounded task, such as investigating a specific error and adding regression coverage. Clear scope and acceptance criteria make collaboration more effective.
+Through the **LAN WebUI**, a phone or another device can follow and manage desktop tasks. Both ends must be on the same LAN, with the Yan host powered on, online and serving.
+
+## Start with your first task
+
+1. **Install:** download the Windows x64 installer from [Releases](https://github.com/ViaTumLab/Yan-Agent/releases) and launch it.
+2. **Connect a model:** add endpoint, API key and protocol in model services, refresh and enable models.
+3. **Choose a workspace:** open a project folder, or start from Blank (Blank supports full disk writes, still governed by sandbox, permissions and approvals).
+4. **Pick an agent mode:** Standard for development, Daily for chat and media, Minimal when you want very little context.
+5. **Describe the deliverable:** say what to do, what to keep and what counts as done; attach files, plugins or skills as needed.
+6. **Watch and steer:** follow tool runs, subagents and workflow progress, handle approvals and add requirements.
+7. **Review the result:** check file changes, artifacts and verification before committing or iterating.
+
+Start with a narrowly scoped task such as "locate this error and add a regression test". Clear boundaries and acceptance criteria make collaboration effective.
 
 ## For developers
 
 ### Run from source
 
-Use Windows x64, Node.js, and npm:
+Windows x64, Node.js and npm:
 
 ```powershell
 git clone https://github.com/ViaTumLab/Yan-Agent.git
@@ -155,47 +207,50 @@ npm ci
 npm start
 ```
 
-Use `npm run dev` for development. Some capabilities require runtime preparation:
+Use `npm run dev` for development mode. Some capabilities need runtime components first:
 
 | Command | Purpose |
 | --- | --- |
-| `npm run build:desktop-bridge` | Build desktop bridge components. |
-| `npm run build:cua-driver` | Prepare the computer-control runtime. |
+| `npm run build:desktop-bridge` | Build the desktop bridge. |
+| `npm run build:cua-driver` | Prepare the computer-use runtime. |
 | `npm run build:playwright` | Prepare the Playwright runtime. |
-| `npm test` | Run project unit tests. |
-| `npm run build` | Build the Windows installer and run related packaging checks. |
-| `npm run build:release` | Build installer and portable distributions. |
+| `npm test` | Run unit tests. |
+| `npm run build` | Build the Windows installer and run packaging checks. |
+| `npm run build:release` | Build installer and portable versions. |
 
-Outputs are written to `dist/`. Build scripts may download components and require corresponding system tools. End-to-end tests may depend on desktop applications, accounts, and model services.
+Build output goes to `dist/`. Build scripts may download components and require matching system tools; end-to-end tests may depend on the desktop app, accounts and model services.
 
-### Code map
+### Code layout
 
 | Path | Contents |
 | --- | --- |
-| `main.js` / `preload.js` | Electron main-process entry and desktop bridging. |
-| `renderer/` | Conversation, settings, browser, and review interfaces. |
-| `lib/` | Model adapters, task execution, tools, plugins, and data management. |
-| `scripts/` | Builds, runtime preparation, and maintenance. |
+| `main.js` / `preload.js` | Electron main process entry and desktop bridge. |
+| `renderer/` | Chat, settings, browser, review and workflow UI. |
+| `lib/` | Model adapters, Yan Kernel V2, task execution, tools, plugins and data. |
+| `lib/kernel-v2/` | Kernel config, tool policy, delegation and dynamic workflow orchestration. |
+| `scripts/` | Build, runtime preparation and maintenance scripts. |
 | `test/` | Unit tests and end-to-end verification. |
 
-## Frequently asked questions
+## FAQ
 
-**Do I need a specific model subscription?** Configure the service you prefer. Providers manage their own accounts, quotas, and fees. External agents require their applications and sign-in state.
+**Do I need a specific model subscription?** Configure whichever model service you can use; accounts, quotas and billing are managed by the provider. External desktop agents also need their own app and login.
 
-**Does all data stay local?** Conversations, configuration, workspace state, and experience are managed locally. Model and third-party calls send required content to their respective services. Choose services according to your project's data requirements.
+**Does all data stay local?** Chats, configuration, workspace state and experience are managed locally. When you call a model or third-party tool, the necessary content is sent to that service; choose services and tools according to your data requirements.
 
-**Can I run it on my phone?** The current installer targets Windows x64. A phone can manage tasks through the LAN WebUI while the computer executes them.
+**Can it run on a phone?** Released installers target Windows x64. A phone can manage desktop tasks through the LAN WebUI while the computer does the work.
 
-**Can I review a plan before changes begin?** Use planning mode to discuss steps, scope, and validation before implementation.
+**Can I see a plan before changes start?** Use plan mode to discuss steps, scope and verification first; multi-stage work can also go straight into dynamic workflow orchestration.
 
-## Join the project
+**Nested sessions vs. subagents?** Nested sessions create child conversations inside one task for decomposition and unified acceptance; subagents are dispatched by the main agent, inherit permissions and run clearly scoped subtasks in parallel.
 
-Use [Issues](https://github.com/ViaTumLab/Yan-Agent/issues) to share feedback, reproducible problems, and feature suggestions. Pull requests improving implementation, tests, and documentation are welcome.
+## Contributing
 
-Include the version, reproduction steps, expected and actual behavior, and sanitized logs or screenshots when reporting a problem. Run relevant checks before submitting code, and describe the scope and validation of your changes.
+Share feedback, reproductions and feature requests through [Issues](https://github.com/ViaTumLab/Yan-Agent/issues), and pull requests improving implementation, tests or docs are welcome.
 
-## License and acknowledgments
+When reporting a problem include the app version, reproduction steps, expected and actual results, and redacted logs or screenshots. Run relevant checks before submitting code and describe the scope and verification.
 
-Yan Agent uses the [MIT License](LICENSE). Thank you to developers contributing to model tooling, desktop applications, browser automation, and the open-source ecosystem. Third-party components, skills, and plugins retain their own licenses; see [third-party notices](lib/THIRD_PARTY_NOTICES.md) and [skill notices](lib/skills/THIRD_PARTY_NOTICES.md).
+## Open source and credits
 
-**Start building with Yan Agent.** [Download v1.7.0](https://github.com/ViaTumLab/Yan-Agent/releases/download/v1.7.0/Yan.Agent.Setup.v1.7.0.exe)
+Yan Agent is released under the [MIT License](LICENSE). Thanks to the developers behind model tooling, desktop apps, browser automation and the open-source ecosystem. Third-party components, skills and plugins keep their own licenses; see [third-party notices](lib/THIRD_PARTY_NOTICES.md) and [skill notices](lib/skills/THIRD_PARTY_NOTICES.md).
+
+**Start building with Yan Agent.** [Download v1.8.0](https://github.com/ViaTumLab/Yan-Agent/releases)
