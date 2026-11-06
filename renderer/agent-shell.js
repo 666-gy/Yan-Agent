@@ -15,6 +15,8 @@ window.YanAgentShell = (() => {
   });
 
   function sync(empty) {
+    syncComposerPanel();
+    empty = empty && isBlankNewChat(state.currentSession);
     const control = document.getElementById('taskBarFolderWrap');
     const slot = document.getElementById('newTaskWorkspaceSlot');
     const sheet = document.getElementById('newTaskWorkspace');
@@ -27,9 +29,22 @@ window.YanAgentShell = (() => {
     if (!empty && control.parentElement === slot) home.after(control);
     sheet.hidden = !empty;
     if (!empty) {
+      window.YanAgentPresets?.close();
       document.getElementById('workspaceChoiceMenu')?.classList.add('hidden');
       document.getElementById('taskBarFolder')?.setAttribute('aria-expanded', 'false');
     }
+  }
+
+  // The legacy environment strip above the composer is gone. For an opened
+  // history task the capsule panel owns mode/Bash/branch, so keep the old
+  // task-bar branch capsule and background Bash pill out of the composer.
+  function syncComposerPanel() {
+    const session = typeof state === 'undefined' ? null : state.currentSession;
+    (document.getElementById('app'));
+    const history = !document.getElementById('pageChat')?.classList.contains('empty')
+      && !!session;
+    document.getElementById('taskGitBranchWrap')?.classList.toggle('legacy-composer-hidden', history);
+    document.getElementById('bashPillHost')?.classList.toggle('legacy-composer-hidden', history);
   }
 
   // Keyline folder-open (stroke), from the user-selected icon.
@@ -170,5 +185,5 @@ window.YanAgentShell = (() => {
     if (foldFrame) cancelAnimationFrame(foldFrame);
     foldFrame = 0;
   }
-  return Object.freeze({ sync, openWorkspaceChoices, composerCeiling, foldUserMessage, clearFoldedMessages });
+  return Object.freeze({ sync, syncComposerPanel, openWorkspaceChoices, composerCeiling, foldUserMessage, clearFoldedMessages });
 })();

@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('fs'),os=require('os'),pat
 (async()=>{let app;const userData=fs.mkdtempSync(path.join(os.tmpdir(),'yan-settings-nav-'));try{
 app=await _electron.launch({executablePath:require('electron'),args:[process.cwd()],env:{...process.env,YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:userData}});
 const page=await app.firstWindow();await page.waitForFunction(()=>window.__YAN_APP_READY__);await page.locator('#settingsBtn').click();
-assert.deepEqual(await page.locator('#settingsSidebarNav .sheet-nav-text').allTextContents(),['常规','外观','壁纸','配置','存储','已归档的聊天','个性化','Domml与虚拟宠物','语音功能','电脑操控','应用快照','浏览器','远程操控','子代理','代码审查','Git','Worktrees','服务商配置','主模型','次模型','多模态链路','用量显示','Intelligent UI']);
+assert.deepEqual(await page.locator('#settingsSidebarNav .sheet-nav-text').allTextContents(),['常规','外观','壁纸','配置','存储','已归档的聊天','个性化','Domml与虚拟宠物','语音功能','电脑操控','应用快照','浏览器','远程操控','子代理','Nested Sessions','代码审查','Git','Worktrees','服务商配置','主模型','次模型','多模态链路','用量显示','Intelligent UI']);
 assert.deepEqual(await page.locator('.settings-nav-group-label').allTextContents(),['个人','集成','编码','模型服务','实验室功能']);
 await page.locator('#settings-tab-intelligent-ui').click();
 assert.equal(await page.locator('#intelligentUiEnabled').isChecked(), false);

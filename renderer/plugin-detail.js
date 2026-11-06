@@ -1,6 +1,7 @@
 /* Hallmark · screenshot-led detail · existing Yan tokens · P5 H5 E4 S5 R5 V4 */
 window.YanPluginDetails = (() => {
-  const external = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>';
+  const external = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12v-5"/></svg>';
+  const download = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
   function toggle(action, label, checked, disabled, extra = '') {
     return `<input type="checkbox" role="switch" class="switch" data-plugin-action="${action}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled data-fixed-disabled' : ''} ${extra}>`;
   }
@@ -11,12 +12,12 @@ window.YanPluginDetails = (() => {
     const connected = accounts.length && accounts.every(account => account.state === 'connected');
     const state = current ? (current.ready ? (current.enabled ? '已启用' : '已关闭') : '需要处理') : '未安装';
     const directory = current ? `<button type="button" class="plugin-directory icon-btn" data-plugin-action="directory" aria-label="在资源管理器中打开" title="在资源管理器中打开"><img src="assets/windows-explorer.png" alt="" aria-hidden="true"></button>` : '';
-    const actions = current ? `${toggle('toggle', `启用 ${item.name}`, current.enabled, false)}${remove}` : '<button type="button" class="skill-detail-install" data-plugin-action="install">安装插件</button>';
+    const actions = current ? `${toggle('toggle', `启用 ${item.name}`, current.enabled, false)}${remove}` : `<button type="button" class="capability-circle-btn skill-action-btn" data-plugin-action="install" title="安装 ${escapeAttr(item.name)}（灰度）" aria-label="安装 ${escapeAttr(item.name)}（灰度）">${download}</button>`;
     const link = (kind, label) => info[kind] ? `<button type="button" class="plugin-info-link icon-btn" data-plugin-action="link" data-link-kind="${kind}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${external}</button>` : '<span class="plugin-info-missing">—</span>';
     const rows = [
       ['功能', escapeHtml(info.capabilities?.join(', ') || '未声明')],
       ['开发者', escapeHtml(info.developer || item.author || '未声明')],
-      ['类别', escapeHtml(group)], ['版本', escapeHtml(current?.version || item.version || '—')],
+      ['类别', escapeHtml(group)], ['版本', `<span class="plugin-version-actions"><span>${escapeHtml(current?.version || item.version || '—')}</span>${current ? '<button type="button" class="conn-pill" data-plugin-action="check-update">检查更新</button>' : ''}</span>`],
       ['网站', link('website', `打开 ${item.name} 网站`)], ['隐私政策', link('privacy', `打开 ${item.name} 隐私政策`)], ['服务条款', link('terms', `打开 ${item.name} 服务条款`)]
     ];
     return `${window.YanCapabilityTemplates.compactDetailHead({
@@ -25,7 +26,7 @@ window.YanPluginDetails = (() => {
         closeAttribute: 'data-plugin-action', closeLabel: '关闭插件详情',
         extra: `<span class="sr-only" id="pluginDetailState">${state}</span>`
       })}
-      ${window.YanPluginExamples.render(item)}
+      ${current ? window.YanPluginExamples.render(item) : ''}
       <p class="plugin-detail-description" ${item.id === 'yan-computer-use' ? 'lang="en" translate="no"' : ''}>${escapeHtml(info.longDescription || item.description)}</p>
       ${accounts.length ? `<section class="plugin-account-section" aria-label="账号连接"><div><h2>账号连接 · ${connected ? '已连接' : accounts.some(account => account.state === 'connecting') ? '等待授权' : '未连接'}</h2><p>${escapeHtml(accounts.map(account => account.message || (account.state === 'connected' ? '账号已连接。' : '请在系统浏览器中授权。')).join(' '))}</p></div><button type="button" class="ghost-btn" data-plugin-action="${connected ? 'disconnect' : 'connect'}">${connected ? '断开账号' : '连接账号'}</button></section>` : ''}
       ${current && !current.ready ? `<div class="plugin-preparation" role="status"><p>${escapeHtml(current.issues.join('；'))}</p><button type="button" class="ghost-btn" data-plugin-action="prepare">重新检查</button></div>` : ''}

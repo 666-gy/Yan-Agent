@@ -58,13 +58,11 @@ fs.mkdirSync(outputDir, { recursive: true });
     assert.deepEqual(menu.actionText, [
       '添加附件',
       '绘图',
-      '使用$选择技能',
-      '目标',
       '计划模式'
     ]);
-    assert.deepEqual(menu.launcherIcons, ['$']);
+    assert.deepEqual(menu.launcherIcons, []);
     assert.equal(menu.skillListPresent, true);
-    assert.equal(menu.workModeChoices, 2);
+    assert.equal(menu.workModeChoices, 1);
     assert.equal(menu.configHidden, true);
     assert.equal(menu.removedLaunchers, 0);
     await page.waitForTimeout(220);
@@ -83,12 +81,11 @@ fs.mkdirSync(outputDir, { recursive: true });
         mainHidden: panel.querySelector('#composerAddMainView')?.classList.contains('hidden')
       };
     });
-    assert.deepEqual(workModeMenu.labels, ['目标', '计划模式']);
-    assert.deepEqual(workModeMenu.descriptions, ['设置要追求的目标', '开启计划模式']);
+    assert.deepEqual(workModeMenu.labels, ['计划模式']);
+    assert.deepEqual(workModeMenu.descriptions, ['开启计划模式']);
     assert.ok(workModeMenu.heights.every(height => height >= 32 && height <= 34), `工作方式按钮应为紧凑行高，实际 ${workModeMenu.heights.join(', ')}px`);
-    assert.deepEqual(workModeMenu.fontSizes, ['13px', '13px']);
+    assert.deepEqual(workModeMenu.fontSizes, ['14px']);
     assert.deepEqual(workModeMenu.iconMarkup, [
-      '<circle cx="12" cy="12" r="7"></circle><circle cx="12" cy="12" r="3"></circle><path d="M22 2 13.5 10.5M16 2h6v6"></path>',
       '<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5c-.9.7-1.5 1.5-1.5 2.5h-4c0-1-.6-1.8-1.5-2.5Z"></path>'
     ]);
     assert.equal(workModeMenu.mainHidden, false);
@@ -122,7 +119,7 @@ fs.mkdirSync(outputDir, { recursive: true });
 
     await composerInput.fill('/');
     await page.waitForTimeout(220);
-    await page.locator('[data-composer-config="goal"]').click();
+    await page.locator('[data-composer-config="plan"]').click();
     assert.equal(await composerInput.evaluate(element => element.value), '',
       '选择工作方式后应移除开头的 /');
     assert.equal(await page.locator('#attachmentMenu').evaluate(panel => panel.classList.contains('hidden')), true,
@@ -443,7 +440,7 @@ fs.mkdirSync(outputDir, { recursive: true });
       };
     });
     assert.deepEqual(abortLifecycle, {
-      openCodeSessionId: '',
+      openCodeSessionId: 'poisoned-session',
       cancellations: ['late-start-run'],
       errorName: 'AbortError'
     });

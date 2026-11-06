@@ -39,3 +39,14 @@ test('batch scope, running deletion protection, permanent disk deletion and rest
   assert.equal(fs.existsSync(store.sessionPath(b.id)),true);
   assert.equal(fs.existsSync(store.sessionPath(c.id)),true);
 });
+test('deleting the last remaining chat still creates a replacement session', async t => {
+  const {store} = fixture(t);
+  const only = await store.createFreshSessionRecord({title:'Only chat'});
+  only.messages = [{role:'user',content:'keep the shell alive'}];
+  await store.saveSession(only);
+  const result = await store.deleteSessionRecord(only.id,{confirmed:true});
+  assert.equal(result.ok,true);
+  assert.equal(result.replacedLast,true);
+  assert.ok(result.replacementSession?.id);
+  assert.equal(fs.existsSync(store.sessionPath(only.id)),false);
+});

@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $providerId = $env:YAN_DESKTOP_PROVIDER
 $configuredExe = $env:YAN_DESKTOP_EXECUTABLE
-if ($providerId -notin @('codex', 'claude', 'reasonix')) { throw 'Unknown provider' }
-$displayName = if ($providerId -eq 'codex') { 'Codex' } elseif ($providerId -eq 'reasonix') { 'Reasonix Studio' } else { 'Claude' }
+if ($providerId -notin @('codex', 'claude')) { throw 'Unknown provider' }
+$displayName = if ($providerId -eq 'codex') { 'Codex' } else { 'Claude' }
 
 function Read-DesktopMetadata([string]$candidate, [string]$packageVersion = '') {
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $null }
@@ -13,7 +13,7 @@ function Read-DesktopMetadata([string]$candidate, [string]$packageVersion = '') 
     # Desktop applications ship an Electron archive; their CLI engines do not.
     $archive = Join-Path $item.DirectoryName 'resources\app.asar'
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { return $null }
-    $version = if ($packageVersion) { $packageVersion } elseif ($providerId -eq 'reasonix') { $item.VersionInfo.FileVersion } else { $item.VersionInfo.ProductVersion }
+    $version = if ($packageVersion) { $packageVersion } else { $item.VersionInfo.ProductVersion }
     return @{ installed = $true; executable = $item.FullName; version = $version }
 }
 
@@ -22,11 +22,6 @@ if ($configuredExe) {
     if ($null -eq $found) {
         @{ installed = $false; reason = 'not-desktop' } | ConvertTo-Json -Compress
     } else { $found | ConvertTo-Json -Compress }
-    exit
-}
-
-if ($providerId -eq 'reasonix') {
-    @{ installed = $false; reason = 'not-found' } | ConvertTo-Json -Compress
     exit
 }
 

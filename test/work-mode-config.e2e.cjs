@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-work-mode-config-'));
 const configPath = path.join(userData, 'YanData', 'config.json');
 fs.mkdirSync(path.dirname(configPath), { recursive: true });
-fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'absolute' } }));
+fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'goal' } }));
 
 (async () => {
   let app;
@@ -23,9 +23,13 @@ fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'absolute' } })
     assert.equal(await page.evaluate(() => getCurrentWorkMode()), 'normal');
     assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).agent.workMode, 'normal');
     assert.equal(await page.locator('#workModeIndicator').isVisible(), false);
+    assert.equal(await page.locator('[data-work-mode=goal]').count(), 0);
+    await page.evaluate(() => window.YanComposerConfig.open());
+    assert.equal(await page.locator('[data-composer-config=goal]').count(), 0);
+    await page.keyboard.press('Escape');
     await page.locator('#attachBtn').click();
-    assert.deepEqual(await page.locator('#composerAddMainView [data-work-mode] .composer-add-action-name').allTextContents(), ['目标', '计划模式']);
-    for (const mode of ['goal', 'plan']) {
+    assert.deepEqual(await page.locator('#composerAddMainView [data-work-mode] .composer-add-action-name').allTextContents(), ['计划模式']);
+    for (const mode of ['plan']) {
       await page.locator(`#composerAddMainView [data-work-mode="${mode}"]`).click();
       await page.waitForFunction(mode => getCurrentWorkMode() === mode, mode);
       await page.reload();
@@ -44,6 +48,6 @@ fs.writeFileSync(configPath, JSON.stringify({ agent: { workMode: 'absolute' } })
     });
     assert.equal(normalized, 'normal');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ ok: true, migration: 'normal', modes: ['goal', 'plan'], errors }));
+    console.log(JSON.stringify({ ok: true, migration: 'normal', modes: ['plan'], errors }));
   } finally { await app?.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

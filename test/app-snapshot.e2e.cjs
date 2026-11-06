@@ -179,7 +179,7 @@ const output = path.join(root, 'output/playwright/app-snapshot');
     await page.waitForFunction(() => document.querySelector('#snapshotDestination').value === 'new');
     assert.equal(await page.locator('#snapshotSound').isChecked(), false);
     await page.evaluate(() => closeSettings());
-    await page.evaluate(() => { window.__snapshotAudioCount = 0; window.Audio = class { play() { window.__snapshotAudioCount++; return Promise.resolve(); } }; });
+    await page.evaluate(() => { window.__snapshotAudioCount = 0; window.YanNotifySounds.play = () => { window.__snapshotAudioCount++; }; });
     const beforeSession = await page.evaluate(() => state.currentSession?.id);
     const deliver = settings => app.evaluate(({ BrowserWindow, nativeImage }, settings) => {
       const main = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('/renderer/index.html'));

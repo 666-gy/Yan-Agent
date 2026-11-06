@@ -24,7 +24,9 @@ const githubBase = `https://github.com/${repo}/releases/download/${encodeURIComp
 
 const names = new Set([
   feed.fileName,
-  ...fs.readdirSync(dist).filter((name) => /\.(exe|blockmap)$/i.test(name))
+  feed.fileName + '.blockmap', feed.fileName + '.chunks.json',
+  ...fs.readdirSync(dist).filter(name => name.startsWith(feed.fileName + '.from-') && /\.yandelta(?:\.json)?$/.test(name)),
+  'Apply-Yan-Update.ps1'
 ]);
 const files = [];
 for (const rawName of names) {
@@ -46,7 +48,10 @@ for (const rawName of names) {
 }
 if (!files.length) throw new Error('no release assets found in dist');
 
-const selected = files.find((entry) => /\.exe$/i.test(entry.name)) || files[0];
+const selected = files.find((entry) => entry.name === feed.fileName);
+if (!selected) throw new Error('Current installer missing');
+const chunkIndex = files.find(entry => entry.name === selected.name + '.chunks.json');
+if (chunkIndex) selected.chunkIndex = { url: chunkIndex.url, sha256: chunkIndex.sha256, size: chunkIndex.size };
 const manifest = {
   schemaVersion: 1,
   name: pkg.name,

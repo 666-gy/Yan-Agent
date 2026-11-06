@@ -11,7 +11,8 @@ const html = fs.readFileSync(path.join(__dirname, 'fixtures/intelligent-ui-cost.
 (async () => {
   let app;
   try {
-    app = await _electron.launch({ executablePath: require('electron'), args: [process.cwd()], env: { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: userData } });
+    require('./helpers/intelligent-ui-profile.cjs')(userData);
+  app = await _electron.launch({ executablePath: require('electron'), args: [process.cwd()], env: { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: userData } });
     const page = await app.firstWindow();
     await page.waitForFunction(() => window.__YAN_APP_READY__ && window.YanIntelligentUi);
     const active = { intelligentUiAllowed: true };

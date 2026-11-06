@@ -4,6 +4,10 @@
 
   const MAX_SNAPSHOT_ITEMS = 180;
   const MAX_TEXT_LENGTH = 16000;
+  // Guest calls must give up well before the 40 s bridge budget so the serial
+  // queue can advance and the model gets a specific error code.
+  const GUEST_CALL_TIMEOUT_MS = 15_000;
+  const ACTION_TIMEOUT_MS = 35_000;
   const renderLeases = new WeakMap();
 
   function retainRender(element) {
@@ -183,7 +187,7 @@
 
   const targetScript = ref => `(() => {
     const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
-    if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+    if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_observe 的 interactive 模式。', code: 'STALE_REF' };
     element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     let view = element.ownerDocument.defaultView;
     while (view && view !== view.top) {
@@ -286,7 +290,9 @@
         if (needsFrame) await new Promise(resolve => setTimeout(resolve, 100));
         return await callback();
       } catch (error) {
-        return { ok: false, error: `浏览器操作失败：${error?.message || error}`, code: 'BROWSER_BRIDGE_ERROR' };
+        // Keep the specific code (BROWSER_GUEST_TIMEOUT, SCREENSHOT_TIMEOUT, ...)
+        // so the caller and the screenshot breaker can react to it.
+        return { ok: false, error: `浏览器操作失败：${error?.message || error}`, code: error?.code || 'BROWSER_BRIDGE_ERROR' };
       } finally {
         releasePanel();
         releaseSidebar();
@@ -305,16 +311,34 @@
       };
       this.actionEntries.set(id, entry);
       const execute = async () => {
+        let timer = null;
         try {
           if (entry.cancelled || entry.generation !== this.actionGeneration) return this.cancelledResult();
           this.activeAction = entry;
-          const result = await callback(entry.controller.signal);
+          // A guest call that never settles must not wedge the serial queue.
+          // Race the callback against cancellation and a hard cap so the tail
+          // always advances and the next action can run.
+          const result = await Promise.race([
+            callback(entry.controller.signal),
+            new Promise((_resolve, reject) => {
+              entry.controller.signal.addEventListener('abort', () => {
+                reject(Object.assign(new Error('内置浏览器操作已取消。'), { code: 'BROWSER_ACTION_CANCELLED' }));
+              }, { once: true });
+            }),
+            new Promise((_resolve, reject) => {
+              timer = setTimeout(() => {
+                reject(Object.assign(new Error(`内置浏览器操作超过 ${Math.round(ACTION_TIMEOUT_MS / 1000)} 秒未完成。`), { code: 'BROWSER_ACTION_TIMEOUT' }));
+              }, ACTION_TIMEOUT_MS);
+            })
+          ]);
           if (entry.cancelled || entry.controller.signal.aborted) return this.cancelledResult();
           return result;
         } catch (error) {
           if (entry.cancelled || entry.controller.signal.aborted || error?.name === 'AbortError') return this.cancelledResult();
+          if (error?.code === 'BROWSER_ACTION_TIMEOUT') return { ok: false, error: error.message, code: 'BROWSER_ACTION_TIMEOUT' };
           throw error;
         } finally {
+          if (timer) clearTimeout(timer);
           if (this.activeAction === entry) this.activeAction = null;
           this.actionEntries.delete(id);
         }
@@ -394,14 +418,52 @@
     validateRef(ref) {
       const value = String(ref || '');
       if (value && this.activeRefs.has(value)) return null;
-      return { ok: false, error: '页面或快照已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+      return { ok: false, error: '页面或快照已变化，请先重新调用 browser_observe 的 interactive 模式。', code: 'STALE_REF' };
     }
 
     async executePage(expression) {
       if (!this.webview?.getURL || !this.webview.getURL() || this.webview.getURL() === 'about:blank') {
         return { ok: false, error: '内置浏览器尚未打开页面。请先调用 open_builtin_browser。', code: 'BROWSER_NOT_OPEN' };
       }
-      return this.webview.executeJavaScript(expression, true);
+      // A blocked guest main thread makes executeJavaScript never settle. Cap
+      // every guest call so one stuck page cannot stall the whole tool surface.
+      return withTimeout(this.webview.executeJavaScript(expression, true), GUEST_CALL_TIMEOUT_MS, 'BROWSER_GUEST_TIMEOUT');
+    }
+
+    // Arbitrary page-context evaluation for acceptance checks that need state
+    // the structured tools cannot express (storage persistence, custom metrics,
+    // WebGL context state). Kept as a plain expression so the last statement
+    // value is returned the way DevTools console does.
+    async evaluate(expression, { storage = false } = {}) {
+      return this.withAction(async () => {
+        if (storage) {
+          const snapshot = await this.executePage(`(() => {
+            const dump = store => {
+              const out = {};
+              try { for (let i = 0; i < store.length; i += 1) { const key = store.key(i); out[key] = String(store.getItem(key)).slice(0, 2000); } } catch {}
+              return out;
+            };
+            return { url: location.href, localStorage: dump(localStorage), sessionStorage: dump(sessionStorage) };
+          })()`);
+          if (snapshot?.ok === false) return snapshot;
+          return { ok: true, output: JSON.stringify(snapshot), ...snapshot };
+        }
+        const source = String(expression || '').trim();
+        if (!source) return { ok: false, error: '需要提供 expression，或设置 storage: true 读取本地存储。', code: 'BROWSER_EVAL_EMPTY' };
+        if (source.length > 8000) return { ok: false, error: 'expression 过长（上限 8000 字符）。', code: 'BROWSER_EVAL_TOO_LONG' };
+        let value;
+        try {
+          value = await this.executePage(source);
+        } catch (error) {
+          return { ok: false, error: `执行表达式失败：${error?.message || error}`, code: error?.code || 'BROWSER_EVAL_FAILED' };
+        }
+        if (value && typeof value === 'object' && value.ok === false && value.code) return value;
+        let text;
+        try { text = typeof value === 'string' ? value : JSON.stringify(value); }
+        catch { text = String(value); }
+        text = String(text ?? '').slice(0, 8000);
+        return { ok: true, output: text, value: text, url: this.webview.getURL?.() || '' };
+      });
     }
 
     async target(ref) {
@@ -462,7 +524,7 @@
     async prepareInteractionReceipt(ref, receiptId, eventType) {
       return this.executePage(`(() => {
         const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
-        if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+        if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_observe 的 interactive 模式。', code: 'STALE_REF' };
         window.__yanBrowserInteractionReceipts ||= new Map();
         const id = ${JSON.stringify(receiptId)};
         const record = {
@@ -724,10 +786,12 @@
     }
 
     sendMouse(type, target, options = {}) {
+      // DOM targets use CSS pixels; Electron guest input uses viewport DIPs.
+      const zoom = this.webview.getZoomFactor?.() || 1;
       this.webview.sendInputEvent?.({
         type,
-        x: Math.round(target.x),
-        y: Math.round(target.y),
+        x: Math.round(target.x * zoom),
+        y: Math.round(target.y * zoom),
         button: options.button || 'left',
         clickCount: Math.max(1, Number(options.clickCount) || 1)
       });
@@ -856,7 +920,7 @@
         this.pointer(target, 'move');
         const result = await this.executePage(`(() => {
           const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
-          if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+          if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_observe 的 interactive 模式。', code: 'STALE_REF' };
           element.focus();
           const value = ${JSON.stringify(value)};
           if (element.isContentEditable) {
@@ -890,7 +954,7 @@
         this.pointer(target, 'move');
         const result = await this.executePage(`(() => {
           const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
-          if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+          if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_observe 的 interactive 模式。', code: 'STALE_REF' };
           if (element.tagName !== 'SELECT') return { ok: false, error: '目标不是下拉选择框。', code: 'NOT_SELECT' };
           const wanted = ${JSON.stringify(String(value ?? ''))};
           const option = [...element.options].find(item => item.value === wanted)
@@ -914,7 +978,7 @@
         this.pointer(target, 'move');
         const result = await this.executePage(`(() => {
           const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref || ''))});
-          if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_snapshot。', code: 'STALE_REF' };
+          if (!element || !element.isConnected) return { ok: false, error: '页面已变化，请先重新调用 browser_observe 的 interactive 模式。', code: 'STALE_REF' };
           const wanted = ${checked !== false};
           const role = element.getAttribute('role');
           if (element.matches('input[type="checkbox"], input[type="radio"]')) {
@@ -983,11 +1047,22 @@
       });
     }
 
-    async press(key, { durationMs = 80 } = {}) {
+    async press(key, { durationMs = 80, ref = '' } = {}) {
       const raw = String(key || '').trim();
       if (!raw || raw.length > 64) return { ok: false, error: '按键名称无效。', code: 'INVALID_KEY' };
       const holdDuration = Math.max(30, Math.min(5000, Number(durationMs) || 80));
       return this.withAction(async () => {
+        if (ref) {
+          const target = await this.target(ref);
+          if (!target?.ok) return target;
+          const focused = await this.executePage(`(() => {
+            const element = window.__yanBrowserRefs?.get(${JSON.stringify(String(ref))});
+            if (!element?.isConnected) return { ok: false, code: 'STALE_REF' };
+            element.focus();
+            return { ok: element.ownerDocument.activeElement === element };
+          })()`);
+          if (!focused?.ok) return focused;
+        }
         const descriptor = this.describeKey(raw);
         if (this.heldKeys.has(descriptor.identity)) {
           return { ok: false, error: `${raw} 已处于按下状态。`, code: 'KEY_ALREADY_HELD' };
@@ -1134,9 +1209,9 @@
       });
     }
 
-    async inspectPage() {
+    async inspectPage(options = {}) {
       return this.withAction(async () => {
-        const page = await this.executePage(`(() => {
+        const page = await this.executePage(`(async () => {
           const images = [...document.images];
           const canvases = [...document.querySelectorAll('canvas')];
           const forms = [...document.forms];
@@ -1144,6 +1219,25 @@
           const inspectCanvas = canvas => {
             const report = { width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight };
             if (!canvas.width || !canvas.height) return { ...report, warnings: ['Canvas has zero bitmap dimensions.'] };
+            // A WebGL canvas must not be sampled with drawImage/getImageData:
+            // that forces a GPU framebuffer readback on the guest main thread
+            // and reports pixelCoverage 0 whenever preserveDrawingBuffer is
+            // false, even though the frame is on screen. Report context state.
+            const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+            if (gl) {
+              const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+              const contextLost = gl.isContextLost();
+              return {
+                ...report,
+                kind: 'webgl',
+                webgl: {
+                  contextLost,
+                  version: String(gl.getParameter(gl.VERSION) || ''),
+                  renderer: debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '') : ''
+                },
+                warnings: contextLost ? ['WebGL context is lost; the page must restore it before it can draw again.'] : []
+              };
+            }
             try {
               const sample = document.createElement('canvas');
               sample.width = 64;
@@ -1207,7 +1301,46 @@
             brokenImages: images.filter(image => image.complete && image.naturalWidth === 0).slice(0, 40).map(image => image.currentSrc || image.src || image.alt || '(unknown)'),
             invalidFields: [...document.querySelectorAll('input,textarea,select')].filter(item => !item.checkValidity()).slice(0, 40).map(item => item.name || item.id || item.type || item.tagName.toLowerCase()),
             headings,
-            canvases: canvases.slice(0, 20).map(inspectCanvas)
+            canvases: canvases.slice(0, 8).map(inspectCanvas),
+            resources: (() => {
+              const entries = performance.getEntriesByType('resource');
+              const failed = entries.filter(entry => Number(entry.responseStatus) >= 400);
+              return {
+                count: entries.length,
+                failed: failed.slice(0, 20).map(entry => String(entry.responseStatus) + ' ' + entry.name).map(text => text.slice(0, 200)),
+                slowest: entries.slice().sort((a, b) => b.duration - a.duration).slice(0, 5)
+                  .map(entry => ({ name: entry.name.slice(0, 160), ms: Math.round(entry.duration), status: Number(entry.responseStatus) || 0 }))
+              };
+            })(),
+            performance: (() => {
+              const nav = performance.getEntriesByType('navigation')[0];
+              return {
+                domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
+                loadMs: nav ? Math.round(nav.loadEventEnd) : null,
+                usedJSHeapSize: performance.memory?.usedJSHeapSize ?? null
+              };
+            })(),
+            frameSample: ${JSON.stringify(options.includePerformance === true)} ? await (() => {
+              const stamps = [];
+              return new Promise(resolve => {
+                const started = performance.now();
+                const tick = now => {
+                  stamps.push(now);
+                  if (now - started < 600) requestAnimationFrame(tick);
+                  else {
+                    const span = stamps.length > 1 ? stamps[stamps.length - 1] - stamps[0] : 0;
+                    let maxFrame = 0;
+                    for (let index = 1; index < stamps.length; index += 1) maxFrame = Math.max(maxFrame, stamps[index] - stamps[index - 1]);
+                    resolve({
+                      frames: stamps.length,
+                      fps: span > 0 ? Math.round(((stamps.length - 1) / span) * 1000) : 0,
+                      maxFrameMs: Math.round(maxFrame)
+                    });
+                  }
+                };
+                requestAnimationFrame(tick);
+              });
+            })() : null
           };
         })()`);
         if (!page?.url) return page;
@@ -1223,6 +1356,9 @@
           invalidFields: page.invalidFields,
           headings: page.headings,
           canvases: page.canvases,
+          resources: page.resources,
+          performance: page.performance,
+          frameSample: page.frameSample,
           console: diagnostics.console || [],
           loadErrors: diagnostics.loadErrors || []
         });
@@ -1263,28 +1399,324 @@
       });
     }
 
-    async screenshot() {
+    async screenshot({ fullSize = false, force = false } = {}) {
       return this.withAction(async () => {
         if (!this.webview?.getWebContentsId || !window.yan?.browserCapturePage) return { ok: false, error: '当前 Electron 版本不支持内置浏览器截图。', code: 'SCREENSHOT_UNAVAILABLE' };
-        const captureState = await this.executePage(`(() => ({
-          title: document.title || '',
-          text: String(document.body?.innerText || '').trim().slice(0, 4000),
-          url: location.href
-        }))()`);
         // capturePage 经由 GPU/Viz 合成器。合成器卡住时这个 Promise 可能永远不落地
         // 并连带冻结主进程,所以必须自己设上界,失败后交给主进程侧的熔断器处理。
-        const dataUrl = await withTimeout(window.yan.browserCapturePage(this.webview.getWebContentsId()), 12_000, 'SCREENSHOT_TIMEOUT');
+        // Capture first: the guest's JS main thread may be busy while the
+        // compositor is still able to produce a frame.
+        const capture = await withTimeout(
+          window.yan.browserCapturePage(this.webview.getWebContentsId(), { fullSize, force }),
+          12_000,
+          'SCREENSHOT_TIMEOUT'
+        );
+        const url = this.webview.getURL?.() || '';
+        if (capture?.unchanged) {
+          return {
+            ok: true,
+            unchanged: true,
+            output: `画面与上一张截图相同（${capture.width}×${capture.height}），未重复传输图像。需要重新取帧时传 force: true。`,
+            url,
+            hash: capture.hash,
+            viewport: { width: capture.width, height: capture.height }
+          };
+        }
+        const dataUrl = typeof capture === 'string' ? capture : String(capture?.dataUrl || '');
         const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
         if (!match) return { ok: false, error: '内置浏览器没有返回有效截图。', code: 'SCREENSHOT_EMPTY' };
+        let captureState = null;
+        try {
+          captureState = await withTimeout(this.executePage(`(() => ({
+            title: document.title || '',
+            text: String(document.body?.innerText || '').trim().slice(0, 4000),
+            url: location.href
+          }))()`), 3000, 'SCREENSHOT_STATE_TIMEOUT');
+        } catch { captureState = null; }
         return {
           ok: true,
-          output: `已截取当前页面：${this.webview.getURL?.() || ''}`,
-          url: this.webview.getURL?.() || '',
+          output: `已截取当前页面：${url}`,
+          url,
           capturedAt: new Date().toISOString(),
           captureState: captureState?.url ? captureState : null,
+          viewport: capture?.width ? { width: capture.width, height: capture.height } : null,
+          hash: capture?.hash || '',
           image: { mimeType: match[1], data: match[2] }
         };
       });
+    }
+
+    // High-risk pages must not be signed off by a quick pass. Returns which
+    // signals were found so the renderer can require an explicit upgrade.
+    async acceptanceRisk() {
+      const probe = await this.executePage(`(() => {
+        // Install a one-time write monitor: any non-GET request, form submit or
+        // beacon marks the tab. This is behaviour-based, so it also covers flows
+        // nobody enumerated (new SDKs, redirects, background saves).
+        if (!window.__yanAcceptanceMonitor) {
+          window.__yanAcceptanceMonitor = true;
+          window.__yanAcceptanceDirty = null;
+          const mark = (kind, detail) => {
+            if (!window.__yanAcceptanceDirty) window.__yanAcceptanceDirty = { kind, detail: String(detail || '').slice(0, 200), at: Date.now() };
+          };
+          try {
+            const nativeFetch = window.fetch;
+            if (nativeFetch) {
+              window.fetch = function (input, init) {
+                const method = String(init?.method || (typeof input === 'object' && input ? input.method : '') || 'GET').toUpperCase();
+                if (method !== 'GET' && method !== 'HEAD') mark('fetch', method + ' ' + String(typeof input === 'string' ? input : input?.url || ''));
+                return nativeFetch.apply(this, arguments);
+              };
+            }
+            const nativeOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function (method, url) {
+              if (String(method || 'GET').toUpperCase() !== 'GET') mark('xhr', String(method) + ' ' + String(url || ''));
+              return nativeOpen.apply(this, arguments);
+            };
+            document.addEventListener('submit', event => {
+              const form = event.target;
+              if (String(form?.method || '').toLowerCase() !== 'get') mark('form-submit', String(form?.action || ''));
+            }, true);
+            if (navigator.sendBeacon) {
+              const nativeBeacon = navigator.sendBeacon.bind(navigator);
+              navigator.sendBeacon = function (url, data) { mark('beacon', url); return nativeBeacon(url, data); };
+            }
+            if (window.WebSocket) {
+              const nativeSend = WebSocket.prototype.send;
+              WebSocket.prototype.send = function (data) {
+                mark('websocket', typeof data === 'string' ? data.slice(0, 120) : '[binary]');
+                return nativeSend.apply(this, arguments);
+              };
+            }
+            window.addEventListener('beforeunload', () => mark('beforeunload', location.href));
+          } catch {}
+        }
+        const text = element => String(element?.innerText || element?.getAttribute?.('aria-label') || element?.value || '').trim();
+        const interactive = [...document.querySelectorAll('button,a,[role="button"],input[type="submit"],[role="menuitem"]')];
+        const destructivePattern = /删除|移除|清空|重置|注销|退出登录|发布|提交|支付|付款|下单|购买|转账|发送|delete|remove|destroy|reset|publish|submit|pay|purchase|checkout|transfer|send|sign\\s?out/i;
+        const canvases = [...document.querySelectorAll('canvas')];
+        let webgl = false;
+        try {
+          webgl = canvases.some(canvas => {
+            try { return !!(canvas.getContext('webgl2') || canvas.getContext('webgl')); } catch { return false; }
+          });
+        } catch {}
+        const sensitiveInput = [...document.querySelectorAll('input,textarea')].some(input => {
+          const type = String(input.type || '').toLowerCase();
+          if (['password', 'email', 'tel', 'date'].includes(type)) return true;
+          if (/cc-number|cc-csc|one-time-code|current-password|new-password/i.test(String(input.autocomplete || ''))) return true;
+          return /pass(word)?|pwd|secret|token|otp|code|card|cvv|phone|mobile|email|身份证|密码|验证码|手机|邮箱/i.test(String(input.name || '') + ' ' + String(input.id || ''));
+        });
+        const writeForm = [...document.forms].some(form => {
+          const method = String(form.method || 'get').toLowerCase();
+          const encoding = String(form.enctype || '').toLowerCase();
+          return method !== 'get' || encoding.includes('multipart');
+        });
+        const fileUpload = !!document.querySelector('input[type="file"]');
+        const destructiveLabel = interactive
+          .map(text)
+          .filter(Boolean)
+          .some(label => destructivePattern.test(label));
+        return {
+          webgl,
+          sensitiveInput,
+          writeForm,
+          fileUpload,
+          destructiveLabel,
+          dirty: window.__yanAcceptanceDirty || null,
+          title: document.title,
+          url: location.href
+        };
+      })()`);
+      if (!probe || probe.ok === false) return null;
+      return probe;
+    }
+
+    // One call for one acceptance pass: settle, run every declarative check in a
+    // single guest script, capture one frame, and return per-check results.
+    async acceptanceSweep(options = {}) {
+      return this.withAction(async () => {
+        const checks = Array.isArray(options.checks) ? options.checks.slice(0, 20) : [];
+        const settleMs = Math.max(0, Math.min(15000, Number(options.settleMs ?? options.settle_ms) || 4000));
+        const includePerformance = options.includePerformance === true;
+        const settledAt = Date.now();
+        const settle = await this.waitForStable(settleMs).catch(() => null);
+        const probe = await this.executePage(`(async () => {
+          const checks = ${JSON.stringify(checks)};
+          const readStorage = (key, session) => {
+            try { return (session ? sessionStorage : localStorage).getItem(String(key)); } catch { return null; }
+          };
+          const visible = element => {
+            if (!element || !element.isConnected) return false;
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+          };
+          const webglContext = () => {
+            for (const canvas of document.querySelectorAll('canvas')) {
+              try {
+                const context = canvas.getContext('webgl2') || canvas.getContext('webgl');
+                if (context) return context;
+              } catch {}
+            }
+            return null;
+          };
+          const run = check => {
+            const type = String(check?.type || '');
+            try {
+              switch (type) {
+                case 'title_contains': return { pass: String(document.title).includes(String(check.value ?? '')), detail: document.title };
+                case 'url_contains': return { pass: String(location.href).includes(String(check.value ?? '')), detail: location.href };
+                case 'text_visible': {
+                  const text = String(document.body?.innerText || '');
+                  return { pass: text.includes(String(check.value ?? '')), detail: text.replace(/\\s+/g, ' ').slice(0, 160) };
+                }
+                case 'element_exists': return { pass: !!document.querySelector(String(check.selector || '')), detail: String(check.selector || '') };
+                case 'element_visible': return { pass: visible(document.querySelector(String(check.selector || ''))), detail: String(check.selector || '') };
+                case 'no_horizontal_overflow': {
+                  const root = document.scrollingElement || document.documentElement;
+                  const overflow = Math.max(0, (root?.scrollWidth || 0) - (root?.clientWidth || 0));
+                  return { pass: overflow <= 2, detail: overflow + 'px overflow' };
+                }
+                case 'storage_equals': {
+                  const actual = readStorage(check.key, check.session === true);
+                  return { pass: actual === String(check.value ?? ''), detail: String(actual).slice(0, 160) };
+                }
+                case 'canvas_present': {
+                  const count = document.querySelectorAll('canvas').length;
+                  return { pass: count > 0, detail: count + ' canvas' };
+                }
+                case 'webgl_context_ok': {
+                  const context = webglContext();
+                  return { pass: !!context && !context.isContextLost(), detail: context ? String(context.getParameter(context.VERSION)) : 'no webgl context' };
+                }
+                default: return { pass: false, detail: 'unsupported check type: ' + type };
+              }
+            } catch (error) {
+              return { pass: false, detail: String(error?.message || error).slice(0, 160) };
+            }
+          };
+          const results = checks.map(check => ({ type: String(check?.type || ''), ...run(check) }));
+          const root = document.scrollingElement || document.documentElement;
+          const gl = webglContext();
+          const frames = [];
+          let frameSample = null;
+          if (${JSON.stringify(includePerformance)}) {
+            await new Promise(resolve => {
+              const started = performance.now();
+              const tick = now => {
+                frames.push(now);
+                if (now - started < 600) requestAnimationFrame(tick);
+                else {
+                  const span = frames.length > 1 ? frames[frames.length - 1] - frames[0] : 0;
+                  let maxFrame = 0;
+                  for (let index = 1; index < frames.length; index += 1) maxFrame = Math.max(maxFrame, frames[index] - frames[index - 1]);
+                  frameSample = { frames: frames.length, fps: span > 0 ? Math.round(((frames.length - 1) / span) * 1000) : 0, maxFrameMs: Math.round(maxFrame) };
+                  resolve();
+                }
+              };
+              requestAnimationFrame(tick);
+            });
+          }
+          const entries = performance.getEntriesByType('resource');
+          return {
+            url: location.href,
+            title: document.title,
+            readyState: document.readyState,
+            checks: results,
+            viewport: { width: innerWidth, height: innerHeight, scrollWidth: root?.scrollWidth || 0, scrollHeight: root?.scrollHeight || 0 },
+            webgl: gl ? { contextLost: gl.isContextLost(), version: String(gl.getParameter(gl.VERSION)) } : null,
+            resources: {
+              count: entries.length,
+              failed: entries.filter(entry => Number(entry.responseStatus) >= 400).length
+            },
+            frameSample
+          };
+        })()`);
+        if (!probe || probe.ok === false) return probe;
+        const consoleErrors = (this.consoleEntries || [])
+          .filter(entry => Number(entry.level) >= 3)
+          .slice(-10)
+          .map(entry => String(entry.message || '').slice(0, 300));
+        const results = (probe.checks || []).map(check => ({ ...check }));
+        if (checks.some(check => check?.type === 'no_console_errors')) {
+          const existing = results.find(check => check.type === 'no_console_errors');
+          const entry = { type: 'no_console_errors', pass: consoleErrors.length === 0, detail: consoleErrors.length ? consoleErrors[0] : '' };
+          if (existing) Object.assign(existing, entry); else results.push(entry);
+        }
+        let shot = null;
+        try {
+          shot = await withTimeout(window.yan.browserCapturePage(this.webview.getWebContentsId(), { fullSize: options.fullSize === true }), 12_000, 'SCREENSHOT_TIMEOUT');
+        } catch (error) { shot = { error: String(error?.message || error) }; }
+        const failed = results.filter(check => !check.pass).map(check => check.type);
+        const lines = [
+          `URL: ${probe.url}`,
+          `标题: ${probe.title || '(无标题)'}`,
+          `状态: ${probe.readyState}`,
+          `视口: ${probe.viewport.width}×${probe.viewport.height}`,
+          `检查: ${results.length - failed.length}/${results.length} 通过`,
+          ...results.map(check => `${check.pass ? '✓' : '✗'} ${check.type}${check.pass ? '' : ' — ' + check.detail}`)
+        ];
+        if (consoleErrors.length) lines.push(`控制台错误: ${consoleErrors.slice(0, 3).join(' | ')}`);
+        if (probe.frameSample) lines.push(`帧率: ${probe.frameSample.fps} fps，最大帧 ${probe.frameSample.maxFrameMs}ms`);
+        const image = typeof shot?.dataUrl === 'string' && shot.dataUrl.includes('base64,')
+          ? { mimeType: shot.dataUrl.slice(5, shot.dataUrl.indexOf(';')) || 'image/png', data: shot.dataUrl.slice(shot.dataUrl.indexOf('base64,') + 7) }
+          : null;
+        return {
+          ok: failed.length === 0,
+          output: lines.join('\n'),
+          url: probe.url,
+          title: probe.title,
+          readyState: probe.readyState,
+          settleMs: Date.now() - settledAt,
+          settle,
+          checks: results,
+          failed,
+          consoleErrors,
+          metrics: {
+            resources: probe.resources,
+            frameSample: probe.frameSample,
+            webgl: probe.webgl
+          },
+          // `image` is the field the MCP layer lifts into an image content block;
+          // `screenshot` stays metadata-only so base64 never lands in the text.
+          image: image ? { mimeType: image.mimeType, data: image.data } : null,
+          screenshot: {
+            hash: shot?.hash || '',
+            viewport: shot?.width ? { width: shot.width, height: shot.height } : null,
+            unchanged: shot?.unchanged === true
+          }
+        };
+      });
+    }
+
+    // Wait for the page to actually stop moving: commit + two frames + fonts +
+    // pending images, capped. This replaces most explicit browser_wait calls.
+    async waitForStable(timeoutMs = 4000) {
+      const capped = Math.max(200, Math.min(15000, Number(timeoutMs) || 4000));
+      const started = Date.now();
+      if (this.webview?.isLoading?.()) {
+        await new Promise(resolve => {
+          let done = false;
+          const finish = () => { if (done) return; done = true; clearTimeout(timer); this.webview.removeEventListener('did-finish-load', finish); this.webview.removeEventListener('did-fail-load', finish); resolve(); };
+          const timer = setTimeout(finish, Math.min(3000, capped));
+          this.webview.addEventListener('did-finish-load', finish);
+          this.webview.addEventListener('did-fail-load', finish);
+        });
+      }
+      const remaining = Math.max(200, capped - (Date.now() - started));
+      try {
+        await this.executePage(`(async () => {
+          const deadline = performance.now() + ${remaining};
+          const raf = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+          await raf(); await raf();
+          try { await Promise.race([document.fonts.ready, new Promise(resolve => setTimeout(resolve, 300))]); } catch {}
+          const pending = () => [...document.images].filter(image => !image.complete).length;
+          while (pending() > 0 && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+          return { readyState: document.readyState, pendingImages: pending(), fonts: document.fonts?.status || '' };
+        })()`);
+      } catch { /* a busy guest is reported by the caller's own timeout */ }
+      return Date.now() - started;
     }
 
     async waitForSettle(timeout = 900) {
@@ -1310,7 +1742,15 @@
       if (remaining < 1) return;
       await this.executePage(`(async () => {
         const deadline = performance.now() + ${remaining};
-        const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+        // requestAnimationFrame can be paused (hidden or occluded guest). Fall
+        // back to a timer so a paused frame loop cannot eat the whole guest
+        // budget and surface as a generic timeout.
+        const nextFrame = () => new Promise(resolve => {
+          let settled = false;
+          const done = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(); };
+          const timer = setTimeout(done, 600);
+          requestAnimationFrame(done);
+        });
         await nextFrame();
         await nextFrame();
         while (performance.now() < deadline) {

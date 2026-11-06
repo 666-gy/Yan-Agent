@@ -6,7 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
-const sidecar = require(path.join(appRoot, 'lib', 'opencode-sidecar.js'));
+const sidecar = require(path.join(appRoot, 'lib', 'kernel-policy.js'));
 const remote = require(path.join(appRoot, 'lib', 'mcp-remote.js'));
 
 function listen(handler) {

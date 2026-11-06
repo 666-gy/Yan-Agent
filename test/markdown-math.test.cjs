@@ -11,7 +11,7 @@ function renderer(file) {
   const start = source.indexOf('function renderMarkdown(text');
   const end = source.indexOf('\nfunction ', start + 1);
   const context = vm.createContext({
-    window: {}, ICONS: { copy: '' },
+    window: {}, ICONS: { copy: '' }, currentMainPage: 'chat',
     escapeHtml: s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
     renderMarkdownTables: s => s,
     AGENT_MARKDOWN_IMAGE_PATTERN: /(?!) /g, AGENT_MARKDOWN_LINK_PATTERN: /(?!) /g, AGENT_URL_PATTERN: /(?!) /g

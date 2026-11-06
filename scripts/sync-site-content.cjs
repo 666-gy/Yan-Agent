@@ -17,26 +17,11 @@ if (!notes || !Array.isArray(notes.pages) || !notes.pages.length)
 const version = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
 ).version;
-let output = {
+const output = {
   version,
-  label: version,
+  label: notes.pages[0].title.replace(/^Yan Agent\s+v?/, ""),
   ...notes,
 };
-// Website editorial release source; keep public notes separate from the app changelog.
-const siteNotesPath = path.join(root, `docs/releases/v${version}.md`);
-if (fs.existsSync(siteNotesPath)) {
-  const pages = [];
-  let current;
-  for (const line of fs.readFileSync(siteNotesPath, "utf8").split(/\r?\n/)) {
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      current = { title: heading[2], paragraphs: [], bullets: [] };
-      pages.push(current);
-    } else if (line.startsWith("- ") && current) current.bullets.push(line.slice(2));
-    else if (line.trim() && current) current.paragraphs.push(line.trim());
-  }
-  output = { ...output, pages };
-}
 const serialized = JSON.stringify(output, null, 2).replace(/</g, "\\u003c");
 fs.writeFileSync(
   path.join(root, "docs/site-release.js"),

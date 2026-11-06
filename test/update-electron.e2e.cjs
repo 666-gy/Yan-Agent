@@ -27,8 +27,14 @@ if (!process.versions.electron || process.type !== 'browser') {
     const updater = require('../lib/update-checker');
     const payload = Buffer.from('verified Electron updater payload');
     const sha512 = crypto.createHash('sha512').update(payload).digest('base64');
+    const chunkText = JSON.stringify({ schemaVersion: 1, algorithm: 'yan-gear-sha256-v1', size: payload.length, sha512,
+      chunks: [{ offset: 0, size: payload.length, sha256: crypto.createHash('sha256').update(payload).digest('hex') }] });
     const sockets = new Set();
     const server = http.createServer((req, res) => {
+      if (req.url === '/chunks') { res.end(chunkText); return; }
+      if (req.url === '/range') {
+        res.writeHead(206, { 'content-range': `bytes 0-${payload.length - 1}/${payload.length}` }); res.end(payload); return;
+      }
       if (req.url.startsWith('/stall/')) return;
       if (req.url === '/partial') {
         res.writeHead(200, { 'content-length': 1000 });
@@ -48,6 +54,13 @@ if (!process.versions.electron || process.type !== 'browser') {
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const targetPath = path.join(profile, 'update.bin');
     try {
+      const ranged = await updater.downloadUpdate({ url: `${baseUrl}/range`, targetPath,
+        expectedSize: payload.length, expectedSha512: sha512,
+        chunkIndex: { url: `${baseUrl}/chunks`, sha256: crypto.createHash('sha256').update(chunkText).digest('hex') } });
+      assert.equal(ranged.mode, 'parallel');
+      assert.deepEqual(fs.readFileSync(targetPath), payload);
+      console.log('PASS native Electron exact range download');
+      fs.unlinkSync(targetPath);
       const timeout = await updater.checkForUpdates({ baseUrl: `${baseUrl}/stall`, fallbackBaseUrl: '', timeoutMs: 300 });
       assert.equal(timeout.ok, false);
       assert.equal(timeout.error, 'timeout');

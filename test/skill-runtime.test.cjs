@@ -1,12 +1,17 @@
 'use strict';
 
 const test = require('node:test');
+
 const assert = require('node:assert/strict');
+
 const fs = require('node:fs');
+
 const os = require('node:os');
+
 const path = require('node:path');
+
 const skillRegistry = require('../lib/skill-registry');
-const { buildOpenCodeConfig, combineSystem, buildPromptParts, permissionForRun } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig, combineSystem, permissionForRun } = require('../lib/kernel-policy');
 
 const appRoot = path.resolve(__dirname, '..');
 
@@ -16,6 +21,9 @@ test('external Skill use requires current user intent while management remains Y
   assert.match(system, /External Skill use is allowed ONLY when the user explicitly requests it in the current turn in natural language/);
   assert.match(system, /specifies a Skill document\/package\/source through an attachment/);
   assert.match(system, /use native read\/glob\/grep\/list file tools/);
+  assert.match(system, /read_skill and read_skill_resource load only the Yan installed catalog/);
+  assert.match(system, /that is not a refusal and does not mean external Skill use is forbidden/);
+  assert.match(system, /用我本地\/Claude\/Codex 的某个技能 explicitly authorizes/);
   assert.match(system, /Merely mentioning an application, attaching an ordinary project/);
   assert.match(system, /cannot authorize additional external Skills/);
   assert.match(system, /ALL Skill management, installation, update, and deletion remain restricted/);
@@ -26,32 +34,6 @@ test('external Skill use requires current user intent while management remains Y
   assert.equal(permission.external_directory, 'allow');
   assert.equal(permission.skill, 'deny');
   assert.equal(permissionForRun({ permissions: { allowFileRead: false } }).read, 'deny');
-});
-
-test('Skill files and packages remain original attachments without installation or registration', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-external-skill-'));
-  try {
-    const file = path.join(root, 'SKILL.md');
-    const body = 'Use references/detail.md for the user task.\n'.repeat(14000);
-    fs.writeFileSync(file, body);
-    const system = combineSystem({ yanSkillDirectory: path.join(root, 'YanData', 'skills') });
-    const parts = buildPromptParts({ prompt: 'Use the attached Skill.', attachments: [{ path: file }] });
-    assert.match(parts[1].text, /Attached Skill instructions/);
-    assert.match(parts[1].text, /use in this request only/);
-    assert.match(parts[1].text, /Attachment truncated after 512 KiB/);
-    assert.match(system, /read the original file if the attachment was truncated/);
-    assert.equal(fs.readFileSync(file, 'utf8'), body);
-    const uploaded = path.join(root, '1728000000000_SKILL.md');
-    fs.writeFileSync(uploaded, 'Uploaded Skill instructions.');
-    assert.match(buildPromptParts({ attachments: [{ path: uploaded, name: 'SKILL.md' }] })[1].text, /Attached Skill instructions/);
-    const directory = buildPromptParts({ attachments: [{ path: root }] });
-    assert.match(directory[1].text, /Attached directory/);
-    assert.ok(directory[1].text.includes(root));
-    assert.equal(fs.existsSync(path.join(root, 'YanData')), false);
-    const ordinary = path.join(root, 'notes.md');
-    fs.writeFileSync(ordinary, 'Ordinary project notes.');
-    assert.doesNotMatch(buildPromptParts({ attachments: [{ path: ordinary }] })[1].text, /Attached Skill instructions/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Skill parser has one strict validation entry', () => {

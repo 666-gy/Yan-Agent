@@ -15,7 +15,6 @@ const nonRepoWorkspace = path.join(testRoot, 'non-repo-workspace');
 const remote = path.join(testRoot, 'remote.git');
 const outputDir = path.join(appRoot, 'output', 'playwright');
 const dialogScreenshotPath = path.join(outputDir, `yan-git-commit-dialog-${Date.now()}.png`);
-const graphScreenshotPath = path.join(outputDir, `yan-git-graph-${Date.now()}.png`);
 const reviewScreenshotPath = path.join(outputDir, `yan-review-sidebar-codex-${Date.now()}.png`);
 const reviewLightScreenshotPath = path.join(outputDir, `yan-review-sidebar-light-${Date.now()}.png`);
 const reviewNarrowScreenshotPath = path.join(outputDir, `yan-review-sidebar-narrow-${Date.now()}.png`);
@@ -70,10 +69,13 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.waitForFunction(() => document.readyState === 'complete'
       && typeof refreshTaskGitStatus === 'function'
-      && document.querySelector('#taskGitToolsWrap')?.dataset.bound === 'true'
+      && document.querySelector('#taskGitBranchWrap')?.dataset.bound === 'true'
       && state.currentSession);
     await page.evaluate(() => setEmptyState(false));
     await page.locator('#taskBar:not(.hidden)').waitFor();
+
+    // First-run handwriting overlay would otherwise intercept every click.
+    await page.evaluate(() => window.YanStartupHello?.skip?.());
 
     await page.evaluate(async targetWorkspace => {
       const updated = await window.yan.setSessionWorkspace(state.currentSession.id, targetWorkspace, false);
@@ -87,13 +89,59 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     assert.equal(await page.locator('#rs-git').count(), 0);
     assert.equal(await page.locator('[data-rs-open-tool="git"]').count(), 0);
     assert.equal(await page.locator('#taskGitBranchName').textContent(), 'main');
+    assert.equal(await page.locator('#taskGitCreateBranchBtn').count(), 0, 'create-branch icon button removed');
+    assert.equal(await page.locator('#taskGitCommitOpenBtn').count(), 0, 'commit icon button removed');
+    assert.equal(await page.locator('#taskGitBranchStats').textContent(), '+3-1');
+    assert.equal(await page.locator('#taskGitRefreshBtn').count(), 1, 'refresh icon button present');
+    assert.equal(await page.locator('#taskGitReviewBtn [data-keyline-icon]').getAttribute('data-keyline-icon'), 'file-diff');
+    assert.equal(await page.locator('#taskGitOpsBtn [data-keyline-icon]').getAttribute('data-keyline-icon'), 'git-fork');
+    const pillOrder = await page.evaluate(() => ['taskGitBranchStats', 'taskGitRefreshBtn', 'taskGitReviewBtn', 'taskGitOpsBtn']
+      .map(id => document.getElementById(id)?.getBoundingClientRect().left));
+    assert.ok(pillOrder.every((left, index) => index === 0 || left >= pillOrder[index - 1]), 'stats, refresh, review, ops order');
+    assert.equal(await page.locator('#taskGitHubBtn').count(), 0, 'capsule panel trigger removed');
+    assert.equal(await page.locator('#taskGitPanel').count(), 0, 'capsule panel removed');
 
-    await page.locator('#taskGitHubBtn').click();
-    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
+    await page.locator('#taskGitOpsBtn').click();
+    await page.locator('#taskGitOpsMenu:not(.hidden)').waitFor();
+    const taskBarOps = await page.evaluate(() => {
+      const menu = document.querySelector('#taskGitOpsMenu');
+      const items = [...menu.querySelectorAll('[data-task-git-ops]')];
+      const button = document.querySelector('#taskGitOpsBtn');
+      const m = menu.getBoundingClientRect();
+      const b = button.getBoundingClientRect();
+      return {
+        labels: items.map(item => item.textContent.trim()),
+        icons: items.map(item => item.querySelector('[data-keyline-icon]')?.getAttribute('data-keyline-icon')),
+        aboveButton: m.bottom <= b.top,
+        belowButton: m.top >= b.bottom,
+        panelRadius: parseFloat(getComputedStyle(menu).borderTopLeftRadius),
+        itemRadii: items.map(item => getComputedStyle(item).borderTopLeftRadius),
+        menuPadding: getComputedStyle(menu).paddingTop,
+        itemWidthsTouch: items.every(item => Math.abs(item.getBoundingClientRect().width - menu.clientWidth) <= 1)
+      };
+    });
+    assert.deepEqual(taskBarOps.labels, ['新建分支', '提交或推送', '移至工作树']);
+    assert.deepEqual(taskBarOps.icons, ['git-branch-plus', 'git-commit-horizontal', 'chart-diagram']);
+    assert.equal(taskBarOps.aboveButton, true, 'Git operations menu opens upward');
+    assert.ok(taskBarOps.panelRadius >= 10, 'menu panel keeps rounded corners');
+    assert.deepEqual(taskBarOps.itemRadii, ['0px', '0px', '0px'], 'option flashes are rectangular');
+    assert.equal(taskBarOps.menuPadding, '0px', 'option flashes touch the panel edges');
+    assert.equal(taskBarOps.itemWidthsTouch, true, 'option flashes span the full panel width');
+    await page.locator('[data-task-git-ops="commit"]').hover();
+    const optionFlash = await page.evaluate(() => {
+      const item = document.querySelector('[data-task-git-ops="commit"]');
+      const style = getComputedStyle(item);
+      return { background: style.backgroundColor, radius: style.borderTopLeftRadius };
+    });
+    assert.notEqual(optionFlash.background, 'rgba(0, 0, 0, 0)', 'option shows a hover flash');
+    assert.equal(optionFlash.radius, '0px');
+    await page.keyboard.press('Escape');
+    await page.locator('#taskGitOpsMenu').waitFor({ state: 'hidden' });
+
     await page.locator('#taskGitRefreshBtn').click();
     await page.waitForFunction(() => !document.querySelector('#taskGitRefreshBtn')?.hasAttribute('aria-busy'));
-    assert.equal(await page.locator('#taskGitDiffStats').textContent(), '+3-1');
-    await page.locator('#taskGitBranchOpenBtn').click();
+    assert.equal(await page.locator('#taskGitBranchStats').textContent(), '+3-1');
+    await page.locator('#taskGitReviewBtn').click();
     await page.locator('#rs-review.active').waitFor();
     await page.locator('#yanDshReviewFrame').waitFor();
     const reviewFrame = page.frameLocator('#yanDshReviewFrame');
@@ -214,9 +262,11 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
 
     await page.locator('#taskGitBranchBtn').click();
     await page.locator('#taskGitBranchPopover:not(.hidden)').waitFor();
-    await page.locator('#taskGitCommitOpenBtn').click();
-    await page.locator('#taskGitCommitDialog[open]').waitFor();
+    await page.locator('#taskGitOpsBtn').click();
+    await page.locator('#taskGitOpsMenu:not(.hidden)').waitFor();
     assert.equal(await page.locator('#taskGitBranchPopover').isVisible(), false);
+    await page.locator('[data-task-git-ops="commit"]').click();
+    await page.locator('#taskGitCommitDialog[open]').waitFor();
 
     await page.locator('#taskGitCommitBranchBtn').click();
     assert.equal(await page.locator('[data-task-git-commit-branch="main"]').count(), 1);
@@ -234,27 +284,8 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     await page.waitForFunction(() => document.querySelector('#taskGitBranchName')?.textContent === 'feature/test');
     assert.equal(runGit(['show', '-s', '--format=%s', 'HEAD']), generatedMessage);
 
-    await page.locator('#taskGitHubBtn').click();
-    await page.locator('#taskGitPanel:not(.hidden)').waitFor();
-    await page.locator('#taskGitGraphOpenBtn').click();
-    await page.locator('#taskGitGraphDialog[open]').waitFor();
-    await page.waitForFunction(() => document.querySelector('#taskGitGraphList')?.textContent.includes('Merged PR work'));
-    assert.match(await page.locator('#taskGitGraphList').textContent(), /origin\/pr-1/);
-    const prRow = page.locator('.task-git-graph-row', { hasText: 'Merged PR work' });
-    assert.equal(await prRow.locator('.task-git-graph-node.lane-1').count(), 1);
-    const commonParentRow = page.locator('.task-git-graph-row', { hasText: 'Initial UI commit' });
-    assert.ok(await commonParentRow.locator('path.task-git-lane.lane-1').count() > 0);
-    assert.ok(await commonParentRow.locator('path.task-git-lane.lane-1').evaluateAll(paths => paths.some(path => /C/.test(path.getAttribute('d') || ''))));
-    await page.screenshot({ path: graphScreenshotPath, fullPage: false });
-
-    const geometry = await page.locator('#taskGitGraphDialog').evaluate(dialog => ({
-      horizontalOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
-      verticalOverflow: dialog.scrollHeight > dialog.clientHeight + 1
-    }));
-    assert.equal(geometry.horizontalOverflow, false, JSON.stringify(geometry));
-    assert.equal(geometry.verticalOverflow, false, JSON.stringify(geometry));
-
-    await page.locator('#taskGitGraphCloseBtn').click();
+    assert.equal(await page.locator('#taskGitGraphOpenBtn').count(), 0, 'Git 图谱入口已移除');
+    assert.equal(await page.locator('#taskGitGraphDialog').count(), 0, 'Git 图谱弹窗已移除');
     await page.evaluate(async targetWorkspace => {
       const updated = await window.yan.setSessionWorkspace(state.currentSession.id, targetWorkspace, false);
       state.currentSession.workspace = updated.workspace;
@@ -272,7 +303,6 @@ fs.writeFileSync(path.join(workspace, 'src', 'long.js'), `${longSource.join('\n'
     console.log(JSON.stringify({
       ok: true,
       dialogScreenshotPath,
-      graphScreenshotPath,
       reviewScreenshotPath,
       reviewLightScreenshotPath,
       reviewNarrowScreenshotPath,

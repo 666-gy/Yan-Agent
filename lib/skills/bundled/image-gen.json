@@ -1,0 +1,12 @@
+{
+  "id": "image-gen",
+  "name": "Image Gen",
+  "desc": "Generate or edit raster images using Yan’s configured image model. Use for image creation, revisions, supplied-image edits, illustrations, textures and image assets.",
+  "tags": [
+    "office-assist"
+  ],
+  "source": "bundled",
+  "version": 1,
+  "promptFile": "../image-gen/SKILL.md",
+  "logo": "assets/skill-logos/image-gen.svg"
+}

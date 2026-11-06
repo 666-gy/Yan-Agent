@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { resolveProviderAdapter } = require('../lib/provider-adapter-routing');
 const { resolveConnectionPreset } = require('../lib/connection-presets');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 
 const FLAG_BY_PRESET = Object.freeze({ deepseek: 'dsml', glm: 'glmm', qwen: 'qwem', kimi: 'kiml',
   gptl: 'gptl', agnes: 'agnl', gemini: 'geml', grok: 'grol', anthropic: 'antl' });

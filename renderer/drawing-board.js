@@ -66,6 +66,7 @@
   closeButton.addEventListener('click', () => void annotations.requestClose());
   dialog.addEventListener('cancel', event => { event.preventDefault(); void annotations.requestClose(); });
   dialog.addEventListener('keydown', event => event.stopPropagation());
+
   confirm.addEventListener('click', async () => {
     if (saving) return;
     const dataUrl = annotations.exportImage();

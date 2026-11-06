@@ -1,0 +1,9 @@
+{
+  "name": "magpie-agent-yan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Magpie Agent integration for Yan Agent on Windows",
+  "files": ["yan.agent.js", "README.md"],
+  "magpie": { "agent": "./yan.agent.js" }
+}

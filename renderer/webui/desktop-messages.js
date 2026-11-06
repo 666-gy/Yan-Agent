@@ -8,16 +8,17 @@ const AGENT_MARKDOWN_LINK_PATTERN = /(?<!!)\[([^\]\r\n]+)\]\(\s*(?:<([^<>\r\n]+)
 const AGENT_MARKDOWN_IMAGE_PATTERN = /!\[([^\]\r\n]*)\]\(\s*([^\s<>"')]+)\s*\)/gi;
 
 
-const THINKING_BOT_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z\"></path><path d=\"M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574\"></path></svg>";
+const THINKING_GALAXY_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16.005 15.108a5.041 6.52 28.25 00-8.008-6.217 5.041 6.52 28.25 008.008 6.217A11.884 7.288-60.76 014.029 7.001\"/><path d=\"M17 21h.01\"/><path d=\"M7 3h.01\"/><path d=\"M7.997 8.891a11.885 7.288-60.756 0111.977 8.107\"/><circle cx=\"12\" cy=\"12\" r=\"1\" fill=\"currentColor\"/></svg>";
 function normalizeAgentImageUrl(value) {
   const url = String(value || '').trim();
   if (/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(url)) return url.length <= 2000000 ? url : '';
   try { return new URL(url).protocol === 'https:' ? url : ''; } catch { return ''; }
 }
 function renderInlineEmphasis(escapedText) {
-  return String(escapedText ?? '')
+  const html = String(escapedText ?? '')
     .replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^\n*]+?)\*/g, '<em>$1</em>');
+  return html;
 }
 function formatDuration(ms) {
   if (ms < 1000) return ms + 'ms';
@@ -191,7 +192,8 @@ function renderMarkdown(text, { softBreaks = false } = {}) {
     if (!image) return '';
     return `<figure class="agent-markdown-image"><a class="agent-markdown-image-link" href="${escapeAttr(image.url)}" data-yan-browser-link="${escapeAttr(image.url)}" rel="noreferrer" aria-label="打开图片预览" title="打开图片预览"><img src="${escapeAttr(image.url)}" alt="${escapeAttr(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a></figure>`;
   });
-  return math ? math.restore(t) : t;
+  const html = math ? math.restore(t) : t;
+  return html;
 }
 function buildTextRoundElement(content) {
   const roundEl = document.createElement('div');
@@ -208,11 +210,18 @@ function buildThinkingElement(content, open = false) {
   const icon = document.createElement('span');
   icon.className = 'think-icon thinking-bot';
   icon.setAttribute('aria-hidden', 'true');
-  icon.innerHTML = THINKING_BOT_ICON;
+  icon.innerHTML = THINKING_GALAXY_ICON;
   const label = document.createElement('span');
   label.className = 'thinking-label';
-  label.textContent = '思考中';
-  summary.append(icon, label);
+  label.textContent = '思考';
+  const separator = document.createElement('span');
+  separator.className = 'thinking-separator';
+  separator.setAttribute('aria-hidden', 'true');
+  separator.textContent = '·';
+  const preview = document.createElement('span');
+  preview.className = 'thinking-preview';
+  preview.textContent = String(content || '').replace(/\s+/gu, ' ').trim();
+  summary.append(icon, label, separator, preview);
 
   const text = document.createElement('div');
   text.className = 'thinking-text';

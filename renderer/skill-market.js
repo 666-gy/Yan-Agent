@@ -17,3 +17,11 @@ const SKILL_GROUP_DESCRIPTIONS = Object.freeze({
 });
 
 const SKILL_MARKET = [];
+
+// Page visibility only: runtime skill discovery and plugin resources stay intact.
+function isSkillPageVisible(skill) {
+  const id = String(skill.id || '').toLowerCase();
+  const parent = String(skill.parentSkillId || '').toLowerCase();
+  const hidden = new Set(['hyperframes', 'remotion-best-practices', 'remotion', 'yan-computer-use', 'computer-use', 'office', 'officecli', 'yan-office', 'yan-prompt-optimizer']);
+  return !hidden.has(id) && !hidden.has(parent) && !/^(?:hyperframes|remotion|office|computer-use|yan-computer-use)[:/]/.test(id);
+}

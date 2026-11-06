@@ -1,0 +1,8 @@
+{
+  "name": "yan-opencode-v2-build-tools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@oven/bun-windows-x64": "1.4.2"
+  }
+}

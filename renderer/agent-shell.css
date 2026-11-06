@@ -1,9 +1,33 @@
 /* Hallmark · component: continuous Agent shell · theme: existing Yan tokens
    Reference: supplied desktop screenshots · pre-emit critique: P5 H5 E4 S5 R5 V4 */
-.app { --app-rail-w: 48px; background: var(--sidebar-bg); }
+.app {
+  --app-rail-w: 48px;
+  /* The rounded workspace floats above the chrome; the shadow follows the same
+     20px arc so the corner reads as a raised edge, not a flat cut-out. */
+  --shell-panel-shadow: 0 20px 46px -14px rgba(0, 0, 0, 0.78), 0 6px 18px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.55);
+  /* A hairline of light on the top/left lip (including the arc) reads as a
+     raised bevel; the dark shell swallows a shadow-only cue. */
+  --shell-panel-rim: inset 1px 1px 0 rgba(255, 255, 255, 0.055);
+  background: var(--sidebar-bg);
+}
 .app-rail { position: absolute; inset: 40px auto 0 0; z-index: 81; width: var(--app-rail-w); display: flex; align-items: center; flex-direction: column; gap: 8px; padding: 8px 0 12px; -webkit-app-region: no-drag; }
-.app-rail-button { display: flex; border: 1px solid transparent; align-items: center; justify-content: center; flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; color: var(--text-dim); background: transparent; cursor: pointer; }
+.app-rail-button { position: relative; display: flex; border: 1px solid transparent; align-items: center; justify-content: center; flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; color: var(--text-dim); background: transparent; cursor: pointer; }
+.app-rail-button.has-unread::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
+  pointer-events: none;
+}
 .app-rail-button > svg { width: 20px; height: 20px; }
+.app-rail-button .rail-icon-fill { display: none; }
+.app-rail-button.active .rail-icon-stroke { display: none; }
+.app-rail-button.active .rail-icon-fill { display: block; }
 .app-rail-button .titlebar-sidebar-logo { width: 24px; height: 24px; object-fit: contain; }
 .app-rail-button:hover { color: var(--text); background: var(--bg-hover); }
 .app-rail-button.active { color: var(--text); background: var(--bg-active); border-color: transparent; }
@@ -13,8 +37,71 @@
 .app.settings-mode .app-rail-button.active { background: transparent; }
 .app.settings-mode .app-rail-settings { background: var(--bg-active); color: var(--text); }
 .app > .layout { margin-left: var(--app-rail-w); border-top-left-radius: var(--r-xl); overflow: hidden; }
+/* Normal workspace: round the three outer corners (bottom-right stays square)
+   and keep a hairline of shell visible on the right/bottom. */
+.app:not(.browser-focus-mode):not(.panel-composer-mode) > .layout {
+  margin-right: 2px;
+  margin-bottom: 2px;
+  border-radius: var(--r-xl) var(--r-xl) 0 var(--r-xl);
+  box-shadow: var(--shell-panel-shadow);
+}
+.app:not(.browser-focus-mode):not(.panel-composer-mode) > .layout::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--shell-panel-rim);
+}
+/* Pure dark: the page takes the former titlebar black; the titlebar/rail take
+   the supplied green-black. Wallpaper keeps its material tokens. */
+[data-theme="dark"] .app:not(.wallpaper-enabled) {
+  --bg: #161616;
+  --sidebar-bg: #1d221f;
+}
+[data-theme="dark"] .app:not(.wallpaper-enabled) .right-sidebar { background: var(--bg); }
+/* Light chrome is white, so the same elevation needs a cooler, lighter cast. */
+[data-theme="light"] .app {
+  --shell-panel-shadow: 0 18px 40px -16px rgba(24, 35, 52, 0.26), 0 4px 12px rgba(24, 35, 52, 0.1);
+  --shell-panel-rim: none;
+}
+/* Keep the rightmost top controls clear of the 20px top-right clip. */
+.app .rs-tabbar { padding-right: 10px; }
+.app:not(.browser-focus-mode):not(.panel-composer-mode).rs-hidden #taskBar { padding-right: 10px; }
+/* Join the right panel to the chat with one 1px seam. The pseudo-element keeps
+   the previous wide drag target without painting a 4px gutter. */
+.app:not(.browser-focus-mode):not(.panel-composer-mode) #rightResizeHandle {
+  width: 1px;
+  background: var(--border);
+}
+.app:not(.browser-focus-mode):not(.panel-composer-mode) #rightResizeHandle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+  cursor: col-resize;
+}
+.app:not(.browser-focus-mode):not(.panel-composer-mode) #rightResizeHandle:hover { background: var(--border-strong); }
+.app:not(.browser-focus-mode):not(.panel-composer-mode) #rightResizeHandle:active { background: var(--accent); }
+.app:not(.browser-focus-mode):not(.panel-composer-mode) .right-sidebar { border-left: 0; }
 .app .sidebar { border-top-left-radius: var(--r-xl); background: var(--sidebar-bg); }
-.app #settingsOverlay { left: var(--app-rail-w); border-top-left-radius: var(--r-xl); overflow: hidden; }
+.app #settingsOverlay {
+  left: var(--app-rail-w);
+  right: 2px;
+  bottom: 2px;
+  border-radius: var(--r-xl) var(--r-xl) 0 var(--r-xl);
+  box-shadow: var(--shell-panel-shadow);
+  overflow: hidden;
+}
+.app #settingsOverlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--shell-panel-rim);
+}
 /* One continuous shell material owns the titlebar, sidebar, resize gutter and
    exposed canvas corners. Never blur/tint these adjoining rectangles twice. */
 .app::before {
@@ -31,6 +118,11 @@
   background: var(--mat-chrome, transparent);
   -webkit-backdrop-filter: blur(var(--mat-blur, 0px)) saturate(1.08);
   backdrop-filter: blur(var(--mat-blur, 0px)) saturate(1.08);
+}
+/* Pure light mode (no wallpaper): titlebar + left rail form one cyan strip
+   around the white sidebar. Wallpaper and dark modes keep their material. */
+[data-theme="light"] .app:not(.wallpaper-enabled)::before {
+  background: #ecf7f1;
 }
 .titlebar { background: var(--sidebar-bg); border-bottom: 0; }
 .sidebar { border-right: 0; }
@@ -50,9 +142,16 @@
 .app:not(.browser-focus-mode) #taskBar {
   background: transparent;
   border-top-left-radius: inherit;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0;
 }
 .app.wallpaper-enabled.wallpaper-compat #taskBar { background: transparent; }
+/* Keep the side-panel header divider in both split and fullscreen layouts. */
+.app .rs-content { border-top: 1px solid var(--border); }
+/* Fade only the main conversation; focused side panels keep their own chrome. */
+.app:not(.browser-focus-mode):not(.panel-composer-mode) #chatMainColumn:not(.empty) #chatScroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 20px);
+  mask-image: linear-gradient(to bottom, transparent, #000 20px);
+}
 .app.sidebar-hidden #pageChat,
 .app.sidebar-hidden #chatMainColumn,
 .app.sidebar-hidden #taskBar { border-top-left-radius: 0; }
@@ -141,72 +240,141 @@
   z-index: 90;
   left: 0;
   bottom: calc(100% + 8px);
-  width: 252px;
-  max-height: min(48vh, 340px);
+  width: min(326px, calc(100vw - 28px));
+  max-height: min(56vh, 400px);
+  transform-origin: 28px bottom;
+  animation: taskGitPanelIn var(--dur-short) var(--ease-out) both;
+}
+
+/* Shared branch panel surface: the new-task picker and the task-bar branch
+   popover use the same markup so both stay visually identical. */
+.branch-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   overflow: hidden;
-  padding: 5px;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  color: var(--text);
   background: var(--bg-elev);
   box-shadow: var(--shadow);
 }
-.new-task-branch-search {
+.branch-panel .branch-panel-search {
   flex: 0 0 auto;
-  height: 30px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 9px;
-  border-radius: 10px;
-  background: var(--fill-soft, rgba(127, 127, 127, .1));
-  color: var(--text-faint);
-}
-.new-task-branch-search input {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
+  gap: 9px;
+  margin: 0;
+  padding: 13px 15px 5px;
   border: 0;
+  border-radius: 0;
+  color: var(--text-faint);
   background: transparent;
+  box-shadow: none;
+}
+.branch-panel .branch-panel-search > svg { flex: 0 0 auto; }
+.branch-panel .branch-panel-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   color: var(--text);
-  font: 400 13px/1 var(--font-sans);
+  background: transparent;
+  box-shadow: none;
+  font: 400 14px/1.2 var(--font-sans);
   outline: none;
 }
-.new-task-branch-search input:focus,
-.new-task-branch-search input:focus-visible { outline: none; }
-.new-task-branch-list { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; gap: 2px; }
-.new-task-branch-create {
+.branch-panel .branch-panel-search input:focus,
+.branch-panel .branch-panel-search input:focus-visible {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.branch-panel .branch-panel-search input::placeholder { color: var(--text-faint); }
+.branch-panel .branch-panel-search input::-webkit-search-cancel-button { opacity: .55; }
+.branch-panel .branch-panel-title {
   flex: 0 0 auto;
+  padding: 9px 15px 5px;
+  color: var(--text-dim);
+  font: 700 13.5px/1.25 "Microsoft YaHei", "微软雅黑", var(--font-sans);
+}
+.branch-panel .branch-panel-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 0 9px;
+}
+.branch-panel .branch-panel-option {
   width: 100%;
-  min-height: 30px;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 15px;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-dim);
+  background: transparent;
+  text-align: left;
+  transition: background var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out);
+}
+.branch-panel .branch-panel-option-icon { flex: 0 0 auto; color: var(--text-faint); }
+.branch-panel .branch-panel-option-text { min-width: 0; display: grid; gap: 3px; }
+.branch-panel .branch-panel-option strong,
+.branch-panel .branch-panel-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-panel .branch-panel-option strong { color: inherit; font: 400 14px/1.3 var(--font-sans); }
+.branch-panel .branch-panel-option small { color: var(--text-faint); font: 400 12px/1.3 var(--font-sans); }
+.branch-panel .branch-panel-option:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.branch-panel .branch-panel-option:focus-visible {
+  border-radius: 0;
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.branch-panel .branch-panel-option:active:not(:disabled) { background: var(--bg-active); }
+.branch-panel .branch-panel-option.is-selected { color: var(--text); }
+.branch-panel .branch-panel-option.is-selected .branch-panel-option-icon { color: var(--text-dim); }
+.branch-panel .branch-panel-option-check { color: var(--text); }
+.branch-panel .branch-panel-empty {
+  padding: 14px 10px;
+  color: var(--text-faint);
+  font: 400 12px/1.5 var(--font-sans);
+  text-align: center;
+}
+.branch-panel .branch-panel-footer {
+  flex: 0 0 auto;
+  padding: 7px 7px 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.branch-panel .branch-panel-create {
+  width: 100%;
+  min-height: 32px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   padding: 0 9px;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 999px;
   color: var(--text-dim);
-  font: 500 13px/1.2 var(--font-sans);
+  background: transparent;
+  font: 400 13px/1.2 var(--font-sans);
   text-align: left;
 }
-.new-task-branch-create:hover { background: var(--bg-hover); color: var(--text); }
-.new-task-branch-create > svg { color: var(--text-faint); flex: 0 0 auto; }
-.new-task-branch-option {
-  width: 100%;
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 9px;
-  border-radius: 10px;
-  color: var(--text-dim);
-  font: 500 13px/1.2 var(--font-sans);
-  text-align: left;
-}
-.new-task-branch-option:hover { background: var(--bg-hover); color: var(--text); }
-.new-task-branch-option.is-current { color: var(--text); font-weight: 600; }
-.new-task-branch-empty { padding: 8px; color: var(--text-faint); font: 400 11.5px/1.5 var(--font-sans); text-align: center; }
+.branch-panel .branch-panel-create > svg { flex: 0 0 auto; color: var(--text-faint); }
+.branch-panel .branch-panel-create:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.branch-panel .branch-panel-create:active:not(:disabled) { background: var(--bg-active); }
+.branch-panel .branch-panel-create:disabled { opacity: .45; cursor: not-allowed; }
+.branch-panel .branch-panel-create:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .new-task-workspace #taskBarFolderWrap { display: flex; min-width: 0; }
 .app .new-task-workspace #taskBarFolder {
   height: 28px;
@@ -337,6 +505,13 @@
   -webkit-backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.7)) saturate(1.06);
   backdrop-filter: blur(calc(var(--mat-blur, 0px) * 0.7)) saturate(1.06);
 }
+/* The legacy environment strip above the composer is gone. Opened history tasks
+   get mode/Bash/branch from the capsule panel instead. */
+.legacy-composer-hidden { display: none !important; }
+/* The full-screen side panel keeps a composer, but that copy is a compact
+   surface: no token/context readout and no mascot. The code-review page renders
+   the same composer, so it follows the same rules. */
+.app:is(.browser-focus-mode, .panel-composer-mode) #composerUsageWrap { display: none !important; }
 .user-message-content { max-height: 6lh; overflow: hidden; }
 .msg.user.is-expanded .user-message-content { max-height: none; }
 .msg.user .user-message-toggle {
@@ -380,6 +555,20 @@
 .task-toolbar-menu .sidebar-context-menu-item { min-height: 32px; padding: 5px 8px; gap: 9px; font-size: 13px; border-radius: 9px; }
 .task-toolbar-menu .sidebar-context-menu-item > svg { width: 17px; height: 17px; }
 .task-toolbar-menu .task-context-separator { margin: 4px 8px; }
+/* The task right-click menu, its submenus, the project "…" menu and the
+   task-bar "…" menu share one strict rectangular hover fill that reaches both
+   menu edges. Horizontal menu padding moves onto each row so labels stay put. */
+.rect-hover-menu {
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+}
+.rect-hover-menu .sidebar-context-menu-item {
+  padding-left: 13px;
+  padding-right: 13px;
+  border-radius: 0;
+}
+.rect-hover-menu .task-context-separator { margin-left: 0; margin-right: 0; }
 /* Task "…" menu (and its submenus) read as acrylic: a translucent fill plus a
    blur, so rows never bleed through but the surface is not opaque either. */
 .task-context-menu {
@@ -397,7 +586,21 @@
 .app .workspace-more-btn:focus-visible,
 .app .workspace-more-btn[aria-expanded="true"] { border-color: var(--border); background: var(--bg-hover); }
 .session-item.is-unread .session-title-text { font-weight: 650; }
-.session-item.is-unread::before { content: ''; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+.session-item.is-unread::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  /* Center over the archive action in the hover pill: 4px pill inset +
+     1px padding + one 22px pin button + 1px gap + half of the archive button. */
+  right: 13px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
 
 #deleteSessionModal .delete-task-warning,
 #removeWorkspaceModal .delete-task-warning,
@@ -427,6 +630,13 @@
 
 .app:not(.wallpaper-enabled) .resize-handle-left { background: var(--bg); }
 .app .resize-handle-left:hover { background: var(--border); }
+/* Full-screen right panel: the 4px left gutter is shell, not paper, so the
+   panel's bottom-left corner cutout stays visible beside the left sidebar. */
+.app.browser-focus-mode .resize-handle-left { background: #ecf7f1; }
+[data-theme="dark"] .app.browser-focus-mode .resize-handle-left { background: #1d221f; }
+.app.browser-focus-mode .resize-handle-left::after { background: transparent; }
+.app.wallpaper-enabled.browser-focus-mode .resize-handle-left { background: transparent; }
+.app.browser-focus-mode .resize-handle-left:hover { background: var(--border); }
 
 /* Capability pages share the existing collapsible application sidebar. */
 :root { --composer-plugin-mention: #087bea; }
@@ -438,13 +648,8 @@
 .plugins-page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; overflow-wrap: anywhere; background: var(--bg); container: customization / inline-size; }
 .plugins-page > .page-panel { flex: 1; min-height: 0; }
 /* Hallmark · plugin detail · screenshot reference / Yan tokens · P5 H5 E4 S5 R5 V4 */
-#pageAgents.is-detail #agentDetailView, #pagePluginPackages.is-detail #pluginDetailView, #mcpDetailView, #skillDetailView, #codeReviewDetailView { width: min(880px, 100%); margin-inline: auto; }
-#agentDetailContent, #pluginDetailContent, #mcpDetailContent, #skillDetailContent, #codeReviewDetailContent { padding: 12px 0 48px; font-family: var(--font-ui); color: var(--text); }
-.skill-children-section, .skill-document-section { margin-top: 34px; }
-.plugin-skill-row.skill-child-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
-.skill-document-section > h2 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding-bottom: 15px; border-bottom: 1px solid var(--border-soft); font: 550 18px/1.5 var(--font-ui); }
-.msg-body.skill-document-markdown { padding-top: 12px; min-width: 0; width: 100%; max-width: none; box-sizing: border-box; overflow-wrap: anywhere; }
-.skill-document-markdown, .skill-document-markdown * { -webkit-user-select: text; user-select: text; }
+#pageAgents.is-detail #agentDetailView, #pagePluginPackages.is-detail #pluginDetailView, #mcpDetailView, #codeReviewDetailView { width: min(880px, 100%); margin-inline: auto; }
+#agentDetailContent, #pluginDetailContent, #mcpDetailContent, #codeReviewDetailContent { padding: 12px 0 48px; font-family: var(--font-ui); color: var(--text); }
 #mcpDetailContent .plugin-detail-logo { display: grid; place-items: center; color: var(--text-dim); }
 #mcpDetailContent .plugin-detail-logo > svg { width: 64px; height: 64px; }
 .mcp-detail-test { border-radius: var(--r-pill); white-space: nowrap; }
@@ -505,7 +710,7 @@
 .plugin-example-brand { display: inline-flex; align-items: center; gap: 7px; margin-right: 5px; color: var(--accent); font-weight: 500; vertical-align: baseline; }
 .plugin-example-brand .skill-logo-image { width: 17px; height: 17px; border-radius: 4px; align-self: center; }
 .plugin-example-send { flex: 0 0 36px; width: 36px; height: 36px; border-radius: var(--r-pill); color: var(--text); background: var(--example-arrow); }
-:is(#pluginDetailContent, #skillDetailContent) .plugin-example-send:hover:not(:disabled) { background: var(--bg-hover); }
+:is(#pluginDetailContent) .plugin-example-send:hover:not(:disabled) { background: var(--bg-hover); }
 .plugin-example-send:disabled { opacity: .45; cursor: default; }
 .plugin-example-send[aria-busy="true"] { cursor: progress; }
 .plugin-detail-description { margin: 30px 0 34px; font-size: 15px; line-height: 1.65; white-space: pre-line; }
@@ -533,9 +738,9 @@
 .plugin-account-section p, .plugin-preparation p { margin: 5px 0; line-height: 1.5; }
 .plugin-account-section button, .plugin-preparation button { flex-shrink: 0; }
 .plugin-account-section .ghost-btn { border-radius: var(--r-pill); }
-#pluginDetailContent button:focus-visible, #mcpDetailContent button:focus-visible, #skillDetailContent button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
-#pluginDetailContent button:hover:not(:disabled), #mcpDetailContent button:hover:not(:disabled), #skillDetailContent button:hover:not(:disabled) { color: var(--text); }
-#pluginDetailContent button:active:not(:disabled), #mcpDetailContent button:active:not(:disabled), #skillDetailContent button:active:not(:disabled) { transform: translateY(1px); }
+#pluginDetailContent button:focus-visible, #mcpDetailContent button:focus-visible button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+#pluginDetailContent button:hover:not(:disabled), #mcpDetailContent button:hover:not(:disabled) button:hover:not(:disabled) { color: var(--text); }
+#pluginDetailContent button:active:not(:disabled), #mcpDetailContent button:active:not(:disabled) button:active:not(:disabled) { transform: translateY(1px); }
 #pluginDetailContent [data-fixed-disabled] { cursor: not-allowed; }
 #pluginDetailContent [data-plugin-action][aria-busy="true"] { cursor: progress; }
 @container customization (max-width: 480px) {
@@ -547,7 +752,6 @@
   .plugin-detail-name h1 { font-size: 24px; }
   .plugin-skill-row { gap: 10px; padding-inline: 0; grid-template-columns: 24px minmax(0, 1fr) auto; }
   .plugin-skill-row.mcp-tool-row { grid-template-columns: 24px minmax(0, 1fr); }
-  .plugin-skill-row.skill-child-row { grid-template-columns: 24px minmax(0, 1fr) auto; }
   .mcp-tool-row .mcp-tool-logo { width: 24px; }
   .plugin-info-row { grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
   .plugin-account-section, .plugin-preparation { align-items: flex-start; flex-direction: column; }
@@ -576,8 +780,8 @@
    materials, and hide the blank browser guest so its empty state does not sit
    on a pure-white webview. */
 .app.wallpaper-enabled.wallpaper-compat .rs-work-tab.active {
-  background: color-mix(in srgb, var(--bg-elev) 64%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 12%, transparent);
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: none;
 }
 .app.wallpaper-enabled.wallpaper-compat .rs-work-tab:hover,
 .app.wallpaper-enabled.wallpaper-compat .rs-tabbar-btn:hover,
@@ -619,12 +823,15 @@
 }
 .app.wallpaper-enabled.wallpaper-compat .session-more-btn,
 .app.wallpaper-enabled.wallpaper-compat .workspace-more-btn,
+.app.wallpaper-enabled.wallpaper-compat .workspace-new-task-btn,
 .app.wallpaper-enabled.wallpaper-compat .session-more-btn:hover,
 .app.wallpaper-enabled.wallpaper-compat .session-more-btn:focus-visible,
 .app.wallpaper-enabled.wallpaper-compat .session-more-btn[aria-expanded="true"],
 .app.wallpaper-enabled.wallpaper-compat .workspace-more-btn:hover,
 .app.wallpaper-enabled.wallpaper-compat .workspace-more-btn:focus-visible,
-.app.wallpaper-enabled.wallpaper-compat .workspace-more-btn[aria-expanded="true"] {
+.app.wallpaper-enabled.wallpaper-compat .workspace-more-btn[aria-expanded="true"],
+.app.wallpaper-enabled.wallpaper-compat .workspace-new-task-btn:hover,
+.app.wallpaper-enabled.wallpaper-compat .workspace-new-task-btn:focus-visible {
   background: transparent;
   border-color: transparent;
 }

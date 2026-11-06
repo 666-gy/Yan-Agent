@@ -2,12 +2,13 @@
 function syncGeneralPreferences() {
   const cfg = state.config || {};
   const settings = cfg.general || {};
+  if (settings.confettiEnabled === false) window.YanConfetti?.stop();
   if (settings.showQuickReview !== true) {
     document.querySelectorAll('#messages .run-change-summary').forEach(panel => panel.remove());
   }
   const blankPath = settingsOverlay.querySelector('#generalBlankWorkspacePath');
   if (blankPath) { blankPath.textContent = settings.blankWorkspace || '未设置'; blankPath.title = settings.blankWorkspace || ''; }
-  document.getElementById('contextRingWrap')?.classList.toggle('hidden', settings.showContextUsage !== true);
+  syncContextPanelPreference();
   settingsOverlay.querySelectorAll('[data-follow-up-mode]').forEach(button => {
     const active = (settings.followUpMode || 'queue') === button.dataset.followUpMode;
     button.classList.toggle('active', active);
@@ -86,50 +87,41 @@ function bindGeneralPreferences() {
   }, 2000);
   if (!generalFileLinksBound) {
     generalFileLinksBound = true;
-    // Route a local link by type: web pages stay in Yan's built-in browser,
-    // everything else opens with the user's configured default program.
-    const browserViewable = /\.(?:html?|svg|pdf)(?:$|[?#])/i;
-    const runnable = /\.(?:exe|msi|msp|bat|cmd|com|scr|ps1|vbs|vbe|jse|wsf|wsh|hta|jar|lnk)(?:$|[?#])/i;
-    const filePathFromUrl = value => {
-      if (!/^file:/i.test(value)) return value.replace(/\//g, '\\');
-      try { return decodeURIComponent(new URL(value).pathname).replace(/^\/([A-Za-z]):/, '$1:').replace(/\//g, '\\'); }
-      catch { return ''; }
-    };
     document.addEventListener('click', event => {
       const link = event.target.closest('.msg-body a[href], .agent-markdown a[href]');
       const target = link?.getAttribute('href') || '';
-      if (!/^(?:file:|[a-z]:[\\/])/i.test(target)) return;
+      // Agent-output screenshots are images, not files: open the image overlay
+      // here, before the generic local-file branch can route them to Files.
+      const imagePath = /\.(?:png|jpe?g|webp|gif)$/i.test(target)
+        ? (localImagePathFromUrl(target) || (/^(?:[a-z]:[\\/]|\/)/i.test(target) ? target : ''))
+        : '';
+      if (imagePath && typeof openAttachmentPreview === 'function') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const scope = link.closest('.msg-body, .agent-markdown, .skill-document-markdown') || link.parentElement;
+        const gallery = [...(scope?.querySelectorAll('a[href]') || [])].map(item => {
+          const href = item.getAttribute('href') || '';
+          if (!/\.(?:png|jpe?g|webp|gif)$/i.test(href)) return null;
+          const path = localImagePathFromUrl(href) || (/^(?:[a-z]:[\\/]|\/)/i.test(href) ? href : '');
+          return path ? { path, name: '' } : null;
+        }).filter(Boolean);
+        openAttachmentPreview({ path: imagePath, name: '' }, { gallery });
+        return;
+      }
+      
+      if (!/^(?:file:|[a-z]:[\\/]|\/)/i.test(target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const url = /^file:/i.test(target) ? target
-        : 'file:///' + target.replace(/\\/g, '/').split('/').map((part, index) => index === 0 ? part : encodeURIComponent(part)).join('/');
-      // Local raster images open in Yan's own preview window, not the OS app.
-      const imagePath = localImagePathFromUrl(url);
-      if (imagePath) {
-        openAttachmentPreview({ path: imagePath, name: '' });
+      // Keep browser-viewable deliverables in Yan's browser, independent of OS defaults.
+      const url = normalizeAgentUrl(target);
+      if (url && /\.(?:html?|svg|pdf)$/i.test(new URL(url).pathname)) {
+        openBrowserUrlInNewTab(url);
         return;
       }
-      // Web-viewable deliverables (pages, SVG, PDF) stay in the built-in browser.
-      if (browserViewable.test(url)) {
-        void api.browserOpenLink(url).then(result => {
-          if (result?.target === 'builtin') openBrowserUrlInNewTab(url);
-        }).catch(error => toast(error.message));
-        return;
-      }
-      // Executables must never run just because a chat link was clicked.
-      if (runnable.test(url)) {
-        const filePath = filePathFromUrl(url);
-        if (filePath) void api.revealFile(filePath).catch(() => {});
-        toast('可执行文件不会从链接直接运行，已在资源管理器中定位');
-        return;
-      }
-      // Everything else (code, Office documents, folders) opens with the user's
-      // configured default program for that file type.
-      void api.openFileDefault(url).then(result => {
-        if (result?.error) toast(result.error, { error: true });
-      }).catch(error => toast(error.message, { error: true }));
+      void window.YanProjectFiles.openLocal(target).catch(error => toast(error.message, { error: true }));
     }, true);
   }
+
   const blankChange = settingsOverlay.querySelector('#generalBlankWorkspaceChange');
   if (blankChange && !blankChange.dataset.bound) {
     blankChange.dataset.bound = 'true';

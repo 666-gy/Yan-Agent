@@ -1,8 +1,39 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const W = require('../lib/subagent/workflow-state');
-const { SubagentEventBridge } = require('../lib/subagent/event-bridge');
+const W = require('../renderer/subagent-workflow');
+
+test('text-only and multipart child answers are summary content exactly once', () => {
+  for (const parts of [['B：结果 55。'], ['B：结果 55。', '\n计算依据：1 + 4 + 9 + 16 + 25 = 55。']]) {
+    const record = { id: 'answer', status: 'completed', startedAt: 1, completedAt: 100,
+      result: parts.join(''), timeline: parts.map((content, index) => ({ type: 'text', content, stage: 'work', openCodeKey: `text:${index}` })) };
+    const view = W.nativeRun(record);
+    assert.equal(view.timeline.filter(item => item.type === 'text').map(item => item.content).join(''), record.result);
+    assert.ok(view.timeline.filter(item => item.type === 'text').every(item => item.stage === 'summary'));
+    assert.equal(view.summaryStarted, true);
+    assert.ok(record.timeline.every(item => item.stage === 'work'), 'projection does not mutate stored events');
+  }
+});
+
+test('settled report replaces trailing partial answer but preserves actual work narration', () => {
+  const record = { id: 'partial', status: 'completed', startedAt: 1, completedAt: 100, result: 'Final answer', timeline: [
+    { type: 'text', content: 'I will inspect the file', stage: 'work' },
+    { type: 'tool_call', name: 'read', callId: 'read' },
+    { type: 'text', content: 'Final ans', stage: 'work' }
+  ] };
+  const view = W.nativeRun(record);
+  assert.deepEqual(view.timeline.filter(item => item.type === 'text').map(item => [item.content, item.stage]), [['I will inspect the file', 'work'], ['Final answer', 'summary']]);
+});
+
+test('child request and reasoning activity survive native rendering before正文', () => {
+  const state = { runId: 'parent', timeline: [] };
+  const event = event => ({ type: 'yan.subagent.event', data: { callId: 'child', childSessionID: 'child-session', event } });
+  W.consume(state, event({ type: 'yan.model.request.started', data: {} }), 100);
+  assert.equal(W.nativeRun(state.subagents[0]).executionStartedAt, 100);
+  W.consume(state, event({ type: 'message.part.delta', data: { partID: 'reason', field: 'reasoning', delta: 'Thinking' } }), 110);
+  assert.equal(W.nativeRun(state.subagents[0]).responseStartedAt, 110);
+  assert.equal(W.nativeRun(state.subagents[0]).textContent, '');
+});
 const run = id => ({ runId: id || 'parent', status: 'working', timeline: [] });
 const task = (callId, status = 'running', output = '', sessionID = '') => ({ type: 'message.part.updated', data: { part: {
   type: 'tool', tool: 'task', id: `part-${callId}`, callID: callId,
@@ -12,6 +43,44 @@ const task = (callId, status = 'running', output = '', sessionID = '') => ({ typ
 const child = (callId, event, childSessionID = '') => ({ type: 'yan.subagent.event', data: { callId, childSessionID, subagentType: 'explorer', event } });
 const textPart = (id, text, end = false) => ({ type: 'message.part.updated', properties: { part: { id, messageID: 'm', type: 'text', text, time: end ? { end: 200 } : {} } } });
 const toolPart = (id, status) => ({ type: 'message.part.updated', properties: { part: { id, callID: id, type: 'tool', tool: 'read', state: { status, input: { filePath: 'SKILL.md' }, output: status === 'completed' ? 'Taste guidance' : '' } } } });
+
+test('parent avatar identity follows late metadata and restores old saved milestones', () => {
+  const r = run();
+  W.consume(r, task('a'), 100);
+  const started = r.timeline.find(item => item.type === 'subagent_status');
+  const registered = task('a', 'running', '', 'child-a');
+  registered.data.part.state.metadata.agentID = 'stable-agent-a';
+  W.consume(r, registered, 110);
+  assert.equal(started.agentID, 'stable-agent-a');
+  assert.equal(started.childSessionID, 'child-a');
+  const saved = JSON.parse(JSON.stringify(r));
+  for (const item of saved.timeline) {
+    delete item.agentID;
+    delete item.childSessionID;
+  }
+  W.migrate(saved);
+  const restored = saved.timeline.find(item => item.type === 'subagent_status');
+  assert.equal(restored.agentID, saved.subagents[0].agentID);
+  assert.equal(restored.childSessionID, saved.subagents[0].childSessionID);
+});
+
+test('live child session binds to its pending record before call metadata arrives', () => {
+  const r = run();
+  W.consume(r, task('a'), 100);
+  assert.equal(r.subagents[0].childSessionID, '');
+  // The kernel announces the child session before the parent tool part carries
+  // metadata.sessionID; its live output must land on the existing row.
+  W.consume(r, { type: 'yan.subagent.event', data: { callId: '', childSessionID: 'child-live',
+    subagentType: 'explorer', title: 'Explore a', event: textPart('live', 'LIVE_TEXT', true) } }, 120);
+  assert.equal(r.subagents.length, 1, 'live discovery must not create a duplicate row');
+  assert.equal(r.subagents[0].childSessionID, 'child-live');
+  assert.ok(r.subagents[0].timeline.some(item => item.type === 'text' && item.content === 'LIVE_TEXT'));
+  // The later authoritative tool result keeps the same row.
+  W.consume(r, task('a', 'completed', 'Done', 'child-live'), 200);
+  assert.equal(r.subagents.length, 1);
+  assert.equal(r.subagents[0].status, 'completed');
+  assert.equal(r.subagents[0].callId, 'a');
+});
 
 test('foreground: token deltas are silent; tool completion updates a line without completing the child', () => {
   const r = run();
@@ -124,6 +193,26 @@ test('empty/error/interrupted results are honest; terminal events do not reopen 
   assert.equal(r.subagents[0].status, 'completed');
 });
 
+test('interrupted parent marks children interrupted without unconfirmed wording', () => {
+  const r = run();
+  W.consume(r, task('a'));
+  W.finalize(r, 'interrupted', 500);
+  assert.equal(r.subagents[0].status, 'interrupted');
+  assert.doesNotMatch(r.subagents[0].error, /未确认完成/);
+  assert.match(r.subagents[0].error, /中止/);
+});
+
+test('reconcile repairs an incomplete child from authoritative delegation records', () => {
+  const r = run();
+  W.consume(r, task('a', 'completed', '<task id="ses-a" state="running">Running in background</task>'));
+  W.finalize(r, 'done', 500);
+  assert.equal(r.subagents[0].status, 'incomplete');
+  W.reconcile(r, [{ callId: 'a', childID: 'ses-a', status: 'completed', result: 'Background child finished' }]);
+  assert.equal(r.subagents[0].status, 'completed');
+  assert.equal(r.subagents[0].result, 'Background child finished');
+  assert.equal(r.subagents[0].error, '');
+});
+
 test('legacy task panels migrate once to clickable status records', () => {
   const r = { runId: 'legacy', status: 'done', startedAt: 100, completedAt: 200, timeline: [
     { type: 'tool_call', name: 'task', callId: 'old', args: { subagent_type: 'explorer', description: 'Find skill' } },
@@ -153,28 +242,6 @@ test('installed SDK next-stream ended events and typed tool content produce nati
   assert.equal(r.subagents[0].status, 'completed');
   assert.equal(r.subagents[0].result, 'Final result');
   assert.equal(r.subagents[0].childSessionID, 'child-a');
-});
-
-test('bridge forwards all direct child roles and hydrates assistant workflow without prompts or model calls', async () => {
-  const events = [], calls = [];
-  const bridge = new SubagentEventBridge({ runId: 'parent', sessionID: 'parent-session', directory: '.', childSessions: new Map(), onEvent: e => events.push(e) });
-  bridge.observe(task('a', 'running', '', 'ses-a'));
-  const build = bridge.register('ses-b', { callId: 'b', role: 'builder' });
-  bridge.forward(build, toolPart('read', 'completed'));
-  const client = { session: { messages: async args => {
-    calls.push(args.sessionID);
-    return { data: [
-      { info: { id: 'user', role: 'user' }, parts: [{ id: 'prompt', type: 'text', text: 'Private delegated prompt' }] },
-      { info: { id: 'assistant', role: 'assistant' }, parts: [{ id: 'answer', type: 'text', text: 'Read taste skill', time: { end: 200 } }] }
-    ] };
-  } } };
-  const records = await bridge.catchUp(client);
-  assert.deepEqual(calls.sort(), ['ses-a', 'ses-b']);
-  assert.equal(records.length, 2);
-  assert.ok(records.every(record => record.timeline.some(item => item.content === 'Read taste skill')));
-  assert.ok(records.every(record => !record.timeline.some(item => item.content === 'Private delegated prompt')));
-  assert.equal(events.filter(e => e.type === 'yan.subagent.history').length, 2);
-  assert.equal(bridge.state.timeline.some(item => item.type === 'tool_call'), false);
 });
 
 test('subagent status notices stay inside the work process after the summary starts', () => {

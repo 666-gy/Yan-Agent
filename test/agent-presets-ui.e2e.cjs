@@ -1,0 +1,88 @@
+'use strict';
+const { _electron } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const root = path.resolve(__dirname, '..');
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-presets-'));
+const output = path.join(root, 'output/playwright/agent-presets');
+fs.mkdirSync(output, { recursive: true });
+(async () => {
+  let app;
+  try {
+    const env = { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: profile };
+    delete env.ELECTRON_RUN_AS_NODE;
+    app = await _electron.launch({ executablePath: require('electron'), args: [root], cwd: root, env });
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => window.__YAN_APP_READY__ && state.currentSession);
+    // First-run handwriting overlay would otherwise intercept every click.
+    await page.evaluate(() => window.YanStartupHello?.skip?.());
+    const button = page.locator('#agentPresetButton');
+    await button.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.querySelector('#agentPresetButton svg'));
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '标准模式');
+    await button.click();
+    await page.locator('#agentPresetMenu').waitFor({ state: 'visible' });
+    for (const selector of ['#agentPresetButton', '#agentPresetLabel', '.agent-preset-name']) {
+      assert.match(await page.locator(selector).first().evaluate(el => getComputedStyle(el).fontFamily), /Microsoft YaHei/);
+    }
+    await page.screenshot({ path: path.join(output, 'menu.png') });
+    assert.deepEqual(await page.locator('#agentPresetMenu [data-preset]').evaluateAll(items => items.map(item => item.dataset.preset)), ['standard', 'daily', 'uncensored']);
+    await page.locator('[data-preset="daily"]').click();
+    await page.waitForFunction(() => !document.querySelector('#agentPresetButton').disabled && state.currentSession.agentPreset === 'daily');
+    assert.equal(await page.locator('#genericConfirmModal').isVisible(), false);
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '日常模式');
+    assert.equal(await page.evaluate(() => { const run = { sessionRef: state.currentSession }; initOpenCodeRunState(run); return run.agentPreset; }), 'daily');
+    const dailyId = await page.evaluate(() => state.currentSession.id);
+    assert.equal(await page.evaluate(async id => (await api.getSession(id)).agentPreset, dailyId), 'daily');
+    await page.reload();
+    await page.waitForFunction(() => window.__YAN_APP_READY__ && state.currentSession);
+    await page.evaluate(id => loadSession(id), dailyId);
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '日常模式');
+    await button.click();
+    await page.locator('[data-preset="standard"]').click();
+    await page.waitForFunction(() => !document.querySelector('#agentPresetButton').disabled);
+    await button.click();
+    await page.locator('[data-preset="uncensored"]').click();
+    await page.locator('#genericConfirmModal').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '标准模式');
+    await page.locator('#genericConfirmCancel').click();
+    assert.notEqual(await page.evaluate(() => state.currentSession.agentPreset), 'uncensored');
+    await button.click();
+    await page.locator('[data-preset="uncensored"]').click();
+    await page.keyboard.press('Escape');
+    await page.locator('#genericConfirmModal').waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '标准模式');
+    await button.click();
+    await page.locator('[data-preset="uncensored"]').click();
+    await page.screenshot({ path: path.join(output, 'confirmation.png') });
+    await page.locator('#genericConfirmAccept').click();
+    await page.waitForFunction(() => !document.querySelector('#agentPresetButton').disabled && state.currentSession.agentPreset === 'uncensored');
+    const id = await page.evaluate(() => state.currentSession.id);
+    assert.equal(await page.evaluate(async id => (await api.getSession(id)).agentPreset, id), 'uncensored');
+    const runPreset = await page.evaluate(() => {
+      const run = { sessionRef: state.currentSession }; initOpenCodeRunState(run); return run.agentPreset;
+    });
+    assert.equal(runPreset, 'uncensored');
+    await page.reload();
+    await page.waitForFunction(() => window.__YAN_APP_READY__ && state.currentSession);
+    await page.evaluate(id => loadSession(id), id);
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '无审查模式');
+    await button.focus(); await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Home'); await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('#agentPresetButton').disabled && state.currentSession.agentPreset === 'standard');
+    await button.click(); await page.keyboard.press('Escape');
+    assert.equal(await button.getAttribute('aria-expanded'), 'false');
+    await page.evaluate(async () => { state.currentSession.messages.push({ role: 'user', content: '模式验证' }); renderMessages(state.currentSession.messages); updateTaskBar(); });
+    await page.locator('#newTaskWorkspace').waitFor({ state: 'hidden' });
+    await page.evaluate(() => newSession({ forceNew: true }));
+    assert.equal(await page.locator('#agentPresetLabel').textContent(), '标准模式');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(860, 720));
+    await button.click();
+    const box = await page.locator('#agentPresetMenu').boundingBox();
+    assert.ok(box.x >= 0 && box.y >= 0);
+    await page.screenshot({ path: path.join(output, 'compact.png') });
+    console.log('PASS: preset selection, persistence, run snapshot, reload, keyboard, existing/new chats, compact layout');
+  } finally { await app?.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

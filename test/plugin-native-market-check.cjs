@@ -1,0 +1,40 @@
+const fs=require('fs'),os=require('os'),path=require('path'),{_electron:e}=require('playwright');
+(async()=>{let app;const root=process.cwd(),ud=fs.mkdtempSync(path.join(os.tmpdir(),'yan-native-check-'));try{
+app=await e.launch({executablePath:require('electron'),args:[root],env:{...process.env,YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:ud}});
+console.log(await app.evaluate(async({net},{root,ud})=>{
+ const require = process.mainModule.require.bind(process.mainModule); const fs=require('fs'),assert=require('assert/strict'),path=require('path');
+ const response = await net.fetch('https://raw.githubusercontent.com/666-gy/yan-agent-plugin-market/master/catalog.json');
+ const entry = (await response.json()).plugins.find(p => p.id === 'YanPlugin-hello');
+ assert(entry, 'Published hello plugin must exist');
+ const market=require(path.join(root,'lib/plugins/official-market'));
+ assert.throws(()=>market.validateEntries([{...entry,revision:'main'}]));
+ const badPath=structuredClone(entry);badPath.files[0].path='../escape';assert.throws(()=>market.validateEntries([badPath]));
+ const store=require(path.join(root,'lib/plugins/store')).createPluginStore(path.join(ud,'verify'));
+ const catalog=require(path.join(root,'lib/plugins/catalog')).createPluginCatalog(store,{fetcher:(u,o)=>net.fetch(u,o)});
+ catalog.setOfficialEntries(market.validateEntries([entry]));
+ assert(catalog.list().some(p=>p.id===entry.id));
+ await catalog.install(entry.id);assert.equal(store.get(entry.id).enabled,false);
+ const bad=structuredClone(entry);bad.files[0].sha256='0'.repeat(64);
+ await assert.rejects(()=>require(path.join(root,'lib/plugins/native-download')).installNative(store,bad,{fetcher:(u,o)=>net.fetch(u,o)}),/完整性/);
+ assert.equal(store.get(entry.id).digest,entry.digest);
+ store.update(entry.id,{enabled:true});assert.equal(store.get(entry.id).enabled,true);
+ return 'PASS: GitHub download, install disabled, enable, tamper/path/revision rejection and existing install preserved';
+},{root,ud}));
+const page=await app.firstWindow();
+await page.waitForFunction(()=>window.__YAN_APP_READY__ && window.YanPluginsPage);
+await page.evaluate(()=>window.YanStartupHello?.skip());
+await page.locator('#yanStartupHello').waitFor({state:'detached'});
+await page.evaluate(async()=>{switchSidebarNav('plugins'); await window.YanPluginsPage.show();});
+await page.locator('#pluginMarketRefreshBtn').waitFor();
+await page.waitForFunction(()=>!document.querySelector('#pluginMarketRefreshBtn').disabled);
+await page.locator('#pluginMarketRefreshBtn').click();
+await page.waitForFunction(()=>!document.querySelector('#pluginMarketRefreshBtn').disabled);
+await page.locator('[data-plugin-open="YanPlugin-hello"]').waitFor();
+await page.locator('#pluginInstallBtn').click();
+await page.locator('#pluginInstallInput').fill('YanPlugin-hello');
+await page.locator('#pluginInstallConfirm').click();
+await page.locator('#pluginInstallDialog').waitFor({state:'hidden',timeout:60000});
+await page.waitForFunction(()=>!!document.querySelector('[data-plugin-id="YanPlugin-hello"][data-plugin-action="remove"]'));
+console.log('PASS: published official market refresh, Hello card, install dialog and installed state');
+}finally{await app?.close();fs.rmSync(ud,{recursive:true,force:true});}})().catch(e=>{console.error(e);process.exitCode=1});
+

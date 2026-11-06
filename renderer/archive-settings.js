@@ -5,7 +5,7 @@ window.YanArchiveIcon = "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" f
   const search = page.querySelector('#archiveSearch');
   const projectButton = page.querySelector('#archiveProject');
   const options = page.querySelector('#archiveProjectOptions');
-  let records = [], project = null, sequence = 0, busy = false;
+  let records = [], project = null, sequence = 0, busy = false, clearing = false;
   const collapsedGroups = new Set();
   const ARCHIVE_CHEVRON = {
     collapsed: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6L15 12L9 18"/></svg>',
@@ -51,33 +51,63 @@ window.YanArchiveIcon = "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" f
     await refreshSessions(); await refresh();
     toast(countLabel(ids.length, '已取消归档', '已取消归档 {n} 个任务'));
   }
-  async function remove(ids) {
+  async function remove(ids, { clearAll = false, clearProject = false } = {}) {
+    if (clearing) return;
     if (!ids.length || !await requestGenericConfirmation({ title: ids.length > 1 ? `永久删除这 ${ids.length} 个聊天？` : '永久删除此聊天？', description: '聊天记录将永久删除，无法恢复。项目文件不会被删除。', confirmLabel: '永久删除', danger: true })) return;
-    // Revalidate archive membership before deleting; never include restored chats.
-    const current = new Set((await api.listArchivedSessions()).map(item => item.id));
-    const errors = []; let deleted = 0;
-    for (const id of ids) {
-      if (!current.has(id)) continue;
-      const result = await api.deleteSession(id, true, true);
-      if (!result?.ok) { errors.push(result?.error || '删除失败'); continue; }
-      deleted += 1;
-      await clearYanCoreQueuedIntentsForThread(id, 'session_removed');
-      state.composerDrafts.delete(String(id)); state.queuedTurns.delete(String(id));
-      if (state.currentSession?.id === id) { state.currentSession = null; clearMessages(); }
+    const bulkClear = clearAll || clearProject;
+    if (bulkClear) {
+      clearing = true;
+      busy = true;
+      sequence += 1;
+      const removing = new Set(ids);
+      records = records.filter(item => !removing.has(item.id));
+      render();
+      toast('正在删除中……', { persistent: true, spinner: true });
     }
-    await refreshSessions();
-    if (!state.currentSession) {
-      if (state.sessions.length) await loadSession(state.sessions[0].id); else await newSession();
+    try {
+      // Revalidate archive membership before deleting; never include restored chats.
+      const current = new Set((await api.listArchivedSessions()).map(item => item.id));
+      const errors = []; let deleted = 0;
+      for (const id of ids) {
+        if (!current.has(id)) continue;
+        const result = await api.deleteSession(id, true, true);
+        if (!result?.ok) { errors.push(result?.error || '删除失败'); continue; }
+        deleted += 1;
+        await clearYanCoreQueuedIntentsForThread(id, 'session_removed');
+        state.composerDrafts.delete(String(id)); state.queuedTurns.delete(String(id));
+        if (state.currentSession?.id === id) { state.currentSession = null; clearMessages(); }
+      }
+      await refreshSessions();
+      if (!state.currentSession) {
+        if (state.sessions.length) await loadSession(state.sessions[0].id); else await newSession();
+      }
+      if (bulkClear) {
+        clearing = false;
+        await refresh();
+        if (errors.length) toast([...new Set(errors)].join('；'), { error: true });
+        else toast(clearAll ? '已全部清除' : '该项目的归档聊天已清除', { duration: 1200 });
+      } else {
+        await refresh();
+        if (deleted) toast(countLabel(deleted, '任务已永久删除', '已永久删除 {n} 个任务'));
+        if (errors.length) toast([...new Set(errors)].join('；'), { error: true });
+      }
+    } catch (error) {
+      if (bulkClear) {
+        clearing = false;
+        await refresh();
+        toast(`清除失败：${error.message}`, { error: true });
+      } else {
+        toast(error.message, { error: true });
+      }
+    } finally {
+      if (bulkClear) { clearing = false; busy = false; }
     }
-    await refresh();
-    if (deleted) toast(countLabel(deleted, '任务已永久删除', '已永久删除 {n} 个任务'));
-    if (errors.length) toast([...new Set(errors)].join('；'), { error: true });
   }
   function render() {
     list.replaceChildren();
     const query = search.value.trim().toLocaleLowerCase();
     const filtered = records.filter(item => (project === null || (item.workspace || '') === project) && `${item.title || ''} ${item.workspace || ''}`.toLocaleLowerCase().includes(query));
-    page.querySelector('#archiveDeleteAll').disabled = !records.length;
+    page.querySelector('#archiveDeleteAll').disabled = clearing || !records.length;
     if (!filtered.length) { const empty = document.createElement('p'); empty.className = 'archive-empty'; empty.textContent = records.length ? '没有匹配的聊天' : '暂无已归档的聊天'; list.append(empty); return; }
     const groups = new Map();
     for (const item of filtered) { const key = item.workspace || ''; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); }
@@ -98,7 +128,7 @@ window.YanArchiveIcon = "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" f
       const title = document.createElement('strong'); title.textContent = projectName(workspace); title.title = workspace;
       const count = document.createElement('span'); count.className = 'archive-count'; count.textContent = `${chats.length} 个聊天`;
       const more = button('项目操作', () => openSidebarContextMenu(more, [
-        { label: '永久删除该项目的所有归档聊天', icon: ICONS.trash, danger: true, onSelect: () => remove(records.filter(item => (item.workspace || '') === workspace).map(item => item.id)) }
+        { label: '永久删除该项目的所有归档聊天', icon: ICONS.trash, danger: true, onSelect: () => remove(records.filter(item => (item.workspace || '') === workspace).map(item => item.id), { clearProject: true }) }
       ]), '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>');
       header.append(toggle, folder, title, count, more); group.append(header);
       for (const chat of chats) {
@@ -115,6 +145,7 @@ window.YanArchiveIcon = "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" f
     }
   }
   async function refresh() {
+    if (clearing) { render(); return; }
     const version = ++sequence;
     try {
       const result = await api.listArchivedSessions(); if (version !== sequence) return;
@@ -142,8 +173,8 @@ window.YanArchiveIcon = "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" f
   page.addEventListener('keydown', event => { if (event.key === 'Escape') { options.hidden = true; projectButton.setAttribute('aria-expanded', 'false'); } });
   document.addEventListener('click', event => { if (!event.target.closest('.archive-project')) { options.hidden = true; projectButton.setAttribute('aria-expanded', 'false'); } });
   page.querySelector('#archiveDeleteAll').onclick = async () => {
-    if (busy) return; busy = true;
-    try { await remove(records.map(item => item.id)); } catch (error) { toast(error.message); } finally { busy = false; }
+    if (busy || clearing) return; busy = true;
+    try { await remove(records.map(item => item.id), { clearAll: true }); } catch (error) { toast(error.message, { error: true }); } finally { busy = false; }
   };
   window.YanArchiveSettings = { refresh, archive, icon: window.YanArchiveIcon };
 })();

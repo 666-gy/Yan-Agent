@@ -14,7 +14,7 @@ window.YanCodeReview = (() => {
   const canMerge = pr => writable(data?.repository.permission) && !pr.isDraft && pr.mergeable === 'MERGEABLE' && ['CLEAN', 'HAS_HOOKS', 'UNSTABLE'].includes(pr.mergeStateStatus);
   const canMonitor = pr => writable(pr.headRepository?.viewerPermission);
   const refreshIcon = () => settingsOverlay.querySelector('#worktreeRefresh svg').outerHTML;
-  const questionIcon = () => $('#aboutNavBtn svg').outerHTML;
+  const questionIcon = () => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-keyline-icon="circle-question"><path d="M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/><path d="M9.6 9.4C9.6 8.0745 10.6745 7 12 7C13.3255 7 14.4 8.0745 14.4 9.4C14.4 10.3689 13.8174 11.2427 12.9231 11.6154C12.3641 11.8483 12 12.3944 12 13"/><path d="M13 17C13 17.5523 12.5523 18 12 18C11.4477 18 11 17.5523 11 17C11 16.4477 11.4477 16 12 16C12.5523 16 13 16.4477 13 17Z" fill="currentColor" stroke="none"/></svg>';
   const projectsRefresh = $('#codeReviewProjectsRefresh');
   projectsRefresh.innerHTML = refreshIcon();
   projectsRefresh.addEventListener('click', async () => {
@@ -338,7 +338,7 @@ window.YanCodeReview = (() => {
       const rawDiff = String(result.diff || '');
       if (rawDiff.length > 4 * 1024 * 1024) throw new Error('PR 差异过大，请在 GitHub 查看。');
       if (!rawDiff.trim()) { globalThis.YanDshReview.showError('该 PR 暂无文件差异。'); return; }
-      await globalThis.YanDshReview.open({ rawDiff, lazy: false, pr: true,
+      await globalThis.YanDshReview.open({ rawDiff, pr: true,
         comparison: { currentBranch: pr.headRefName, baseBranch: pr.baseRefName, mode: 'all', branches: [] },
         onClose: () => { if (current()) closeDiff(); },
         onRefresh: () => { if (current()) void openDiff(diffPr, { fresh: true }); }

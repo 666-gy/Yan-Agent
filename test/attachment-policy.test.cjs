@@ -1,0 +1,74 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createAttachmentUploader } = require('../lib/main/attachment-upload');
+const { prepareAttachments } = require('../lib/kernel-v2/attachments');
+const { historySystem } = require('../lib/kernel-policy/prompts');
+const { MAX_ATTACHMENT_BYTES } = require('../lib/attachment-policy');
+const { createAttachmentDrafts } = require('../lib/main/attachment-drafts');
+
+test('320 MiB file is streamed to a stable copy, referenced, and survives source deletion', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-attachment-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const source = path.join(dir, 'large.apk'), uploads = path.join(dir, 'uploads');
+  fs.writeFileSync(source, 'APK_MARKER'); fs.truncateSync(source, MAX_ATTACHMENT_BYTES);
+  const progress = [];
+  const upload = createAttachmentUploader({ filesDir: uploads });
+  const meta = await upload({ sourcePath: source, name: 'large.apk' }, p => progress.push(p));
+  assert.equal(meta.size, MAX_ATTACHMENT_BYTES);
+  fs.unlinkSync(source);
+  assert.equal(fs.statSync(meta.path).size, MAX_ATTACHMENT_BYTES);
+  const fd = fs.openSync(meta.path, 'r'), prefix = Buffer.alloc(10);
+  fs.readSync(fd, prefix); fs.closeSync(fd);
+  assert.equal(prefix.toString(), 'APK_MARKER');
+  const prepared = await prepareAttachments([meta]);
+  assert.deepEqual(prepared.files, []);
+  assert.match(prepared.context, /large\.apk/);
+  assert.ok(prepared.context.length < 2000, 'large attachment must not enter prompt as base64');
+  assert.equal(progress.at(-1), 100);
+  assert.ok(progress.length > 2);
+  const restored = JSON.parse(JSON.stringify({ role: 'user', content: '', attachments: [meta] }));
+  assert.match(historySystem([restored]), /large\.apk/);
+  assert.deepEqual(await prepareAttachments(restored.attachments), prepared);
+});
+
+test('pathless 320 MiB upload uses bounded chunks and enforces ownership/completion', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-attachment-chunks-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const drafts = createAttachmentDrafts({ filesDir: dir, upload: createAttachmentUploader({ filesDir: dir }) });
+  const { id } = await drafts.begin(1, { size: MAX_ATTACHMENT_BYTES, name: 'blob.zip' });
+  await assert.rejects(drafts.append(2, id, Buffer.from('a')), /失效/);
+  await assert.rejects(drafts.finish(1, id), /尚未完成/);
+  await assert.rejects(drafts.append(1, id, Buffer.alloc(1024 * 1024 + 1)), /分块大小/);
+  const chunk = Buffer.alloc(1024 * 1024, 65);
+  for (let index = 0; index < 320; index++) await drafts.append(1, id, chunk);
+  const meta = await drafts.finish(1, id);
+  assert.equal(fs.statSync(meta.path).size, MAX_ATTACHMENT_BYTES);
+  assert.deepEqual(fs.readdirSync(dir), [path.basename(meta.path)]);
+  const cancelled = await drafts.begin(1, { size: 10, name: 'cancel.txt' });
+  await drafts.append(1, cancelled.id, Buffer.from('abc'));
+  await drafts.cancelOwner(1);
+  await assert.rejects(drafts.finish(1, cancelled.id), /失效/);
+  assert.equal(fs.readdirSync(dir).length, 1);
+});
+
+test('size rejection, missing paths, directories, concurrency and duplicate names', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-attachment-limits-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const source = path.join(dir, 'sample.pdf'), uploads = path.join(dir, 'uploads');
+  fs.writeFileSync(source, '%PDF-test');
+  const upload = createAttachmentUploader({ filesDir: uploads });
+  const copies = await Promise.all([1, 2].map(() => upload({ sourcePath: source, name: 'sample.pdf' })));
+  assert.notEqual(copies[0].path, copies[1].path);
+  assert.deepEqual((await prepareAttachments([...copies, { path: dir, kind: 'directory' }])).files, []);
+  fs.truncateSync(source, MAX_ATTACHMENT_BYTES + 1);
+  await assert.rejects(upload({ sourcePath: source, name: 'too-large.pdf' }), /320 MiB/);
+  await assert.rejects(prepareAttachments([{ path: source }]), /320 MiB/);
+  await assert.rejects(prepareAttachments([{ path: path.join(dir, 'missing') }]), /无法读取/);
+  fs.truncateSync(source, MAX_ATTACHMENT_BYTES);
+  await assert.rejects(prepareAttachments([source, source, source].map(path => ({ path }))), /640 MiB/);
+  assert.equal(fs.readdirSync(uploads).length, 2, 'rejected copies leave no partial output');
+});

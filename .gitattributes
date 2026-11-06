@@ -2,3 +2,6 @@
 # Windows checkouts even when the user's global core.autocrlf setting is true.
 lib/plugins/catalog/** -text
 test/fixtures/plugin-package/** -text
+
+# Runtime patch checksums cover exact bytes, including line endings.
+vendor/opencode-v2/patches/*.patch -text

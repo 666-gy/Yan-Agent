@@ -121,6 +121,13 @@ fs.mkdirSync(screenshotDir, { recursive: true });
     await page.waitForFunction(() => document.querySelector('.agent-question-count')?.textContent === '2/4');
     assert.equal(await page.locator('.agent-question-item input[type="checkbox"]').count(), 2);
     await page.locator('.agent-question-option').nth(0).click();
+    await page.waitForTimeout(180);
+    assert.equal(await page.locator('.agent-question-count').textContent(), '2/4', 'multiselect must not advance after the first selection');
+    await page.locator('.agent-question-option').nth(1).click();
+    await page.locator('.agent-question-option').nth(0).click();
+    assert.equal(await page.locator('.agent-question-option input').nth(0).isChecked(), false);
+    await page.locator('.agent-question-option').nth(0).click();
+    await page.locator('#agentQuestionHeaderNext').click();
     await page.waitForFunction(() => document.querySelector('.agent-question-count')?.textContent === '3/4');
     await page.locator('#agentQuestionCustomToggle').click();
     await page.locator('.agent-question-custom').fill('混合部署');
@@ -252,7 +259,7 @@ fs.mkdirSync(screenshotDir, { recursive: true });
     await page.locator('.agent-question-custom').press('Enter');
     const submitted = await page.evaluate(async () => window.__questionResponse);
     assert.deepEqual(submitted, {
-      answers: [['新工作区'], ['Node.js'], ['混合部署'], ['保留现有 API 兼容性']],
+      answers: [['新工作区'], ['Node.js', 'TypeScript'], ['混合部署'], ['保留现有 API 兼容性']],
       reject: false,
       cancelled: false
     });
@@ -303,6 +310,42 @@ fs.mkdirSync(screenshotDir, { recursive: true });
     await page.locator('#agentPermissionOnce').click();
     const permission = await page.evaluate(async () => window.__permissionResponse);
     assert.deepEqual(permission, { decision: 'once', useVisionRelay: false });
+    await page.evaluate(() => {
+      window.__questionResponse = requestAgentQuestion({
+        requestId: 'closed-choice', sessionId: window.__questionRunCtx.sessionId,
+        questions: [{ question: '只能选择已有选项', custom: false, options: [{ label: '继续' }] }]
+      }, window.__questionRunCtx);
+    });
+    await page.locator('#agentPermissionPanel[data-mode="question"]:not(.hidden)').waitFor();
+    assert.equal(await page.locator('#agentQuestionCustomToggle').isVisible(), false);
+    await page.locator('.agent-question-option').click();
+    assert.deepEqual(await page.evaluate(async () => window.__questionResponse), { answers: [['继续']], reject: false, cancelled: false });
+    await application.evaluate(({ ipcMain }) => {
+      let attempts = 0;
+      ipcMain.removeHandler('opencode:question-reply');
+      ipcMain.handle('opencode:question-reply', (_event, payload) => {
+        if (++attempts === 1) return { ok: false, error: 'fixture transport error' };
+        if (JSON.stringify(payload.answers) !== JSON.stringify([['Yes']])) throw new Error('Lost retry answer');
+        return { ok: true };
+      });
+      ipcMain.removeHandler('opencode:cancel-run');
+      globalThis.questionCancelCalls = 0;
+      ipcMain.handle('opencode:cancel-run', () => { globalThis.questionCancelCalls++; return { ok: true }; });
+    });
+    await page.evaluate(() => {
+      window.__retryDone = false;
+      void handleOpenCodeQuestion(window.__questionRunCtx, { type: 'question.asked', properties: {
+        id: 'retry-question', questions: [{ header: 'Retry', question: 'Continue?', options: [{ label: 'Yes' }] }]
+      } }).then(() => { window.__retryDone = true; });
+    });
+    await page.locator('#agentPermissionPanel:not(.hidden)').waitFor();
+    await page.locator('.agent-question-option').click();
+    await page.waitForFunction(() => document.querySelector('.agent-question-error')?.textContent.includes('fixture transport error'));
+    assert.equal(await page.locator('.agent-question-option input').isChecked(), true);
+    assert.equal(await page.evaluate(() => window.__questionRunCtx.shouldAbort), false);
+    await page.locator('#agentQuestionHeaderNext').click();
+    await page.waitForFunction(() => window.__retryDone);
+    assert.equal(await application.evaluate(() => globalThis.questionCancelCalls), 0);
     assert.deepEqual(pageErrors, []);
     console.log(JSON.stringify({ ok: true, runContext, geometry, screenshotPath }));
   } finally {

@@ -1,0 +1,9 @@
+{
+  "name": "yan-opencode-v2-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned, isolated OpenCode V2 migration runtime",
+  "dependencies": {
+    "@opencode/client": "2.0.27"
+  }
+}

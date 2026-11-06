@@ -31,3 +31,7 @@ __pycache__/
 /tmp-subagent-config.json
 .zcode/
 /tmp-update-renderer*.mjs
+
+opencode-runtime-v2/
+.kernel-build/
+vendor/opencode-v2/node-runtime/

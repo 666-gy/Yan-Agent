@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { evolutionEnabled, sessionModeMatches } = require('../lib/work-mode-isolation');
-const { combineSystem, combineTurnPrompt, memorySystem } = require('../lib/opencode-sidecar');
+const { combineSystem, combineTurnPrompt, memorySystem } = require('../lib/kernel-policy');
 const { registerMemorySettings } = require('../lib/main/memory-settings');
 const { LongTermMemoryStore } = require('../lib/long-term-memory');
 const { ContinualHarnessStore } = require('../lib/continual-harness');
@@ -49,4 +49,15 @@ test('delete clears real global and project stores, rejects foreign callers and 
     assert.equal(harness.load().refinements.length, 0);
     assert.equal(harness.load({ scope: 'workspace', workspace }).refinements.length, 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('disabled session memory blocks forced computer-control review before consuming or writing', async () => {
+  const { registerMemoryRuntime } = require('../lib/main/memory-runtime');
+  let consumed = 0;
+  const runtime = registerMemoryRuntime({ loadConfig: () => ({ memory: { enabled: true } }),
+    consumeHarnessRefinementRequest: () => { consumed++; throw Error('must not consume'); } });
+  for (const request of [{ memoryEnabled: false }, { memoryEnabled: true, memoryWriteEnabled: false }]) {
+    await runtime.reviewCompletedRunMemory({ request, evolutionMode: true, result: { toolCalls: [{ name: 'computer_control' }] } });
+  }
+  assert.equal(consumed, 0);
 });

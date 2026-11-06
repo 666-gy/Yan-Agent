@@ -1,4 +1,7 @@
 (() => {
+  // Downloads belong to the main window. A child session window must not poll
+  // the main-window-only channel just to be rejected every 600ms.
+  if (window.yan?.nestedWindowSessionId) return;
   const paths = { download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/>', file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6"/>', folder: '<path d="M6 15L7.4472 12.1056C7.786 11.428 8.4785 11 9.2361 11L19.9978 11C21.4451 11 22.4132 12.4897 21.8254 13.8123L19.6032 18.8123C19.2822 19.5345 18.5659 20 17.7756 20L4 20C2.8954 20 2 19.1046 2 18L2 6C2 4.8954 2.8954 4 4 4L7.3787 4C7.7765 4 8.158 4.158 8.4393 4.4393L9.5607 5.5607C9.842 5.842 10.2235 6 10.6213 6L17 6C18.1046 6 19 6.8954 19 8L19 11"/>', pause: '<circle cx="12" cy="12" r="9"/><path d="M9 8v8m6-8v8"/>', close: '<path d="m6 6 12 12M6 18 18 6"/>', more: '<circle cx="5" cy="12" r=".7"/><circle cx="12" cy="12" r=".7"/><circle cx="19" cy="12" r=".7"/>' };
   const svg = key => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[key]}</svg>`;
   paths.resume = '<path d="m9 5 11 7-11 7Z"/>';

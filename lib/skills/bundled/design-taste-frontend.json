@@ -1,0 +1,11 @@
+{
+  "id": "design-taste-frontend",
+  "name": "Design Taste Frontend",
+  "desc": "按任务与视觉参考设计前端，覆盖页面布局、排版、动效和视觉实现质量。",
+  "tags": [
+    "web-design"
+  ],
+  "source": "bundled",
+  "version": 1,
+  "promptFile": "../design-taste-frontend/SKILL.md"
+}

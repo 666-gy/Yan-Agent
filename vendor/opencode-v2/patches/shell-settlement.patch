@@ -1,0 +1,119 @@
+diff --git a/packages/core/src/session/runner/publish-llm-event.ts b/packages/core/src/session/runner/publish-llm-event.ts
+index fa39ea9..7bc20d1 100644
+--- a/packages/core/src/session/runner/publish-llm-event.ts
++++ b/packages/core/src/session/runner/publish-llm-event.ts
+@@ -93,6 +93,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
+   }
+   const assistantMessageID = input.assistantMessageID
+   let stepStarted = false
++  let publicationFailed = false
+   let providerFailed = false
+   let outputStarted = false
+   let stepFailure: SessionError.Error | undefined
+@@ -347,7 +348,6 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
+   const failTool = Effect.fnUntraced(function* (id: string, error: SessionError.Error, metadata?: Tool.Metadata) {
+     const tool = tools.get(id)
+     if (!tool || tool.settled) return false
+-    tool.settled = true
+     yield* bus.publish(SessionEvent.Tool.Failed, {
+       sessionID: input.sessionID,
+       assistantMessageID,
+@@ -359,6 +359,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
+       ...failureSnapshot(tool, metadata),
+       executed: tool.providerExecuted,
+     })
++    tool.settled = true
+     return true
+   })
+ 
+@@ -582,9 +583,11 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
+     if (tool.name !== name)
+       return yield* Effect.die(new Error(`Tool execution name changed for ${id}: ${tool.name} -> ${name}`))
+     if (tool.settled) return yield* Effect.die(new Error(`Duplicate tool execution: ${id}`))
+-    tool.settled = true
+     const content = result.content
+-    if (!isReadonlyArrayNonEmpty(content)) return yield* Effect.die(new Error(`Tool execution has no content: ${id}`))
++    if (!isReadonlyArrayNonEmpty(content)) {
++      publicationFailed = true
++      return yield* Effect.die(new Error(`Tool execution has no content: ${id}`))
++    }
+     yield* bus.publish(SessionEvent.Tool.Success, {
+       sessionID: input.sessionID,
+       assistantMessageID,
+@@ -592,7 +595,13 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
+       content,
+       ...(result.metadata === undefined ? {} : { metadata: result.metadata }),
+       executed: tool.providerExecuted,
+-    })
++    }).pipe(Effect.catchCause((cause) => {
++      publicationFailed = true
++      return Effect.failCause(cause)
++    }))
++    // A failed durable publication must remain eligible for terminal error
++    // compensation. In particular, undefined metadata is not a JSON value.
++    tool.settled = true
+   })
+ 
+   return {
+@@ -609,6 +618,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
+     publishStepFailure,
+     failUnsettledTools,
+     hasProviderError: () => providerFailed,
++    hasPublicationFailure: () => publicationFailed,
+     hasStarted: () => stepStarted,
+     /** Immutable snapshot of everything recorded for this step so far. */
+     record: (): StepRecord => ({
+diff --git a/packages/core/src/session/runner/step.ts b/packages/core/src/session/runner/step.ts
+index 346ccbc..8f6adf1 100644
+--- a/packages/core/src/session/runner/step.ts
++++ b/packages/core/src/session/runner/step.ts
+@@ -279,7 +279,8 @@ export const make = Effect.gen(function* () {
+           if (input.isLocationClosed()) return Outcome.Completed({ needsContinuation: true })
+           return yield* Effect.interrupt
+         }
+-        if (tools.interrupted && tools.failure) return yield* Effect.failCause(tools.failure)
++        if ((tools.interrupted || publisher.hasPublicationFailure()) && tools.failure)
++          return yield* Effect.failCause(tools.failure)
+         if (tools.interrupted && Exit.isFailure(joined)) return yield* Effect.failCause(joined.cause)
+         if (record.failure) return yield* new StepFailedError({ error: record.failure })
+         return Outcome.Completed({
+diff --git a/packages/core/test/session-runner-tool-events.test.ts b/packages/core/test/session-runner-tool-events.test.ts
+index d12128b..a38ad29 100644
+--- a/packages/core/test/session-runner-tool-events.test.ts
++++ b/packages/core/test/session-runner-tool-events.test.ts
+@@ -32,6 +32,7 @@ const capture = (
+   providerMetadataKey = "anthropic",
+   options?: {
+     readonly interruptProgress?: boolean
++    readonly failSuccess?: boolean
+     readonly beforeTextDelta?: Effect.Effect<void>
+     readonly pendingSnapshot?: Effect.Effect<Snapshot.ID | undefined>
+   },
+@@ -39,6 +40,8 @@ const capture = (
+   const published: Array<{ readonly type: string; readonly data: unknown }> = []
+   const bus: Pick<Bus.Interface, "publish"> = {
+     publish: (definition, data) => {
++      if (definition.type === SessionEvent.Tool.Success.type && options?.failSuccess)
++        return Effect.die(new Error("simulated durable result failure"))
+       const publish = Effect.sync(() => {
+         const event = { id: Event.ID.create(), type: definition.type, data } as Event.Payload<typeof definition>
+         published.push({
+@@ -72,6 +75,18 @@ const capture = (
+ }
+ 
+ const call = LLMEvent.toolCall({ id: "call-image", name: "read", input: { path: "pixel.png" } })
++
++test("failed durable tool success remains eligible for error compensation", async () => {
++  const { published, publisher } = capture("anthropic", { failSuccess: true })
++  await Effect.runPromise(publisher.publish(call))
++  const result = await Effect.runPromiseExit(publisher.toolExecution(call.id, call.name, {
++    output: undefined, content: [{ type: "text", text: "result" }], metadata: { exit: undefined },
++  }))
++  expect(Exit.isFailure(result)).toBe(true)
++  expect(publisher.hasPublicationFailure()).toBe(true)
++  await Effect.runPromise(publisher.failUnsettledTools({ type: "unknown", message: "Result could not be saved" }))
++  expect(published.filter(event => event.type.startsWith("session.tool.failed"))).toHaveLength(1)
++})
+ const hostedResult = LLMEvent.toolResult({
+   id: "call-image",
+   name: "read",

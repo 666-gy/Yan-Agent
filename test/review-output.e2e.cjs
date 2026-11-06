@@ -256,7 +256,7 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-output-e2e
         moreBefore: '再显示 2 个文件',
         panelUndoCount: 1,
         footerUndoCount: 0,
-        logoPath: 'M12 22C6.47715 22 2 17.5229 2 12C2 6.47715 6.47715 2 12 2M17.8778 3.90983C18.7268 4.52663 19.4734 5.2732 20.0902 6.12215M21.8769 10.4357C22.041 11.4721 22.041 12.5279 21.8769 13.5643M20.0902 17.8778C19.4734 18.7268 18.7268 19.4734 17.8778 20.0902M8 12L10.6667 15L16 9',
+        logoPath: 'M14 2L8 2C5.7909 2 4 3.7909 4 6L4 18C4 20.2091 5.7909 22 8 22L16 22C18.2091 22 20 20.2091 20 18L20 8L14 2ZM12 8L12 14M9 11L15 11M9 18L15 18',
         expandedVisibleCount: 5,
         moreAfter: '收起 2 个文件'
       }

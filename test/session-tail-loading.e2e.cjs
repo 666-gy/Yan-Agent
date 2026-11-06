@@ -227,6 +227,39 @@ const TOTAL_MESSAGES = 60;
     assert.equal(hugeState.hugePresent, true, JSON.stringify(hugeState));
     assert.equal(hugeState.smallPresent, true, JSON.stringify(hugeState));
 
+    // A page capped by the 6 MB character budget must still end at the cursor.
+    // Returning the first message of the requested range instead leaves the
+    // huge message behind and lets the renderer mark the session complete.
+    const gapSetup = await page.evaluate(async () => {
+      await newSession();
+      const session = state.currentSession;
+      session.messages.push({ role: 'user', content: '最早的小消息', ts: Date.now() });
+      session.messages.push({ role: 'assistant', content: '超大消息'.repeat(1_750_000), ts: Date.now() + 1 });
+      session.messages.push({ role: 'user', content: '后面的小消息', ts: Date.now() + 2 });
+      session.messages.push({ role: 'assistant', content: '最新回复', ts: Date.now() + 3 });
+      await saveCurrentSession();
+      return { sessionId: session.id, total: session.messages.length };
+    });
+    await page.evaluate(() => location.reload());
+    await page.waitForFunction(() => typeof loadSession === 'function');
+    const gapState = await page.evaluate(async ({ sessionId }) => {
+      await loadSession(sessionId);
+      const before = state.currentSession.messages.length;
+      await ensureFullSessionLoaded(state.currentSession);
+      return {
+        before,
+        after: state.currentSession.messages.length,
+        truncated: !!state.currentSession.messagesTruncated,
+        order: state.currentSession.messages.map(message => message.content)
+      };
+    }, { sessionId: gapSetup.sessionId });
+    assert.equal(gapState.truncated, false, JSON.stringify({ ...gapState, order: undefined }));
+    assert.equal(gapState.after, gapSetup.total, JSON.stringify({ ...gapState, order: undefined }));
+    assert.equal(gapState.order[0], '最早的小消息');
+    assert.equal(gapState.order[1], '超大消息'.repeat(1_750_000));
+    assert.equal(gapState.order[2], '后面的小消息');
+    assert.equal(gapState.order[3], '最新回复');
+
     assert.equal(errors.length, 0, errors.join('; '));
     console.log(JSON.stringify({ ok: true, tailState, loadedAll, ensureState }));
   } finally {

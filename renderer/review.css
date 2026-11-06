@@ -42,14 +42,14 @@
 }
 
 [data-theme="light"] {
-  --review-surface: #fbfbfa;
+  --review-surface: #ffffff;
   --review-surface-raised: #ffffff;
-  --review-surface-muted: #f2f3f1;
-  --review-surface-hover: #eef0ee;
-  --review-surface-selected: #e8ecea;
+  --review-surface-muted: #f3f6fa;
+  --review-surface-hover: #eef2f7;
+  --review-surface-selected: #e7edf5;
   --review-selection-edge: #9aa7a2;
-  --review-rule: #e1e4e1;
-  --review-rule-strong: #cbd1cc;
+  --review-rule: #e1e7ef;
+  --review-rule-strong: #d3dce8;
   --review-ink: #242725;
   --review-ink-muted: #5e6661;
   --review-ink-faint: #8c9690;

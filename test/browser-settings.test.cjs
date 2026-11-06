@@ -9,8 +9,8 @@ const { registerBrowserSettings } = require('../lib/main/browser-settings');
 const { normalizeBrowserPreferences } = require('../lib/browser-preferences');
 
 test('browser preference defaults and invalid values normalize consistently', () => {
-  assert.deepEqual(normalizeBrowserPreferences(null), { enabled: true, webTarget: 'external', localTarget: 'builtin', showFullUrl: false, downloadDirectory: '', askDownloadLocation: false, historyPolicy: 'ask', siteToolsEnabled: true });
-  assert.deepEqual(normalizeBrowserPreferences({ enabled: false, webTarget: 'builtin', localTarget: 'external', showFullUrl: true }), { enabled: false, webTarget: 'builtin', localTarget: 'external', showFullUrl: true, downloadDirectory: '', askDownloadLocation: false, historyPolicy: 'ask', siteToolsEnabled: true });
+  assert.deepEqual(normalizeBrowserPreferences(null), { acceptanceLevel: 'rigorous', acceptanceUpgradeAlways: false, enabled: true, webTarget: 'external', localTarget: 'builtin', agentExposure: 'always', showFullUrl: false, downloadDirectory: '', askDownloadLocation: false, historyPolicy: 'ask', siteToolsEnabled: true });
+  assert.deepEqual(normalizeBrowserPreferences({ enabled: false, webTarget: 'builtin', localTarget: 'external', showFullUrl: true }), { acceptanceLevel: 'rigorous', acceptanceUpgradeAlways: false, enabled: false, webTarget: 'builtin', localTarget: 'external', agentExposure: 'always', showFullUrl: true, downloadDirectory: '', askDownloadLocation: false, historyPolicy: 'ask', siteToolsEnabled: true });
   assert.deepEqual(normalizeBrowserPreferences({ enabled: 'false', webTarget: 'unknown' }), normalizeBrowserPreferences());
 });
 

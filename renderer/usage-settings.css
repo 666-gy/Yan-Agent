@@ -1,4 +1,7 @@
 #tab-usage { max-width: 980px; }
+.settings-page-layer[data-active-tab="usage"] .settings-page-heading { max-width: 980px; }
+.settings-page-layer[data-active-tab="usage"] #settingsSectionTitle { display: flex; align-items: center; gap: 10px; }
+.settings-page-layer[data-active-tab="usage"] #settingsSectionTitle svg { width: 26px; height: 26px; flex-shrink: 0; }
 .usage-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 16px; min-height: 32px; margin-bottom: 14px; }
 .usage-toolbar [role="status"] { margin-right: auto; color: var(--text-dim); font-size: 13px; }
 .usage-toolbar button, .usage-filters button { color: var(--text-dim); background: transparent; border: 0; border-radius: 7px; padding: 5px 9px; font: inherit; cursor: pointer; }

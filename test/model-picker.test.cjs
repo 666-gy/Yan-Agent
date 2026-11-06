@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 const {
   REASONING_SPEED_LEVELS,
   normalizeReasoningSpeed,

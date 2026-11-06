@@ -1,30 +1,38 @@
 'use strict';
+
 const test = require('node:test');
+
 const assert = require('node:assert/strict');
+
 const fs = require('node:fs');
+
 const os = require('node:os');
+
 const path = require('node:path');
+
 const { pathToFileURL } = require('node:url');
+
 const { assertSandboxTool } = require('../lib/agent-sandbox');
-const { permissionForRun, sessionPermissionForRun, builderSessionPermissionForRun, buildOpenCodeConfig } = require('../lib/opencode-sidecar');
-test('restricted modes deny bypass tools in parent, blank and builder rules', () => {
+const { permissionForRun, sessionPermissionForRun, buildOpenCodeConfig } = require('../lib/kernel-policy');
+const { permissions, translateConfig } = require('../lib/kernel-v2/config');
+
+test('V2 restricted modes deny shell bypasses and keep legacy role dispatch disabled', () => {
   for (const sandboxMode of ['read-only', 'workspace-write']) {
-    const config = { sandboxMode, accessMode: 'full', hasUserWorkspace: true, mcpServers: [{ id: 'external', enabled: true, command: 'node' }] };
-    const permissions = permissionForRun(config);
-    assert.equal(permissions.bash, 'deny');
-    assert.equal(permissions.external_directory, 'deny');
-    assert.equal(permissions['external_*'], 'deny');
-    for (const rules of [sessionPermissionForRun(config), builderSessionPermissionForRun(config)]) {
-      assert.equal(rules.find(r => r.permission === 'bash').action, 'deny');
-      assert.equal(rules.find(r => r.permission === 'external_*').action, 'deny');
-      assert.equal(rules.find(r => r.permission === 'write').action, sandboxMode === 'read-only' ? 'deny' : 'allow');
-    }
-    assert.equal(sessionPermissionForRun({ ...config, hasUserWorkspace: false }).find(rule => rule.permission === 'write').action, 'deny');
-    const kernel = buildOpenCodeConfig({ ...config, providerId: 'fixture', modelId: 'fixture' });
-    assert.match(kernel.plugin[0], /yanSandbox=/);
-    assert.equal(kernel.agent.builder.permission.bash, 'deny');
+    const config = { sandboxMode, accessMode: 'full', hasUserWorkspace: true,
+      mcpServers: [{ id: 'external', enabled: true, command: 'node' }] };
+    const parent = permissions(config);
+    assert.equal(parent.find(rule => rule.action === 'shell').effect, 'deny');
+    assert.equal(parent.find(rule => rule.action === 'external_*').effect, 'deny');
+    assert.equal(parent.find(rule => rule.action === 'edit').effect,
+      sandboxMode === 'read-only' ? 'deny' : 'allow');
+    const blank = permissions({ ...config, hasUserWorkspace: false });
+    assert.equal(blank.find(rule => rule.action === 'edit').effect,
+      sandboxMode === 'read-only' ? 'deny' : 'allow');
+    const translated = translateConfig(buildOpenCodeConfig({ ...config, providerId: 'fixture', modelId: 'fixture' }));
+    assert.equal(translated.agents.build.permissions.find(rule => rule.action === 'shell').effect, 'deny');
   }
 });
+
 test('workspace writes reject traversal, patch moves, junctions, and direct shell calls', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-sandbox-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -1,295 +1,148 @@
 'use strict';
 
+// Start the packaged Node V2 runtime against a local HTTP provider. No V1 exe.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
-const { spawn } = require('node:child_process');
-const {
-  buildOpenCodeConfig,
-  stageDeepSeekProviderModule,
-  stageGlmmProviderModule,
-  stageQwemProviderModule,
-  stageKimlProviderModule,
-  stageGptlProviderModule,
-  stageAgnlProviderModule,
-  stageGemlProviderModule,
-  stageGrolProviderModule,
-  stageResponsesProviderModule
-} = require('../lib/opencode-sidecar');
-const { stageOpenCodeRuntime } = require('../lib/opencode-runtime');
-
-const appRoot = path.resolve(__dirname, '..');
-const executable = path.resolve(process.env.YAN_OPENCODE_EXECUTABLE || path.join(
-  appRoot,
-  'node_modules',
-  `opencode-windows-${process.arch}`,
-  'bin',
-  process.platform === 'win32' ? 'opencode.exe' : 'opencode'
-));
-const providerModule = path.resolve(process.env.YAN_PROVIDER_MODULE_PATH || path.join(
-  appRoot,
-  'lib',
-  'opencode-dsml-provider.mjs'
-));
-const responsesBundle = path.join(path.dirname(providerModule), 'opencode-openai-responses-provider.bundle.mjs');
-const providerId = String(process.env.YAN_TEST_PROVIDER_ID || 'deepseek').trim();
-const providerName = String(process.env.YAN_TEST_PROVIDER_NAME || providerId).trim();
-const modelId = `${providerId}-packaged-test`;
-
-function runProcess(command, args, options, timeoutMs = 30_000) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, options);
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Provider runtime test timed out. stdout=${stdout} stderr=${stderr}`));
-    }, timeoutMs);
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', chunk => { stdout += chunk; });
-    child.stderr.on('data', chunk => { stderr += chunk; });
-    child.once('error', error => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once('close', code => {
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr });
-    });
-  });
+const vm = require('node:vm');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
+const staging = require('../lib/provider-staging');
+const { resolveProviderAdapter } = require('../lib/provider-adapter-routing');
+const { OpenCodeV2Adapter } = require('../lib/kernel-v2/adapter');
+const { runtimePaths } = require('../lib/kernel-v2/runtime');
+const appRoot = path.resolve(process.env.YAN_PACKAGED_APP_ROOT || path.join(__dirname, '..'));
+const providerId = String(process.env.YAN_TEST_PROVIDER_ID || 'deepseek');
+const modelId = process.env.YAN_TEST_MODEL_ID || `${providerId}-packaged-test`;
+const rendererSource = appRoot.endsWith('app.asar') ? require('@electron/asar').extractFile(appRoot, path.join('renderer', 'renderer.js')).toString('utf8') : fs.readFileSync(path.join(appRoot, 'renderer', 'renderer.js'), 'utf8');
+const cacheUi = vm.createContext({});
+for (const name of ['getAgentRunCacheStats', 'formatCacheHitRate']) {
+  const start = rendererSource.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `Missing renderer function ${name}`);
+  const end = rendererSource.indexOf('\nfunction ', start + 1);
+  assert.ok(end > start);
+  vm.runInContext(rendererSource.slice(start, end), cacheUi);
 }
-
-function cleanupRuntime(directory) {
-  assert.equal(path.dirname(path.resolve(directory)), path.resolve(os.tmpdir()));
-  assert.match(path.basename(directory), /^yan-(?:provider|responses)-runtime-/);
-  // Windows can retain the executable briefly after process completion.
-  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });
-}
-
-function stageProviderPackage(runtimeRoot) {
-  const packageName = '@yan-agent/deepseek-dsml-provider';
-  const packageDir = path.join(runtimeRoot, 'config', 'opencode', 'node_modules', '@yan-agent', 'deepseek-dsml-provider');
-  const sourceRoot = path.dirname(providerModule);
-  const sourceNodeModules = path.resolve(sourceRoot, '..', 'node_modules');
-  const targetNodeModules = path.join(runtimeRoot, 'config', 'opencode', 'node_modules');
-  fs.mkdirSync(packageDir, { recursive: true });
-  fs.copyFileSync(providerModule, path.join(packageDir, 'index.mjs'));
-  fs.copyFileSync(path.join(sourceRoot, 'dsml-tool-call.js'), path.join(packageDir, 'dsml-tool-call.js'));
-  fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({
-    name: packageName,
-    version: '1.0.0',
-    type: 'module',
-    exports: './index.mjs'
-  }));
-  for (const dependency of ['@ai-sdk', '@standard-schema', 'eventsource-parser', 'json-schema', 'zod']) {
-    const source = path.join(sourceNodeModules, dependency);
-    const target = path.join(targetNodeModules, dependency);
-    if (fs.existsSync(source)) fs.cpSync(source, target, { recursive: true, force: true });
-  }
-  return packageName;
-}
-
-function stageProviderBundle(runtimeRoot) {
-  const targetDir = path.join(runtimeRoot, 'provider');
-  const target = path.join(targetDir, 'deepseek-dsml-provider.mjs');
-  fs.mkdirSync(targetDir, { recursive: true });
-  fs.copyFileSync(providerModule, target);
-  return pathToFileURL(target).href;
-}
+const families = { glm: ['glmm', 'Glmm'], qwen: ['qwem', 'Qwem'], kimi: ['kiml', 'Kiml'],
+  gptl: ['gptl', 'Gptl'], agnes: ['agnl', 'Agnl'], gemini: ['geml', 'Geml'], grok: ['grol', 'Grol'],
+  anthropic: ['antl', 'Antl'] };
 
 (async () => {
-  assert.equal(fs.existsSync(executable), true, `Missing OpenCode executable: ${executable}`);
-  assert.equal(fs.existsSync(providerModule), true, `Missing provider module: ${providerModule}`);
-  assert.equal(fs.existsSync(responsesBundle), true, `Missing responses module: ${responsesBundle}`);
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-provider-runtime-'));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-provider-v2-'));
   const requests = [];
   const server = http.createServer((request, response) => {
     let body = '';
     request.setEncoding('utf8');
     request.on('data', chunk => { body += chunk; });
     request.on('end', () => {
-      requests.push({ method: request.method, url: request.url, body });
-      if (request.url?.endsWith('/models')) {
-        response.writeHead(200, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ object: 'list', data: [{ id: 'deepseek-packaged-test', object: 'model' }] }));
-        return;
+      requests.push({ url: request.url, body: JSON.parse(body || '{}') });
+      if (request.url.endsWith('/chat/completions')) {
+        const allowed = new Set(['model', 'messages', 'stream', 'stream_options', 'tools', 'tool_choice',
+          'max_tokens', 'max_completion_tokens', 'temperature', 'top_p', 'top_k', 'stop', 'seed',
+          'frequency_penalty', 'presence_penalty', 'response_format', 'reasoning_effort', 'thinking',
+          'tool_stream', 'parallel_tool_calls', 'user', 'verbosity', 'enable_thinking']);
+        const unknown = Object.keys(requests.at(-1).body).find(key => !allowed.has(key));
+        if (unknown) {
+          response.writeHead(400, { 'Content-Type': 'application/json' });
+          response.end(JSON.stringify({ error: { message: `UNKNOWN_FIELD: ${unknown}` } }));
+          return;
+        }
       }
-      response.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive'
-      });
-      const created = Math.floor(Date.now() / 1000);
-      response.write(`data: ${JSON.stringify({
-        id: 'yan-provider-test',
-        object: 'chat.completion.chunk',
-        created,
-        model: 'deepseek-packaged-test',
-        choices: [{ index: 0, delta: { role: 'assistant', content: 'PACKAGED_PROVIDER_OK' }, finish_reason: null }]
-      })}\n\n`);
-      response.write(`data: ${JSON.stringify({
-        id: 'yan-provider-test',
-        object: 'chat.completion.chunk',
-        created,
-        model: 'deepseek-packaged-test',
-        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
-      })}\n\n`);
-      response.end('data: [DONE]\n\n');
+      response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+      const send = value => response.write(`data: ${JSON.stringify(value)}\n\n`);
+      if (request.url.endsWith('/responses')) {
+        const result = { id: 'resp_probe', object: 'response', status: 'completed', model: modelId,
+          created_at: Math.floor(Date.now() / 1000),
+          output: [{ id: 'msg_probe', type: 'message', role: 'assistant', status: 'completed',
+            content: [{ type: 'output_text', text: 'PACKAGED_PROVIDER_OK', annotations: [] }] }],
+          usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120,
+            input_tokens_details: { cached_tokens: 60 }, output_tokens_details: { reasoning_tokens: 5 } } };
+        send({ type: 'response.created', response: { ...result, status: 'in_progress', output: [] } });
+        send({ type: 'response.output_item.added', output_index: 0, item: { ...result.output[0], content: [] } });
+        send({ type: 'response.content_part.added', item_id: 'msg_probe', output_index: 0, content_index: 0,
+          part: { type: 'output_text', text: '', annotations: [] } });
+        send({ type: 'response.output_text.delta', item_id: 'msg_probe', output_index: 0, content_index: 0, delta: 'PACKAGED_PROVIDER_OK' });
+        send({ type: 'response.completed', response: result });
+        response.end();
+      } else {
+        const common = { id: 'yan-provider-test', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: modelId };
+        send({ ...common, choices: [{ index: 0, delta: { role: 'assistant', content: 'PACKAGED_PROVIDER_OK' }, finish_reason: null }] });
+        send({ ...common, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+        send({ ...common, choices: [], usage: { prompt_tokens: 100, completion_tokens: 20,
+          total_tokens: 120, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40,
+          completion_tokens_details: { reasoning_tokens: 5 } } });
+        response.end('data: [DONE]\n\n');
+      }
     });
   });
-
+  const adapter = new OpenCodeV2Adapter({ appRoot, dataDir });
+  const start = adapter.start.bind(adapter);
+  adapter.start = async config => {
+    const status = await start(config);
+    adapter.transport.child.stderr.on('data', chunk => process.stderr.write(chunk));
+    return status;
+  };
+  async function run(config, id, model) {
+    const runId = `provider-${id}`;
+    const timeout = setTimeout(() => {
+      console.error('Provider timeout; requested URLs:', requests.map(item => item.url));
+      adapter.cancel(runId).catch(() => {});
+    }, 30000);
+    try {
+      const result = await adapter.run({ runId, workspace: dataDir, hasUserWorkspace: true,
+        prompt: 'Reply with the supplied test response.', providerId: id, modelId: model,
+        openCodeConfig: config, accessMode: 'full', permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true } });
+      assert.equal(result.status, 'done', JSON.stringify(result));
+      assert.ok(JSON.stringify(result).includes('PACKAGED_PROVIDER_OK'), JSON.stringify(result));
+      assert.deepEqual(result.usage, { input: 40, output: 15, reasoning: 5, cacheRead: 60, cacheWrite: 0, total: 120 });
+      const stats = cacheUi.getAgentRunCacheStats({ usage: result.usage });
+      assert.equal(stats.promptTokens, 100);
+      assert.equal(cacheUi.formatCacheHitRate(stats.rate), '60%');
+    } finally { clearTimeout(timeout); }
+  }
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
-    const family = {
-      glm: ['glmm', stageGlmmProviderModule], qwen: ['qwem', stageQwemProviderModule],
-      kimi: ['kiml', stageKimlProviderModule], gptl: ['gptl', stageGptlProviderModule],
-      agnes: ['agnl', stageAgnlProviderModule], gemini: ['geml', stageGemlProviderModule],
-      grok: ['grol', stageGrolProviderModule]
-    }[providerId];
-    const providerModuleSpecifier = family
-      ? family[1]({ appRoot: process.env.YAN_PACKAGED_APP_ROOT || appRoot, dataDir: runtimeRoot })
-      : process.env.YAN_PACKAGED_APP_ROOT
-      ? stageDeepSeekProviderModule({
-          appRoot: process.env.YAN_PACKAGED_APP_ROOT,
-          dataDir: runtimeRoot
-        })
-      : String(process.env.YAN_PROVIDER_MODULE_SPECIFIER || pathToFileURL(providerModule).href);
-    const config = buildOpenCodeConfig({
-      providerId,
-      providerName,
-      modelId,
-      modelName: `${providerName} Packaged Test`,
-      apiKey: 'local-test-key',
-      baseUrl,
-      deepSeekProviderModule: providerModuleSpecifier,
-      glmmProviderModule: providerModuleSpecifier,
-      qwemProviderModule: providerModuleSpecifier,
-      kimlProviderModule: providerModuleSpecifier,
-      gptlProviderModule: providerModuleSpecifier,
-      agnlProviderModule: providerModuleSpecifier,
-      gemlProviderModule: providerModuleSpecifier,
-      grolProviderModule: providerModuleSpecifier,
-      ...(family ? { [family[0]]: true } : {}),
-      capabilities: { reasoning: true, contextWindow: 32_768, maxOutputTokens: 8_192 },
-      accessMode: 'full',
-      permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true }
-    });
-    assert.equal(config.provider[providerId].npm, providerModuleSpecifier);
-    const env = {
-      ...process.env,
-      XDG_DATA_HOME: path.join(runtimeRoot, 'data'),
-      XDG_CONFIG_HOME: path.join(runtimeRoot, 'config'),
-      XDG_CACHE_HOME: path.join(runtimeRoot, 'cache'),
-      XDG_STATE_HOME: path.join(runtimeRoot, 'state'),
-      OPENCODE_TEST_HOME: path.join(runtimeRoot, 'home'),
-      OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
-      OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
-      OPENCODE_DISABLE_AUTOUPDATE: 'true',
-      OPENCODE_CONFIG_CONTENT: JSON.stringify(config)
-    };
-    const runtimeExecutable = await stageOpenCodeRuntime({ executable, dataDir: runtimeRoot });
-    const result = await runProcess(runtimeExecutable, [
-      'run',
-      '--model', `${providerId}/${modelId}`,
-      '--print-logs',
-      '--log-level', 'INFO',
-      'Reply with the supplied test response.'
-    ], {
-      cwd: runtimeRoot,
-      env,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const combined = `${result.stdout}\n${result.stderr}`;
-    assert.equal(result.code, 0, combined);
-    assert.equal(combined.includes('PACKAGED_PROVIDER_OK'), true, combined);
-    assert.equal(combined.includes('Failed to initialize provider'), false, combined);
-    assert.ok(requests.length >= 1, combined);
-    assert.ok(requests.some(request => {
-      const tools = JSON.parse(request.body || '{}').tools || [];
-      return ['write', 'edit', 'apply_patch'].every(name => tools.some(tool => tool.function?.name === name));
-    }), 'The packaged runtime must expose all three native file tools to the provider');
-
-    // Responses channel: the kernel must load the responses provider factory
-    // and route the model call to POST {baseURL}/responses instead of
-    // /chat/completions. The mock body is intentionally a chat-shaped stream,
-    // so this scenario asserts routing and factory loading, not parsing.
-    const responsesRuntimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-responses-runtime-'));
-    try {
-      const responsesModuleUrl = String(
-        process.env.YAN_RESPONSES_PROVIDER_MODULE_SPECIFIER || (process.env.YAN_PACKAGED_APP_ROOT
-          ? stageResponsesProviderModule({ appRoot: process.env.YAN_PACKAGED_APP_ROOT, dataDir: responsesRuntimeRoot })
-          : pathToFileURL(responsesBundle).href)
-      );
-      const responsesConfig = buildOpenCodeConfig({
-        providerId: 'conn-responses-test',
-        providerName: 'Responses Packaged Test',
-        modelId: 'responses-packaged-test',
-        modelName: 'Responses Packaged Test',
-        apiKey: 'local-test-key',
-        baseUrl,
-        apiFormat: 'responses',
-        responsesProviderModule: responsesModuleUrl,
-        capabilities: { reasoning: true, contextWindow: 32_768, maxOutputTokens: 8_192 },
-        accessMode: 'full',
-        permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true }
-      });
-      assert.equal(responsesConfig.provider['conn-responses-test'].npm, responsesModuleUrl);
-      const responsesEnv = {
-        ...env,
-        XDG_DATA_HOME: path.join(responsesRuntimeRoot, 'data'),
-        XDG_CONFIG_HOME: path.join(responsesRuntimeRoot, 'config'),
-        XDG_CACHE_HOME: path.join(responsesRuntimeRoot, 'cache'),
-        XDG_STATE_HOME: path.join(responsesRuntimeRoot, 'state'),
-        OPENCODE_TEST_HOME: path.join(responsesRuntimeRoot, 'home'),
-        OPENCODE_CONFIG_CONTENT: JSON.stringify(responsesConfig)
-      };
-      const before = requests.length;
-      const responsesExecutable = await stageOpenCodeRuntime({ executable, dataDir: responsesRuntimeRoot });
-      await runProcess(responsesExecutable, [
-        'run',
-        '--model', 'conn-responses-test/responses-packaged-test',
-        '--print-logs',
-        '--log-level', 'INFO',
-        'Reply with the supplied test response.'
-      ], {
-        cwd: responsesRuntimeRoot,
-        env: responsesEnv,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
-      const responsesRequests = requests.slice(before);
-      assert.ok(
-        responsesRequests.some(request => String(request.url).endsWith('/responses')),
-        `The responses provider must call /responses. Requests: ${JSON.stringify(responsesRequests)}`
-      );
-      assert.equal(
-        responsesRequests.some(request => String(request.url).includes('/chat/completions')),
-        false,
-        `The responses provider must not fall back to /chat/completions. Requests: ${JSON.stringify(responsesRequests)}`
-      );
-    } finally {
-      cleanupRuntime(responsesRuntimeRoot);
+    const providerName = process.env.YAN_TEST_PROVIDER_NAME || providerId;
+    const family = providerId === 'jiyuan' ? ['jiyuan', 'Jiyuan'] : families[resolveProviderAdapter({}, { providerID: providerId, providerName,
+      modelID: modelId, baseURL: baseUrl })];
+    const specifier = staging[`stage${family?.[1] || 'DeepSeek'}ProviderModule`]({ appRoot, dataDir });
+    const options = { providerId, providerName, modelId,
+      apiKey: 'local-test-key', baseUrl, deepSeekProviderModule: specifier,
+      ...(family ? { [family[0]]: true, [`${family[0]}ProviderModule`]: specifier } : {}),
+      capabilities: { contextWindow: 32768, maxOutputTokens: 8192 }, accessMode: 'full' };
+    const config = buildOpenCodeConfig(options);
+    assert.equal(config.provider[providerId].npm, specifier);
+    await run(config, providerId, modelId);
+    if (['deepseek-v4.1-flash-1017', 'glm-5.3-flash'].includes(modelId)) {
+      assert.equal(requests.at(-1).body.reasoning_effort, 'high');
     }
-
-    console.log(JSON.stringify({
-      ok: true,
-      providerModule,
-      providerModuleSpecifier,
-      runtimeExecutable,
-      requestCount: requests.length,
-      requestedUrls: requests.map(item => item.url)
-    }));
+    if (providerId === 'deepseek') {
+      assert.equal(config.provider[providerId].options.yanDsmlCompatibility, true);
+      const standard = buildOpenCodeConfig({ ...options, dsml: false });
+      assert.equal(standard.provider[providerId].options.yanDsmlCompatibility, false);
+      await run(standard, providerId, modelId);
+    }
+    assert.ok(requests.some(({ body }) => (body.tools || []).some(tool => tool.function?.name === 'edit')),
+      'The V2 runtime must expose its native edit tool to the provider');
+    // V2 has one native edit action; V1 write/edit/apply_patch trio is retired.
+    const before = requests.length;
+    const responsesId = 'conn-responses-test', responsesModel = 'responses-packaged-test';
+    const responsesProviderModule = staging.stageResponsesProviderModule({ appRoot, dataDir });
+    await run(buildOpenCodeConfig({ ...options, providerId: responsesId, modelId: responsesModel,
+      jiyuan: false, apiFormat: 'responses', responsesProviderModule }), responsesId, responsesModel);
+    const responsesRequests = requests.slice(before);
+    assert.ok(responsesRequests.some(request => request.url.endsWith('/responses')), JSON.stringify(responsesRequests));
+    assert.equal(responsesRequests.some(request => request.url.includes('/chat/completions')), false);
+    console.log(JSON.stringify({ ok: true, runtime: 'node-v2', executable: runtimePaths(appRoot, dataDir).executable,
+      providerId, requestedUrls: requests.map(request => request.url) }));
   } finally {
-    server.close();
-    cleanupRuntime(runtimeRoot);
+    await adapter.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    assert.equal(path.dirname(path.resolve(dataDir)), path.resolve(os.tmpdir()));
+    assert.match(path.basename(dataDir), /^yan-provider-v2-/);
+    fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
   }
-})().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+})().catch(error => { console.error(error); process.exitCode = 1; });

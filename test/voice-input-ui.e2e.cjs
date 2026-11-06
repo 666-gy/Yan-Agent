@@ -16,17 +16,30 @@ const output = path.join(root, 'output/playwright/voice');
     app = await _electron.launch({ executablePath: require('electron'), args: [root, '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'], cwd: root,
     env: { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: userData } });
     const page = await app.firstWindow(), errors = [];
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => { errors.push(error.message); console.error('Renderer error:', error.message); });
+    page.on('console', message => { if (message.type() === 'error') console.error('Renderer console:', message.text()); });
     await page.waitForFunction(() => window.__YAN_APP_READY__);
     await page.setViewportSize({ width: 1440, height: 1000 });
     fs.mkdirSync(output, { recursive: true });
     await page.locator('#settingsBtn').click();
     await page.locator('#settings-tab-voice').click();
     assert.equal(await page.locator('#settingsSectionTitle').textContent(), '语音功能');
+    assert.equal(await page.locator('label[for="voiceCallEnabled"]').textContent(), '启用语音通话功能（限“日常聊天模式”）');
     assert.equal(await page.locator('#settings-tab-voice [data-keyline-icon="mic"]').count(), 1);
     assert.equal(await page.locator('#voiceEnabled').count(), 0);
     assert.equal(await page.locator('#voiceInstall').isEnabled(), true);
-    assert.deepEqual(await page.locator('.voice-block-heading').allTextContents(), ['安装模型', '设置快捷键']);
+    assert.deepEqual(await page.locator('.voice-block-heading').allTextContents(), ['语音输入', '语音通话']);
+    assert.equal(await page.locator('#voiceCallButton').isVisible(), false);
+    assert.equal(await page.locator('#voiceCallButton').isDisabled(), true);
+    assert.equal(await page.locator('#voiceCallEnabled').isChecked(), true);
+    await page.locator('#voiceCallEnabled').uncheck();
+    await page.waitForFunction(() => state.config.voice.callEnabled === false && !document.querySelector('#voiceCallEnabled').disabled);
+    assert.equal(await page.locator('[data-act="speak"], #ttsVoice, #ttsPreviewBtn').count(), 0);
+    assert.equal(await page.evaluate(() => 'ttsSynthesize' in api), false);
+    const disabledSpeech = await page.evaluate(() => api.voiceCallSynthesize({ text: '测试通话' }));
+    assert.equal(disabledSpeech.ok, false);
+    assert.match(disabledSpeech.error, /语音通话已关闭/);
+    assert.equal(fs.existsSync(path.join(userData, 'YanData/voice-call-audio')), false, 'disabled call never starts synthesis');
     assert.equal(await page.locator('#voiceShortcut').textContent(), 'Ctrl+Shift+1');
     await page.locator('#voiceShortcut').click();
     await page.keyboard.press('Control+Alt+2');
@@ -49,7 +62,24 @@ const output = path.join(root, 'output/playwright/voice');
     assert.equal(await page.locator('#voiceShortcut').textContent(), 'Ctrl+Alt+2');
     assert.equal(await page.locator('#voiceLanguage').inputValue(), 'zh');
     assert.equal(await page.locator('#voiceDownloadSource').inputValue(), 'mirror');
+    assert.equal(await page.locator('#voiceCallEnabled').isChecked(), false, 'call preference survives reload');
     const initialVoice = await page.evaluate(async () => (await api.voiceStatus()).value);
+    await page.evaluate(() => { if (state.currentSession) state.currentSession.agentPreset = 'daily'; window.YanVoiceInput?.syncCallAvailability?.(); });
+    for (const [ready, callEnabled, hidden] of [[false, true, true], [true, true, false], [true, false, true], [false, false, true]]) {
+      await app.evaluate(({ BrowserWindow }, { snapshot, ready, callEnabled }) => BrowserWindow.getAllWindows()[0].webContents.send('voice:changed', {
+        ...snapshot, ready, preferences: { ...snapshot.preferences, callEnabled }
+      }), { snapshot: initialVoice, ready, callEnabled });
+      await page.waitForFunction(expected => document.querySelector('#voiceCallButton').classList.contains('hidden') === expected, hidden);
+      assert.equal(await page.locator('#voiceCallButton').isDisabled(), hidden, 'call entry follows model and preference');
+    }
+    await page.evaluate(() => { if (state.currentSession) state.currentSession.agentPreset = 'standard'; window.YanVoiceInput?.syncCallAvailability?.(); });
+    await app.evaluate(({ BrowserWindow }, snapshot) => BrowserWindow.getAllWindows()[0].webContents.send('voice:changed', {
+      ...snapshot, ready: true, preferences: { ...snapshot.preferences, callEnabled: true }
+    }), initialVoice);
+    await page.waitForFunction(() => document.querySelector('#voiceCallButton').classList.contains('hidden'));
+    assert.equal(await page.locator('#voiceCallButton').isDisabled(), true, 'voice call stays unavailable outside daily mode');
+    await page.evaluate(() => { if (state.currentSession) state.currentSession.agentPreset = 'daily'; window.YanVoiceInput?.syncCallAvailability?.(); });
+    await app.evaluate(({ BrowserWindow }, snapshot) => BrowserWindow.getAllWindows()[0].webContents.send('voice:changed', snapshot), initialVoice);
     for (const theme of ['light', 'dark']) {
       await page.evaluate(value => applyTheme(value), theme);
       await page.screenshot({ path: path.join(output, `settings-${theme}.png`) });
@@ -60,20 +90,20 @@ const output = path.join(root, 'output/playwright/voice');
       assert.equal(await page.locator('#voiceInstall').getAttribute('data-state'), 'installing');
       assert.equal(await page.locator('#voiceInstall').isEnabled(), true, 'download can be cancelled');
       assert.equal(await page.locator('#voiceInstallProgress').isVisible(), true);
-      assert.equal(await page.locator('.voice-action-download').isVisible(), false);
-      assert.equal(await page.locator('.voice-action-remove').isVisible(), false);
+      assert.equal(await page.locator('#voiceInstall .voice-action-download').isVisible(), false);
+      assert.equal(await page.locator('#voiceInstall .voice-action-remove').isVisible(), false);
       await page.waitForFunction(() => Math.abs(parseFloat(getComputedStyle(document.querySelector('.voice-progress-value')).strokeDashoffset) - .58) < .001);
       await page.screenshot({ path: path.join(output, `settings-downloading-${theme}.png`) });
       await page.locator('#voiceInstall').click();
       await page.waitForFunction(() => document.querySelector('#voiceInstall').dataset.state === 'download');
       assert.equal(await page.locator('#voiceInstallProgress').isVisible(), false);
-      assert.equal(await page.locator('.voice-action-download').isVisible(), true);
+      assert.equal(await page.locator('#voiceInstall .voice-action-download').isVisible(), true);
     }
     for (const width of [320, 375, 414, 768, 1100]) {
       await page.setViewportSize({ width, height: 900 });
       const overflow = await page.locator('#tab-voice').evaluate(el => el.scrollWidth > el.clientWidth + 1);
       assert.equal(overflow, false, `Voice settings fit at ${width}px`);
-      const boxes = await page.locator('.voice-model-heading').evaluate(el => {
+      const boxes = await page.locator('.voice-model-heading').first().evaluate(el => {
         const heading = el.querySelector('h3').getBoundingClientRect(), actions = el.querySelector('.voice-model-actions').getBoundingClientRect();
         return { gap: actions.left - heading.right, diameter: actions.height, width: el.querySelector('button').getBoundingClientRect().width };
       });
@@ -84,13 +114,13 @@ const output = path.join(root, 'output/playwright/voice');
     await page.evaluate(() => api.voiceConfigure({ enabled: false }));
     await page.waitForFunction(() => !state.config.voice.enabled);
     const cache = path.join(root, 'output/voice-smoke/voice');
-    if (fs.existsSync(cache)) {
+    if (fs.existsSync(cache) && process.env.YAN_SKIP_NATIVE_VOICE !== '1') {
       fs.cpSync(cache, path.join(userData, 'YanData/voice'), { recursive: true });
       await page.evaluate(() => api.voiceConfigure({ enabled: true }));
       await page.waitForFunction(() => document.querySelector('#voiceInstall').dataset.state === 'remove');
       assert.equal(await page.locator('#voiceInstall').getAttribute('title'), '卸载模型');
-      assert.equal(await page.locator('.voice-action-remove').isVisible(), true);
-      assert.equal(await page.locator('.voice-action-download').isVisible(), false);
+      assert.equal(await page.locator('#voiceInstall .voice-action-remove').isVisible(), true);
+      assert.equal(await page.locator('#voiceInstall .voice-action-download').isVisible(), false);
       await page.evaluate(() => api.voicePrepare());
       await page.waitForFunction(async () => (await api.voiceStatus()).value.preparation.phase === 'ready');
       const realResult = await page.evaluate(bytes => api.voiceTranscribe({ requestId: 'electron-native-smoke', audio: Uint8Array.from(bytes) }), Array.from(fs.readFileSync(path.join(root, 'output/voice-smoke/zh.wav'))));
@@ -203,8 +233,9 @@ const output = path.join(root, 'output/playwright/voice');
       await page.waitForFunction(() => document.querySelector('#voiceInstall').dataset.state === 'download');
       assert.equal(await page.locator('#voiceMicButton').isVisible(), false);
     }
+    if (process.env.YAN_SKIP_NATIVE_VOICE === '1') console.log('SKIP native model inference and recording (YAN_SKIP_NATIVE_VOICE=1).');
     assert.deepEqual(errors, []);
-    console.log('PASS voice settings, explicit activation, persistence, themes, responsive layout, recording, undo, draft conflict, cancellation and session isolation.');
+    console.log('PASS voice settings, call visibility, call entry, preference persistence, themes and responsive layout.');
   } catch (error) {
     const windows = app ? app.windows() : [];
     if (windows[0]) {

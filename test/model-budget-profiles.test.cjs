@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const budgets = require('../lib/model-budget-profiles');
 const { decorateModel } = require('../lib/model-capabilities');
 const { applyConnectionModelFlags } = require('../lib/connection-presets');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 const { resolveModelContextSettings } = require('../lib/context-settings');
 
 test('DeepSeek aliases, namespaces and case use exact official token counts', () => {

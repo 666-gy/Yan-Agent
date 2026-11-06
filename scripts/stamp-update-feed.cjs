@@ -11,9 +11,14 @@ if (!fs.existsSync(manifestPath)) {
   console.error('[update-feed] lib/build-manifest.json missing; run write-build-manifest.cjs first');
   process.exit(1);
 }
-if (!fs.existsSync(feedPath)) {
-  console.error('[update-feed] dist/latest.yml missing; electron-builder did not produce an update feed');
-  process.exit(1);
+{
+  // Local --publish never builds may have no publisher and therefore no feed.
+  const pkg = require('../package.json');
+  const name = pkg.build.nsis.artifactName.replace('${ext}', 'exe');
+  const installer = path.join(root, 'dist', name);
+  if (!fs.existsSync(installer)) throw new Error(`Installer missing: ${name}`);
+  const sha512 = require('crypto').createHash('sha512').update(fs.readFileSync(installer)).digest('base64');
+  fs.writeFileSync(feedPath, `version: ${pkg.version}\nfiles:\n  - url: ${name}\n    sha512: ${sha512}\n    size: ${fs.statSync(installer).size}\npath: ${name}\nsha512: ${sha512}\nreleaseDate: '${new Date().toISOString()}'\n`);
 }
 
 const { version, buildId } = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));

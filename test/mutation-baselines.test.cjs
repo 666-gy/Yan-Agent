@@ -1,13 +1,19 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+
 const fs = require('node:fs');
+
 const os = require('node:os');
+
 const path = require('node:path');
+
 const { execFileSync } = require('node:child_process');
+
 const test = require('node:test');
+
 const { captureWorkspaceBaselines } = require('../lib/run-change-summary');
-const sidecar = require('../lib/opencode-sidecar');
+const sidecar = require('../lib/kernel-policy');
 
 function makeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'yan-mutation-baselines-'));
@@ -82,115 +88,4 @@ test('captureWorkspaceBaselines returns empty outside a git repository', async t
   write(path.join(root, 'a.txt'), 'plain\n');
   const baselines = await captureWorkspaceBaselines(root);
   assert.equal(baselines.size, 0);
-});
-
-test('restoreCallShadow puts back byte-exact content and removes created files', t => {
-  const root = makeTempRoot();
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const existing = path.join(root, 'existing.bin');
-  const original = Buffer.from([0x61, 0x0d, 0x0a, 0x62, 0xff, 0xfe, 0x00, 0x63]);
-  fs.writeFileSync(existing, original);
-  const created = path.join(root, 'created.txt');
-
-  const run = fakeRun(root);
-  sidecar.captureCallShadow(run, 'call-1', [existing, created]);
-  assert.equal(run.callShadows.get('call-1').size, 2);
-
-  // Simulate the failed tool call: corrupt the existing file, create the new one.
-  fs.writeFileSync(existing, Buffer.from([0x01, 0x02, 0x03]));
-  fs.writeFileSync(created, 'partial application\n');
-
-  const restored = sidecar.restoreCallShadow(run, 'call-1');
-  assert.deepEqual(restored.sort(), [created, existing].sort());
-  assert.ok(Buffer.compare(fs.readFileSync(existing), original) === 0);
-  assert.equal(fs.existsSync(created), false);
-  assert.equal(run.callShadows.has('call-1'), false);
-
-  // Restoring twice is a no-op.
-  assert.deepEqual(sidecar.restoreCallShadow(run, 'call-1'), []);
-});
-
-test('emitTrackedRunEvent restores failed multi-file patches and drops completed shadows', t => {
-  const root = makeTempRoot();
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const a = path.join(root, 'a.txt');
-  const b = path.join(root, 'b.txt');
-  write(a, 'a original\n');
-  write(b, 'b original\n');
-
-  const run = fakeRun(root);
-  const events = [];
-  const onEvent = event => events.push(event);
-  const patch = '*** Begin Patch\n*** Update File: a.txt\n*** Update File: b.txt\n*** End Patch';
-
-  // The kernel starts the call: shadows and run baselines are captured.
-  sidecar.emitTrackedRunEvent(run, toolEvent('running', { input: { patch } }), onEvent);
-  assert.equal(run.callShadows.get('call-1').size, 2);
-  assert.equal(run.fileBaselines.size, 2);
-
-  // Simulate a partial application: first file applied, second failed.
-  write(a, 'a applied\n');
-
-  sidecar.emitTrackedRunEvent(run, toolEvent('error', { error: 'patch did not apply' }), onEvent);
-  assert.equal(fs.readFileSync(a, 'utf8'), 'a original\n');
-  assert.equal(fs.readFileSync(b, 'utf8'), 'b original\n');
-  assert.equal(run.repairedMutations, 1);
-  const invalidated = events.filter(event => event.type === 'yan.review.invalidated');
-  assert.equal(invalidated.length, 1);
-
-  // A completed call leaves the workspace alone and drops its shadow.
-  sidecar.emitTrackedRunEvent(run, toolEvent('running', { input: { patch } }), onEvent);
-  sidecar.emitTrackedRunEvent(run, toolEvent('completed'), onEvent);
-  assert.equal(run.callShadows.has('call-1'), false);
-  assert.equal(fs.readFileSync(a, 'utf8'), 'a original\n');
-});
-
-for (const pluginFile of ['coding-environment-plugin.mjs', 'coding-environment-plugin.bundle.mjs']) {
-  test(`rules refresh cancellation leaves AGENTS.md untouched and retry passes (${pluginFile})`, async t => {
-    const root = makeTempRoot();
-    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-    const rules = path.join(root, 'pipeline', 'AGENTS.md');
-    write(rules, 'Use the pipeline rules.\n');
-    // A fixed old timestamp makes an accidental identical rewrite observable
-    // without relying on filesystem clock resolution or sleeps.
-    fs.utimesSync(rules, new Date('2020-01-01'), new Date('2020-01-01'));
-    const before = fs.readFileSync(rules), stamp = fs.statSync(rules).mtimeMs;
-    // The production bundle runs in Bun, which supplies require to bundled CJS.
-    const previousRequire = globalThis.require;
-    globalThis.require = require;
-    t.after(() => { if (previousRequire === undefined) delete globalThis.require; else globalThis.require = previousRequire; });
-    const factory = (await import(require('node:url').pathToFileURL(path.resolve('lib', pluginFile)))).default;
-    const plugin = await factory({ directory: root, client: { session: { get: async () => ({ data: {
-      id: 'rules-session', permission: [{ permission: 'read', pattern: '*', action: 'allow' }]
-    } }) } } });
-    const patchText = '*** Begin Patch\n*** Update File: pipeline/AGENTS.md\n@@\n-Use the pipeline rules.\n+Use updated pipeline rules.\n*** End Patch';
-    const input = { sessionID: 'rules-session', callID: 'call-1', tool: 'apply_patch' };
-    const run = fakeRun(root), events = [], onEvent = event => events.push(event);
-    sidecar.emitTrackedRunEvent(run, toolEvent('running', { input: { patchText } }), onEvent);
-    await assert.rejects(plugin['tool.execute.before'](input, { args: { patchText } }), /No file operation was performed/);
-    sidecar.emitTrackedRunEvent(run, toolEvent('error', { error: 'No file operation was performed' }), onEvent);
-    assert.deepEqual(fs.readFileSync(rules), before);
-    assert.equal(fs.statSync(rules).mtimeMs, stamp);
-    assert.equal(run.repairedMutations, 0);
-    assert.equal(run.callShadows.size, 0);
-    assert.equal(events.filter(event => event.type === 'yan.review.invalidated').length, 0);
-    // The next actual before hook must allow the patch, not request refresh again.
-    await plugin['tool.execute.before'](input, { args: { patchText } });
-    write(rules, 'Externally changed pipeline rules.\n');
-    await assert.rejects(plugin['tool.execute.before'](input, { args: { patchText } }), /Externally changed pipeline rules/);
-    await plugin['tool.execute.before'](input, { args: { patchText } });
-  });
-}
-
-test('unchanged binary and still-absent targets cause no restoration or mtime changes', t => {
-  const root = makeTempRoot();
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const existing = path.join(root, 'binary'), missing = path.join(root, 'missing');
-  write(existing, Buffer.from([0xff, 0, 0xfe]));
-  fs.utimesSync(existing, new Date('2020-01-01'), new Date('2020-01-01'));
-  const stamp = fs.statSync(existing).mtimeMs, run = fakeRun(root);
-  sidecar.captureCallShadow(run, 'noop', [existing, missing]);
-  assert.deepEqual(sidecar.restoreCallShadow(run, 'noop'), []);
-  assert.equal(fs.statSync(existing).mtimeMs, stamp);
-  assert.equal(fs.existsSync(missing), false);
 });

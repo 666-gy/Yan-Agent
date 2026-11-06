@@ -8,7 +8,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 
-function startMcp(root, { runtimeContext = false } = {}) {
+function startMcp(root, { runtimeContext = false, memoryEnabled = true, memoryWriteEnabled = true } = {}) {
   const workspace = path.join(root, 'workspace');
   fs.mkdirSync(workspace, { recursive: true });
   const taskId = runtimeContext ? 'run-runtime-test' : 'run-test';
@@ -19,6 +19,7 @@ function startMcp(root, { runtimeContext = false } = {}) {
     fs.mkdirSync(contextDir, { recursive: true });
     const contextKey = crypto.createHash('sha256').update(taskId).digest('hex');
     fs.writeFileSync(path.join(contextDir, `${contextKey}.json`), JSON.stringify({
+      memoryEnabled, memoryWriteEnabled,
       runId: taskId,
       sessionId: 'session-runtime-test',
       workspace,
@@ -216,4 +217,17 @@ test('durable refinement activates before the current turn releases its pending 
   const entry = Object.values(state.entries.prompt).find(item => item.content.includes('AnySearch'));
   assert.equal(entry.metadata.status, 'active');
   assert.equal(entry.metadata.enforcement, 'mandatory');
+});
+
+for (const enabled of [false, true]) test(`session memory permission is enforced by MCP (read=${enabled})`, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-session-memory-'));
+  const mcp = startMcp(root, { runtimeContext: true, memoryEnabled: enabled, memoryWriteEnabled: false });
+  t.after(() => { mcp.child.kill(); fs.rmSync(root, { recursive: true, force: true }); });
+  const read = await mcp.request('tools/call', { name: 'list_entries', arguments: { task_id: mcp.taskId } });
+  assert.equal(!!(read.error || read.result?.isError), !enabled);
+  for (const name of ['schedule_refinement', 'schedule_rollback', 'delete_entry']) {
+    const result = await mcp.request('tools/call', { name, arguments: { task_id: mcp.taskId, instructions: 'Remember this user preference.' } });
+    assert.ok(result.error || result.result?.isError, name);
+  }
+  assert.equal(fs.existsSync(mcp.requestPath), false);
 });

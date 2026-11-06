@@ -598,6 +598,19 @@ test('transient provider errors do not fail a Turn before a retry succeeds', () 
   assert.equal(completed.telemetry.retries, 1);
 });
 
+test('kernel retry status is counted in turn telemetry', () => {
+  const { core } = createUniqueTestCore();
+  core.startTurn({ threadId: 'thread-kernel-retry', turnId: 'turn-kernel-retry' });
+  const event = core.ingestProviderEvent('turn-kernel-retry', {
+    type: 'session.status',
+    data: { sessionID: 'ses_x', status: { type: 'retry', attempt: 2, message: 'terminated' } }
+  });
+  assert.equal(event.type, 'turn.retrying');
+  assert.equal(event.payload.attempt, 2);
+  const completed = core.completeTurn('turn-kernel-retry', { status: 'done', text: 'recovered' });
+  assert.equal(completed.telemetry.retries, 1);
+});
+
 test('projector reconstructs lifecycle state, Items, and context statistics', () => {
   const { core, rootDir } = createUniqueTestCore();
   core.startTurn({ threadId: 'thread-projection', turnId: 'turn-projection' });
@@ -631,6 +644,18 @@ test('a Thread rejects a second non-terminal Turn even when activeTurnId is stal
   core.startTurn({ threadId: 'thread-busy', turnId: 'turn-busy-a' });
   core.state.threads['thread-busy'].activeTurnId = '';
   assert.throws(() => core.startTurn({ threadId: 'thread-busy', turnId: 'turn-busy-b' }), error => error.code === 'YAN_THREAD_BUSY');
+});
+
+test('a final result during compaction settles the Turn instead of bricking the Thread', () => {
+  const { core } = createUniqueTestCore();
+  core.startTurn({ threadId: 'thread-compaction', turnId: 'turn-compaction' });
+  core.ingestProviderEvent('turn-compaction', { type: 'yan.context.compression.started', data: {} });
+  assert.equal(core.getTurn('turn-compaction').status, 'compacting');
+  // The provider can settle the run before the compaction-ended event lands.
+  core.completeTurn('turn-compaction', { status: 'done', text: 'ok' });
+  assert.equal(core.getTurn('turn-compaction').status, 'completed');
+  assert.equal(core.getThread('thread-compaction').status, 'idle');
+  assert.equal(core.startTurn({ threadId: 'thread-compaction', turnId: 'turn-after-compaction' }).status, 'running');
 });
 
 test('late success after cancellation settles as aborted without a final message', () => {

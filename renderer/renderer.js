@@ -5,28 +5,14 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const api = window.yan;
+const NESTED_WINDOW_SESSION_ID = api.nestedWindowSessionId || '';
+let nestedStartGate = null;
+document.documentElement.classList.toggle('nested-session-window', !!NESTED_WINDOW_SESSION_ID);
 
-const SUBAGENT_ROLE_LABELS = Object.freeze({
-  explorer: 'Sub Explore Agent',
-  reviewer: 'Sub Review Agent',
-  researcher: 'Sub Research Agent',
-  tester: 'Sub Test Agent',
-  builder: 'Sub Build Agent',
-  mapper: 'Sub Mapper Agent',
-  tracer: 'Sub Tracer Agent',
-  reverser: 'Sub Reverser Agent'
-});
-const SUBAGENT_ROLE_IDS = Object.freeze(Object.keys(SUBAGENT_ROLE_LABELS));
-const SUBAGENT_ROLE_DESCRIPTIONS = Object.freeze({
-  explorer: '定位文件、符号与工作区事实',
-  reviewer: '审阅实现并指出具体风险',
-  researcher: '查阅文档、资料与外部来源',
-  tester: '运行非变更测试与诊断',
-  builder: '在明确范围内编写代码并验收',
-  mapper: '测绘仓库结构、模块边界与数据流',
-  tracer: '追踪深层调用链与算法路径',
-  reverser: '逆向未知协议并验证解析器'
-});
+// Historical role labels remain for old records; new delegation uses dynamic task names.
+const SUBAGENT_ROLE_LABELS = Object.freeze({});
+const SUBAGENT_ROLE_IDS = Object.freeze([]);
+const SUBAGENT_ROLE_DESCRIPTIONS = Object.freeze({});
 const DEFAULT_CONTEXT_SETTINGS = Object.freeze({
   maxTokens: 1_000_000,
   compactionThreshold: 800_000
@@ -70,12 +56,7 @@ function contextKToTokens(value) {
   return positiveContextTokens(Number(raw) * 1_000);
 }
 
-function sanitizeContextKInput(value) {
-  const clean = String(value ?? '').replace(/[^\d.]/g, '');
-  const dot = clean.indexOf('.');
-  if (dot < 0) return clean;
-  return clean.slice(0, dot + 1) + clean.slice(dot + 1).replace(/\./g, '');
-}
+
 
 let pendingQuickInputPrompt = '';
 let quickInputHandlerReady = false;
@@ -91,6 +72,9 @@ async function consumeQuickInputPrompt() {
   await sendMessage();
 }
 
+api.onScheduledTaskRun?.((payload = {}) => {
+  void handleScheduledTaskRun(payload);
+});
 api.onQuickInputSubmit?.((detail = {}) => {
   const prompt = String(detail.text || '').trim();
   if (!prompt) return;
@@ -98,6 +82,7 @@ api.onQuickInputSubmit?.((detail = {}) => {
   if (quickInputHandlerReady) void consumeQuickInputPrompt();
 });
 
+const pendingAttachmentUploads = new Map();
 const state = {
   config: null,
   sessions: [],
@@ -111,6 +96,8 @@ const state = {
   queuedTurns: new Map(),    // sessionId -> { id, text, attachments, skillCalls, modelSelection }
   activeRuns: new Map()    // sessionId -> { sessionRef, runCtx, assistantEl } 所有运行中的任务（完全独立）
 };
+let taskCapsulePanelOpen = false;
+let taskCapsuleMenuOpen = false;
 
 const WORKSPACE_SIDEBAR_META_KEY = 'yan.workspace-sidebar-meta.v1';
 const WORKSPACE_COLLAPSED_KEY = 'yan.workspace-sidebar-collapsed.v1';
@@ -144,7 +131,7 @@ function saveCollapsedWorkspaceGroups() {
 let workspaceSidebarMeta = loadWorkspaceSidebarMeta();
 let collapsedWorkspaceGroups = loadCollapsedWorkspaceGroups();
 
-const MAX_CONCURRENT_RUNS = 3;
+const MAX_CONCURRENT_RUNS = 10;
 const pendingAgentHandoffs = new Map();
 
 // --- 并发任务辅助函数 ---
@@ -194,7 +181,9 @@ function getSessionAgentState(session = state.currentSession) {
   const runCtx = session?.id ? getRunCtx(session.id) : null;
   if (runCtx?.agentState) return runCtx.agentState;
 
-  const lastAssistant = [...(session?.messages || [])]
+  const messages = session?.messages || [];
+  const lastUserIndex = messages.findLastIndex(message => message.role === 'user');
+  const lastAssistant = messages.slice(lastUserIndex + 1)
     .reverse()
     .find(message => message.role === 'assistant' && message.agentRun);
   const saved = lastAssistant?.agentRun;
@@ -260,6 +249,8 @@ function pauseUiForSession(sessionId) {
   const entry = state.activeRuns.get(sessionId);
   if (!entry) return;
   entry.runCtx.ui = false;
+  cancelScheduledOpenCodeRender(entry.runCtx);
+  cancelOpenCodeStreamFlush(entry.runCtx);
   // Leaving a running task hides its work log: the task keeps running, but its
   // expanded step list must not stay open (or keep being rebuilt) while another
   // task is in use. The choice also applies when the task is reopened.
@@ -467,10 +458,10 @@ const PET_READ_TOOLS = new Set([
 ]);
 const PET_WRITE_TOOLS = new Set(['write', 'write_file', 'edit', 'edit_file', 'patch', 'apply_patch', 'delete_file']);
 const PET_BROWSER_INSPECTION_TOOLS = new Set([
-  'browser_snapshot', 'browser_read_page', 'browser_screenshot', 'browser_inspect_page', 'browser_status'
+  'browser_observe', 'browser_snapshot', 'browser_read_page', 'browser_screenshot', 'browser_inspect_page', 'browser_status'
 ]);
 const PET_BROWSER_ACTION_TOOLS = new Set([
-  'browser_click', 'browser_type', 'browser_select', 'browser_check', 'browser_hover', 'browser_focus',
+  'browser_click', 'browser_fill', 'browser_type', 'browser_select', 'browser_check', 'browser_hover', 'browser_focus',
   'browser_drag', 'browser_pointer', 'browser_press', 'browser_scroll', 'browser_wait', 'browser_history'
 ]);
 
@@ -484,7 +475,6 @@ function isPetCompileCommand(command) {
 
 function petReasoningMessage(runCtx) {
   if (runCtx?.openCodePhase === 'summary') return '验收总结';
-  if (runCtx?.openCodePhase === 'goal') return '正在验收目标';
   return '思考推理';
 }
 
@@ -515,7 +505,9 @@ function petWorkflowMessage(name, args = {}) {
   if (tool === 'skill' || tool === 'read_skill') return '正在调用 Skill';
   if (tool === 'find_skills') return '正在查找 Skill';
   if (tool === 'install_skill') return '正在安装 Skill';
+  if (tool === 'create_skill') return `我正在创建新技能 ${args?.name || args?.id || ''}`.trim();
   if (tool === 'remove_skill') return '正在删除 Skill';
+  if (tool === 'fire_confetti') return '正在请求五彩纸屑';
   if (tool === 'create_handoff' || tool === 'change_workspace') return '正在切换任务';
   if (tool === 'read_source_context') return '正在读取来源任务';
   return describePetTool(name, args);
@@ -615,6 +607,8 @@ const ICONS = {
   quote: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></svg>',
   speaker: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
   edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+  // Keyline Icons (MIT): pen. Same glyph as the task-bar new-task button.
+  pen: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.0237 7.6904L9.8567 18.8573L2 22L5.1427 14.1433L16.3096 2.9763C16.9348 2.3512 17.7826 2 18.6667 2C19.5507 2 20.3986 2.3512 21.0237 2.9763C21.6488 3.6014 22 4.4493 22 5.3333C22 6.2174 21.6488 7.0652 21.0237 7.6904ZM15.0638 4.2222L19.7778 8.9362"/></svg>',
   clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
   chartScatter: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="18.5" cy="5.5" r=".5" fill="currentColor"/><circle cx="11.5" cy="11.5" r=".5" fill="currentColor"/><circle cx="7.5" cy="16.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="14.5" r=".5" fill="currentColor"/><path d="M3 3v16a2 2 0 0 0 2 2h16"/></svg>',
   circleProgressCheck: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22C6.47715 22 2 17.5229 2 12C2 6.47715 6.47715 2 12 2M17.8778 3.90983C18.7268 4.52663 19.4734 5.2732 20.0902 6.12215M21.8769 10.4357C22.041 11.4721 22.041 12.5279 21.8769 13.5643M20.0902 17.8778C19.4734 18.7268 18.7268 19.4734 17.8778 20.0902M8 12L10.6667 15L16 9"/></svg>',
@@ -652,6 +646,25 @@ const MCP_ARROW_UP_RIGHT_ICON = '<svg width="17" height="17" viewBox="0 0 24 24"
 let skillMarketItems = [];
 let installedSkillCatalog = [];
 let mcpDetailId = '';
+let mcpSourceFilter = (() => {
+  try { return localStorage.getItem('yan-mcp-source') === 'personal' ? 'personal' : 'system'; }
+  catch { return 'system'; }
+})();
+const mcpIsPersonal = server => !server.builtin && !server.systemManaged;
+function syncMcpSourceSwitch() {
+  $$('#mcpSourceSwitch [data-mcp-source]').forEach(button => {
+    const active = button.dataset.mcpSource === mcpSourceFilter;
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+}
+function selectMcpSource(next) {
+  const value = next === 'personal' ? 'personal' : 'system';
+  if (value === mcpSourceFilter) return;
+  mcpSourceFilter = value;
+  try { localStorage.setItem('yan-mcp-source', value); } catch { /* storage can be unavailable */ }
+  void renderMcpPage();
+}
 let mcpDetailRenderSeq = 0;
 // A crashed MCP answers every tools/list probe by crashing again. The crash
 // event re-renders the page, the re-render probes again, and the detail view
@@ -669,7 +682,7 @@ const SKILL_LOGO_FALLBACK = 'assets/skill-logos/github.png';
 
 function skillLogoPath(skill = {}) {
   const logo = String(skill.logo || '').trim();
-  return /^(?:assets\/skill-logos\/[a-z0-9._-]+|assets\/provider-logos\/(?:codex|claude|reasonix)\.svg|assets\/logo-light\.png)$/i.test(logo)
+  return /^(?:assets\/skill-logos\/[a-z0-9._-]+|assets\/provider-logos\/(?:codex|claude)\.svg|assets\/logo-light\.png)$/i.test(logo)
     ? logo
     : SKILL_LOGO_FALLBACK;
 }
@@ -702,8 +715,9 @@ async function init() {
   applyWallpaperConfig(state.config);
   renderModelBadge();
   await Promise.all([refreshSkillPrompts(), syncPetWindowButton(), refreshSessions()]);
-  await hydrateQueuedTurns();
-  const recoveredTurns = await listRecoveredYanCoreTurns();
+  const startupCoreState = await invokeYanCore('yanCoreGetState', { startup: true });
+  await hydrateQueuedTurns(startupCoreState);
+  const recoveredTurns = await listRecoveredYanCoreTurns(startupCoreState);
   // Replay interrupted Turns from the Core journal before the first session
   // paint so the recovered content is part of the conversation from the start.
   const recoveredRunCount = await recoverInterruptedOpenCodeRuns(recoveredTurns);
@@ -736,17 +750,16 @@ async function init() {
 
   api.onWorkspaceChanged?.((detail) => {
     scheduleRightSidebarRefresh(detail);
-    // A workspace switch changes the kernel config signature; prewarm it so the
-    // next task does not pay the restart cost on its first turn.
-    prewarmAgentKernel(true);
+    // Opening/changing a workspace does not imply a model request. Warm the
+    // selected runtime only when the user interacts with the composer.
   });
 
   api.onSkillsChanged?.(async (detail = {}) => {
     await refreshInstalledSkillCatalog();
     if (currentMainPage === 'skills') {
-      if (detail.reason === 'enabled' && skillMarketDetailId) {
+      if (detail.reason === 'enabled' && skillModalId) {
         skillMarketAllCatalog = await api.getSkillCatalog();
-        syncSkillDetailToggles();
+        syncSkillModalToggle();
       } else await renderSkillMarket();
     }
   });
@@ -771,6 +784,23 @@ async function init() {
   api.onSessionChanged?.((detail) => {
     applyExternalSessionChange(detail).catch((error) => {
       console.error('[session-sync]', error);
+    });
+  });
+  api.onBrowserWindowChanged?.((detail = {}) => {
+    if (!detail.tabId) return;
+    if (detail.event === 'closed') closePoppedOutBrowserTab(detail.tabId);
+    else if (detail.event === 'restore') rehydrateBrowserPopoutTab(detail.tabId, detail.tabs);
+    else if (detail.event === 'meta') updatePoppedOutBrowserTabMeta(detail);
+  });
+
+  let nestedRefresh = Promise.resolve();
+  api.onNestedChanged?.(detail => {
+    nestedRefresh = nestedRefresh.catch(() => {}).then(async () => {
+      await refreshSessions();
+      await reconcileOpenCodeActiveRuns();
+      const id = state.currentSession?.id;
+      if (id && detail?.id === id && !isSessionRunning(id)) await loadSession(id);
+      if (detail?.id === state.currentSession?.id) void syncNestedStartGate();
     });
   });
   api.onModelChanged?.(async () => {
@@ -798,13 +828,18 @@ async function init() {
 
   // Auto-create first session if none. If the most recent session belonged to
   // a workspace folder that has been deleted, never reopen it — start Blank.
-  if (state.sessions.length === 0) {
+  if (NESTED_WINDOW_SESSION_ID) {
+    await loadSession(NESTED_WINDOW_SESSION_ID);
+  } else if (state.sessions.length === 0) {
     await newSession();
   } else if (state.sessions[0].workspaceMissing) {
     state.config = await api.setConfig({ workspace: '' });
     await newSession();
-  } else {
-    await loadSession(state.sessions[0].id);
+  } else if (!state.currentSession) {
+    // Startup can finish after the user (or a restored task) has already
+    // opened a session. Never overwrite that selection with the first row,
+    // which would also replace a complete conversation with a fresh tail.
+    await loadSession((state.sessions.find(s => !s.nested?.parentId) || state.sessions[0]).id);
   }
   // A queued Intent can outlive the renderer that created it. Dispatch only
   // after the initial session/UI is ready, so background recovery cannot race
@@ -827,10 +862,10 @@ async function init() {
   performance.mark('yan-init-ready');
   performance.measure('yan-init', 'yan-init-start', 'yan-init-ready');
   api.windowUiReady?.();
-  // Optional catalogs and kernel prewarming must not contend with initial UI.
+  // Optional catalogs must not contend with initial UI. Kernel warmup starts
+  // on composer interaction, not merely because a saved chat was restored.
   setTimeout(() => {
     void primeMediaModelLabels();
-    prewarmAgentKernel();
   }, 300);
 }
 
@@ -1013,10 +1048,10 @@ async function clearYanCoreQueuedIntentsForThread(threadId, reason = 'session_re
   }
 }
 
-async function hydrateQueuedTurns() {
+async function hydrateQueuedTurns(startupState = null) {
   if (typeof api?.yanCoreGetState !== 'function') return;
   try {
-    const snapshot = await api.yanCoreGetState({});
+    const snapshot = startupState || await api.yanCoreGetState({ startup: true });
     const intents = snapshot?.intents && typeof snapshot.intents === 'object'
       ? Object.values(snapshot.intents)
       : [];
@@ -1043,10 +1078,11 @@ async function hydrateQueuedTurns() {
   }
 }
 
-async function listRecoveredYanCoreTurns() {
+async function listRecoveredYanCoreTurns(startupState = null) {
   try {
-    const snapshot = await invokeYanCore('yanCoreGetState', {});
+    const snapshot = startupState || await invokeYanCore('yanCoreGetState', { startup: true });
     return Object.values(snapshot?.turns && typeof snapshot.turns === 'object' ? snapshot.turns : {})
+      .filter(turn => !NESTED_WINDOW_SESSION_ID || turn.threadId === NESTED_WINDOW_SESSION_ID)
       .filter(turn => !turn?.recovery?.replayedAt && (turn?.status === 'recovering' || (turn?.status === 'aborted' && turn.recovery)));
   } catch (error) {
     console.warn('[yan-core] recovery state read failed:', error);
@@ -1115,19 +1151,15 @@ function isBlankUnassignedNewChat(session) {
   return isBlankNewChat(session) && !String(session.workspace || '').trim();
 }
 
-function revealWorkspaceInSidebar(workspace) {
+function syncCurrentSessionWorkspace(workspace) {
+  if (!state.currentSession) return;
+  state.currentSession.workspace = workspace || '';
+  syncAgentBrowserVisibility();
   const key = workspaceGroupKey(workspace);
   if (workspaceSidebarMeta[key]?.hidden) {
     workspaceSidebarMeta[key] = { ...workspaceSidebarMeta[key], hidden: false };
     saveWorkspaceSidebarMeta();
   }
-}
-
-function syncCurrentSessionWorkspace(workspace) {
-  if (!state.currentSession) return;
-  state.currentSession.workspace = workspace || '';
-  syncAgentBrowserVisibility();
-  revealWorkspaceInSidebar(workspace);
   const summary = state.sessions.find(session => session.id === state.currentSession.id);
   if (summary) summary.workspace = workspace || '';
   renderSessionList();
@@ -1197,7 +1229,7 @@ let removeSkillConfirmFocus = null;
 function resolveSkillRemovalConfirmation(confirmed) {
   const resolver = removeSkillConfirmResolver;
   removeSkillConfirmResolver = null;
-  $('#removeSkillModal')?.classList.add('hidden');
+  $('#removeSkillModal')?.close();
   resolver?.(!!confirmed);
   removeSkillConfirmFocus?.focus?.();
   removeSkillConfirmFocus = null;
@@ -1206,9 +1238,9 @@ function resolveSkillRemovalConfirmation(confirmed) {
 function requestSkillRemovalConfirmation(skill) {
   if (removeSkillConfirmResolver) resolveSkillRemovalConfirmation(false);
   removeSkillConfirmFocus = document.activeElement;
-  const name = String(skill?.name || skill?.id || '这个 Skill');
-  $('#removeSkillDesc').textContent = `确定删除“${name}”吗？`;
-  $('#removeSkillModal').classList.remove('hidden');
+  const dialog = $('#removeSkillModal');
+  if (!dialog) return Promise.resolve(false);
+  if (!dialog.open) dialog.showModal();
   queueMicrotask(() => $('#removeSkillCancel')?.focus());
   return new Promise(resolve => { removeSkillConfirmResolver = resolve; });
 }
@@ -1217,7 +1249,15 @@ function bindSkillRemovalDialog() {
   $('#removeSkillCancel')?.addEventListener('click', () => resolveSkillRemovalConfirmation(false));
   $('#removeSkillConfirm')?.addEventListener('click', () => resolveSkillRemovalConfirmation(true));
   $('#removeSkillModal')?.addEventListener('click', event => {
-    if (event.target?.id === 'removeSkillModal') resolveSkillRemovalConfirmation(false);
+    if (event.target !== event.currentTarget) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
+      resolveSkillRemovalConfirmation(false);
+    }
+  });
+  $('#removeSkillModal')?.addEventListener('cancel', event => {
+    event.preventDefault();
+    resolveSkillRemovalConfirmation(false);
   });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && removeSkillConfirmResolver) resolveSkillRemovalConfirmation(false);
@@ -1273,10 +1313,10 @@ function closeSidebarContextMenu() {
   });
 }
 
-function openSidebarContextMenu(anchor, items) {
+function openSidebarContextMenu(anchor, items, options = {}) {
   closeSidebarContextMenu();
   const menu = document.createElement('div');
-  menu.className = 'sidebar-context-menu task-context-menu workspace-context-menu';
+  menu.className = `sidebar-context-menu task-context-menu workspace-context-menu rect-hover-menu${options.className ? ` ${options.className}` : ''}`;
   menu.setAttribute('role', 'menu');
   items.forEach(item => {
     if (item.separator) {
@@ -1290,7 +1330,11 @@ function openSidebarContextMenu(anchor, items) {
     button.type = 'button';
     button.setAttribute('role', 'menuitem');
     button.className = `sidebar-context-menu-item${item.danger ? ' danger' : ''}`;
-    button.innerHTML = `${item.icon || ''}<span>${escapeHtml(item.label)}</span>`;
+    const shortcut = item.shortcut
+      ? `<span class="sidebar-context-menu-shortcut">${escapeHtml(item.shortcut)}</span>`
+      : '';
+    button.innerHTML = `${item.icon || ''}<span>${escapeHtml(item.label)}</span>${shortcut}`;
+    button.disabled = !!item.disabled;
     button.addEventListener('click', async event => {
       event.stopPropagation();
       closeSidebarContextMenu();
@@ -1300,10 +1344,20 @@ function openSidebarContextMenu(anchor, items) {
   });
   document.body.appendChild(menu);
   sidebarContextMenu = menu;
-  anchor.setAttribute('aria-expanded', 'true');
+  anchor?.setAttribute('aria-expanded', 'true');
+
+  const menuRect = menu.getBoundingClientRect();
+  if (Number.isFinite(options.x) && Number.isFinite(options.y)) {
+    // Pointer-anchored menus open where the user right-clicked, then flip back
+    // inside the viewport instead of overflowing its edges.
+    const left = Math.max(8, Math.min(window.innerWidth - menuRect.width - 8, options.x));
+    const top = Math.max(8, Math.min(window.innerHeight - menuRect.height - 8, options.y));
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    return;
+  }
 
   const rect = anchor.getBoundingClientRect();
-  const menuRect = menu.getBoundingClientRect();
   const left = Math.min(window.innerWidth - menuRect.width - 8, Math.max(8, rect.right - menuRect.width));
   const below = rect.bottom + 5;
   const top = below + menuRect.height <= window.innerHeight - 8
@@ -1380,7 +1434,7 @@ function normalizeWorkspaceUiPath(workspace) {
 function workspaceGroupKey(sessionOrWorkspace) {
   const workspace = typeof sessionOrWorkspace === 'string'
     ? sessionOrWorkspace
-    : String(sessionOrWorkspace?.workspace || '');
+    : String(sessionOrWorkspace?.nested?.projectWorkspace || sessionOrWorkspace?.workspace || '');
   const value = normalizeWorkspaceUiPath(workspace);
   return value ? value.toLowerCase() : 'blank';
 }
@@ -1470,7 +1524,8 @@ async function performSessionDeletionFromSidebar(id) {
 function getVisibleProjectGroups() {
   const groups = new Map();
   state.sessions.forEach(session => {
-    const workspace = String(session.workspace || '').trim();
+    if (session.scheduledTaskId) return;
+    const workspace = String(session.nested?.projectWorkspace || session.workspace || '').trim();
     const key = workspaceGroupKey(session);
     const label = workspaceGroupLabel(workspace);
     if (!groups.has(key)) groups.set(key, {
@@ -1484,7 +1539,7 @@ function getVisibleProjectGroups() {
     });
     const group = groups.get(key);
     group.running ||= isSessionRunning(session.id);
-    if (!session.pinned) group.sessions.push(session);
+    if (!session.pinned || session.nested?.parentId || state.sessions.some(child => child.nested?.parentId === session.id)) group.sessions.push(session);
     group.latest = Math.max(group.latest, Number(session.updatedAt) || 0);
   });
 
@@ -1505,19 +1560,78 @@ function renderProjectHeader(group, { review = false } = {}) {
     <span class="workspace-icon" data-workspace-folder-state="${collapsed ? 'closed' : 'open'}">${collapsed ? ICONS.folder : ICONS.folderOpen}</span>
     <span class="workspace-name">${escapeHtml(group.label)}</span>
     ${!review && meta.pinned ? `<button type="button" class="workspace-pin" data-workspace-pin-toggle="${escapeAttr(group.key)}" title="取消置顶工作区" aria-label="取消置顶工作区">${ICONS.pin}</button>` : ''}
+    ${review || groupDead ? '' : `<button type="button" class="workspace-new-task-btn" data-workspace-new-task="${escapeAttr(group.key)}" title="在此工作区新建任务" aria-label="在此工作区新建任务">${ICONS.pen}</button>`}
     ${review ? '' : `<button type="button" class="workspace-more-btn ${group.running ? 'has-running-task' : ''}" data-workspace-menu-toggle="${escapeAttr(group.key)}" aria-label="${group.running ? '工作区有任务正在运行，打开工作区操作' : '工作区操作'}" aria-expanded="false">${group.running ? '<span class="session-spinner workspace-spinner" aria-hidden="true"></span>' : ''}<span class="workspace-more-label" aria-hidden="true">⋯</span></button>`}
   </div>`;
 }
 
+function isTaskPageFocused(sessionId) {
+  if (!sessionId || state.currentSession?.id !== sessionId) return false;
+  if (currentMainPage !== 'chat' && !(currentMainPage === 'scheduled-tasks' && scheduledTaskViewOpen)) return false;
+  // Settings parks its overlay outside the document while closed, so querying
+  // #settingsOverlay here always missed and every completion looked unfocused.
+  if ($('#app')?.classList.contains('settings-mode')) return false;
+  if (document.visibilityState !== 'visible') return false;
+  return typeof document.hasFocus !== 'function' || document.hasFocus();
+}
+
+// A task result is unread when the user was not looking at that task page when
+// it settled. This includes another task, settings/plugins, and a background
+// app window; the dot clears as soon as the task page is actually focused.
+function markTaskCompletionAttention(session, status) {
+  if (!session?.id) return;
+  if (status === 'paused' || status === 'interrupted') return;
+  window.YanTaskMenu?.markCompleted?.(session.id, isTaskPageFocused(session.id));
+}
+
+let lastUnreadTaskCount = -1;
+function updateRailUnreadDot() {
+  const unreadSessions = state.sessions.filter(session => window.YanTaskMenu?.isUnread?.(session.id));
+  const scheduledCount = unreadSessions.filter(session => !!session.scheduledTaskId).length;
+  const count = unreadSessions.length;
+  for (const [nav, title, unreadCount] of [
+    ['tasks', 'Yan Agent', count - scheduledCount],
+    ['scheduled-tasks', '定时任务', scheduledCount]
+  ]) {
+    const button = document.querySelector(`.app-rail-button[data-nav="${nav}"]`);
+    if (!button) continue;
+    button.classList.toggle('has-unread', unreadCount > 0);
+    const label = unreadCount > 0 ? `${title} · ${unreadCount} 个任务已完成未查看` : title;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+  if (count !== lastUnreadTaskCount) {
+    lastUnreadTaskCount = count;
+    window.yan?.setUnreadTaskCount?.(count);
+  }
+}
+
+function markVisibleTaskRead() {
+  const id = state.currentSession?.id;
+  if (!id || !isTaskPageFocused(id)) return;
+  if (window.YanTaskMenu?.markRead?.(id)) renderSessionList();
+}
+
+window.addEventListener('focus', markVisibleTaskRead);
+document.addEventListener('visibilitychange', markVisibleTaskRead);
+
 function renderSessionList() {
+  updateScheduledTaskActivity();
+  // Backstop: the task page being looked at must never keep its unread marker,
+  // even if the completion landed a moment before the page regained focus.
+  const focusedSessionId = state.currentSession?.id;
+  if (focusedSessionId && isTaskPageFocused(focusedSessionId)) {
+    window.YanTaskMenu?.markRead?.(focusedSessionId);
+  }
   const list = $('#sessionList');
   const visibleGroups = getVisibleProjectGroups();
   const pinnedSessions = state.sessions
-    .filter(session => !!session.pinned)
+    .filter(session => !!session.pinned && !session.scheduledTaskId && !session.nested?.parentId && !state.sessions.some(child => child.nested?.parentId === session.id))
     .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
   if (visibleGroups.length === 0 && pinnedSessions.length === 0) {
     list.innerHTML = '<div class="session-empty">暂无对话 · 点击上方开始</div>';
     trackSessionTitleOverflow(list);
+    updateRailUnreadDot();
     return;
   }
 
@@ -1560,12 +1674,32 @@ function renderSessionList() {
         <div class="workspace-groups">${visibleGroups.map(group => {
     const collapsed = collapsedWorkspaceGroups.has(group.key);
     const groupDead = group.sessions.some(session => session.workspaceMissing === true);
-    const tasks = [...group.sessions]
-      .sort((a, b) => {
-        if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-        return (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
-      })
-      .map(s => renderSessionRow(s)).join('');
+    const renderNestedSessionRows = (sessions) => {
+      const children = new Map();
+      sessions.forEach(session => {
+        const parent = String(session.nested?.parentId || '');
+        if (parent) { if (!children.has(parent)) children.set(parent, []); children.get(parent).push(session); }
+      });
+      const seen = new Set();
+      const renderNode = (session) => {
+        if (seen.has(session.id)) return '';
+        seen.add(session.id);
+        const row = renderSessionRow(session);
+        const nested = (children.get(session.id) || []).sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+        if (!nested.length) return row;
+        return `<div class="nested-session-branch" data-nested-parent="${escapeAttr(session.id)}">${row}${nested.map(child => `<div class="nested-session-child">${renderNode(child)}</div>`).join('')}</div>`;
+      };
+      const roots = sessions.filter(session => {
+        const parent = String(session.nested?.parentId || '');
+        return !parent || !sessions.some(candidate => candidate.id === parent);
+      });
+      return [...roots, ...sessions].map(root => renderNode(root)).join('');
+    };
+
+    const tasks = renderNestedSessionRows([...group.sessions].sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
+    }));
 
     return `
       <section class="workspace-group ${collapsed ? 'is-collapsed' : ''} ${groupDead ? 'is-dead-workspace' : ''}" data-workspace-group="${escapeAttr(group.key)}">
@@ -1612,11 +1746,11 @@ function renderSessionList() {
       renderSessionList();
     };
     header.addEventListener('click', event => {
-      if (event.target.closest('[data-workspace-menu-toggle]')) return;
+      if (event.target.closest('[data-workspace-menu-toggle], [data-workspace-new-task]')) return;
       toggle();
     });
     header.addEventListener('keydown', event => {
-      if (event.target.closest('[data-workspace-menu-toggle]')) return;
+      if (event.target.closest('[data-workspace-menu-toggle], [data-workspace-new-task]')) return;
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         toggle();
@@ -1666,6 +1800,16 @@ function renderSessionList() {
     });
   });
 
+  list.querySelectorAll('[data-workspace-new-task]').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      const key = button.dataset.workspaceNewTask || '';
+      const group = visibleGroups.find(item => item.key === key);
+      if (!group || group.sessions.some(session => session.workspaceMissing === true)) return;
+      newSession({ workspace: group.workspace });
+    });
+  });
+
   list.querySelectorAll('[data-session-pin-toggle]').forEach(button => {
     button.addEventListener('click', event => {
       event.stopPropagation();
@@ -1700,6 +1844,7 @@ function renderSessionList() {
       loadSession(el.dataset.id);
     });
   });
+  updateRailUnreadDot();
 }
 
 // A workspace folder that no longer exists invalidates every task bound to
@@ -1752,15 +1897,19 @@ async function newSession(options = {}) {
   }
 }
 
-async function createOrActivateNewSession({ standalone = false, forceNew = false } = {}) {
+async function createOrActivateNewSession({ standalone = false, forceNew = false, workspace = null } = {}) {
+  if (NESTED_WINDOW_SESSION_ID) return state.currentSession;
   cancelPromptOptimization({ announce: false });
   closeModelPicker();
   closeReasoningPicker();
   const runtime = 'agent';
   switchSidebarNav('tasks');
   // A new task inherits the current task's home: a blank task stays blank, a
-  // task inside workspace A opens the next task inside A.
-  const inheritedWorkspace = standalone ? '' : String(state.currentSession?.workspace || '').trim();
+  // task inside workspace A opens the next task inside A. A workspace can also
+  // be requested explicitly (folder-row quick action) to skip that inheritance.
+  const inheritedWorkspace = workspace != null
+    ? String(workspace).trim()
+    : (standalone ? '' : String(state.currentSession?.workspace || '').trim());
   const reusableDraft = session => isBlankNewChat(session);
   const existing = inheritedWorkspace
     ? state.sessions.find(session => (
@@ -1788,8 +1937,10 @@ async function createOrActivateNewSession({ standalone = false, forceNew = false
   }
   s.runtime = runtime;
   await initializeSessionModel(s);
+  const previousSessionId = String(state.currentSession?.id || '');
   state.currentSession = s;
-  revealWorkspaceInSidebar(s.workspace);
+  switchRightSidebarTask(previousSessionId, s.id);
+  window.YanPromptSuggestions?.clear?.();
   syncAgentBrowserVisibility();
   syncPetFocusedSession(s);
   restoreComposerDraftForSession(s.id);
@@ -1807,7 +1958,11 @@ async function createOrActivateNewSession({ standalone = false, forceNew = false
   window.YanPromptSuggestions?.onSessionOpened?.(s);
 }
 
-async function loadSession(id) {
+async function loadSession(id, { record = null, isCurrent = () => true, preserveFullAgentCanvas = false } = {}) {
+  if (NESTED_WINDOW_SESSION_ID && id !== NESTED_WINDOW_SESSION_ID) return;
+  if (!NESTED_WINDOW_SESSION_ID && state.sessions.find(s => s.id === id)?.nested?.parentId && state.config?.nestedSessions?.style === 'grid' && api.nestedOpen) {
+    await api.nestedOpen(id); return;
+  }
   window.YanVoiceInput?.cancel();
   cancelPromptOptimization({ announce: false });
   const summary = state.sessions.find(session => session.id === String(id));
@@ -1825,25 +1980,33 @@ async function loadSession(id) {
     showSessionLoading();
   }
   const activeEntry = state.activeRuns.get(id);
-  const s = activeEntry?.sessionRef || await api.getSession(id, { messageLimit: MESSAGE_LOAD_LIMIT });
+  const s = activeEntry?.sessionRef || record || await api.getSession(id, { messageLimit: MESSAGE_LOAD_LIMIT });
+  if (!isCurrent()) return;
   if (!s) {
     showSessionLoading('任务打开失败');
     return;
   }
+  if (!s.openCodeSessionId) {
+    const recovered = lastKnownOpenCodeSessionId(s);
+    if (recovered) s.openCodeSessionId = recovered;
+  }
   markSessionLoadBaseline(s);
   window.YanTaskMenu?.markRead(s.id);
   await initializeSessionModel(s);
+  if (!isCurrent()) return;
   state.currentSession = s;
-  revealWorkspaceInSidebar(s.workspace);
+  switchRightSidebarTask(previousSessionId, s.id, { preserveFullAgentCanvas });
+  window.YanPromptSuggestions?.clear?.();
   syncAgentBrowserVisibility();
   syncPetFocusedSession(s);
   if (!previousSessionId || switchingSessions) restoreComposerDraftForSession(s.id);
   // Render the target conversation as soon as the session data arrives; the
   // remaining workspace/review setup below must not delay the visible switch.
   renderMessages(s.messages || []);
-  setEmptyState((s.messages || []).length === 0);
+  setEmptyState((s.messages || []).length === 0 && !s.forkOrigin);
   ensureEarlierMessagesBar(s);
-  state.config = await api.setConfig({ workspace: s.workspace || '' });
+  state.config = NESTED_WINDOW_SESSION_ID ? { ...state.config, workspace: s.workspace || '' } : await api.setConfig({ workspace: s.workspace || '' });
+  if (!isCurrent() || state.currentSession?.id !== s.id) return;
 
   const runCtx = getRunCtx(s.id);
   syncCurrentSessionAgentUi(s);
@@ -1855,6 +2018,78 @@ async function loadSession(id) {
   updateSendState();
   renderSessionList();
   window.YanPromptSuggestions?.onSessionOpened?.(state.currentSession);
+  void syncNestedStartGate();
+}
+
+function nestedStartGateElement() { return $('#nestedStartGate'); }
+
+function hideNestedStartGate() {
+  const wasActive = !!nestedStartGate;
+  nestedStartGate = null;
+  nestedStartGateElement()?.classList.add('hidden');
+  $('#composerStage')?.classList.remove('nested-start-pending');
+  const button = $('#nestedStartConfirm');
+  if (button) { button.disabled = false; button.textContent = '确认并开始'; }
+  if (wasActive && input) {
+    input.setAttribute('contenteditable', 'true');
+    input.removeAttribute('aria-readonly');
+  }
+  updateSendState();
+}
+
+// A dispatched child opens with a draft job and no user message. The gate is
+// the only way to start it, so the delegated task never reaches the model until
+// the user has confirmed the model (or deliberately kept the default).
+async function syncNestedStartGate() {
+  const targetId = NESTED_WINDOW_SESSION_ID
+    || (state.currentSession?.nested?.parentId ? state.currentSession.id : '');
+  if (!targetId || !api.nestedStart) { hideNestedStartGate(); return; }
+  try {
+    const payload = await api.nestedState(targetId);
+    const draft = (payload?.child?.jobs || []).find(job => job.status === 'draft');
+    const gate = nestedStartGateElement();
+    if (!draft || !gate) { hideNestedStartGate(); return; }
+    const prompt = String(draft.prompt || '');
+    const firstShow = !nestedStartGate || nestedStartGate.jobId !== draft.id;
+    nestedStartGate = { jobId: draft.id, prompt };
+    gate.classList.remove('hidden');
+    $('#composerStage')?.classList.add('nested-start-pending');
+    input.setAttribute('contenteditable', 'false');
+    input.setAttribute('aria-readonly', 'true');
+    if (firstShow) {
+      input.value = prompt;
+      autoGrow();
+    }
+    updateSendState();
+  } catch {
+    hideNestedStartGate();
+  }
+}
+
+async function confirmNestedStart() {
+  const gate = nestedStartGate;
+  if (!gate) return;
+  if (modelPickerSaving) { toast('模型正在保存，请稍候'); return; }
+  const button = $('#nestedStartConfirm');
+  if (button?.disabled) return;
+  const sessionId = NESTED_WINDOW_SESSION_ID || state.currentSession?.id || '';
+  const prompt = getComposerText().trim() || gate.prompt;
+  if (button) { button.disabled = true; button.textContent = '正在开始…'; }
+  try {
+    const result = await api.nestedStart({
+      sessionId,
+      modelSelection: getAgentModelSelection(),
+      prompt
+    });
+    if (!result?.ok) throw new Error(result?.error || '子会话启动失败');
+    hideNestedStartGate();
+    input.value = '';
+    autoGrow();
+    await loadSession(sessionId);
+  } catch (error) {
+    toast(error?.message || '子会话启动失败');
+    if (button) { button.disabled = false; button.textContent = '确认并开始'; }
+  }
 }
 
 async function saveCurrentSession(session = state.currentSession) {
@@ -1961,6 +2196,7 @@ function resetChatScrollResumeUi() {
 // loading placeholder immediately, so a slow getSession/createSession can never
 // leave the previous task on screen while the switch is pending.
 function showSessionLoading(label = '正在打开任务…') {
+  setTokenUsagePanelOpen(false);
   resetChatScrollResumeUi();
   stopSessionEntryFollow?.();
   historyPrependToken++;
@@ -1973,7 +2209,38 @@ function showSessionLoading(label = '正在打开任务…') {
 
 // Rendering a long conversation in one synchronous pass blocked the renderer
 // main thread for hundreds of milliseconds — the comment above on
+function scheduledRunTimeLabel(ts) {
+  const date = new Date(Number(ts) || Date.now());
+  const now = new Date();
+  const dayStart = value => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const dayDiff = Math.round((dayStart(now) - dayStart(date)) / 86_400_000);
+  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (dayDiff === 0) return `今天 ${time}`;
+  if (dayDiff === 1) return `昨天 ${time}`;
+  if (dayDiff === 2) return `前天 ${time}`;
+  if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+}
+
+function decorateScheduledRunMessage(element, message, { live = false } = {}) {
+  if (!element || !message?.scheduledRunAt) return;
+  const divider = document.createElement('div');
+  divider.className = 'chat-time-divider';
+  divider.innerHTML = `<span>${escapeHtml(scheduledRunTimeLabel(message.scheduledRunAt))}</span>`;
+  const label = document.createElement('div');
+  label.className = 'scheduled-run-label';
+  label.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6L12 12L9.5 16.3301M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/></svg><span>由已安排任务发送</span>';
+  element.parentNode?.insertBefore(divider, element);
+  element.parentNode?.insertBefore(label, element);
+  if (live) scrollChatToBottom();
+}
+
 function buildHistoryMessageElement(message, index) {
+  
+  // Child reports and background-Bash completions are host input, not something
+  // the user typed. Keep them in history for the run, never paint them as user
+  // messages.
+  if (message.nestedSource === 'child_report' || message.nestedSource === 'background_bash') return null;
   const element = appendMessage(
     message.role,
     message.content,
@@ -1987,10 +2254,23 @@ function buildHistoryMessageElement(message, index) {
     (message.mediaAssets?.length ? message.mediaAssets : message.media),
     message.pluginCalls || []
   );
+  
   if (message.role === 'user' && message.modelSwitchNotice) {
     appendModelSwitchNoticeElement(message.modelSwitchNotice, { animate: false });
   }
+  if (element && message.scheduledTask) appendScheduledTaskCard(element, message.scheduledTask);
+  if (element && message.role === 'user' && message.scheduledRunAt) decorateScheduledRunMessage(element, message);
   return element;
+}
+
+function appendScheduledTaskCard(element, task) {
+  const body = element?.querySelector('.msg-body');
+  if (!body || !task?.id) return;
+  const card = document.createElement('div');
+  card.className = 'scheduled-task-created-card';
+  card.innerHTML = '<div class="scheduled-task-created-info"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-keyline-icon="clock-7"><path d="M12 6L12 12L9.5 16.3301M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/></svg><span>查看你的定时任务</span></div>'
+    + `<button class="scheduled-task-open-btn" type="button" data-scheduled-task-open="${escapeAttr(task.id)}">打开</button>`;
+  body.appendChild(card);
 }
 
 function scheduleHistoryPrepend(list, boundaryIndex) {
@@ -2005,9 +2285,11 @@ function scheduleHistoryPrepend(list, boundaryIndex) {
     const anchor = sc ? { height: sc.scrollHeight, top: sc.scrollTop } : null;
     suppressChatAutoScroll = true;
     try {
-      // Anchor at the oldest rendered message, not the container's first
-      // child: the earlier-messages bar (when present) must stay on top.
-      const first = wrap.querySelector('.msg');
+      // Anchor at the oldest rendered content, not the container's first
+      // child: the earlier-messages bar (when present) must stay on top, while
+      // a scheduled-run divider/label belongs with the message below it.
+      const bar = wrap.querySelector('.earlier-messages-bar');
+      const first = bar ? bar.nextElementSibling : wrap.firstElementChild;
       const builtBefore = wrap.children.length;
       for (let i = chunkStart; i < chunkEnd; i++) buildHistoryMessageElement(list[i], i);
       if (first) {
@@ -2020,6 +2302,7 @@ function scheduleHistoryPrepend(list, boundaryIndex) {
     }
     // Content was inserted above the viewport; shift scrollTop by the height
     // delta so whatever the user was looking at stays pixel-stable.
+    window.YanTaskMenu?.renderForkOrigin();
     if (sc && anchor) sc.scrollTop = anchor.top + (sc.scrollHeight - anchor.height);
     invalidateConversationTurns();
     renderTurnScaleNavigation();
@@ -2040,6 +2323,7 @@ function renderMessages(messages) {
   try {
     clearMessages();
     for (let i = immediateStart; i < list.length; i++) buildHistoryMessageElement(list[i], i);
+    window.YanTaskMenu?.renderForkOrigin();
     renderTurnScaleNavigation();
   } finally {
     suppressChatAutoScroll = false;
@@ -2077,6 +2361,8 @@ function markSessionLoadBaseline(session) {
 }
 
 function buildSessionSavePayload(session) {
+  if (typeof session.memoryEnabled !== 'boolean') session.memoryEnabled = state.config?.memory?.enabled !== false;
+  if (typeof session.memoryWriteEnabled !== 'boolean') session.memoryWriteEnabled = true;
   const messages = Array.isArray(session.messages) ? session.messages : [];
   if (messages.length <= MESSAGE_LOAD_LIMIT) return session;
   const baselineStart = Number(session.loadMessagesStart);
@@ -2172,12 +2458,21 @@ async function loadSessionHistoryBackwards(session, { render = false } = {}) {
       break;
     }
     const page = result.messages;
+    const pageStart = Number(result.offset);
+    const pageEnd = pageStart + page.length;
+    // A page is only safe to prepend when it ends exactly at the cursor.
+    // Otherwise the range was capped and prepending would silently skip the
+    // messages between pageEnd and cursor.
+    if (!Number.isInteger(pageStart) || pageStart < 0 || pageEnd !== cursor) {
+      throw new Error('历史分页不连续，请重试');
+    }
     session.messages = [...page, ...(Array.isArray(session.messages) ? session.messages : [])];
-    session.messagesStart = requestStart;
-    if (requestStart <= 0) delete session.messagesTruncated;
+    session.messagesStart = pageStart;
+    if (pageStart <= 0) delete session.messagesTruncated;
     if (render) {
       rebaseRenderedMessageIndices(page.length);
-      prependRenderedHistory(page, requestStart);
+      // DOM indices are relative to the now-loaded array, just like renderMessages.
+      prependRenderedHistory(page, 0);
       ensureEarlierMessagesBar(session);
     }
   }
@@ -2191,11 +2486,18 @@ async function loadSessionHistoryBackwards(session, { render = false } = {}) {
 async function ensureFullSessionLoaded(session) {
   if (!session?.messagesTruncated) return session || null;
   await loadSessionHistoryBackwards(session, { render: false });
+  // A startup/task-switch load can replace state.currentSession with a fresh
+  // tail for the same task while the pages above are in flight. Ensure the
+  // visible object is complete too, not just the caller's stale reference.
+  const visible = state.currentSession?.id === session.id ? state.currentSession : session;
+  if (visible !== session && visible.messagesTruncated) {
+    await loadSessionHistoryBackwards(visible, { render: false });
+  }
   // The silent load exists so the kernel receives the complete history. If
   // this session is on screen, the visible conversation (and its truncation
   // bar) must be reconciled too: deleting messagesTruncated without updating
   // the DOM left the bar mounted but its click silently early-returning.
-  if (state.currentSession === session) renderMessages(session.messages || []);
+  if (state.currentSession === visible) renderMessages(visible.messages || []);
   return session;
 }
 
@@ -2219,6 +2521,7 @@ function prependRenderedHistory(page, startIndex) {
   } finally {
     suppressChatAutoScroll = false;
   }
+  window.YanTaskMenu?.renderForkOrigin();
   if (sc && anchor) sc.scrollTop = anchor.top + (sc.scrollHeight - anchor.height);
   invalidateConversationTurns();
   renderTurnScaleNavigation();
@@ -2238,6 +2541,9 @@ function appendModelSwitchNoticeElement(text, { animate = true } = {}) {
 }
 
 function setEmptyState(empty) {
+  if (empty) {
+    setTokenUsagePanelOpen(false);
+  }
   $('#pageChat').classList.toggle('empty', empty);
   $('#chatMainColumn').classList.toggle('empty', empty);
   window.YanAgentShell?.sync(empty);
@@ -2433,7 +2739,7 @@ function scheduleTurnScaleUpdate() {
   turnScaleFrame = requestAnimationFrame(() => {
     turnScaleFrame = 0;
     const nav = $('#turnScaleNav');
-    const scroller = $('#chatScroll');
+    ($('#chatScroll'));
     const turns = getConversationTurns();
     const shouldShow = turns.length > 0;
     if (!!nav && nav.classList.contains('hidden') === shouldShow) renderTurnScaleNavigation();
@@ -2446,8 +2752,85 @@ function scheduleTurnScaleUpdate() {
 // ============================================================
 let currentMainPage = 'chat';
 let currentPluginPage = 'packages';
+
+// ---- In-app navigation history (视图 → 返回 / 前进) ----
+// Every page-level switch is recorded: main pages (tasks / plugins tabs /
+// code review), the settings workspace with its active tab, and the
+// about workspace. Ctrl+[ / Ctrl+] step through that stack like a browser.
+const APP_HISTORY_LIMIT = 100;
+const appHistory = { entries: [], index: -1, applying: false, scheduled: false };
+
+function captureAppView() {
+  const settings = document.querySelector('#settingsOverlay');
+  return {
+    page: currentMainPage,
+    settings: settings && !settings.classList.contains('hidden') ? (settings.dataset.activeTab || 'general') : ''
+  };
+}
+
+function sameAppView(a, b) {
+  return !!a && !!b && a.page === b.page && a.settings === b.settings;
+}
+
+function syncAppHistoryControls() {
+  const back = document.querySelector('#titlebarViewMenu [data-titlebar-action="history-back"]');
+  const forward = document.querySelector('#titlebarViewMenu [data-titlebar-action="history-forward"]');
+  if (back) back.disabled = appHistory.index <= 0;
+  if (forward) forward.disabled = appHistory.index >= appHistory.entries.length - 1;
+}
+
+function pushAppView(view) {
+  if (!view || appHistory.applying) return;
+  if (sameAppView(appHistory.entries[appHistory.index], view)) return;
+  appHistory.entries = appHistory.entries.slice(0, appHistory.index + 1);
+  appHistory.entries.push(view);
+  if (appHistory.entries.length > APP_HISTORY_LIMIT) appHistory.entries.shift();
+  appHistory.index = appHistory.entries.length - 1;
+  syncAppHistoryControls();
+}
+
+// Navigation functions call this instead of pushing directly: one synchronous
+// chain (close settings → show page) must produce exactly one history entry.
+function recordAppViewSoon() {
+  if (appHistory.scheduled) return;
+  appHistory.scheduled = true;
+  queueMicrotask(() => {
+    appHistory.scheduled = false;
+    if (appHistory.applying) return;
+    pushAppView(captureAppView());
+  });
+}
+
+function applyAppView(view) {
+  if (!view) return;
+  appHistory.applying = true;
+  try {
+    if (view.settings) {
+      openSettings(view.settings);
+      return;
+    }
+    if (!document.querySelector('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
+    if (currentMainPage !== view.page) showMainPage(view.page);
+  } finally {
+    // Clear on the next microtask so records queued by these calls are dropped.
+    queueMicrotask(() => { appHistory.applying = false; });
+  }
+}
+
+function navigateAppHistory(delta) {
+  const next = appHistory.index + delta;
+  if (next < 0 || next >= appHistory.entries.length) return false;
+  appHistory.index = next;
+  applyAppView(appHistory.entries[next]);
+  syncAppHistoryControls();
+  return true;
+}
 let activeRightSidebarTab = null;
 const openRightSidebarTabs = [];
+// Per-task tab UI state. Tabs themselves live in the global registry with an
+// ownerSessionId; this map only remembers which tab was active and whether the
+// panel was open, so each task restores its own workspace.
+const rightSidebarTaskUi = new Map();
 const SUBAGENT_UI_NAMES = window.YanSubagentWorkflow?.NAMES || {};
 const subagentPanel = window.YanSubagentPanel?.create?.({
   getSessionId: () => String(state.currentSession?.id || ''),
@@ -2510,17 +2893,20 @@ function updateSubagentWorkflow(runCtx, event, deferEffects) {
   if (state.currentSession?.id === runCtx.sessionId) {
     if (update.created && !runCtx.replayingSubagents && state.config?.general?.expandSubagentPanel !== false) subagentPanel.open();
     else subagentPanel.schedule();
-    if (!$('#taskGitPanel')?.classList.contains('hidden')) renderTaskGitAgentSections();
   }
   return true;
 }
 let rightSidebarBrowserCounter = 0;
-const RIGHT_SIDEBAR_TAB_MIN_WIDTH = 92;
-const RIGHT_SIDEBAR_TAB_MAX_WIDTH = 220;
+// Every tab keeps this exact width. Extra tabs move into the overflow menu
+// instead of compressing the pills, so opening a page never resizes the others.
+const RIGHT_SIDEBAR_TAB_WIDTH = 200;
+const RIGHT_SIDEBAR_FULLSCREEN_WIDTH = 440;
 let rightSidebarTabLayoutFrame = 0;
 let rightSidebarTabLayoutObserver = null;
 let browserFocusMode = false;
+let fullChatSelected = false;
 let browserFocusStoredRightWidth = '';
+let rightSidebarUserWidth = 0;
 let browserFocusComposerMode = 'standby';
 const mediaStudioState = {
   mode: 'image',
@@ -2541,20 +2927,29 @@ const taskToolSelections = new Map();
 let vsCodeStatus = { available: false, executable: '', iconDataUrl: '' };
 let skillMarketCatalog = [];
 let skillMarketAllCatalog = [];
-let skillMarketDetailId = '';
+let skillModalId = '';
+// The skills page splits app-provided skills from the ones the user installed.
+const SYSTEM_SKILL_SOURCES = new Set(['builtin', 'bundled', 'yan agent', 'plugin']);
+let skillSourceFilter = (() => {
+  try { return localStorage.getItem('yan-skill-source') === 'personal' ? 'personal' : 'system'; }
+  catch { return 'system'; }
+})();
+
+function isScheduledTaskView() {
+  return currentMainPage === 'scheduled-tasks' && scheduledTaskViewOpen;
+}
 
 function syncSidebarAccessibility() {
   const settingsMode = $('#app')?.classList.contains('settings-mode');
-  if (settingsMode) $('#app')?.classList.remove('sidebar-hidden');
   const leftOpen = !$('#app').classList.contains('sidebar-hidden');
-  const chatPage = currentMainPage === 'chat';
+  const chatPage = currentMainPage === 'chat' || isScheduledTaskView();
   const rightOpen = !settingsMode && (chatPage || $('#app').classList.contains('pr-diff-open')) && !$('#app').classList.contains('rs-hidden');
   $('#sidebar')?.toggleAttribute('inert', !leftOpen);
   $('#rightSidebar')?.toggleAttribute('inert', !rightOpen);
   $('#sidebarToggle')?.setAttribute('aria-expanded', String(leftOpen));
   $('#sidebarToggle')?.toggleAttribute('disabled', settingsMode);
   if ($('#sidebarToggle')) {
-    $('#sidebarToggle').title = settingsMode ? '设置页固定显示侧边栏' : '切换侧边栏 (Ctrl+B)';
+    $('#sidebarToggle').title = settingsMode ? '设置页中不可切换侧边栏' : '切换侧边栏 (Ctrl+B)';
   }
   const rightSidebarFocusButton = $('#rightSidebarFocusBtn');
   const rightSidebarFocusUnavailable = !rightOpen;
@@ -2565,26 +2960,167 @@ function syncSidebarAccessibility() {
 
 // The right dock replaces the old floating toggle: panel tools joined in
 // a pill plus a circular close button that only exists while a tab is open.
+// Tabs that represent real content: the Agent's own browser tab and a blank
+// "新标签页" placeholder are not counted on the closed-panel launcher.
+function countSidePanelContentTabs() {
+  return visibleRightSidebarTabs().filter(tab => {
+    if (tab.type !== 'browser') return true;
+    if (tab.agentOwned === true) return false;
+    return !!getBrowserTabController(tab.id)?.currentUrl;
+  }).length;
+}
+
+function rightDockCountIcon(count) {
+  const label = count > 99 ? '99+' : String(count);
+  const fontSize = label.length > 1 ? 8.5 : 10.5;
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><text x="12" y="12.5" text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none" font-size="${fontSize}" font-weight="600">${label}</text></svg>`;
+}
+
 function syncRightDock() {
-  const dock = $('#rightDock');
-  if (!dock) return;
-  const settingsMode = $('#app')?.classList.contains('settings-mode');
-  const chatPage = currentMainPage === 'chat';
-  const visible = !settingsMode && chatPage && !!state.currentSession && !browserFocusMode && !$('#pageChat').classList.contains('empty');
-  dock.classList.toggle('hidden', !visible);
-  if (!visible) return;
-  const rightOpen = !$('#app').classList.contains('rs-hidden');
-  const activeTab = getActiveRightSidebarTab();
   const launch = $('#rightDockLaunch');
-  if (launch) {
-    const expanded = !!(rightOpen && activeTab);
-    launch.innerHTML = expanded
-      ? '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m10 8 4 4-4 4"/></svg>'
-      : '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M12 8v8"/></svg>';
-    launch.title = expanded ? '隐藏侧边面板' : '打开侧边面板';
-    launch.setAttribute('aria-label', launch.title);
-    launch.setAttribute('aria-expanded', String(expanded));
+  if (!launch) return;
+  const settingsMode = $('#app')?.classList.contains('settings-mode');
+  const chatPage = currentMainPage === 'chat' || isScheduledTaskView();
+  const rightOpen = !$('#app')?.classList.contains('rs-hidden');
+  const visible = rightOpen
+    || (!settingsMode && chatPage && !!state.currentSession && !browserFocusMode && !$('#pageChat').classList.contains('empty'));
+  const taskSlot = $('#taskBarSidePanelSlot');
+  const focusButton = $('#rightSidebarFocusBtn');
+  // Open: the panel button lives in the tab bar, right of the fullscreen
+  // toggle. Closed: it returns to the task bar next to the "more" menu.
+  if (rightOpen && focusButton && focusButton.parentElement) {
+    if (launch.previousElementSibling !== focusButton) focusButton.after(launch);
+    taskSlot?.classList.add('hidden');
+  } else if (taskSlot) {
+    taskSlot.classList.remove('hidden');
+    if (launch.parentElement !== taskSlot) taskSlot.appendChild(launch);
   }
+  launch.classList.toggle('hidden', !visible);
+  $('#taskBarSidePanelDivider')?.classList.toggle('hidden', rightOpen || !visible);
+  scheduleRightSidebarTabLayoutSync();
+  if (!visible) return;
+  const tabCount = rightOpen ? 0 : countSidePanelContentTabs();
+  launch.innerHTML = rightOpen
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>'
+    : (tabCount > 0
+      ? rightDockCountIcon(tabCount)
+      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M12 8v8"/></svg>');
+  launch.title = rightOpen
+    ? (browserFocusMode ? '退出全屏' : '隐藏侧边面板')
+    : (tabCount > 0 ? `打开侧边面板（${tabCount} 个标签页）` : '打开侧边面板');
+  launch.setAttribute('aria-label', launch.title);
+  launch.setAttribute('aria-expanded', String(rightOpen));
+}
+
+function currentRightSidebarTaskId() {
+  return String(state.currentSession?.id || '');
+}
+
+function rightSidebarTabBelongsToCurrentTask(tab) {
+  if (!tab) return false;
+  const ownerSessionId = String(tab.ownerSessionId || '');
+  if (ownerSessionId && ownerSessionId !== currentRightSidebarTaskId()) return false;
+  if (tab.type === 'browser' && tab.agentOwned && !browserTabMatchesScope(tab)) return false;
+  return true;
+}
+
+function visibleRightSidebarTabs() {
+  return openRightSidebarTabs.filter(rightSidebarTabBelongsToCurrentTask);
+}
+
+function rightSidebarPanelId(tab) {
+  if (!tab) return '';
+  // Browser panels are created per tab id; the remaining tools share one panel.
+  if (tab.type === 'browser') return `rs-${tab.id}`;
+  return `rs-${tab.type}`;
+}
+
+function rightSidebarTabUiState() {
+  const tab = openRightSidebarTabs.find(item => item.id === activeRightSidebarTab) || null;
+  if (!tab) return null;
+  return { type: tab.type, filePath: tab.filePath || '' };
+}
+
+function findRightSidebarTabForUi(saved) {
+  if (!saved) return null;
+  const byId = saved.activeTabId
+    ? openRightSidebarTabs.find(tab => tab.id === saved.activeTabId && rightSidebarTabBelongsToCurrentTask(tab))
+    : null;
+  if (byId) return byId;
+  const wanted = saved.activeTab;
+  if (!wanted?.type) return null;
+  return visibleRightSidebarTabs().find(tab => {
+    if (tab.type !== wanted.type) return false;
+    if (wanted.type === 'files') return (tab.filePath || '') === (wanted.filePath || '');
+    return true;
+  }) || null;
+}
+
+function saveRightSidebarTaskUi() {
+  const taskId = currentRightSidebarTaskId();
+  if (!taskId) return;
+  rightSidebarTaskUi.set(taskId, {
+    ...(rightSidebarTaskUi.get(taskId) || {}),
+    activeTabId: activeRightSidebarTab,
+    activeTab: rightSidebarTabUiState(),
+    open: !$('#app')?.classList.contains('rs-hidden'),
+    focusMode: browserFocusMode,
+    fullChatSelected: browserFocusMode && fullChatSelected
+  });
+}
+
+// Swap the visible tab workspace when the user moves between tasks. Tabs stay
+// in the global registry (background Agent tabs must survive), but each task
+// only sees and restores its own tabs.
+function switchRightSidebarTask(previousSessionId, nextSessionId, { preserveFullAgentCanvas = false } = {}) {
+  const previous = String(previousSessionId || '');
+  const next = String(nextSessionId || '');
+  if (previous === next) return;
+  const previousFocusMode = browserFocusMode;
+  const previousFullChat = fullChatSelected;
+  if (previous) {
+    for (const tab of openRightSidebarTabs) {
+      if (!tab.ownerSessionId) tab.ownerSessionId = previous;
+    }
+    rightSidebarTaskUi.set(previous, {
+      activeTabId: activeRightSidebarTab,
+      activeTab: rightSidebarTabUiState(),
+      open: !$('#app')?.classList.contains('rs-hidden'),
+      focusMode: browserFocusMode,
+      fullChatSelected: browserFocusMode && fullChatSelected
+    });
+  }
+  const saved = next ? rightSidebarTaskUi.get(next) : null;
+  activeRightSidebarTab = findRightSidebarTabForUi(saved)?.id || null;
+  // Rendering may rebuild project-file tabs, so retry the saved tab identity
+  // once the task's own file tabs exist again.
+  renderRightSidebarTabs();
+  if (!activeRightSidebarTab) activeRightSidebarTab = findRightSidebarTabForUi(saved)?.id || null;
+  if (!activeRightSidebarTab) activeRightSidebarTab = visibleRightSidebarTabs()[0]?.id || null;
+
+  // Full-screen belongs to the task, not the window. Restore it only when this
+  // task has a panel tab (or the Agent canvas) to fill; a regular task switch
+  // otherwise exits it. The explicit new-task flow may keep the Agent canvas.
+  const preserveAgentCanvas = preserveFullAgentCanvas && previousFocusMode && previousFullChat;
+  const savedFocusMode = preserveAgentCanvas || saved?.focusMode === true;
+  const savedFullChat = preserveAgentCanvas || (savedFocusMode && saved?.fullChatSelected === true);
+  const canRestoreFocus = savedFocusMode && (savedFullChat || !!activeRightSidebarTab);
+  const shouldOpen = canRestoreFocus || (!!activeRightSidebarTab && (saved ? saved.open !== false : true));
+
+  $('#app')?.classList.toggle('rs-hidden', !shouldOpen);
+  if (canRestoreFocus) {
+    setBrowserFocusMode(true);
+    fullChatSelected = savedFullChat;
+    syncFullChatTab();
+  } else {
+    if (browserFocusMode) setBrowserFocusMode(false);
+    fullChatSelected = false;
+    syncFullChatTab();
+  }
+  renderRightSidebarTabs();
+  ensureFullscreenPanelContent();
+  updateBrowserFocusControls();
+  syncRightDock();
 }
 
 function notifySidebarLayoutChanged() {
@@ -2594,17 +3130,32 @@ function notifySidebarLayoutChanged() {
   });
 }
 
+let sidebarSettleTimer = 0;
 function runSidebarTransition(kind, update) {
   update();
   syncSidebarAccessibility();
-  notifySidebarLayoutChanged();
-  // Animate only the opening panel, without snapshotting the conversation.
-  if (kind.endsWith('-open') && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const panel = $(kind.startsWith('left-') ? '#sidebar' : '#rightSidebar');
-    panel?.getAnimations().forEach(animation => animation.cancel());
-    panel?.animate([{ opacity: 0, transform: `translateX(${kind.startsWith('left-') ? -8 : 8}px)` },
-      { opacity: 1, transform: 'translateX(0)' }], { duration: 120, easing: 'ease-out' });
+  const panel = $(kind.startsWith('left-') ? '#sidebar' : '#rightSidebar');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!panel || reduced) {
+    notifySidebarLayoutChanged();
+    return;
   }
+  // The panel slides via a CSS margin transition; re-measure once it settles so
+  // the embedded browser/webview matches the final layout instead of a frame
+  // captured mid-animation.
+  clearTimeout(sidebarSettleTimer);
+  const settle = () => {
+    clearTimeout(sidebarSettleTimer);
+    sidebarSettleTimer = 0;
+    notifySidebarLayoutChanged();
+  };
+  const onEnd = event => {
+    if (event.target !== panel || !String(event.propertyName || '').startsWith('margin')) return;
+    panel.removeEventListener('transitionend', onEnd);
+    settle();
+  };
+  panel.addEventListener('transitionend', onEnd);
+  sidebarSettleTimer = setTimeout(settle, 320);
 }
 
 function setLeftSidebarOpen(open) {
@@ -2619,29 +3170,1102 @@ function setLeftSidebarOpen(open) {
 }
 
 function setRightSidebarOpen(open) {
-  const rightSidebarAllowed = (currentMainPage === 'chat' || (currentMainPage === 'code-review' && $('#app').classList.contains('pr-diff-open')))
+  const rightSidebarAllowed = (currentMainPage === 'chat' || isScheduledTaskView() || (currentMainPage === 'code-review' && $('#app').classList.contains('pr-diff-open')))
     && !$('#app')?.classList.contains('settings-mode');
   if (open && !rightSidebarAllowed) {
     syncSidebarAccessibility();
     return;
   }
   if (!open && browserFocusMode) setBrowserFocusMode(false);
+  if (open) applyRightSidebarFullscreenWidth();
   const currentlyOpen = !$('#app').classList.contains('rs-hidden');
   if (currentlyOpen === !!open) {
     syncSidebarAccessibility();
     if (open) syncBrowserViewport();
     return;
   }
+  if (open && getActiveRightSidebarTab()?.type === 'files') window.YanProjectFiles.sync({ reopen: true });
   runSidebarTransition(open ? 'right-open' : 'right-close', () => {
     $('#app').classList.toggle('rs-hidden', !open);
   });
+  saveRightSidebarTaskUi();
 }
 
 function closeRightSidebar() {
   setRightSidebarOpen(false);
 }
 
+let scheduledFilter = 'active';
+const SCHEDULED_GROUPS_COLLAPSED_KEY = 'yan.scheduled-task-groups-collapsed.v1';
+let collapsedScheduledTaskGroups = (() => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SCHEDULED_GROUPS_COLLAPSED_KEY) || '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter(value => value === 'active' || value === 'paused') : []);
+  } catch {
+    return new Set();
+  }
+})();
+
+function saveScheduledTaskGroups() {
+  try { localStorage.setItem(SCHEDULED_GROUPS_COLLAPSED_KEY, JSON.stringify([...collapsedScheduledTaskGroups])); } catch {}
+}
+
+function syncScheduledTaskGroups() {
+  $$('#scheduledTasksSidebarPanel [data-scheduled-group]').forEach(section => {
+    const key = section.dataset.scheduledGroup;
+    const collapsed = collapsedScheduledTaskGroups.has(key);
+    section.classList.toggle('is-collapsed', collapsed);
+    const button = section.querySelector('[data-scheduled-group-toggle]');
+    if (!button) return;
+    const label = key === 'paused' ? '已暂停' : '进行中';
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.title = collapsed ? `展开${label}` : `折叠${label}`;
+    button.setAttribute('aria-label', button.title);
+    button.querySelector('path')?.setAttribute('d', collapsed ? 'M6 9L12 15L18 9' : 'M9 6L15 12L9 18');
+  });
+}
+
+$('#scheduledTasksSidebarPanel')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-scheduled-group-toggle]');
+  if (!button) return;
+  const key = button.dataset.scheduledGroupToggle;
+  if (collapsedScheduledTaskGroups.has(key)) collapsedScheduledTaskGroups.delete(key);
+  else collapsedScheduledTaskGroups.add(key);
+  saveScheduledTaskGroups();
+  syncScheduledTaskGroups();
+});
+syncScheduledTaskGroups();
+
+const SCHEDULED_TASK_ACTION_ICONS = {
+  pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12C22 17.5228 17.5228 22 12 22C6.4772 22 2 17.5228 2 12C2 6.4772 6.4772 2 12 2C17.5228 2 22 6.4772 22 12ZM9 8V16M15 8V16"/></svg>',
+  play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12C22 17.5228 17.5228 22 12 22C6.4772 22 2 17.5228 2 12C2 6.4772 6.4772 2 12 2C17.5228 2 22 6.4772 22 12ZM8.962734 9.105541C8.962734 8.320105 9.826684 7.841262 10.492732 8.257542L15.802266 11.576001C16.1156 11.771835 16.1156 12.228165 15.802266 12.423999L10.492732 15.742458C9.826684 16.158738 8.962734 15.679895 8.962734 14.894459Z"/></svg>',
+  run: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2117 13.9407C3.071 13.3034 3 12.6527 3 12C3 7.0294 7.0294 3 12 3C14.4831 3 16.8559 4.0259 18.5568 5.8349M19.7143 3L19.2707 6.105C19.2317 6.3784 18.9784 6.5683 18.705 6.5293L15.6 6.0857M20.7883 10.0593C20.929 10.6966 21 11.3473 21 12C21 16.9706 16.9706 21 12 21C9.5169 21 7.1441 19.9741 5.4432 18.1651M4.2857 21L4.7293 17.895C4.7683 17.6216 5.0216 17.4317 5.295 17.4707L8.4 17.9143"/></svg>',
+  edit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.0237 7.6904L9.8567 18.8573L2 22L5.1427 14.1433L16.3096 2.9763C16.9348 2.3512 17.7826 2 18.6667 2C19.5507 2 20.3986 2.3512 21.0237 2.9763C21.6488 3.6014 22 4.4493 22 5.3333C22 6.2174 21.6488 7.0652 21.0237 7.6904ZM15.0638 4.2222L19.7778 8.9362"/></svg>',
+  delete: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2H14M4 7H20M6 7H18V19C18 20.6569 16.6569 22 15 22H9C7.34315 22 6 20.6569 6 19V7Z"/></svg>'
+};
+
+let scheduledTaskMenuButton = null;
+
+function closeScheduledTaskRowMenu({ restoreFocus = false } = {}) {
+  const menu = $('#scheduledTaskRowMenu');
+  if (!menu) return;
+  menu.classList.add('hidden');
+  menu.dataset.taskId = '';
+  if (scheduledTaskMenuButton) {
+    scheduledTaskMenuButton.setAttribute('aria-expanded', 'false');
+    scheduledTaskMenuButton.classList.remove('active');
+    if (restoreFocus) scheduledTaskMenuButton.focus({ preventScroll: true });
+    scheduledTaskMenuButton = null;
+  }
+}
+
+function openScheduledTaskRowMenu(taskId, button) {
+  const menu = $('#scheduledTaskRowMenu');
+  const task = scheduledTasks.find(item => item.id === String(taskId || ''));
+  if (!menu || !task) return;
+  if (!menu.classList.contains('hidden') && menu.dataset.taskId === task.id) {
+    closeScheduledTaskRowMenu({ restoreFocus: true });
+    return;
+  }
+  const paused = task.status === 'paused';
+  const running = scheduledRunLocks.has(task.id) || isSessionExecutionActive(task.sessionId);
+  const runDisabled = paused || running;
+  const items = [
+    { action: paused ? 'resume' : 'pause', icon: paused ? 'play' : 'pause', label: paused ? '继续' : '暂停' },
+    { action: 'run', icon: 'run', label: '立即执行', disabled: runDisabled, title: paused ? '任务已暂停' : running ? '任务正在运行' : '立即执行' },
+    { action: 'edit', icon: 'edit', label: '编辑' },
+    { action: 'delete', icon: 'delete', label: '删除' }
+  ];
+  menu.dataset.taskId = task.id;
+  menu.innerHTML = items.map(item => `<button class="scheduled-task-row-menu-item" type="button" role="menuitem" data-scheduled-task-action="${item.action}"${item.disabled ? ` disabled aria-disabled="true" title="${escapeAttr(item.title || '暂不可用')}"` : ''}>${SCHEDULED_TASK_ACTION_ICONS[item.icon]}<span>${item.label}</span></button>`).join('');
+  if (scheduledTaskMenuButton && scheduledTaskMenuButton !== button) {
+    scheduledTaskMenuButton.setAttribute('aria-expanded', 'false');
+    scheduledTaskMenuButton.classList.remove('active');
+  }
+  scheduledTaskMenuButton = button;
+  button.setAttribute('aria-expanded', 'true');
+  button.classList.add('active');
+  menu.classList.remove('hidden');
+  const rect = button.getBoundingClientRect();
+  const box = menu.getBoundingClientRect();
+  let left = rect.right - box.width;
+  let top = rect.bottom + 6;
+  if (top + box.height > window.innerHeight - 8) top = rect.top - box.height - 6;
+  left = Math.max(8, Math.min(left, window.innerWidth - box.width - 8));
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(Math.max(8, top))}px`;
+  menu.querySelector('.scheduled-task-row-menu-item:not(:disabled)')?.focus({ preventScroll: true });
+}
+
+async function refreshScheduledTasks() {
+  try {
+    scheduledTasks = await api.listScheduledTasks() || [];
+  } catch {
+    scheduledTasks = [];
+  }
+  renderScheduledTaskSidebar();
+}
+
+function renderScheduledTaskSidebar() {
+  closeScheduledTaskRowMenu();
+  const bodies = {
+    active: $('[data-scheduled-group-body="active"]'),
+    paused: $('[data-scheduled-group-body="paused"]')
+  };
+  Object.values(bodies).forEach(body => { if (body) body.replaceChildren(); });
+  for (const task of scheduledTasks) {
+    const body = bodies[task.status === 'paused' ? 'paused' : 'active'];
+    if (!body) continue;
+    const row = document.createElement('div');
+    row.className = 'scheduled-task-item';
+    row.dataset.scheduledTaskId = task.id;
+    row.dataset.sessionId = task.sessionId || '';
+    row.dataset.runStatus = task.lastRunStatus || '';
+    row.setAttribute('role', 'button');
+    row.tabIndex = 0;
+    row.title = task.description || task.title || '';
+    row.innerHTML = `<span class="scheduled-task-item-title">${escapeHtml(task.title || task.description || '定时任务')}</span><button class="task-bar-icon-btn scheduled-task-item-more" type="button" data-scheduled-task-menu="${escapeAttr(task.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>`;
+    const open = () => { void openScheduledTaskSession(task); };
+    row.addEventListener('click', event => {
+      if (event.target.closest('.scheduled-task-item-more')) return;
+      open();
+    });
+    row.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
+    });
+    row.addEventListener('contextmenu', event => event.preventDefault());
+    body.appendChild(row);
+  }
+  updateScheduledTaskActivity();
+  updateRailUnreadDot();
+}
+
+function updateScheduledTaskActivity() {
+  document.querySelectorAll('.scheduled-task-item').forEach(row => {
+    const running = row.dataset.runStatus === 'running' || isSessionRunning(row.dataset.sessionId);
+    row.classList.toggle('running', running);
+    row.setAttribute('aria-busy', String(running));
+    const spinner = row.querySelector('.session-spinner');
+    if (running && !spinner) {
+      const indicator = document.createElement('span');
+      indicator.className = 'session-spinner';
+      indicator.setAttribute('aria-hidden', 'true');
+      row.prepend(indicator);
+    } else if (!running) {
+      spinner?.remove();
+    }
+  });
+}
+
+async function restoreMainSessionAfterScheduledView() {
+  if (restoringMainSession) return;
+  restoringMainSession = true;
+  scheduledTaskViewOpen = false;
+  try {
+    const previousId = scheduledPreviousSessionId;
+    const previous = previousId && state.sessions.find(session => session.id === previousId && !session.scheduledTaskId);
+    if (previous) {
+      await loadSession(previous.id);
+      return;
+    }
+    const normal = state.sessions.find(session => !session.scheduledTaskId);
+    if (normal) {
+      await loadSession(normal.id);
+      return;
+    }
+    scheduledPreviousSessionId = '';
+    await newSession();
+  } finally {
+    restoringMainSession = false;
+  }
+}
+
+async function openScheduledTaskSession(task) {
+  if (!task?.sessionId) {
+    toast('该定时任务没有关联会话');
+    return;
+  }
+  if (state.currentSession?.id && !state.currentSession.scheduledTaskId) {
+    scheduledPreviousSessionId = state.currentSession.id;
+  }
+  if (currentMainPage !== 'scheduled-tasks') showMainPage('scheduled-tasks');
+  scheduledTaskViewOpen = true;
+  $('#pageScheduledTasks')?.classList.add('hidden');
+  $('#pageChat')?.classList.remove('hidden');
+  await loadSession(task.sessionId);
+  if (currentMainPage === 'scheduled-tasks') {
+    $('#pageScheduledTasks')?.classList.add('hidden');
+    $('#pageChat')?.classList.remove('hidden');
+  }
+  scheduleComposerGrow();
+}
+
+$('#scheduledTasksSidebarPanel')?.addEventListener('contextmenu', event => {
+  if (event.target.closest('.scheduled-task-item')) event.preventDefault();
+});
+
+const SCHEDULED_TASK_TABS = ['description', 'occurrence', 'model'];
+let scheduledTaskTab = 'description';
+let scheduledTaskEffort = 'medium';
+let scheduledTaskModelSelection = null;
+let scheduledTaskModelOptions = [];
+let scheduledTaskModelRequest = 0;
+
+function setScheduledTaskTab(tab, { focus = false } = {}) {
+  const next = SCHEDULED_TASK_TABS.includes(tab) ? tab : 'description';
+  scheduledTaskTab = next;
+  $$('#scheduledTaskTabs [data-scheduled-tab]').forEach(button => {
+    const active = button.dataset.scheduledTab === next;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+    if (active && focus) button.focus({ preventScroll: true });
+  });
+  $$('#scheduledTaskDialog [data-scheduled-pane]').forEach(pane => {
+    const active = pane.dataset.scheduledPane === next;
+    pane.classList.toggle('active', active);
+    pane.classList.toggle('hidden', !active);
+  });
+  if (next !== 'model') closeScheduledTaskModelMenu();
+  if (next !== 'occurrence') closeScheduledOccurrencePopovers();
+}
+
+function setScheduledTaskEffort(effort) {
+  scheduledTaskEffort = ['low', 'medium', 'high', 'xhigh', 'max'].includes(effort) ? effort : 'medium';
+  $$('#scheduledTaskEffort [data-scheduled-effort]').forEach(button => {
+    const active = button.dataset.scheduledEffort === scheduledTaskEffort;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+}
+
+function syncScheduledTaskModelName() {
+  const name = scheduledTaskModelSelection?.name || scheduledTaskModelSelection?.modelId || '选择主模型';
+  const label = $('#scheduledTaskModelName');
+  if (label) label.textContent = name;
+  $('#scheduledTaskModelBtn')?.setAttribute('title', `主模型：${name}`);
+}
+
+function closeScheduledTaskModelMenu({ restoreFocus = false } = {}) {
+  const menu = $('#scheduledTaskModelMenu');
+  const button = $('#scheduledTaskModelBtn');
+  if (!menu || menu.classList.contains('hidden')) return;
+  menu.classList.add('hidden');
+  button?.setAttribute('aria-expanded', 'false');
+  scheduledTaskModelRequest += 1;
+  if (restoreFocus) button?.focus({ preventScroll: true });
+}
+
+async function openScheduledTaskModelMenu() {
+  const menu = $('#scheduledTaskModelMenu');
+  const button = $('#scheduledTaskModelBtn');
+  if (!menu || !button) return;
+  if (!menu.classList.contains('hidden')) {
+    closeScheduledTaskModelMenu({ restoreFocus: true });
+    return;
+  }
+  menu.classList.remove('hidden');
+  button.setAttribute('aria-expanded', 'true');
+  menu.innerHTML = '<div class="scheduled-task-model-empty">正在读取模型…</div>';
+  const request = ++scheduledTaskModelRequest;
+  try {
+    const payload = await api.listQuickModels();
+    if (request !== scheduledTaskModelRequest) return;
+    scheduledTaskModelOptions = (payload?.models || []).filter(model => model.modelType === 'text');
+    if (!scheduledTaskModelOptions.length) {
+      menu.innerHTML = '<div class="scheduled-task-model-empty">暂无可用文本模型</div>';
+      return;
+    }
+    const selected = scheduledTaskModelSelection || {};
+    menu.innerHTML = modelMenuHtml(scheduledTaskModelOptions, selected);
+    (menu.querySelector('.model-quick-item.is-selected') || menu.querySelector('.model-quick-item'))?.focus({ preventScroll: true });
+  } catch {
+    if (request !== scheduledTaskModelRequest) return;
+    menu.innerHTML = '<div class="scheduled-task-model-empty">读取模型失败</div>';
+  }
+}
+
+let scheduledDraftWorkspace = '';
+let scheduledDraftWorkspaceChosen = false;
+let scheduledNewTaskEachRun = true;
+let scheduledFrequency = 'daily';
+let scheduledWeekday = 1;
+let scheduledHour = 9;
+let scheduledMinute = 0;
+let scheduledTimeWheelsBuilt = false;
+let scheduledWheelScrollTimer = 0;
+let scheduledWheelSyncTimer = 0;
+let scheduledWheelSyncing = false;
+const SCHEDULED_WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function scheduledPad(value) {
+  return String(value).padStart(2, '0');
+}
+
+function scheduledTimeLabel() {
+  return `${scheduledPad(scheduledHour)}:${scheduledPad(scheduledMinute)}`;
+}
+
+function positionScheduledWheel(wheel, value) {
+  if (!wheel) return;
+  scheduledWheelSyncing = true;
+  wheel.scrollTop = value * 36;
+  clearTimeout(scheduledWheelSyncTimer);
+  scheduledWheelSyncTimer = setTimeout(() => { scheduledWheelSyncing = false; }, 120);
+}
+
+function syncScheduledWheelSelection(wheel, value) {
+  wheel?.querySelectorAll('button[data-wheel-value]').forEach(button => {
+    button.classList.toggle('is-selected', Number(button.dataset.wheelValue) === value);
+    button.setAttribute('aria-selected', String(Number(button.dataset.wheelValue) === value));
+  });
+}
+
+function syncScheduledOccurrenceUi() {
+  const workspaceName = $('#scheduledTaskWorkspaceName');
+  if (workspaceName) {
+    workspaceName.textContent = scheduledDraftWorkspace
+      ? workspaceGroupLabel(scheduledDraftWorkspace)
+      : scheduledDraftWorkspaceChosen ? '不在工作区工作' : '选择工作区';
+    $('#scheduledTaskWorkspaceBtn')?.setAttribute('title', scheduledDraftWorkspace || '选择工作区文件夹');
+  }
+  const newRunSwitch = $('#scheduledTaskNewRunSwitch');
+  if (newRunSwitch) newRunSwitch.checked = scheduledNewTaskEachRun;
+  const frequencyName = $('#scheduledTaskFrequencyName');
+  if (frequencyName) frequencyName.textContent = scheduledFrequency === 'weekly' ? '每周' : '每日';
+  const weekdayName = $('#scheduledTaskWeekdayName');
+  if (weekdayName) weekdayName.textContent = SCHEDULED_WEEKDAY_LABELS[scheduledWeekday] || '周一';
+  $('#scheduledTaskWeekdayBtn')?.classList.toggle('hidden', scheduledFrequency !== 'weekly');
+  const timeName = $('#scheduledTaskTimeName');
+  if (timeName) timeName.textContent = scheduledTimeLabel();
+  $$('#scheduledTaskFrequencyMenu [data-scheduled-frequency]').forEach(item => {
+    const selected = item.dataset.scheduledFrequency === scheduledFrequency;
+    item.classList.toggle('is-selected', selected);
+    item.setAttribute('aria-checked', String(selected));
+  });
+  $$('#scheduledTaskWeekdayMenu [data-scheduled-weekday]').forEach(item => {
+    const selected = Number(item.dataset.scheduledWeekday) === scheduledWeekday;
+    item.classList.toggle('is-selected', selected);
+    item.setAttribute('aria-checked', String(selected));
+  });
+  if (scheduledTimeWheelsBuilt) {
+    syncScheduledWheelSelection($('#scheduledTaskHourWheel'), scheduledHour);
+    syncScheduledWheelSelection($('#scheduledTaskMinuteWheel'), scheduledMinute);
+  }
+}
+
+function closeScheduledOccurrencePopovers() {
+  $('#scheduledTaskWorkspaceMenu')?.classList.add('hidden');
+  $('#scheduledTaskWorkspaceBtn')?.setAttribute('aria-expanded', 'false');
+  $('#scheduledTaskFrequencyMenu')?.classList.add('hidden');
+  $('#scheduledTaskFrequencyBtn')?.setAttribute('aria-expanded', 'false');
+  $('#scheduledTaskWeekdayMenu')?.classList.add('hidden');
+  $('#scheduledTaskWeekdayBtn')?.setAttribute('aria-expanded', 'false');
+  closeScheduledTimePicker();
+}
+
+function renderScheduledWorkspaceChoices() {
+  const list = $('#scheduledTaskWorkspaceRecent');
+  const search = $('#scheduledTaskWorkspaceSearch');
+  if (!list) return;
+  const query = String(search?.value || '').trim().toLocaleLowerCase();
+  const groups = new Map();
+  for (const session of state.sessions || []) {
+    const workspace = String(session.workspace || '').trim();
+    if (!workspace) continue;
+    const key = workspaceGroupKey(workspace);
+    if (workspaceSidebarMeta[key]?.hidden) continue;
+    const latest = Number(session.updatedAt) || 0;
+    if (!groups.has(key) || latest > groups.get(key).latest) {
+      groups.set(key, { key, workspace, label: workspaceGroupLabel(workspace), latest });
+    }
+  }
+  const recent = [...groups.values()]
+    .sort((a, b) => b.latest - a.latest)
+    .filter(group => group.label.toLocaleLowerCase().includes(query) || group.workspace.toLocaleLowerCase().includes(query))
+    .slice(0, 3);
+  list.replaceChildren();
+  for (const group of recent) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'workspace-choice-item';
+    button.dataset.scheduledWorkspaceChoice = 'recent';
+    button.dataset.workspace = group.workspace;
+    button.title = group.workspace;
+    button.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15L7.4472 12.1056C7.786 11.428 8.4785 11 9.2361 11L19.9978 11C21.4451 11 22.4132 12.4897 21.8254 13.8123L19.6032 18.8123C19.2822 19.5345 18.5659 20 17.7756 20L4 20C2.8954 20 2 19.1046 2 18L2 6C2 4.8954 2.8954 4 4 4L7.3787 4C7.7765 4 8.158 4.158 8.4393 4.4393L9.5607 5.5607C9.842 5.842 10.2235 6 10.6213 6L17 6C18.1046 6 19 6.8954 19 8L19 11"/></svg>';
+    const label = document.createElement('span');
+    label.textContent = group.label;
+    label.setAttribute('translate', 'no');
+    button.appendChild(label);
+    list.appendChild(button);
+  }
+  if (!recent.length) {
+    const empty = document.createElement('div');
+    empty.className = 'workspace-choice-empty';
+    empty.setAttribute('role', 'status');
+    empty.textContent = query ? '未找到匹配项目' : '暂无最近工作区';
+    list.appendChild(empty);
+  }
+}
+
+function openScheduledWorkspaceMenu() {
+  const menu = $('#scheduledTaskWorkspaceMenu');
+  if (!menu) return;
+  const open = menu.classList.contains('hidden');
+  closeScheduledOccurrencePopovers();
+  if (!open) return;
+  renderScheduledWorkspaceChoices();
+  menu.classList.remove('hidden');
+  $('#scheduledTaskWorkspaceBtn')?.setAttribute('aria-expanded', 'true');
+  const search = $('#scheduledTaskWorkspaceSearch');
+  if (search) {
+    search.value = '';
+    renderScheduledWorkspaceChoices();
+    search.focus({ preventScroll: true });
+  }
+}
+
+function buildScheduledTimeWheels() {
+  if (scheduledTimeWheelsBuilt) return;
+  const hourWheel = $('#scheduledTaskHourWheel');
+  const minuteWheel = $('#scheduledTaskMinuteWheel');
+  if (!hourWheel || !minuteWheel) return;
+  const build = (wheel, count) => {
+    const wrapTop = count - 1;
+    wheel.innerHTML = `<div class="scheduled-task-wheel-spacer"><button type="button" data-wheel-wrap="${wrapTop}" aria-label="${scheduledPad(wrapTop)}">${scheduledPad(wrapTop)}</button></div>`
+      + Array.from({ length: count }, (_, value) => `<button type="button" role="option" data-wheel-value="${value}" aria-label="${scheduledPad(value)}" aria-selected="false">${scheduledPad(value)}</button>`).join('')
+      + '<div class="scheduled-task-wheel-spacer"><button type="button" data-wheel-wrap="0" aria-label="00">00</button></div>';
+    wheel.addEventListener('scroll', () => {
+      if (scheduledWheelSyncing || $('#scheduledTaskTimePicker')?.classList.contains('hidden')) return;
+      clearTimeout(scheduledWheelScrollTimer);
+      scheduledWheelScrollTimer = setTimeout(() => {
+        if (scheduledWheelSyncing) return;
+        const max = wheel === hourWheel ? 23 : 59;
+        const value = Math.max(0, Math.min(max, Math.round(wheel.scrollTop / 36)));
+        if (wheel === hourWheel) scheduledHour = value;
+        else scheduledMinute = value;
+        syncScheduledWheelSelection(wheel, value);
+        const timeName = $('#scheduledTaskTimeName');
+        if (timeName) timeName.textContent = scheduledTimeLabel();
+      }, 60);
+    }, { passive: true });
+    wheel.addEventListener('click', event => {
+      const button = event.target.closest('button[data-wheel-value], button[data-wheel-wrap]');
+      if (!button) return;
+      const value = Number(button.dataset.wheelValue ?? button.dataset.wheelWrap);
+      positionScheduledWheel(wheel, value);
+      if (wheel === hourWheel) scheduledHour = value;
+      else scheduledMinute = value;
+      syncScheduledWheelSelection(wheel, value);
+      const timeName = $('#scheduledTaskTimeName');
+      if (timeName) timeName.textContent = scheduledTimeLabel();
+    });
+  };
+  build(hourWheel, 24);
+  build(minuteWheel, 60);
+  scheduledTimeWheelsBuilt = true;
+}
+
+function openScheduledTimePicker() {
+  const picker = $('#scheduledTaskTimePicker');
+  if (!picker) return;
+  const open = picker.classList.contains('hidden');
+  closeScheduledOccurrencePopovers();
+  if (!open) return;
+  buildScheduledTimeWheels();
+  picker.classList.remove('hidden');
+  $('#scheduledTaskTimeBtn')?.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => {
+    const hourWheel = $('#scheduledTaskHourWheel');
+    const minuteWheel = $('#scheduledTaskMinuteWheel');
+    positionScheduledWheel(hourWheel, scheduledHour);
+    positionScheduledWheel(minuteWheel, scheduledMinute);
+    syncScheduledWheelSelection(hourWheel, scheduledHour);
+    syncScheduledWheelSelection(minuteWheel, scheduledMinute);
+  });
+}
+
+function closeScheduledTimePicker() {
+  $('#scheduledTaskTimePicker')?.classList.add('hidden');
+  $('#scheduledTaskTimeBtn')?.setAttribute('aria-expanded', 'false');
+  clearTimeout(scheduledWheelScrollTimer);
+  clearTimeout(scheduledWheelSyncTimer);
+  scheduledWheelSyncing = false;
+}
+
+let scheduledTasks = [];
+let scheduledTaskViewOpen = false;
+let scheduledPreviousSessionId = '';
+let restoringMainSession = false;
+let scheduledEditingTaskId = '';
+let scheduledTaskCreating = false;
+
+function scheduledTaskFieldsFromUi() {
+  const selection = scheduledTaskModelSelection || getAgentModelSelection();
+  return {
+    description: String($('#scheduledTaskDescription')?.value || '').trim(),
+    workspace: scheduledDraftWorkspace,
+    newTaskEachRun: scheduledNewTaskEachRun,
+    frequency: scheduledFrequency,
+    weekday: scheduledWeekday,
+    hour: scheduledHour,
+    minute: scheduledMinute,
+    modelSelection: {
+      providerId: selection.providerId || '',
+      supplierId: selection.supplierId || '',
+      modelId: selection.modelId || '',
+      name: selection.name || selection.modelId || ''
+    },
+    effort: scheduledTaskEffort
+  };
+}
+
+function syncScheduledTaskConfirmState() {
+  const confirm = $('#scheduledTaskConfirmBtn');
+  if (!confirm) return;
+  const empty = !String($('#scheduledTaskDescription')?.value || '').trim();
+  confirm.disabled = empty || scheduledTaskCreating;
+  confirm.setAttribute('aria-disabled', String(confirm.disabled));
+  confirm.textContent = scheduledEditingTaskId ? '保存' : '确定';
+}
+
+function resetScheduledTaskDraft() {
+  const description = $('#scheduledTaskDescription');
+  if (description) description.value = '';
+  scheduledDraftWorkspace = '';
+  scheduledDraftWorkspaceChosen = false;
+  scheduledNewTaskEachRun = true;
+  scheduledFrequency = 'daily';
+  scheduledWeekday = 1;
+  scheduledHour = 9;
+  scheduledMinute = 0;
+  scheduledTaskEffort = 'medium';
+  scheduledTaskModelSelection = null;
+}
+
+function openScheduledTaskDialog() {
+  const dialog = $('#scheduledTaskDialog');
+  if (!dialog || dialog.open) return;
+  scheduledEditingTaskId = '';
+  if (!scheduledTaskModelSelection) {
+    const selection = getAgentModelSelection();
+    scheduledTaskModelSelection = {
+      providerId: selection.providerId || '',
+      supplierId: selection.supplierId || '',
+      modelId: selection.modelId || '',
+      name: selection.name || selection.modelId || ''
+    };
+  }
+  const title = $('#scheduledTaskDialogTitle');
+  if (title) title.textContent = '新建定时任务';
+  syncScheduledTaskModelName();
+  syncScheduledOccurrenceUi();
+  setScheduledTaskTab('description');
+  setScheduledTaskEffort(scheduledTaskEffort);
+  syncScheduledTaskConfirmState();
+  dialog.showModal();
+  requestAnimationFrame(() => $('#scheduledTaskDescription')?.focus({ preventScroll: true }));
+}
+
+async function openScheduledTaskEditor(taskId) {
+  const dialog = $('#scheduledTaskDialog');
+  if (!dialog || dialog.open) return;
+  let task = scheduledTasks.find(item => item.id === String(taskId || ''));
+  if (!task && api.getScheduledTask) task = await api.getScheduledTask(taskId);
+  if (!task) {
+    toast('定时任务不存在');
+    return;
+  }
+  scheduledEditingTaskId = task.id;
+  const description = $('#scheduledTaskDescription');
+  if (description) description.value = String(task.description || '');
+  scheduledDraftWorkspace = String(task.workspace || '');
+  scheduledDraftWorkspaceChosen = Boolean(scheduledDraftWorkspace);
+  scheduledNewTaskEachRun = task.newTaskEachRun !== false;
+  scheduledFrequency = task.frequency === 'weekly' ? 'weekly' : 'daily';
+  scheduledWeekday = Number.isInteger(task.weekday) ? task.weekday : 1;
+  scheduledHour = Number.isInteger(task.hour) ? task.hour : 9;
+  scheduledMinute = Number.isInteger(task.minute) ? task.minute : 0;
+  scheduledTaskModelSelection = task.modelSelection || getAgentModelSelection();
+  scheduledTaskEffort = task.effort || 'medium';
+  const title = $('#scheduledTaskDialogTitle');
+  if (title) title.textContent = '编辑定时任务';
+  syncScheduledTaskModelName();
+  syncScheduledOccurrenceUi();
+  setScheduledTaskEffort(scheduledTaskEffort);
+  setScheduledTaskTab('description');
+  syncScheduledTaskConfirmState();
+  dialog.showModal();
+  requestAnimationFrame(() => {
+    if (!description) return;
+    description.focus({ preventScroll: true });
+    description.setSelectionRange(description.value.length, description.value.length);
+  });
+}
+
+function closeScheduledTaskDialog() {
+  const dialog = $('#scheduledTaskDialog');
+  if (dialog?.open) dialog.close();
+}
+
+async function submitScheduledTask() {
+  const fields = scheduledTaskFieldsFromUi();
+  if (!fields.description) {
+    $('#scheduledTaskDescription')?.focus({ preventScroll: true });
+    syncScheduledTaskConfirmState();
+    return;
+  }
+  if (scheduledTaskCreating) return;
+  scheduledTaskCreating = true;
+  syncScheduledTaskConfirmState();
+  const confirm = $('#scheduledTaskConfirmBtn');
+  confirm?.setAttribute('aria-busy', 'true');
+  let session = null;
+  let task = null;
+  try {
+    if (scheduledEditingTaskId) {
+      task = await api.updateScheduledTask(scheduledEditingTaskId, fields);
+      await refreshScheduledTasks();
+      if (task?.sessionId) {
+        await api.renameSession(task.sessionId, task.title).catch(() => {});
+        await refreshSessions();
+      }
+      closeScheduledTaskDialog();
+      toast('定时任务已更新');
+      return;
+    }
+    session = await api.createSession(true, fields.workspace);
+    if (!session?.id) throw new Error('无法创建任务会话');
+    task = await api.createScheduledTask({ ...fields, sessionId: session.id });
+    const now = Date.now();
+    session.title = task.title;
+    session.messages = [
+      { role: 'user', content: fields.description, ts: now },
+      {
+        role: 'assistant',
+        content: `你的定时任务：${task.title}已建好。`,
+        ts: now + 1,
+        scheduledTask: { id: task.id, title: task.title }
+      }
+    ];
+    session.modelSelection = {
+      providerId: fields.modelSelection.providerId,
+      supplierId: fields.modelSelection.supplierId,
+      modelId: fields.modelSelection.modelId,
+      modelType: 'text',
+      name: fields.modelSelection.name,
+      capabilities: {}
+    };
+    session.reasoningMode = fields.effort;
+    session.scheduledTaskId = task.id;
+    const saved = await api.saveSession(session);
+    if (saved && saved.ok === false) throw new Error(saved.error || '保存任务会话失败');
+    await refreshScheduledTasks();
+    resetScheduledTaskDraft();
+    closeScheduledTaskDialog();
+    await refreshSessions();
+    await openScheduledTaskSession({ sessionId: session.id });
+    toast('定时任务已创建');
+  } catch (error) {
+    if (task?.id) await api.removeScheduledTask(task.id).catch(() => {});
+    if (session?.id) await api.deleteSession(session.id, true).catch(() => {});
+    toast(`创建定时任务失败：${error?.message || error}`);
+  } finally {
+    scheduledTaskCreating = false;
+    confirm?.removeAttribute('aria-busy');
+    syncScheduledTaskConfirmState();
+  }
+}
+
+const scheduledRunLocks = new Set();
+
+function scheduledTaskDayKey(ts) {
+  const date = new Date(Number(ts) || 0);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function scheduledTaskRanToday(task) {
+  const lastRunAt = Number(task?.lastRunAt) || 0;
+  return lastRunAt > 0 && scheduledTaskDayKey(lastRunAt) === scheduledTaskDayKey(Date.now());
+}
+
+async function runScheduledTask(taskInput, { scheduledAt = Date.now(), trigger = 'auto' } = {}) {
+  const taskId = String(taskInput?.id || '');
+  if (!taskId) return { ok: false, error: 'missing-task' };
+  if (scheduledRunLocks.has(taskId)) return { ok: false, error: 'running' };
+  scheduledRunLocks.add(taskId);
+  try {
+    let task = taskInput;
+    if (api.getScheduledTask) task = (await api.getScheduledTask(taskId).catch(() => null)) || taskInput;
+    if (!task) return { ok: false, error: 'not-found' };
+    if (task.status !== 'active') return { ok: false, error: 'paused' };
+    if (trigger !== 'manual' && scheduledTaskRanToday(task)) return { ok: false, error: 'already-ran' };
+    const runAt = Number(scheduledAt) || Date.now();
+    const marked = await api.updateScheduledTask(taskId, { lastRunAt: runAt, lastRunStatus: 'running' });
+    if (!marked) throw new Error('定时任务不存在');
+    await refreshScheduledTasks();
+    let session = null;
+    let createdSession = false;
+    if (task.newTaskEachRun !== false || !task.sessionId) {
+      session = await api.createSession(true, task.workspace || '');
+      createdSession = true;
+    } else {
+      session = await api.getSession(task.sessionId, { messageLimit: MESSAGE_LOAD_LIMIT }).catch(() => null);
+      if (!session) {
+        session = await api.createSession(true, task.workspace || '');
+        createdSession = true;
+      }
+    }
+    if (!session?.id) throw new Error('无法创建任务会话');
+    session.title = task.title || deriveTitle(task.description);
+    session.workspace = task.workspace || session.workspace || '';
+    session.scheduledTaskId = task.id;
+    session.modelSelection = normalizeModelSelectionSnapshot(task.modelSelection || session.modelSelection || getAgentModelSelection());
+    session.reasoningMode = task.effort || session.reasoningMode || 'medium';
+    if (createdSession) {
+      await api.updateScheduledTask(taskId, { sessionId: session.id }).catch(() => {});
+      task.sessionId = session.id;
+      await refreshScheduledTasks();
+    }
+    if (trigger === 'manual' && currentMainPage === 'scheduled-tasks' && state.currentSession?.id !== session.id) {
+      await openScheduledTaskSession({ sessionId: session.id });
+    }
+    const result = await submitMessage(task.description, [], [], {
+      session,
+      modelSelection: session.modelSelection,
+      reasoningMode: session.reasoningMode,
+      scheduledRunAt: runAt,
+      scheduledTaskId: task.id
+    });
+    await api.updateScheduledTask(taskId, { lastRunStatus: result?.ok ? 'success' : 'error' }).catch(() => {});
+    await refreshScheduledTasks();
+    await refreshSessions().catch(() => {});
+    if (state.currentSession?.id === session.id) {
+      updateTaskBar();
+      renderSessionList();
+    }
+    return result || { ok: true };
+  } catch (error) {
+    await api.updateScheduledTask(taskId, { lastRunStatus: 'error' }).catch(() => {});
+    await refreshScheduledTasks().catch(() => {});
+    throw error;
+  } finally {
+    scheduledRunLocks.delete(taskId);
+  }
+}
+
+async function handleScheduledTaskRun(payload = {}) {
+  if (!payload?.task?.id) return;
+  try {
+    await runScheduledTask(payload.task, { scheduledAt: payload.scheduledAt, trigger: 'auto' });
+  } catch (error) {
+    console.warn(`[scheduled-tasks] execution failed: ${error?.message || error}`);
+  }
+}
+
+$('#scheduledTasksCreateBtn')?.addEventListener('click', openScheduledTaskDialog);
+$('#scheduledTasksNewTaskBtn')?.addEventListener('click', openScheduledTaskDialog);
+$('#scheduledTaskCancelBtn')?.addEventListener('click', closeScheduledTaskDialog);
+$('#scheduledTaskDialogForm')?.addEventListener('submit', event => {
+  event.preventDefault();
+  void submitScheduledTask();
+});
+$('#scheduledTaskDescription')?.addEventListener('input', syncScheduledTaskConfirmState);
+$('#scheduledTaskTabs')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-scheduled-tab]');
+  if (button) setScheduledTaskTab(button.dataset.scheduledTab);
+});
+$('#scheduledTaskTabs')?.addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const buttons = $$('#scheduledTaskTabs [data-scheduled-tab]');
+  const current = buttons.indexOf(document.activeElement);
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+    : (current + (event.key === 'ArrowLeft' ? -1 : 1) + buttons.length) % buttons.length;
+  setScheduledTaskTab(buttons[index].dataset.scheduledTab, { focus: true });
+});
+$('#scheduledTaskEffort')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-scheduled-effort]');
+  if (button) setScheduledTaskEffort(button.dataset.scheduledEffort);
+});
+$('#scheduledTaskModelBtn')?.addEventListener('click', () => { void openScheduledTaskModelMenu(); });
+$('#scheduledTaskModelMenu')?.addEventListener('click', event => {
+  const item = event.target.closest('[data-model-picker-model]');
+  if (!item) return;
+  const model = scheduledTaskModelOptions.find(candidate => (
+    String(candidate.providerId || '') === String(item.dataset.modelPickerProvider || '')
+    && String(candidate.supplierId || '') === String(item.dataset.modelPickerSupplier || '')
+    && String(candidate.id || '') === String(item.dataset.modelPickerModel || '')
+  ));
+  if (!model) return;
+  scheduledTaskModelSelection = {
+    providerId: model.providerId || '',
+    supplierId: model.supplierId || '',
+    modelId: model.id || '',
+    name: model.name || model.id || ''
+  };
+  syncScheduledTaskModelName();
+  closeScheduledTaskModelMenu({ restoreFocus: true });
+});
+$('#scheduledTaskWorkspaceBtn')?.addEventListener('click', event => {
+  event.stopPropagation();
+  openScheduledWorkspaceMenu();
+});
+$('#scheduledTaskWorkspaceSearch')?.addEventListener('input', renderScheduledWorkspaceChoices);
+$('#scheduledTaskWorkspaceMenu')?.addEventListener('click', async event => {
+  const item = event.target.closest('[data-scheduled-workspace-choice]');
+  if (!item) return;
+  const choice = item.dataset.scheduledWorkspaceChoice;
+  if (choice === 'pick') {
+    const picked = api.pickWorkspace ? await api.pickWorkspace() : await api.chooseWorkspace();
+    if (!picked) return;
+    scheduledDraftWorkspace = String(picked || '');
+    scheduledDraftWorkspaceChosen = true;
+  } else if (choice === 'blank') {
+    scheduledDraftWorkspace = '';
+    scheduledDraftWorkspaceChosen = true;
+  } else if (choice === 'recent') {
+    scheduledDraftWorkspace = String(item.dataset.workspace || '');
+    scheduledDraftWorkspaceChosen = true;
+  }
+  closeScheduledOccurrencePopovers();
+  syncScheduledOccurrenceUi();
+});
+$('#scheduledTaskNewRunSwitch')?.addEventListener('change', event => {
+  scheduledNewTaskEachRun = event.currentTarget.checked;
+});
+$('#scheduledTaskFrequencyBtn')?.addEventListener('click', event => {
+  event.stopPropagation();
+  const menu = $('#scheduledTaskFrequencyMenu');
+  if (!menu) return;
+  const open = menu.classList.contains('hidden');
+  closeScheduledOccurrencePopovers();
+  if (!open) return;
+  menu.classList.remove('hidden');
+  $('#scheduledTaskFrequencyBtn')?.setAttribute('aria-expanded', 'true');
+  menu.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+});
+$('#scheduledTaskFrequencyMenu')?.addEventListener('click', event => {
+  const item = event.target.closest('[data-scheduled-frequency]');
+  if (!item) return;
+  scheduledFrequency = item.dataset.scheduledFrequency === 'weekly' ? 'weekly' : 'daily';
+  closeScheduledOccurrencePopovers();
+  syncScheduledOccurrenceUi();
+  $('#scheduledTaskFrequencyBtn')?.focus({ preventScroll: true });
+});
+$('#scheduledTaskWeekdayBtn')?.addEventListener('click', event => {
+  event.stopPropagation();
+  const menu = $('#scheduledTaskWeekdayMenu');
+  if (!menu) return;
+  const open = menu.classList.contains('hidden');
+  closeScheduledOccurrencePopovers();
+  if (!open) return;
+  menu.classList.remove('hidden');
+  $('#scheduledTaskWeekdayBtn')?.setAttribute('aria-expanded', 'true');
+  menu.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+});
+$('#scheduledTaskWeekdayMenu')?.addEventListener('click', event => {
+  const item = event.target.closest('[data-scheduled-weekday]');
+  if (!item) return;
+  scheduledWeekday = Number(item.dataset.scheduledWeekday);
+  closeScheduledOccurrencePopovers();
+  syncScheduledOccurrenceUi();
+  $('#scheduledTaskWeekdayBtn')?.focus({ preventScroll: true });
+});
+$('#scheduledTaskTimeBtn')?.addEventListener('click', event => {
+  event.stopPropagation();
+  openScheduledTimePicker();
+});
+$('#scheduledTaskTimeDone')?.addEventListener('click', () => {
+  closeScheduledTimePicker();
+  $('#scheduledTaskTimeBtn')?.focus({ preventScroll: true });
+});
+$('#scheduledTaskDialog')?.addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeScheduledTaskDialog();
+});
+$('#scheduledTaskDialog')?.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const occurrenceOpen = ['#scheduledTaskWorkspaceMenu', '#scheduledTaskFrequencyMenu', '#scheduledTaskWeekdayMenu', '#scheduledTaskTimePicker']
+    .some(selector => !$(selector)?.classList.contains('hidden'));
+  if (occurrenceOpen) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeScheduledOccurrencePopovers();
+    return;
+  }
+  const menu = $('#scheduledTaskModelMenu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeScheduledTaskModelMenu({ restoreFocus: true });
+}, true);
+$('#scheduledTaskDialog')?.addEventListener('close', () => {
+  closeScheduledTaskModelMenu();
+  closeScheduledOccurrencePopovers();
+  $('#scheduledTasksCreateBtn')?.focus({ preventScroll: true });
+});
+$('#scheduledTaskRowMenu')?.addEventListener('click', async event => {
+  const item = event.target.closest('[data-scheduled-task-action]');
+  if (!item || item.disabled) return;
+  const menu = $('#scheduledTaskRowMenu');
+  const taskId = menu?.dataset.taskId || '';
+  const task = scheduledTasks.find(entry => entry.id === taskId);
+  const action = item.dataset.scheduledTaskAction;
+  closeScheduledTaskRowMenu();
+  if (!task) return;
+  if (action === 'run') {
+    try {
+      const result = await runScheduledTask(task, { scheduledAt: Date.now(), trigger: 'manual' });
+      if (!result?.ok) {
+        toast(result?.error === 'already-ran' ? '今天已经执行过了' : '定时任务执行失败');
+      }
+    } catch (error) {
+      toast(`定时任务执行失败：${error?.message || error}`);
+    }
+    return;
+  }
+  if (action === 'pause' || action === 'resume') {
+    const status = action === 'pause' ? 'paused' : 'active';
+    try {
+      await api.updateScheduledTask(task.id, { status });
+      await refreshScheduledTasks();
+      toast(status === 'paused' ? '定时任务已暂停' : '定时任务已继续');
+    } catch (error) {
+      toast(`更新定时任务失败：${error?.message || error}`);
+    }
+    return;
+  }
+  if (action === 'edit') {
+    await openScheduledTaskEditor(task.id);
+    return;
+  }
+  if (action === 'delete') {
+    if (!await requestGenericConfirmation({
+      title: '删除定时任务？',
+      description: `将删除“${task.title || '这个定时任务'}”及其关联会话，此操作无法撤销。`,
+      confirmLabel: '删除',
+      danger: true
+    })) return;
+    try {
+      const relatedSessions = new Set();
+      if (task.sessionId) relatedSessions.add(task.sessionId);
+      try {
+        const sessions = await api.listSessions();
+        for (const session of sessions || []) {
+          if (session.scheduledTaskId === task.id) relatedSessions.add(session.id);
+        }
+      } catch { /* fall back to the latest session only */ }
+      await api.removeScheduledTask(task.id);
+      for (const sessionId of relatedSessions) {
+        await api.deleteSession(sessionId, true).catch(() => {});
+      }
+      await refreshScheduledTasks();
+      if ([...relatedSessions].includes(state.currentSession?.id)) showMainPage('scheduled-tasks');
+      toast('定时任务已删除');
+    } catch (error) {
+      toast(`删除定时任务失败：${error?.message || error}`);
+    }
+  }
+});
+document.addEventListener('click', event => {
+  const more = event.target.closest('[data-scheduled-task-menu]');
+  if (more) {
+    event.preventDefault();
+    event.stopPropagation();
+    openScheduledTaskRowMenu(more.dataset.scheduledTaskMenu, more);
+    return;
+  }
+  if (!event.target.closest('#scheduledTaskRowMenu')) closeScheduledTaskRowMenu();
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const menu = $('#scheduledTaskRowMenu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeScheduledTaskRowMenu({ restoreFocus: true });
+});
+window.addEventListener('scroll', () => closeScheduledTaskRowMenu(), true);
+window.addEventListener('resize', () => closeScheduledTaskRowMenu());
+document.addEventListener('click', event => {
+  if (!event.target.closest('#scheduledTaskModelMenu, #scheduledTaskModelBtn')) closeScheduledTaskModelMenu();
+  if (!event.target.closest('.scheduled-task-workspace-picker, #scheduledTaskFrequencyBtn, #scheduledTaskFrequencyMenu, #scheduledTaskWeekdayBtn, #scheduledTaskWeekdayMenu, #scheduledTaskTimeBtn, #scheduledTaskTimePicker')) {
+    closeScheduledOccurrencePopovers();
+  }
+  const openTask = event.target.closest('[data-scheduled-task-open]');
+  if (openTask) {
+    event.preventDefault();
+    void openScheduledTaskEditor(openTask.dataset.scheduledTaskOpen);
+  }
+});
+
+function closeScheduledFilterMenu({ restoreFocus = false } = {}) {
+  const menu = $('#scheduledTasksFilterMenu');
+  const button = $('#scheduledTasksFilterBtn');
+  if (!menu || menu.classList.contains('hidden')) return;
+  menu.classList.add('hidden');
+  button?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) button?.focus();
+}
+
+function syncScheduledFilterMenu() {
+  $$('#scheduledTasksFilterMenu [data-scheduled-filter]').forEach(item => {
+    const selected = item.dataset.scheduledFilter === scheduledFilter;
+    item.classList.toggle('is-selected', selected);
+    item.setAttribute('aria-checked', String(selected));
+  });
+  $$('#scheduledTasksSidebarPanel [data-scheduled-group]').forEach(section => {
+    section.classList.toggle('hidden', section.dataset.scheduledGroup !== scheduledFilter);
+  });
+}
+
+syncScheduledFilterMenu();
+
+$('#scheduledTasksFilterBtn')?.addEventListener('click', event => {
+  event.stopPropagation();
+  const menu = $('#scheduledTasksFilterMenu');
+  if (!menu) return;
+  const open = menu.classList.toggle('hidden') === false;
+  $('#scheduledTasksFilterBtn').setAttribute('aria-expanded', String(open));
+  if (!open) return;
+  syncScheduledFilterMenu();
+  menu.querySelector('.scheduled-filter-item')?.focus();
+});
+
+$('#scheduledTasksFilterMenu')?.addEventListener('click', event => {
+  const item = event.target.closest('[data-scheduled-filter]');
+  if (!item) return;
+  scheduledFilter = item.dataset.scheduledFilter;
+  syncScheduledFilterMenu();
+  closeScheduledFilterMenu({ restoreFocus: true });
+});
+
+document.addEventListener('click', event => {
+  if (!event.target.closest('#scheduledTasksFilterMenu, #scheduledTasksFilterBtn')) closeScheduledFilterMenu();
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const menu = $('#scheduledTasksFilterMenu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  event.stopPropagation();
+  closeScheduledFilterMenu({ restoreFocus: true });
+});
+
 function showMainPage(page) {
+  recordAppViewSoon();
+  closeScheduledTaskRowMenu();
+  if (page === 'scheduled-tasks') scheduledTaskViewOpen = false;
+  if (page === 'chat' && state.currentSession?.scheduledTaskId && !restoringMainSession) {
+    queueMicrotask(() => {
+      if (currentMainPage === 'chat' && state.currentSession?.scheduledTaskId && !restoringMainSession) {
+        void restoreMainSessionAfterScheduledView();
+      }
+    });
+  }
+  if (currentMainPage === 'chat' && page !== 'chat') captureChatScrollPosition();
   if (page !== 'code-review') window.YanCodeReview?.closeDiff();
   if (page !== 'chat') window.YanVoiceInput?.cancel();
   if (page === 'plugins') page = currentPluginPage;
@@ -2649,20 +4273,26 @@ function showMainPage(page) {
   currentMainPage = page;
   const customization = ['skills', 'mcp', 'packages', 'agents'].includes(page);
   const codeReview = page === 'code-review';
+  const scheduledTasks = page === 'scheduled-tasks';
   $('#customizationSidebarNav').classList.toggle('hidden', !customization);
-  $('#agentSidebarNav').classList.toggle('hidden', customization || codeReview);
-  $('#sidebarTasksPanel').classList.toggle('hidden', customization || codeReview);
+  $('#agentSidebarNav').classList.toggle('hidden', customization || codeReview || scheduledTasks);
+  $('#sidebarTasksPanel').classList.toggle('hidden', customization || codeReview || scheduledTasks);
+  $('#scheduledTasksSidebarPanel')?.classList.toggle('hidden', !scheduledTasks);
+  $('#scheduledTasksFilterBtn')?.classList.toggle('hidden', !scheduledTasks);
+  if (!scheduledTasks) closeScheduledFilterMenu();
   $('#codeReviewSidebarPanel')?.classList.toggle('hidden', !codeReview);
-  $('.sidebar-brand-name').textContent = customization ? '扩展' : codeReview ? '代码审查' : 'Yan Agent';
-  $('.sidebar-brand').setAttribute('aria-label', customization ? '扩展' : codeReview ? '代码审查' : 'Yan Agent');
+  $('.sidebar-brand-name').textContent = customization ? '扩展' : codeReview ? '代码审查' : scheduledTasks ? '定时任务' : 'Yan Agent';
+  $('.sidebar-brand').setAttribute('aria-label', customization ? '扩展' : codeReview ? '代码审查' : scheduledTasks ? '定时任务' : 'Yan Agent');
   $$('.app-rail-button[data-nav]').forEach(btn => {
     const active = btn.dataset.nav === (page === 'chat' ? 'tasks' : ['skills', 'mcp', 'packages', 'agents'].includes(page) ? 'plugins' : page);
     btn.classList.toggle('active', active);
     if (active) btn.setAttribute('aria-current', 'page');
     else btn.removeAttribute('aria-current');
   });
-  $('#pageChat').classList.toggle('hidden', page !== 'chat');
+  const scheduledSessionView = page === 'scheduled-tasks' && scheduledTaskViewOpen;
+  $('#pageChat').classList.toggle('hidden', page !== 'chat' && !scheduledSessionView);
   $('#pageCodeReview')?.classList.toggle('hidden', !codeReview);
+  $('#pageScheduledTasks')?.classList.toggle('hidden', !scheduledTasks || scheduledSessionView);
   $('#pagePlugins').classList.toggle('hidden', !['skills', 'mcp', 'packages', 'agents'].includes(page));
   $$('[data-plugin-page]').forEach(button => {
     const selected = button.dataset.pluginPage === currentPluginPage;
@@ -2682,6 +4312,7 @@ function showMainPage(page) {
 
   if (page !== 'chat') closeRightSidebar();
 
+  if (page === 'scheduled-tasks') void refreshScheduledTasks();
   if (page === 'skills') renderSkillMarket();
   if (page === 'mcp') renderMcpPage();
   if (codeReview) renderCodeReviewProjects();
@@ -2693,6 +4324,8 @@ function showMainPage(page) {
     updateTaskBar();
   }
   scheduleComposerGrow();
+  if (page === 'chat') restoreChatScrollPosition();
+  markVisibleTaskRead();
   syncSidebarAccessibility();
 }
 
@@ -2786,7 +4419,7 @@ async function selectMediaSourceImage(file) {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) return toast('请选择 PNG、JPEG 或 WebP 图片');
   if (file.size > 20 * 1024 * 1024) return toast('参考图不能超过 20MB');
   try {
-    const meta = await api.uploadFile(file.name, await fileToBase64(file), mimeType);
+    const meta = await uploadAttachmentFile(file, mimeType);
     if (meta?.error) return toast('参考图上传失败：' + meta.error);
     clearMediaSourceImage();
     mediaStudioState.sourceImage = { path: meta.path, name: meta.name, mimeType };
@@ -2983,10 +4616,10 @@ function bindMediaStudio() {
 
 function switchSidebarNav(nav) {
   if (!$('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
-  if (aboutPageLayer && !aboutPageLayer.classList.contains('hidden')) closeAbout();
+  closeTaskCapsulePanel();
   window.YanRemoteControl?.close();
-  const pluginPage = ['plugins', 'skills', 'mcp', 'packages', 'agents'].includes(nav);
-  if (nav === 'tasks' || nav === 'code-review' || nav === 'plugins' || (pluginPage && !['skills', 'mcp', 'packages', 'agents'].includes(currentMainPage))) setLeftSidebarOpen(true);
+  // Page switches never force the left sidebar open: it keeps whatever state
+  // the user left it in, and only an explicit toggle or shortcut changes it.
   if (nav === 'tasks') showMainPage('chat');
   else if (nav === 'code-review') showMainPage('code-review');
   else showMainPage(nav);
@@ -3032,6 +4665,53 @@ async function renderCodeReviewProjects({ force = false } = {}) {
   if (force) toast('项目列表已刷新');
 }
 
+function syncCapabilityScrollbar(pageId) {
+  const page = document.getElementById(pageId);
+  const body = page?.querySelector('.capability-page-body');
+  if (!page || !body) return;
+  page.style.setProperty('--page-scrollbar', `${Math.max(0, body.offsetWidth - body.clientWidth)}px`);
+}
+function syncSkillSourceSwitch() {
+  document.querySelectorAll('#skillSourceSwitch [data-skill-source]').forEach(button => {
+    const active = button.dataset.skillSource === skillSourceFilter;
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+}
+function selectSkillSource(next) {
+  const value = next === 'personal' ? 'personal' : 'system';
+  if (value === skillSourceFilter) return;
+  skillSourceFilter = value;
+  try { localStorage.setItem('yan-skill-source', value); } catch { /* storage can be unavailable */ }
+  syncSkillSourceSwitch();
+  void renderSkillMarket();
+}
+const skillPageBody = document.querySelector('#pageSkills .capability-page-body');
+if (skillPageBody) new ResizeObserver(() => syncCapabilityScrollbar('pageSkills')).observe(skillPageBody);
+$('#skillSourceSwitch')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-skill-source]');
+  if (button) selectSkillSource(button.dataset.skillSource);
+});
+$('#skillSourceSwitch')?.addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const buttons = [...document.querySelectorAll('#skillSourceSwitch [data-skill-source]')];
+  const current = buttons.indexOf(document.activeElement);
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+    : (current + (event.key === 'ArrowLeft' ? -1 : 1) + buttons.length) % buttons.length;
+  buttons[index]?.focus(); buttons[index]?.click();
+});
+$('#skillSearchBtn')?.addEventListener('click', () => { const field = $('#skillSearchInput'); field.classList.toggle('hidden'); if (!field.classList.contains('hidden')) field.focus(); else { field.value = ''; void renderSkillMarket(); } });
+$('#skillSearchInput')?.addEventListener('input', () => { void renderSkillMarket(); });
+$('#skillRefreshBtn')?.addEventListener('click', async () => {
+  const button = $('#skillRefreshBtn');
+  if (button?.disabled) return;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  try { await refreshSkillPrompts(); await renderSkillMarket(); toast('技能目录已刷新'); }
+  catch (error) { toast(`刷新技能目录失败：${error?.message || error}`); }
+  finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+});
 $('#newTaskNavBtn').addEventListener('click', newSession);
 
 $$('.app-rail-button[data-nav]').forEach(btn => {
@@ -3078,61 +4758,25 @@ async function loadSkillMarketItems() {
   return skillMarketItems;
 }
 
-function sortSkillsByCategory(skills) {
-  const categoryOrder = Object.keys(SKILL_TAG_LABELS);
-  const rank = new Map(categoryOrder.map((tag, index) => [tag, index]));
-  return [...skills].sort((left, right) => {
-    const leftRank = rank.get(left.tags?.[0]) ?? categoryOrder.length;
-    const rightRank = rank.get(right.tags?.[0]) ?? categoryOrder.length;
-    if (leftRank !== rightRank) return leftRank - rightRank;
-    return String(left.name || left.id).localeCompare(String(right.name || right.id), 'zh-CN');
-  });
-}
+
 
 function normalizeSkillMarketId(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-function skillMarketGroupId(skill = {}) {
-  const tags = Array.isArray(skill.tags) ? skill.tags : [];
-  return tags.find(tag => Object.prototype.hasOwnProperty.call(SKILL_TAG_LABELS, tag)) || 'other';
-}
 
-function skillMarketGroupLabel(id) {
-  return SKILL_TAG_LABELS[id] || '其他能力';
-}
 
-function skillMarketGroupDescription(id) {
-  return SKILL_GROUP_DESCRIPTIONS?.[id] || '尚未归类的可调用能力';
-}
 
-function skillMarketChildren(skillId) {
-  const parentId = normalizeSkillMarketId(skillId);
-  if (!parentId) return [];
-  return skillMarketAllCatalog.filter(skill => normalizeSkillMarketId(skill.parentSkillId) === parentId);
-}
+
+
+
+
 
 function isManagedSkill(skill) {
   return ['builtin', 'bundled', 'Yan Agent', 'plugin'].includes(String(skill?.source || ''));
 }
 
-function setSkillActionButtonState(button, state, detail = '') {
-  if (!button) return;
-  const icon = CAPABILITY_ACTION_ICONS[state] || CAPABILITY_ACTION_ICONS.download;
-  const labels = {
-    install: '安装 Skill',
-    delete: '删除 Skill',
-    loading: detail || '正在处理 Skill',
-    success: detail || 'Skill 已安装',
-    error: detail || 'Skill 操作失败'
-  };
-  button.dataset.state = state;
-  button.innerHTML = icon;
-  button.title = labels[state] || detail;
-  button.setAttribute('aria-label', labels[state] || detail);
-  button.disabled = state === 'loading' || state === 'success';
-  button.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
-}
+
 
 async function renderSkillMarket() {
   const grid = $('#skillMarketGrid');
@@ -3159,59 +4803,39 @@ async function renderSkillMarket() {
   for (const skill of installedSkills) {
     if (!catalogById.has(skill.id)) catalogById.set(skill.id, skill);
   }
-  const catalog = sortSkillsByCategory([...catalogById.values()]);
+  const catalog = [...catalogById.values()].filter(isSkillPageVisible).sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
   skillMarketCatalog = catalog;
   skillMarketAllCatalog = [...new Map([
     ...allCatalog.map(skill => [normalizeSkillMarketId(skill.id), skill]),
     ...catalog.map(skill => [normalizeSkillMarketId(skill.id), skill])
   ]).values()];
 
-  const items = catalog;
+  const query = String($('#skillSearchInput')?.value || '').trim().toLocaleLowerCase();
+  const isSystem = skill => SYSTEM_SKILL_SOURCES.has(String(skill.source || '').trim().toLowerCase());
+  const items = catalog.filter(skill => installedIds.has(skill.id)
+    && isSystem(skill) === (skillSourceFilter === 'system')
+    && (!query || [skill.name, skill.desc, ...(skill.aliases || [])].join(' ').toLocaleLowerCase().includes(query)));
+  syncSkillSourceSwitch();
 
   const renderCard = (s) => {
-    const installed = installedIds.has(s.id);
-    const installedRecord = installedById.get(s.id) || null;
-    const managed = isManagedSkill(installedRecord || s);
-    const origin = String((installedRecord || s).origin || '');
-    // Project Skills come from the workspace's own load source, not the Yan
-    // store, so they are never deletable from the market.
-    const removable = installed && !managed && origin !== 'project';
+    const record = installedById.get(s.id) || s;
+    const enabled = record.enabled !== false;
     return window.YanCapabilityTemplates.card({
-      attributes: `data-market-id="${escapeAttr(s.id)}" data-skill-open="${escapeAttr(s.id)}"`,
+      attributes: `data-market-id="${escapeAttr(s.id)}" data-skill-open="${escapeAttr(s.id)}" data-enabled="${enabled}"`,
       name: s.name, description: s.desc, logo: skillLogoHtml(s),
-      label: `查看 ${s.name} 的 Skill 详情`,
-      badge: origin === 'project' ? '<span class="skill-origin-pill">项目来源</span>' : '',
-      actions: `${removable ? `<button type="button" class="capability-circle-btn skill-action-btn is-delete" data-skill-action="remove" data-state="delete" title="删除 ${escapeAttr(s.name)}" aria-label="删除 ${escapeAttr(s.name)}">${CAPABILITY_ACTION_ICONS.trash}</button>` : ''}
-        ${installed
-          ? `<button type="button" class="capability-circle-btn skill-action-btn skill-open-detail-btn" data-skill-action="open" title="打开 ${escapeAttr(s.name)}" aria-label="打开 ${escapeAttr(s.name)}">${MCP_ARROW_UP_RIGHT_ICON}</button>`
-          : `<button type="button" class="capability-circle-btn skill-action-btn is-install" data-skill-action="install" data-state="install" title="安装 ${escapeAttr(s.name)}" aria-label="安装 ${escapeAttr(s.name)}">${CAPABILITY_ACTION_ICONS.download}</button>`}`
+      label: `查看 ${s.name} 的 Skill 详情，${enabled ? '已启用' : '已停用'}`,
+      badge: record.origin === 'project' ? '<span class="skill-origin-pill">项目来源</span>' : '',
+      actions: `<span class="skill-enabled-mark" aria-hidden="true">${enabled ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4 10-11"/></svg>' : ''}</span>`
     });
   };
 
-  const groups = new Map();
-  items.forEach(skill => {
-    const groupId = skillMarketGroupId(skill);
-    if (!groups.has(groupId)) groups.set(groupId, []);
-    groups.get(groupId).push(skill);
-  });
-  const categoryOrder = Object.keys(SKILL_TAG_LABELS);
-  const orderedGroups = [...groups.entries()].sort((left, right) => {
-    const leftRank = categoryOrder.indexOf(left[0]);
-    const rightRank = categoryOrder.indexOf(right[0]);
-    return (leftRank < 0 ? categoryOrder.length : leftRank) - (rightRank < 0 ? categoryOrder.length : rightRank);
-  });
-
-  grid.innerHTML = items.length ? orderedGroups.map(([groupId, groupSkills]) => {
-    return window.YanCapabilityTemplates.group({
-      id: `skill-group-${groupId}`, attributes: `data-skill-group="${escapeAttr(groupId)}"`,
-      name: skillMarketGroupLabel(groupId), description: skillMarketGroupDescription(groupId),
-      cards: groupSkills.map(renderCard).join('')
-    });
-  }).join('') : '<div class="workbench-empty"><div class="workbench-empty-copy"><strong>暂无可用技能</strong><span>可创建个人 Skill 添加技能。</span></div></div>';
+  const emptyText = query ? '没有匹配的技能' : skillSourceFilter === 'personal' ? '暂无个人技能' : '暂无系统技能';
+  grid.innerHTML = '<div class="skill-installed-list">' + (items.length ? items.map(renderCard).join('') : '<p class="skill-search-empty">' + emptyText + '</p>') + '</div>';
+  syncCapabilityScrollbar('pageSkills');
   bindSkillLogoFallbacks(grid);
 
   grid.querySelectorAll('[data-skill-open]').forEach(card => {
-    const open = () => { skillMarketDetailId = card.dataset.skillOpen || ''; void renderSkillMarket(); };
+    const open = () => openSkillModal(card.dataset.skillOpen || '', installedById);
     card.addEventListener('click', event => {
       if (event.target.closest('button')) return;
       open();
@@ -3223,197 +4847,134 @@ async function renderSkillMarket() {
     });
   });
 
-  grid.querySelectorAll('.skill-action-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const card = btn.closest('.skill-card');
-      const id = card.dataset.marketId;
-      const action = btn.dataset.skillAction;
-      if (action === 'open') {
-        skillMarketDetailId = id;
-        void renderSkillMarket();
-        return;
+  syncSkillModalToggle();
+}
+
+function syncSkillModalToggle() {
+  const toggle = document.querySelector('#skillModal [data-skill-toggle]');
+  if (!toggle || toggle.getAttribute('aria-busy') === 'true') return;
+  const record = skillMarketAllCatalog.find(item => item.id === skillModalId);
+  if (record) toggle.checked = record.enabled !== false;
+}
+
+function openSkillModal(skillId, installedById = new Map()) {
+  const dialog = $('#skillModal');
+  const skill = skillMarketCatalog.find(item => item.id === skillId);
+  if (!dialog || !skill) return;
+  skillModalId = skill.id;
+  const record = installedById.get(skill.id) || skill;
+  const removable = !isManagedSkill(record) && record.origin !== 'project';
+  dialog.innerHTML = `
+    <div class="skill-modal-top">
+      <div class="skill-modal-logo">${skillLogoHtml(skill)}</div>
+      <div class="skill-modal-controls">
+        <input type="checkbox" role="switch" class="switch" data-skill-toggle aria-label="启用 ${escapeAttr(skill.name)}" ${record.enabled !== false ? 'checked' : ''}>
+        <div class="skill-modal-menu-wrap">
+          <button type="button" class="icon-btn" data-modal-action="menu" aria-label="更多操作" aria-expanded="false" aria-controls="skillModalMenu">···</button>
+          <div id="skillModalMenu" class="skill-modal-menu" hidden>
+            <button type="button" data-modal-action="open">打开</button>
+            <button type="button" data-modal-action="directory">在文件资源管理器中显示</button>
+            <button type="button" data-modal-action="copy" disabled>复制 Markdown</button>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" data-modal-action="close" aria-label="关闭技能详情" autofocus>×</button>
+      </div>
+    </div>
+    <h2 id="skillModalTitle">${escapeHtml(skill.name || skill.id)} <span>Skill</span></h2>
+    <p class="skill-modal-description">${escapeHtml(skill.desc || '')}</p>
+    <article class="msg-body skill-modal-markdown" aria-label="技能 Markdown" aria-busy="true"><p role="status">正在读取 Skill.md…</p></article>
+    <div class="skill-modal-footer">
+      <button type="button" class="skill-modal-uninstall" data-modal-action="remove" ${removable ? '' : 'disabled title="此技能由内置能力或项目管理，无法在此卸载"'}>卸载</button>
+      <button type="button" class="skill-modal-try" data-modal-action="try"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20 11a7 7 0 0 0-13-4M15 14a7 7 0 0 0-14 0c0 2 1 3 2 4l-1 3 4-1a7 7 0 0 0 9-6Z"/><path d="m15 17 3 1 3 2-1-4a7 7 0 0 0 1-5"/></svg>立即试用</button>
+    </div>`;
+  bindSkillLogoFallbacks(dialog);
+  const markdown = dialog.querySelector('.skill-modal-markdown');
+  const toggle = dialog.querySelector('[data-skill-toggle]');
+  const menu = dialog.querySelector('#skillModalMenu');
+  const menuButton = dialog.querySelector('[data-modal-action="menu"]');
+  let rawDocument = '';
+  const closeMenu = () => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); };
+  dialog.onclose = () => { skillModalId = ''; };
+  dialog.oncancel = event => {
+    if (!menu.hidden) { event.preventDefault(); closeMenu(); menuButton.focus(); }
+  };
+  dialog.onclick = async event => {
+    if (event.target === dialog) {
+      const box = dialog.getBoundingClientRect();
+      if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
+    }
+    const button = event.target.closest('[data-modal-action]');
+    if (!button) { closeMenu(); return; }
+    const action = button.dataset.modalAction;
+    if (action === 'menu') {
+      menu.hidden = !menu.hidden;
+      menuButton.setAttribute('aria-expanded', String(!menu.hidden));
+      return;
+    }
+    closeMenu();
+    if (action === 'close') { dialog.close(); return; }
+    button.disabled = true;
+    try {
+      if (action === 'copy') { await copyMarkdownCode(rawDocument); toast('已复制 Markdown'); }
+      if (action === 'open' || action === 'directory') {
+        const result = action === 'open' ? await api.openSkillDocument(skill.id) : await api.openSkillDirectory(skill.id);
+        if (!result?.ok) throw new Error(result?.error || '打开失败');
       }
       if (action === 'remove') {
-        const target = installedById.get(id) || { id, name: card.querySelector('.skill-card-name')?.textContent || id };
-        if (!await requestSkillRemovalConfirmation(target)) return;
-        setSkillActionButtonState(btn, 'loading', `正在删除 ${target.name || id}`);
-        const res = await api.removeCustomSkill(id);
-        if (res?.error) {
-          setSkillActionButtonState(btn, 'error', res.error);
-          toast(res.error);
-          return;
-        }
-      } else {
-        const item = market.find(s => s.id === id);
-        if (!item) return;
-        setSkillActionButtonState(btn, 'loading', `正在安装 ${item.name}`);
-        const res = await api.addCustomSkill({ ...item, source: item.repo });
-        if (res?.error) {
-          setSkillActionButtonState(btn, 'error', res.error);
-          toast(res.error);
-          return;
-        }
+        if (!removable || !await requestSkillRemovalConfirmation(record)) return;
+        const result = await api.removeCustomSkill(skill.id);
+        if (result?.error) throw new Error(result.error);
+        dialog.close();
+        await refreshSkillPrompts();
+        await renderSkillMarket();
       }
-      await refreshSkillPrompts();
-      await renderSkillMarket();
-    });
-  });
-
-  const pageHeader = $('#pageSkills > .capability-page-header');
-  if (skillMarketDetailId) {
-    pageHeader?.classList.add('hidden');
-    renderSkillDetail(skillMarketDetailId, installedById);
-  } else {
-    pageHeader?.classList.remove('hidden');
-    $('#skillMarketOverview')?.classList.remove('hidden');
-    $('#skillDetailView')?.classList.add('hidden');
-  }
-}
-
-function syncSkillDetailToggles() {
-  document.querySelectorAll('#skillDetailContent [data-skill-toggle]').forEach(toggle => {
-    const record = skillMarketAllCatalog.find(skill => normalizeSkillMarketId(skill.id) === normalizeSkillMarketId(toggle.dataset.skillToggle));
-    if (!record || toggle.getAttribute('aria-busy') === 'true') return;
-    toggle.checked = record.enabled !== false;
-    const parent = skillMarketAllCatalog.find(skill => normalizeSkillMarketId(skill.id) === normalizeSkillMarketId(record.parentSkillId));
-    toggle.disabled = parent?.enabled === false;
-  });
-}
-
-function renderSkillDetail(skillId, installedById = new Map()) {
-  const detail = $('#skillDetailView');
-  const overview = $('#skillMarketOverview');
-  const content = $('#skillDetailContent');
-  if (!detail || !overview || !content) return;
-  const id = normalizeSkillMarketId(skillId);
-  const skill = skillMarketCatalog.find(item => normalizeSkillMarketId(item.id) === id)
-    || skillMarketAllCatalog.find(item => normalizeSkillMarketId(item.id) === id);
-  if (!skill) {
-    skillMarketDetailId = '';
-    $('#pageSkills > .capability-page-header')?.classList.remove('hidden');
-    overview.classList.remove('hidden');
-    detail.classList.add('hidden');
-    return;
-  }
-  const installed = installedById.has(skill.id) || skill.installed === true;
-  const installedRecord = installedById.get(skill.id) || skill;
-  const managed = isManagedSkill(installedRecord);
-  const skillOrigin = String(installedRecord.origin || skill.origin || '');
-  const removable = installed && !managed && skillOrigin !== 'project';
-  const children = skillMarketChildren(skill.id);
-  const explorerAction = installed
-    ? `<button type="button" class="plugin-directory icon-btn" data-detail-action="open-directory" title="在资源管理器中打开" aria-label="在资源管理器中打开">
-        <img src="assets/windows-explorer.png" alt="" aria-hidden="true" />
-      </button>`
-    : '';
-  const primaryAction = removable
-    ? `<button type="button" class="capability-circle-btn skill-action-btn is-delete" data-detail-action="remove" data-skill-action="remove" data-state="delete" title="删除 ${escapeAttr(skill.name)}" aria-label="删除 ${escapeAttr(skill.name)}">${CAPABILITY_ACTION_ICONS.trash}</button>`
-    : installed
-      ? ''
-      : `<button type="button" class="skill-detail-install" data-detail-action="install" data-skill-action="install">安装 Skill</button>`;
-  const toggleHtml = record => `<input type="checkbox" role="switch" class="switch" data-skill-toggle="${escapeAttr(record.id)}" title="启用 ${escapeAttr(record.name || record.id)}" aria-label="启用 ${escapeAttr(record.name || record.id)}" ${record.enabled !== false ? 'checked' : ''}>`;
-  content.innerHTML = `
-    ${window.YanCapabilityTemplates.compactDetailHead({
-      titleId: 'skillDetailTitle', name: skill.name || skill.id, description: skill.desc,
-      logo: skillLogoHtml(skill), actions: `${installed ? toggleHtml(installedRecord) : ''}${primaryAction}`, actionLabel: '技能操作', afterTitle: explorerAction,
-      closeAttribute: 'data-detail-action', closeLabel: '关闭技能详情'
-    })}
-    ${window.YanSkillExamples.render(skill)}
-    ${children.length ? `<section class="plugin-skills-section skill-children-section" aria-labelledby="skillDetailPartsTitle">
-      <h2 id="skillDetailPartsTitle">子技能 <span>${children.length}</span></h2>
-      <div class="plugin-skill-list">${children.map(child => `
-        <article class="plugin-skill-row skill-child-row">
-          <div class="plugin-skill-logo">${skillLogoHtml(child)}</div>
-          <div class="plugin-skill-copy">
-            <h3>${escapeHtml(child.name || child.id)}</h3>
-            <p>${escapeHtml(child.desc || '随父级能力提供的运行模块。')}</p>
-          </div>
-          ${toggleHtml(child)}
-        </article>`).join('')}</div>
-    </section>` : ''}
-    <section class="skill-document-section" aria-labelledby="skillDetailDocumentTitle">
-      <h2 id="skillDetailDocumentTitle">Skill.md<button type="button" class="icon-btn skill-document-copy" title="复制 Skill.md" aria-label="复制 Skill.md" disabled>${ICONS.copy}</button></h2>
-      <article id="skillDetailMarkdown" class="msg-body skill-document-markdown" aria-busy="true"><p role="status">正在读取 Skill.md…</p></article>
-    </section>`;
-
-  overview.classList.add('hidden');
-  detail.classList.remove('hidden');
-  bindSkillLogoFallbacks(content);
-  window.YanSkillExamples.bind(content, skill);
-  const markdown = content.querySelector('#skillDetailMarkdown');
-  const copyButton = content.querySelector('.skill-document-copy');
-  let rawDocument = '';
-  copyButton.addEventListener('click', async () => {
+      if (action === 'try') {
+        if (!toggle.checked) {
+          const result = await api.setSkillEnabled(skill.id, true);
+          if (!result?.ok || !result.enabled) throw new Error(result?.error || '无法启用技能');
+          await refreshInstalledSkillCatalog();
+        }
+        await newSession({ forceNew: true });
+        setComposerSkills([skill]);
+        autoGrow();
+        updateSendState();
+        dialog.close();
+        input.focus({ preventScroll: true });
+      }
+    } catch (error) { toast(error.message || String(error)); }
+    finally { button.disabled = false; }
+  };
+  toggle.onchange = async () => {
+    const previous = !toggle.checked;
+    toggle.disabled = true;
+    toggle.setAttribute('aria-busy', 'true');
+    dialog.querySelector('[data-modal-action="try"]').disabled = true;
     try {
-      await copyMarkdownCode(rawDocument);
-      toast('已复制 Skill.md');
-    } catch { toast('复制失败，请重试'); }
-  });
-  syncSkillDetailToggles();
-  content.querySelectorAll('[data-skill-toggle]').forEach(toggle => {
-    toggle.addEventListener('change', async () => {
-      const previous = !toggle.checked;
-      toggle.disabled = true;
-      toggle.setAttribute('aria-busy', 'true');
-      try {
-        const result = await api.setSkillEnabled(toggle.dataset.skillToggle, toggle.checked);
-        if (!result?.ok) throw new Error(result?.error || '技能开关更新失败');
-        toggle.checked = result.enabled;
-        await refreshInstalledSkillCatalog();
-        skillMarketAllCatalog = await api.getSkillCatalog();
-      } catch (error) {
-        toggle.checked = previous;
-        toast(error.message || String(error));
-      } finally {
-        toggle.removeAttribute('aria-busy');
-        toggle.disabled = false;
-        if (toggle.isConnected) syncSkillDetailToggles();
-      }
-    });
-  });
+      const result = await api.setSkillEnabled(skill.id, toggle.checked);
+      if (!result?.ok) throw new Error(result?.error || '技能开关更新失败');
+      await refreshInstalledSkillCatalog();
+      await renderSkillMarket();
+    } catch (error) { toggle.checked = previous; toast(error.message || String(error)); }
+    finally {
+      toggle.disabled = false;
+      toggle.removeAttribute('aria-busy');
+      dialog.querySelector('[data-modal-action="try"]').disabled = false;
+      syncSkillModalToggle();
+    }
+  };
+  dialog.showModal();
   void (async () => {
     try {
       const result = await api.readSkillDocument(skill.id);
-      if (!markdown.isConnected || normalizeSkillMarketId(skillMarketDetailId) !== id) return;
+      if (!markdown.isConnected || skillModalId !== skill.id) return;
       if (!result?.ok) throw new Error(result?.error || '无法读取 Skill.md');
       rawDocument = result.document ?? result.markdown ?? '';
-      copyButton.disabled = false;
+      dialog.querySelector('[data-modal-action="copy"]').disabled = false;
       markdown.innerHTML = result.markdown?.trim() ? renderMarkdown(result.markdown, { softBreaks: true }) : '<p>此技能暂无正文。</p>';
     } catch (error) {
-      if (!markdown.isConnected || normalizeSkillMarketId(skillMarketDetailId) !== id) return;
-      markdown.innerHTML = `<p role="status">${escapeHtml(error.message || String(error))}</p>`;
-    } finally {
-      if (markdown.isConnected) markdown.setAttribute('aria-busy', 'false');
-    }
+      if (markdown.isConnected) markdown.innerHTML = `<p role="status">${escapeHtml(error.message || String(error))}</p>`;
+    } finally { markdown.setAttribute('aria-busy', 'false'); }
   })();
-  content.querySelectorAll('[data-detail-action]').forEach(btn => {
-    btn.addEventListener('click', async event => {
-      event.stopPropagation();
-      if (btn.dataset.detailAction === 'open-directory') {
-        const result = await api.openSkillDirectory?.(skill.id);
-        if (result?.error) toast(result.error);
-        return;
-      }
-      if (btn.dataset.detailAction === 'back') {
-        skillMarketDetailId = '';
-        void renderSkillMarket();
-        return;
-      }
-      if (btn.dataset.skillAction === 'install') {
-        const item = skillMarketItems.find(candidate => normalizeSkillMarketId(candidate.id) === id) || skill;
-        setSkillActionButtonState(btn, 'loading', `正在安装 ${item.name || id}`);
-        const result = await api.addCustomSkill({ ...item, source: item.repo });
-        if (result?.error) { setSkillActionButtonState(btn, 'error', result.error); toast(result.error); return; }
-      } else if (btn.dataset.skillAction === 'remove') {
-        if (!await requestSkillRemovalConfirmation(installedRecord)) return;
-        setSkillActionButtonState(btn, 'loading', `正在删除 ${skill.name || id}`);
-        const result = await api.removeCustomSkill(skill.id);
-        if (result?.error) { setSkillActionButtonState(btn, 'error', result.error); toast(result.error); return; }
-      }
-      await refreshSkillPrompts();
-      await renderSkillMarket();
-    });
-  });
 }
 
 let pendingSkillImportFile = null;
@@ -3522,29 +5083,16 @@ $('#skillImportInput')?.addEventListener('change', (e) => {
   setSkillImportButtonState('idle');
 });
 
-function openCapabilityDrawer(dialogId, firstFieldId) {
-  const dialog = $('#' + dialogId);
-  if (!dialog) return;
-  if (!dialog.open) dialog.showModal();
-  requestAnimationFrame(() => $('#' + firstFieldId)?.focus());
-}
 
-function openCapabilityDialog(dialogId, firstFieldId = '') {
-  const dialog = $('#' + dialogId);
-  if (!dialog) return;
-  if (!dialog.open) dialog.showModal();
-  if (firstFieldId) requestAnimationFrame(() => $('#' + firstFieldId)?.focus());
-}
+
+
 
 function closeCapabilityDialog(dialogId) {
   const dialog = $('#' + dialogId);
   if (dialog?.open) dialog.close();
 }
 
-function closeCapabilityDrawer(dialogId) {
-  const dialog = $('#' + dialogId);
-  if (dialog?.open) dialog.close();
-}
+
 
 
 const MCP_INSTALL_PROMPT_PREFIX = 'Install an MCP server with';
@@ -3568,6 +5116,19 @@ async function openMcpInstallerComposer() {
   setComposerCaretByTextOffset(MCP_INSTALL_PROMPT_PREFIX.length);
 }
 
+$('#mcpSourceSwitch')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-mcp-source]');
+  if (button) selectMcpSource(button.dataset.mcpSource);
+});
+$('#mcpSourceSwitch')?.addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const buttons = [...$$('#mcpSourceSwitch [data-mcp-source]')];
+  const current = buttons.indexOf(document.activeElement);
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+    : (current + (event.key === 'ArrowLeft' ? -1 : 1) + buttons.length) % buttons.length;
+  buttons[index]?.focus(); buttons[index]?.click();
+});
 $('#mcpOpenCreateBtn')?.addEventListener('click', () => {
   void openMcpInstallerComposer().catch(error => {
     console.error('[mcp-install]', error);
@@ -3586,6 +5147,7 @@ async function renderMcpPage() {
   if (!list) return;
   const servers = await api.mcpList();
   if (!servers.length) {
+    $('#mcpSourceRow')?.classList.add('hidden');
     list.innerHTML = `
       <div class="workbench-empty workbench-empty-stage">
         <span class="workbench-empty-visual mcp-empty-visual" aria-hidden="true">
@@ -3611,9 +5173,9 @@ async function renderMcpPage() {
       <div class="skill-card-primary">
         <div class="skill-card-name-row">
           <span class="skill-card-name">${escapeHtml(s.name)}</span>
+          ${isRemote ? '<span class="mcp-card-transport">HTTPS</span>' : ''}
         </div>
         <p class="skill-card-desc">${escapeHtml(s.description || '暂无说明')}</p>
-        ${isRemote ? '<div class="skill-card-meta mcp-card-meta"><span class="mcp-card-transport">HTTPS</span></div>' : ''}
       </div>
       <div class="skill-card-actions mcp-card-actions">
         <button type="button" class="capability-circle-btn mcp-open-btn" data-mcp-act="open" title="打开 ${escapeAttr(s.name)}" aria-label="打开 ${escapeAttr(s.name)}">${MCP_ARROW_UP_RIGHT_ICON}</button>
@@ -3621,28 +5183,16 @@ async function renderMcpPage() {
     </article>`;
   };
 
-  const groups = new Map();
-  servers.forEach(server => {
-    const groupId = !server.builtin ? 'user' : (server.systemManaged ? 'native' : 'bundled');
-    if (!groups.has(groupId)) groups.set(groupId, []);
-    groups.get(groupId).push(server);
-  });
-  const groupOrder = ['native', 'bundled', 'user'];
-  const groupMeta = {
-    native: ['系统原生', '由 Yan 管理的原生 MCP 能力，状态随应用提供。'],
-    bundled: ['自带', '随 Yan 一起提供的 MCP 工具，可按需使用。'],
-    user: ['用户自行安装', '你添加的 MCP 服务，可在详情页继续管理。']
-  };
-  list.innerHTML = [...groups.entries()].sort((a, b) => groupOrder.indexOf(a[0]) - groupOrder.indexOf(b[0])).map(([groupId, groupServers]) => `
-    <section class="skill-market-group mcp-market-group" data-mcp-group="${groupId}" aria-labelledby="mcp-group-${groupId}">
-      <header class="skill-market-group-head">
-        <div class="skill-market-group-title">
-          <h3 id="mcp-group-${groupId}">${groupMeta[groupId][0]}</h3>
-          <p>${groupMeta[groupId][1]}</p>
-        </div>
-      </header>
-      <div class="skill-group-grid">${groupServers.map(renderCard).join('')}</div>
-    </section>`).join('');
+  // One flat list, filtered by the same pill switch the plugin page uses:
+  // 个人 holds the services you added, 系统 the ones Yan ships and manages.
+  const visibleServers = servers.filter(server => mcpIsPersonal(server) === (mcpSourceFilter === 'personal'));
+  syncMcpSourceSwitch();
+  list.innerHTML = visibleServers.length
+    ? `<div class="skill-installed-list">${visibleServers.map(renderCard).join('')}</div>`
+    : `<div class="workbench-empty"><div class="workbench-empty-copy"><strong>${mcpSourceFilter === 'personal'
+        ? '还没有个人安装的 MCP 服务'
+        : '暂无系统 MCP 服务'}</strong>${mcpSourceFilter === 'personal'
+        ? '<span>点击右上角 + 添加一个。</span>' : ''}</div></div>`;
 
   list.querySelectorAll('.mcp-market-card').forEach(card => {
     const open = () => {
@@ -3661,6 +5211,8 @@ async function renderMcpPage() {
   const header = $('#pageMcp > .capability-page-header');
   const overview = $('#mcpMarketOverview');
   const detail = $('#mcpDetailView');
+  const sourceRow = $('#mcpSourceRow');
+  sourceRow?.classList.toggle('hidden', !!mcpDetailId);
   if (mcpDetailId) {
     header?.classList.add('hidden');
     overview?.classList.add('hidden');
@@ -3702,7 +5254,7 @@ async function renderMcpDetail(serverId, servers = []) {
     <section class="plugin-skills-section mcp-tools-section" aria-labelledby="mcpDetailToolsTitle">
       <h2 id="mcpDetailToolsTitle">工具 <span id="mcpDetailToolCount"></span></h2>
       <div id="mcpDetailTools" class="plugin-skill-list">
-        <div class="skill-detail-empty">正在读取工具列表…</div>
+        <div class="capability-detail-empty">正在读取工具列表…</div>
       </div>
     </section>`;
   content.querySelector('[data-mcp-detail-action="back"]')?.addEventListener('click', () => {
@@ -3815,7 +5367,7 @@ async function renderMcpDetail(serverId, servers = []) {
     if (!lastFailure || Date.now() - lastFailure.at >= MCP_PROBE_RETRY_MS) {
       mcpProbeFailures.set(server.id, { at: Date.now(), error: result.error });
     }
-    toolsContainer.innerHTML = `<div class="skill-detail-empty mcp-tool-error">${escapeHtml(result.error)}</div>`;
+    toolsContainer.innerHTML = `<div class="capability-detail-empty mcp-tool-error">${escapeHtml(result.error)}</div>`;
     return;
   }
   mcpProbeFailures.delete(server.id);
@@ -3833,7 +5385,7 @@ async function renderMcpDetail(serverId, servers = []) {
         <p>${escapeHtml(description)}</p>
       </div>
     </article>`;
-  }).join('') : '<div class="skill-detail-empty">该 MCP 当前没有可用工具。</div>';
+  }).join('') : '<div class="capability-detail-empty">该 MCP 当前没有可用工具。</div>';
 }
 
 function appendUserAbortResult(msgEl) {
@@ -3850,6 +5402,21 @@ function formatTokenCount(n) {
   if (num >= 10_000) return Math.round(num / 1000) + 'K';
   if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(num);
+}
+
+// The context panel keeps one decimal for every K-sized value (4.1K, 24.1K)
+// so the breakdown reads like the reference panel instead of rounding 4.1K
+// and 24.1K into 4K and 24K.
+function formatTokenApprox(n) {
+  const num = Math.max(0, Number(n) || 0);
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  if (num >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(Math.round(num));
+}
+
+function formatTokenExact(n) {
+  const num = Math.max(0, Math.round(Number(n) || 0));
+  return num.toLocaleString('en-US');
 }
 
 function getAgentRunCacheStats(agentRun) {
@@ -3873,6 +5440,180 @@ function formatCacheHitRate(rate) {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
 }
 
+// Aggregate the real per-turn usage records in the current task. The cache
+// rate is the task's weighted average, which is far steadier than a single
+// turn's rate; the token panel shows the same numbers as the composer line.
+// A long task loads only its newest messages, so the session store also returns
+// an aggregate over the complete history; use that as the task baseline so the
+// capsule never drops when an old task is reopened.
+let sessionUsageMemo = { key: '', value: null };
+function normalizeUsageRecord(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const input = Math.max(0, Number(usage.input) || 0);
+  const cacheRead = Math.max(0, Number(usage.cacheRead) || 0);
+  const cacheWrite = Math.max(0, Number(usage.cacheWrite) || 0);
+  const output = Math.max(0, Number(usage.output) || 0)
+    + Math.max(0, Number(usage.reasoning) || 0);
+  if (!input && !cacheRead && !cacheWrite && !output) return null;
+  return { input, cacheRead, cacheWrite, output };
+}
+
+function usageStatsFromRecords(records = []) {
+  let input = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let output = 0;
+  let runs = 0;
+  for (const usage of records) {
+    const run = normalizeUsageRecord(usage);
+    if (!run) continue;
+    runs += 1;
+    input += run.input;
+    cacheRead += run.cacheRead;
+    cacheWrite += run.cacheWrite;
+    output += run.output;
+  }
+  const uncached = input + cacheWrite;
+  const promptTokens = uncached + cacheRead;
+  return {
+    runs,
+    input,
+    cacheRead,
+    cacheWrite,
+    output,
+    uncached,
+    total: promptTokens + output,
+    rate: promptTokens > 0 ? cacheRead / promptTokens : null
+  };
+}
+
+function normalizeSessionUsageStats(value) {
+  if (!value || typeof value !== 'object') return null;
+  const runs = Math.max(0, Number(value.runs) || 0);
+  const input = Math.max(0, Number(value.input) || 0);
+  const cacheRead = Math.max(0, Number(value.cacheRead) || 0);
+  const cacheWrite = Math.max(0, Number(value.cacheWrite) || 0);
+  const output = Math.max(0, Number(value.output) || 0);
+  if (!runs && !input && !cacheRead && !cacheWrite && !output) return null;
+  const uncached = input + cacheWrite;
+  const promptTokens = uncached + cacheRead;
+  return {
+    runs,
+    input,
+    cacheRead,
+    cacheWrite,
+    output,
+    uncached,
+    total: promptTokens + output,
+    rate: promptTokens > 0 ? cacheRead / promptTokens : null
+  };
+}
+
+function sumUsageStats(base, extra) {
+  if (!extra || !extra.runs) return base;
+  const input = base.input + extra.input;
+  const cacheRead = base.cacheRead + extra.cacheRead;
+  const cacheWrite = base.cacheWrite + extra.cacheWrite;
+  const output = base.output + extra.output;
+  const uncached = input + cacheWrite;
+  const promptTokens = uncached + cacheRead;
+  return {
+    runs: base.runs + extra.runs,
+    input,
+    cacheRead,
+    cacheWrite,
+    output,
+    uncached,
+    total: promptTokens + output,
+    rate: promptTokens > 0 ? cacheRead / promptTokens : null
+  };
+}
+
+function sessionUsageBaseline(session = state.currentSession) {
+  const stored = normalizeSessionUsageStats(session?.usageStats);
+  if (stored) return stored;
+  const messages = session?.messages || [];
+  const last = messages.at(-1);
+  const lastUsage = last?.agentRun?.usage;
+  const memoKey = [
+    session?.id || '',
+    messages.length,
+    last?.ts || '',
+    last?.agentRun?.runId || '',
+    lastUsage?.input || 0,
+    lastUsage?.cacheRead || 0,
+    lastUsage?.cacheWrite || 0,
+    lastUsage?.output || 0,
+    lastUsage?.reasoning || 0
+  ].join(':');
+  if (sessionUsageMemo.key === memoKey) return sessionUsageMemo.value;
+  const value = usageStatsFromRecords(messages.map(message => message?.agentRun?.usage));
+  sessionUsageMemo = { key: memoKey, value };
+  return value;
+}
+
+// A round's usage only enters the task total when its assistant message is
+// persisted, which happens at the very end of the turn. While the turn is still
+// running, each finished model round is reported through message.updated; keep
+// the latest snapshot per round so the capsule advances round by round.
+function trackRunRoundUsage(runCtx, info) {
+  if (!runCtx || String(info?.role || '') !== 'assistant') return false;
+  const tokens = info?.tokens;
+  if (!tokens || typeof tokens !== 'object') return false;
+  const cache = tokens.cache && typeof tokens.cache === 'object' ? tokens.cache : {};
+  const round = normalizeUsageRecord({
+    input: tokens.input,
+    cacheRead: tokens.cacheRead ?? cache.read,
+    cacheWrite: tokens.cacheWrite ?? cache.write,
+    output: tokens.output,
+    reasoning: tokens.reasoning
+  });
+  if (!round) return false;
+  if (!(runCtx.liveUsageRounds instanceof Map)) runCtx.liveUsageRounds = new Map();
+  const key = String(info.id || info.messageID || '') || `round-${runCtx.liveUsageRounds.size}`;
+  runCtx.liveUsageRounds.set(key, round);
+  return true;
+}
+
+function liveRunUsage(runCtx) {
+  const rounds = runCtx?.liveUsageRounds;
+  if (!(rounds instanceof Map) || rounds.size === 0) return null;
+  return usageStatsFromRecords(rounds.values());
+}
+
+function sessionUsageStats(session = state.currentSession) {
+  const base = sessionUsageBaseline(session);
+  const live = liveRunUsage(session?.id ? getRunCtx(session.id) : null);
+  return sumUsageStats(base, live);
+}
+
+// New runs append a usage record after the session snapshot was read. Add it
+// to the server-provided task baseline so the capsule only ever moves forward.
+function addSessionUsage(session, usage) {
+  if (!session) return;
+  const run = normalizeUsageRecord(usage);
+  if (!run) return;
+  const current = normalizeSessionUsageStats(session.usageStats);
+  if (!current) {
+    session.usageStats = usageStatsFromRecords((session.messages || []).map(message => message?.agentRun?.usage));
+  } else {
+    session.usageStats = sumUsageStats(current, usageStatsFromRecords([run]));
+  }
+  sessionUsageMemo.key = '';
+}
+
+function addMessageUsage(session, message) {
+  // The persisted run already contains every round it reported live. Drop the
+  // live overlay in the same tick, and only for that run, so no round is
+  // counted twice when the turn finishes.
+  const runCtx = session?.id ? getRunCtx(session.id) : null;
+  const runId = String(message?.agentRun?.runId || '');
+  if (runCtx && (!runId || !runCtx.runId || runCtx.runId === runId)) {
+    runCtx.liveUsageRounds = null;
+  }
+  addSessionUsage(session, message?.agentRun?.usage);
+}
+
 function normalizeSkillCalls(value) {
   const source = Array.isArray(value) ? value : (value?.id ? [value] : []);
   const seen = new Set();
@@ -3884,6 +5625,8 @@ function normalizeSkillCalls(value) {
     return items;
   }, []);
 }
+
+
 
 function appendMessage(role, content, attachments = [], animate = true, msgIndex = -1, ts = null, duration = null, agentRun = null, skillCalls = [], media = null, pluginCalls = []) {
   const wrap = $('#messages');
@@ -3899,7 +5642,9 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
   if (attachments && attachments.length) {
     attHtml = `<div class="msg-attachments">${attachments.map(a => {
       const image = isImageAttachmentMeta(a);
-      const previewable = image && a.path;
+      const previewable = a.path && a.kind !== 'directory';
+      
+
       return `<span class="msg-attachment ${image ? 'image' : ''}${previewable ? ' is-previewable' : ''}"${previewable ? ` data-preview-path="${escapeAttr(a.path)}" data-preview-name="${escapeAttr(a.name || '')}" title="点击预览 ${escapeAttr(a.name || '')}"` : ''}>${image ? ICONS.image : ICONS.file}${escapeHtml(a.name)}</span>`;
     }).join('')}</div>`;
   }
@@ -3934,6 +5679,7 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
   el.querySelectorAll('[data-preview-path]').forEach(node => {
     node.yanAttachment = attachments.find(item => item.path === node.dataset.previewPath);
   });
+  
   wrap.appendChild(el);
   bindSkillLogoFallbacks(el);
 
@@ -3969,9 +5715,10 @@ function appendMessage(role, content, attachments = [], animate = true, msgIndex
 // 用户消息里的 **加粗** / *斜体* 在转义后还原为语义标签，让输入框里的
 // 富文本格式在发送后仍然可见（默认仍是纯文本，只有成对标记才生效）。
 function renderInlineEmphasis(escapedText) {
-  return String(escapedText ?? '')
+  const html = String(escapedText ?? '')
     .replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^\n*]+?)\*/g, '<em>$1</em>');
+  return html;
 }
 
 function formatDuration(ms) {
@@ -3980,6 +5727,14 @@ function formatDuration(ms) {
   const m = Math.floor(ms / 60000);
   const s = Math.floor((ms % 60000) / 1000);
   return `${m}m ${s}s`;
+}
+
+function formatRunElapsed(ms) {
+  const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const seconds = totalSeconds % 60;
+  return `${hours ? `${hours}时` : ''}${hours || minutes ? `${minutes}分` : ''}${seconds}秒`;
 }
 
 function formatHandledDuration(ms) {
@@ -4005,10 +5760,6 @@ async function handleMessageAction(action, el) {
   const msgIndex = Number(el.dataset.msgIndex);
   const msgs = state.currentSession?.messages || [];
   const msg = msgs[msgIndex];
-  if (action === 'speak') {
-    toggleMessageSpeech(el, el.querySelector('[data-act="speak"]'));
-    return;
-  }
   if (!msg) return;
 
   if (action === 'copy') {
@@ -4017,18 +5768,20 @@ async function handleMessageAction(action, el) {
       toast('已复制到剪贴板');
     } catch { toast('复制失败'); }
   } else if (action === 'edit') {
-    // 撤回重发会删除该消息之后的全部轮次，因此只允许作用在最后一轮用户消息上；
-    // 且该轮必须是被用户主动中止的，正常完成或报错结束都不再提供重发。
+    // 撤回重发会删除该消息之后的全部轮次，因此只允许作用在最后一条用户消息上。
     if (isCurrentSessionExecutionActive()) {
       toast('当前任务正在运行，结束后才能撤回重发');
       return;
     }
     if (!canResendLastTurn(msgIndex, msgs)) {
-      toast('仅用户中止的最后一轮可以撤回重发');
+      toast('仅最后一条用户消息可以撤回重发');
       return;
     }
-    // 撤回重写：把内容填回输入框，删除该消息及之后所有消息
+    // 撤回重写：把内容和附件填回输入框，删除该消息及之后所有消息
     input.value = msg.content || '';
+    state.attachments = (Array.isArray(msg.attachments) ? msg.attachments : [])
+      .map(attachment => ({ ...attachment }));
+    renderAttachments();
     const restoredSkills = normalizeSkillCalls(msg.skillCalls || msg.skillCall).map(skill =>
       installedSkillPickerItems().find(item => item.id === skill.id) || skill
     );
@@ -4071,7 +5824,16 @@ function textSelectionToolbar() {
   bar.className = 'text-selection-toolbar hidden';
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', '选中文本操作');
-  bar.innerHTML = `<button type="button" class="text-selection-action" data-selection-action="quote">${ICONS.quote}<span>添加到对话</span></button><button type="button" class="text-selection-action" data-selection-action="side-chat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/><path d="M17.5 9.5h1M17.5 12.5h1"/></svg><span>在侧边聊天中提问</span></button><button type="button" class="text-selection-action" data-selection-action="copy">${ICONS.copy}<span>复制选中</span></button>`;
+  bar.innerHTML = `
+    <button type="button" class="text-selection-action" data-selection-action="quote">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5686 16.353 C2.915 14.8839 2 12.9769 2 11 C2 6.5817 6.4772 3 12 3 C17.5228 3 22 6.5817 22 11 C22 15.4183 17.5228 19 12 19 C11.1845 19 10.3721 18.9202 9.5808 18.7624 L5 21 L4.5686 16.353 ZM12 8 L12 14 M9 11 L15 11"/></svg>
+      <span>添加到对话</span>
+    </button>
+    <button type="button" class="text-selection-action" data-selection-action="side-chat">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5686 16.353C2.915 14.8839 2 12.9769 2 11C2 6.5817 6.4772 3 12 3C17.5228 3 22 6.5817 22 11C22 15.4183 17.5228 19 12 19C11.1845 19 10.3721 18.9202 9.5808 18.7624L5 21L4.5686 16.353ZM10.4 8.6C10.4 7.7164 11.1164 7 12 7C12.8836 7 13.6 7.7164 13.6 8.6C13.6 9.2459 13.2116 9.8285 12.6154 10.0769C12.2427 10.2322 12 10.5963 12 11"/><path d="M13 15C13 15.5523 12.5523 16 12 16C11.4477 16 11 15.5523 11 15C11 14.4477 11.4477 14 12 14C12.5523 14 13 14.4477 13 15Z" fill="currentColor" stroke="none"/></svg>
+      <span>在侧边聊天中提问</span>
+    </button>
+    <button type="button" class="text-selection-action" data-selection-action="copy">${ICONS.copy}<span>复制选中</span></button>`;
   // 按下工具条时不能清掉当前选区，否则复制会拿到空字符串。
   bar.addEventListener('mousedown', event => event.preventDefault());
   bar.addEventListener('click', event => {
@@ -4176,8 +5938,7 @@ function bindTextSelectionToolbar() {
   window.addEventListener('resize', hideTextSelectionToolbar);
 }
 
-// 撤回重发只对最后一轮用户消息开放，且该轮必须是被用户主动中止的：
-// 正常完成与报错结束都不再提供重发入口，更早的轮次会连带删除后续对话。
+// 撤回重发只对最后一条用户消息开放；更早的轮次会连带删除后续对话。
 function lastUserMessageIndex(messages = state.currentSession?.messages) {
   const list = Array.isArray(messages) ? messages : [];
   for (let i = list.length - 1; i >= 0; i -= 1) {
@@ -4186,436 +5947,21 @@ function lastUserMessageIndex(messages = state.currentSession?.messages) {
   return -1;
 }
 
-// 与 renderAgentRunHeader 对“用户手动中止输出”的判定保持一致：恢复自上次
-// 应用退出的中断不算用户中止。
-function messageEndedByUserAbort(message) {
-  const run = message?.agentRun;
-  if (run) return run.status === 'interrupted' && run.recoveredAfterRestart !== true;
-  return /已中止媒体生成|用户手动中止输出/.test(String(message?.content || ''));
-}
-
-function lastTurnEndedByUserAbort(messages = state.currentSession?.messages) {
-  const list = Array.isArray(messages) ? messages : [];
-  const start = lastUserMessageIndex(list);
-  if (start < 0) return false;
-  return list.slice(start + 1).some(message => (
-    message?.role === 'assistant' && messageEndedByUserAbort(message)
-  ));
-}
-
 function canResendLastTurn(msgIndex, messages = state.currentSession?.messages) {
   return Number.isInteger(msgIndex)
     && msgIndex >= 0
-    && msgIndex === lastUserMessageIndex(messages)
-    && lastTurnEndedByUserAbort(messages);
+    && msgIndex === lastUserMessageIndex(messages);
 }
 
-// 不能重发时不显示撤回按钮，避免留下一个点了没反应的入口。
+// 运行中不显示撤回按钮，避免留下一个点了没反应的入口。
 function syncUserMessageEditAvailability() {
   const lastIndex = lastUserMessageIndex();
-  const allowed = lastTurnEndedByUserAbort();
+  const allowed = lastIndex >= 0 && !isCurrentSessionExecutionActive();
   $$('#messages .msg.user').forEach(element => {
     const button = element.querySelector('.msg-action-btn[data-act="edit"]');
     if (!button) return;
     button.classList.toggle('hidden', !(allowed && Number(element.dataset.msgIndex) === lastIndex));
   });
-}
-
-// ============================================================
-// Read replies aloud (Edge neural voices via the main process)
-// ============================================================
-const SPEECH_DEFAULT_VOICE = 'zh-CN-XiaoxiaoNeural';
-const SPEECH_SKIP_SELECTOR = 'pre, code, table, .msg-actions, .agent-activity, .generated-image-result, .generated-video-result, [data-tts-skip]';
-const TTS_VOICE_OPTIONS = Object.freeze([
-  { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 · 女声温柔' },
-  { id: 'zh-CN-XiaoyiNeural', label: '晓伊 · 女声活泼' },
-  { id: 'zh-CN-YunxiNeural', label: '云希 · 男声阳光' },
-  { id: 'zh-CN-YunjianNeural', label: '云健 · 男声沉稳' },
-  { id: 'zh-CN-YunyangNeural', label: '云扬 · 男声播报' },
-  { id: 'zh-CN-YunxiaNeural', label: '云夏 · 男声少年' },
-  { id: 'zh-CN-liaoning-XiaobeiNeural', label: '晓北 · 女声东北' },
-  { id: 'zh-CN-shaanxi-XiaoniNeural', label: '晓妮 · 女声陕西' }
-]);
-let speechPlayback = null;
-let speechRequestSeq = 0;
-
-function speechSettings() {
-  const tts = state.config?.tts || {};
-  const rate = Number(tts.rate);
-  return {
-    voice: String(tts.voice || SPEECH_DEFAULT_VOICE),
-    rate: Number.isFinite(rate) ? rate : 0
-  };
-}
-
-function splitSpeechSentences(value) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!text) return [];
-  const parts = [];
-  for (const piece of text.split(/(?<=[。！？!?；;…])/u)) {
-    const sentence = piece.trim();
-    if (!sentence) continue;
-    if (sentence.length > 140) {
-      let buffer = '';
-      for (const fragment of sentence.split(/(?<=[，,、])/u)) {
-        if (buffer && buffer.length + fragment.length > 140) {
-          parts.push(buffer.trim());
-          buffer = fragment;
-        } else {
-          buffer += fragment;
-        }
-      }
-      if (buffer.trim()) parts.push(buffer.trim());
-      continue;
-    }
-    const previous = parts[parts.length - 1];
-    if (previous && sentence.length < 6 && previous.length + sentence.length <= 140) {
-      parts[parts.length - 1] = previous + sentence;
-    } else {
-      parts.push(sentence);
-    }
-  }
-  return parts;
-}
-
-function wrapSpeechSegments(messageEl) {
-  const body = messageEl?.querySelector?.('.msg-body');
-  if (!body) return [];
-  const existing = Array.from(body.querySelectorAll('[data-tts-seg]'));
-  if (existing.length) {
-    return existing.map(span => ({ text: span.dataset.ttsText || span.textContent || '', span }));
-  }
-  const rounds = Array.from(body.querySelectorAll('.msg-round'));
-  const roots = rounds.length ? rounds : [body];
-  const segments = [];
-  for (const root of roots) {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        if (!String(node.nodeValue || '').trim()) return NodeFilter.FILTER_REJECT;
-        const parent = node.parentElement;
-        if (!parent || parent.closest(SPEECH_SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    const textNodes = [];
-    while (walker.nextNode()) textNodes.push(walker.currentNode);
-    for (const node of textNodes) {
-      const sentences = splitSpeechSentences(node.nodeValue);
-      if (!sentences.length) continue;
-      const fragment = document.createDocumentFragment();
-      for (const sentence of sentences) {
-        const span = document.createElement('span');
-        span.className = 'tts-seg';
-        span.dataset.ttsSeg = String(segments.length);
-        span.dataset.ttsText = sentence;
-        span.textContent = sentence;
-        fragment.appendChild(span);
-        segments.push({ text: sentence, span });
-      }
-      node.parentNode?.replaceChild(fragment, node);
-    }
-  }
-  return segments;
-}
-
-function requestSpeechAudio(payload) {
-  if (typeof api?.ttsSynthesize !== 'function') {
-    return Promise.resolve({ ok: false, error: '当前版本不支持朗读' });
-  }
-  return Promise.resolve(api.ttsSynthesize(payload)).catch(error => ({ ok: false, error: String(error?.message || error) }));
-}
-
-function playSpeechAudio(playback, audioBytes) {
-  return new Promise(resolve => {
-    if (!audioBytes || !Number(audioBytes.byteLength)) { resolve(false); return; }
-    let url = '';
-    let audio = null;
-    const finish = ok => {
-      try { audio?.pause(); } catch { /* already detached */ }
-      if (url) URL.revokeObjectURL(url);
-      if (playback) playback.cancelAudio = null;
-      resolve(ok);
-    };
-    try {
-      url = URL.createObjectURL(new Blob([audioBytes], { type: 'audio/mpeg' }));
-      audio = new Audio(url);
-    } catch {
-      finish(false);
-      return;
-    }
-    if (playback) {
-      playback.audio = audio;
-      playback.cancelAudio = () => finish(false);
-    }
-    audio.addEventListener('ended', () => finish(true), { once: true });
-    audio.addEventListener('error', () => finish(false), { once: true });
-    audio.play().catch(() => finish(false));
-  });
-}
-
-function stopSpeechPlayback() {
-  const playback = speechPlayback;
-  if (!playback) return;
-  speechPlayback = null;
-  playback.stopped = true;
-  if (playback.requestId && typeof api?.ttsCancel === 'function') {
-    Promise.resolve(api.ttsCancel(playback.requestId)).catch(() => {});
-  }
-  playback.cancelAudio?.();
-  playback.button?.classList.remove('is-reading');
-  playback.button?.setAttribute('aria-pressed', 'false');
-  playback.segments?.forEach(segment => segment.span.classList.remove('tts-reading'));
-}
-
-async function startSpeechPlayback(messageEl, button) {
-  const segments = wrapSpeechSegments(messageEl);
-  if (!segments.length) { toast('这条消息没有可朗读的正文'); return; }
-  const settings = speechSettings();
-  const playback = {
-    el: messageEl,
-    button,
-    segments,
-    stopped: false,
-    requestId: '',
-    cancelAudio: null,
-    prefetched: new Map()
-  };
-  speechPlayback = playback;
-  button?.classList.add('is-reading');
-  button?.setAttribute('aria-pressed', 'true');
-  const runId = ++speechRequestSeq;
-  const loadSegment = index => {
-    if (playback.prefetched.has(index)) return playback.prefetched.get(index);
-    const text = segments[index]?.text || '';
-    const requestId = `tts-${runId}-${index}`;
-    const promise = requestSpeechAudio({ text, voice: settings.voice, rate: settings.rate, requestId })
-      .then(result => ({ ...result, requestId }));
-    playback.prefetched.set(index, promise);
-    return promise;
-  };
-  try {
-    for (let index = 0; index < segments.length; index += 1) {
-      if (playback.stopped || speechPlayback !== playback || !playback.el.isConnected) return;
-      const pending = loadSegment(index);
-      if (index + 1 < segments.length) void loadSegment(index + 1);
-      const result = await pending;
-      if (playback.stopped || speechPlayback !== playback) return;
-      if (!result?.ok) { toast(`朗读失败：${result?.error || '未知错误'}`); return; }
-      playback.requestId = result.requestId || '';
-      segments[index].span.classList.add('tts-reading');
-      if (index > 0) segments[index - 1].span.classList.remove('tts-reading');
-      if (segments[index].span.isConnected) segments[index].span.scrollIntoView({ block: 'nearest' });
-      await playSpeechAudio(playback, result.audio);
-      playback.requestId = '';
-    }
-  } finally {
-    if (speechPlayback === playback) speechPlayback = null;
-    playback.cancelAudio?.();
-    playback.button?.classList.remove('is-reading');
-    playback.button?.setAttribute('aria-pressed', 'false');
-    playback.segments.forEach(segment => segment.span.classList.remove('tts-reading'));
-  }
-}
-
-function toggleMessageSpeech(messageEl, button) {
-  if (speechPlayback?.el === messageEl) { stopSpeechPlayback(); return; }
-  stopSpeechPlayback();
-  void startSpeechPlayback(messageEl, button || messageEl?.querySelector?.('[data-act="speak"]'));
-}
-
-function ttsVoiceLabel(voiceId) {
-  const id = String(voiceId || '');
-  return TTS_VOICE_OPTIONS.find(option => option.id === id)?.label || id || SPEECH_DEFAULT_VOICE;
-}
-
-function ttsVoicePickerOptions() {
-  const menu = $('#ttsVoicePickerMenu');
-  return menu ? Array.from(menu.querySelectorAll('[data-tts-voice]')) : [];
-}
-
-function syncTtsVoicePicker(voice) {
-  const resolved = String(voice || SPEECH_DEFAULT_VOICE);
-  const label = $('#ttsVoicePickerLabel');
-  if (label) label.textContent = ttsVoiceLabel(resolved);
-  ttsVoicePickerOptions().forEach(option => {
-    const active = option.dataset.ttsVoice === resolved;
-    option.classList.toggle('active', active);
-    option.setAttribute('aria-selected', String(active));
-  });
-}
-
-function setTtsVoicePickerOpen(open, { focusSelected = false } = {}) {
-  const picker = $('#ttsVoicePicker');
-  const trigger = $('#ttsVoicePickerTrigger');
-  const menu = $('#ttsVoicePickerMenu');
-  if (!picker || !trigger || !menu) return;
-  if (!open) {
-    menu.classList.add('hidden');
-    trigger.setAttribute('aria-expanded', 'false');
-    return;
-  }
-  if (menu.parentElement !== document.body) document.body.appendChild(menu);
-  menu.classList.remove('hidden');
-  trigger.setAttribute('aria-expanded', 'true');
-  const triggerRect = trigger.getBoundingClientRect();
-  const menuRect = menu.getBoundingClientRect();
-  const gap = 7;
-  const left = Math.max(8, Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - 8));
-  const top = triggerRect.bottom + gap + menuRect.height <= window.innerHeight - 8
-    ? triggerRect.bottom + gap
-    : Math.max(8, triggerRect.top - menuRect.height - gap);
-  menu.style.left = `${Math.round(left)}px`;
-  menu.style.top = `${Math.round(top)}px`;
-  if (focusSelected) menu.querySelector('.tts-voice-picker-option.active')?.focus();
-}
-
-function renderTtsSettings(cfg = state.config || {}) {
-  const menu = $('#ttsVoicePickerMenu');
-  const tts = cfg?.tts || {};
-  const voice = String(tts.voice || SPEECH_DEFAULT_VOICE);
-  const voiceSelect = settingsOverlay.querySelector('#ttsVoice');
-  if (voiceSelect) {
-    if (!voiceSelect.options.length) voiceSelect.replaceChildren(...TTS_VOICE_OPTIONS.map(option => new Option(option.label, option.id)));
-    if (![...voiceSelect.options].some(option => option.value === voice)) voiceSelect.add(new Option(voice, voice));
-    voiceSelect.value = voice;
-    window.YanAppearanceControls?.sync();
-  }
-  if (menu && !menu.querySelector('[data-tts-voice]')) {
-    menu.innerHTML = TTS_VOICE_OPTIONS
-      .map(option => `<button class="tts-voice-picker-option" type="button" role="option" data-tts-voice="${escapeAttr(option.id)}" aria-selected="false"><span>${escapeHtml(option.label)}</span><span class="tts-voice-picker-check" aria-hidden="true">✓</span></button>`)
-      .join('');
-  }
-  const hasVoiceOption = ttsVoicePickerOptions().some(option => option.dataset.ttsVoice === voice);
-  if (menu && !hasVoiceOption) {
-    menu.insertAdjacentHTML('beforeend', `<button class="tts-voice-picker-option" type="button" role="option" data-tts-voice="${escapeAttr(voice)}" aria-selected="false"><span>${escapeHtml(voice)}</span><span class="tts-voice-picker-check" aria-hidden="true">✓</span></button>`);
-  }
-  syncTtsVoicePicker(voice);
-  const rate = Number(tts.rate);
-  const resolved = Number.isFinite(rate) ? rate : 0;
-  const range = $('#ttsRateRange');
-  if (range) range.value = String(resolved);
-  const output = $('#ttsRateValue');
-  if (output) output.textContent = `${resolved >= 0 ? '+' : ''}${resolved}%`;
-}
-
-async function previewTtsVoice() {
-  const button = $('#ttsPreviewBtn');
-  if (button?.dataset.busy === 'true') return;
-  stopSpeechPlayback();
-  if (button) { button.dataset.busy = 'true'; button.disabled = true; }
-  try {
-    const settings = speechSettings();
-    const result = await requestSpeechAudio({
-      text: '你好，我是 Yan Agent，正在为你朗读正文。',
-      voice: settings.voice,
-      rate: settings.rate,
-      requestId: `tts-preview-${++speechRequestSeq}`
-    });
-    if (result?.ok) await playSpeechAudio(null, result.audio);
-    else toast(`试听失败：${result?.error || '未知错误'}`);
-  } finally {
-    if (button) { button.dataset.busy = 'false'; button.disabled = false; }
-  }
-}
-
-function bindTtsSettings() {
-  const voiceSelect = settingsOverlay.querySelector('#ttsVoice');
-  if (voiceSelect && !voiceSelect.dataset.bound) {
-    voiceSelect.dataset.bound = 'true';
-    voiceSelect.addEventListener('change', async () => {
-      voiceSelect.disabled = true;
-      window.YanAppearanceControls?.sync();
-      try {
-        state.config = await api.setConfig({ tts: { voice: voiceSelect.value } });
-      } catch (error) {
-        toast(`朗读音色保存失败：${error.message}`);
-      } finally {
-        voiceSelect.disabled = false;
-        renderTtsSettings(state.config);
-      }
-    });
-  }
-  const range = $('#ttsRateRange');
-  if (range && range.dataset.bound !== 'true') {
-    range.dataset.bound = 'true';
-    range.addEventListener('input', () => {
-      const value = Number(range.value) || 0;
-      const output = $('#ttsRateValue');
-      if (output) output.textContent = `${value >= 0 ? '+' : ''}${value}%`;
-    });
-    range.addEventListener('change', async () => {
-      const value = Number(range.value) || 0;
-      try {
-        state.config = await api.setConfig({ tts: { rate: value } });
-      } catch (error) {
-        renderTtsSettings(state.config);
-        toast(`语速保存失败：${error?.message || error}`);
-      }
-    });
-  }
-  const preview = $('#ttsPreviewBtn');
-  if (preview && preview.dataset.bound !== 'true') {
-    preview.dataset.bound = 'true';
-    preview.addEventListener('click', () => void previewTtsVoice());
-  }
-  const picker = $('#ttsVoicePicker');
-  const trigger = $('#ttsVoicePickerTrigger');
-  const menu = $('#ttsVoicePickerMenu');
-  if (picker && trigger && menu && !picker.dataset.bound) {
-    picker.dataset.bound = 'true';
-    trigger.addEventListener('click', event => {
-      event.stopPropagation();
-      setTtsVoicePickerOpen(trigger.getAttribute('aria-expanded') !== 'true');
-    });
-    trigger.addEventListener('keydown', event => {
-      if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) return;
-      event.preventDefault();
-      setTtsVoicePickerOpen(true, { focusSelected: true });
-    });
-    menu.addEventListener('click', async event => {
-      const option = event.target.closest('[data-tts-voice]');
-      if (!option) return;
-      const voice = String(option.dataset.ttsVoice || '');
-      const previous = String(state.config?.tts?.voice || SPEECH_DEFAULT_VOICE);
-      setTtsVoicePickerOpen(false);
-      syncTtsVoicePicker(voice);
-      trigger.disabled = true;
-      try {
-        state.config = await api.setConfig({ tts: { voice } });
-        syncTtsVoicePicker(state.config?.tts?.voice || voice);
-        toast('朗读音色已更新');
-      } catch (error) {
-        syncTtsVoicePicker(previous);
-        toast(`朗读音色保存失败：${error?.message || error}`);
-      } finally {
-        trigger.disabled = false;
-        trigger.focus();
-      }
-    });
-    menu.addEventListener('keydown', event => {
-      const options = ttsVoicePickerOptions();
-      const current = options.indexOf(document.activeElement);
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setTtsVoicePickerOpen(false);
-        trigger.focus();
-        return;
-      }
-      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault();
-      const index = event.key === 'Home' ? 0
-        : event.key === 'End' ? options.length - 1
-          : event.key === 'ArrowDown' ? (current + 1 + options.length) % options.length
-            : (current - 1 + options.length) % options.length;
-      options[index]?.focus();
-    });
-    document.addEventListener('click', event => {
-      if (event.target.closest('#ttsVoicePicker, #ttsVoicePickerMenu')) return;
-      setTtsVoicePickerOpen(false);
-    });
-    document.addEventListener('scroll', () => setTtsVoicePickerOpen(false), true);
-    window.addEventListener('resize', () => setTtsVoicePickerOpen(false));
-  }
 }
 
 function currentChatSessionId() {
@@ -4693,6 +6039,7 @@ function resumeChatAutoFollow() {
 }
 
 function scrollChatToBottom({ instant = false, force = false } = {}) {
+  if (chatScrollRestoring) return;
   if (!force && (suppressChatAutoScroll || !isChatAutoFollowEnabled())) return;
   const sc = $('#chatScroll');
   if (!sc) return;
@@ -4705,6 +6052,60 @@ function scrollChatToBottom({ instant = false, force = false } = {}) {
     sc.scrollTop = sc.scrollHeight;
   }
   scheduleTurnScaleUpdate();
+}
+
+// The chat page leaves the layout when another workspace (plugins, settings,
+// about) is shown. A display:none scroll container loses its offset, and the
+// scroll event fired at offset 0 used to look like "the reader reached the
+// top", which pulled the whole earlier history and dropped the reader at the
+// oldest message of the task. Keep the last real offset per session and put it
+// back before any scroll handler can misinterpret the reset.
+const chatScrollPositions = new Map();
+let chatScrollRestorePending = false;
+let chatScrollRestoring = false;
+let chatScrollRestoreTimer = 0;
+
+function captureChatScrollPosition() {
+  const sc = $('#chatScroll');
+  const sessionId = currentChatSessionId();
+  if (!sc || !sessionId) return;
+  // A hidden page reports scrollTop 0; keep the last real reading instead.
+  if (!sc.clientHeight || $('#pageChat')?.classList.contains('hidden')) return;
+  const app = $('#app');
+  if (app?.classList.contains('settings-mode')) return;
+  chatScrollPositions.set(sessionId, {
+    top: sc.scrollTop,
+    atBottom: isChatNearBottom(24)
+  });
+  chatScrollRestorePending = true;
+  stopSessionEntryFollow?.();
+}
+
+function restoreChatScrollPosition() {
+  const sc = $('#chatScroll');
+  const sessionId = currentChatSessionId();
+  if (!sc || !sessionId || !chatScrollRestorePending) return;
+  if ($('#pageChat')?.classList.contains('hidden')) return;
+  const saved = chatScrollPositions.get(sessionId);
+  chatScrollRestorePending = false;
+  if (!saved) return;
+  const apply = () => {
+    const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
+    sc.scrollTop = saved.atBottom ? max : Math.min(saved.top, max);
+    scheduleTurnScaleUpdate();
+  };
+  chatScrollRestoring = true;
+  if (chatScrollRestoreTimer) clearTimeout(chatScrollRestoreTimer);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    apply();
+    // Composer-inset and wallpaper layout observers can still move the
+    // scroller one frame later; hold the restored offset through them.
+    chatScrollRestoreTimer = setTimeout(() => {
+      chatScrollRestoreTimer = 0;
+      if (sessionId === currentChatSessionId() && !$('#pageChat')?.classList.contains('hidden')) apply();
+      chatScrollRestoring = false;
+    }, 120);
+  }));
 }
 
 // ============================================================
@@ -4814,6 +6215,7 @@ function setComposerText(value, { preserveSkills = true } = {}) {
   input.replaceChildren(...skillTokens);
   const text = String(value ?? '');
   if (text) input.append(document.createTextNode(text));
+  
   composerTextCache = text;
   composerTextCacheValid = true;
   bindSkillLogoFallbacks(input);
@@ -5053,6 +6455,111 @@ input.addEventListener('pointerup', () => {
 });
 
 // ============================================================
+// 输入框右键菜单：复制 / 粘贴 / 剪切 / 全选
+// ============================================================
+const COMPOSER_CONTEXT_ICONS = {
+  copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/></svg>',
+  paste: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/><rect x="9" y="2" width="6" height="4" rx="1.5"/><path d="M8 13h8M8 17h5"/></svg>',
+  cut: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 16 18 4M16 16 6 4"/></svg>',
+  selectAll: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7L4 7C2.8954 7 2 7.8954 2 9L2 15C2 16.1046 2.8954 17 4 17L12 17M20 7C21.1046 7 22 7.8954 22 9L22 15C22 16.1046 21.1046 17 20 17M6 11L6 13M16 4.25C15.5556 3.6875 14.1333 2 12 2M16 4.25C16.4444 3.6875 17.8667 2 20 2M16 4.25L16 19.75M16 19.75C16.4444 20.3125 17.8667 22 20 22M16 19.75C15.5556 20.3125 14.1333 22 12 22" fill="none"/></svg>'
+};
+let composerContextSelection = { text: '', range: null };
+
+function restoreComposerContextSelection() {
+  const range = composerContextSelection.range;
+  const selection = window.getSelection();
+  if (!range || !selection || !input.contains(range.startContainer) || !input.contains(range.endContainer)) return false;
+  input.focus({ preventScroll: true });
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
+function composerSelectionText() {
+  const range = composerSelectionInside();
+  if (!range || range.collapsed) return '';
+  return window.getSelection()?.toString() || '';
+}
+
+async function copyComposerSelection() {
+  const text = composerContextSelection.text;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    console.warn('[composer-context] copy failed:', error);
+    toast('复制失败');
+  }
+}
+
+async function cutComposerSelection() {
+  const text = composerContextSelection.text;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    console.warn('[composer-context] cut copy failed:', error);
+    toast('剪切失败');
+    return;
+  }
+  if (!restoreComposerContextSelection()) return;
+  const range = composerSelectionInside();
+  if (!range || range.collapsed) return;
+  range.deleteContents();
+  input.normalize();
+  invalidateComposerTextCache();
+  composerLastCaretTextOffset = getComposerCaretTextOffset();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+async function pasteIntoComposer() {
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch (error) {
+    console.warn('[composer-context] paste read failed:', error);
+    toast('无法读取剪贴板');
+    return;
+  }
+  if (!text) {
+    toast('剪贴板中没有可粘贴的文本');
+    return;
+  }
+  restoreComposerContextSelection();
+  if (!insertComposerPlainText(text)) {
+    toast('无法粘贴到输入框');
+    return;
+  }
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  linkifyComposerUrls({ finish: true });
+}
+
+function selectAllComposerContent() {
+  input.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(input);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  composerContextSelection = { text: selection.toString(), range: range.cloneRange() };
+}
+
+input.addEventListener('contextmenu', event => {
+  event.preventDefault();
+  const selected = composerSelectionText();
+  const range = composerSelectionInside();
+  composerContextSelection = { text: selected, range: range ? range.cloneRange() : null };
+  openSidebarContextMenu(null, [
+    { label: '复制', icon: COMPOSER_CONTEXT_ICONS.copy, shortcut: 'Ctrl+C', disabled: !selected, onSelect: copyComposerSelection },
+    { label: '粘贴', icon: COMPOSER_CONTEXT_ICONS.paste, shortcut: 'Ctrl+V', onSelect: pasteIntoComposer },
+    { label: '剪切', icon: COMPOSER_CONTEXT_ICONS.cut, shortcut: 'Ctrl+X', disabled: !selected, onSelect: cutComposerSelection },
+    { label: '全选', icon: COMPOSER_CONTEXT_ICONS.selectAll, shortcut: 'Ctrl+A', onSelect: selectAllComposerContent }
+  ], { x: event.clientX, y: event.clientY, className: 'composer-context-menu' });
+});
+
+
+// ============================================================
 // 输入框富输入：URL 识别为可点击链接 + 选中文本的加粗/斜体药丸
 // ============================================================
 const COMPOSER_LINK_SELECTOR = 'a.composer-link';
@@ -5181,17 +6688,46 @@ function composerFormatPill() {
   pill.id = 'composerFormatPill';
   pill.className = 'composer-format-pill hidden';
   pill.setAttribute('role', 'toolbar');
-  pill.setAttribute('aria-label', '选中文本格式');
-  pill.innerHTML = `<button type="button" class="composer-format-action" data-format="bold" title="加粗" aria-label="加粗">${COMPOSER_FORMAT_ICONS.bold}</button><button type="button" class="composer-format-action" data-format="italic" title="斜体" aria-label="斜体">${COMPOSER_FORMAT_ICONS.italic}</button>`;
-  // 按下药丸时不能清掉输入框选区，否则加粗/斜体会拿到空选区。
+  pill.setAttribute('aria-label', '选中文本操作');
+  pill.innerHTML = `<button type="button" class="composer-format-action" data-format="bold" title="加粗" aria-label="加粗">${COMPOSER_FORMAT_ICONS.bold}</button><button type="button" class="composer-format-action" data-format="italic" title="斜体" aria-label="斜体">${COMPOSER_FORMAT_ICONS.italic}</button><span class="composer-format-divider" aria-hidden="true"></span><button type="button" class="composer-format-action" data-edit="copy" title="复制" aria-label="复制">${COMPOSER_CONTEXT_ICONS.copy}</button><button type="button" class="composer-format-action" data-edit="cut" title="剪切" aria-label="剪切">${COMPOSER_CONTEXT_ICONS.cut}</button>`;
+  // 按下药丸时不能清掉输入框选区，否则加粗/斜体/复制/剪切会拿到空选区。
   pill.addEventListener('mousedown', event => event.preventDefault());
   pill.addEventListener('click', event => {
+    const edit = event.target.closest('[data-edit]')?.dataset.edit;
+    if (edit) { applyComposerEdit(edit); return; }
     const format = event.target.closest('[data-format]')?.dataset.format;
     if (format) applyComposerFormat(format);
   });
   document.body.appendChild(pill);
   composerFormatPillEl = pill;
   return pill;
+}
+
+// 选中文本药丸上的复制/剪切：与右键菜单共用“先取保存的选区”策略，
+// 避免点击药丸后焦点变化导致选区丢失。
+function applyComposerEdit(kind) {
+  const savedRange = composerFormatRange;
+  hideComposerFormatPill();
+  let range = composerSelectionInside();
+  if (!range || range.collapsed) range = savedRange;
+  if (!range || range.collapsed) return;
+  const text = range.toString();
+  if (!text) return;
+  navigator.clipboard.writeText(text).catch(error => {
+    console.warn('[composer-pill] copy failed:', error);
+    toast('复制失败');
+  });
+  if (kind !== 'cut') return;
+  const selection = window.getSelection();
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  range.deleteContents();
+  input.normalize();
+  invalidateComposerTextCache();
+  composerLastCaretTextOffset = getComposerCaretTextOffset();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function hideComposerFormatPill() {
@@ -5317,7 +6853,9 @@ function composerMinHeight() {
   const min = Number.parseFloat(getComputedStyle(composer).minHeight);
   const snapshots = $('#composerSnapshots');
   const snapshotHeight = snapshots && !snapshots.classList.contains('hidden') ? snapshots.offsetHeight + 6 : 0;
-  return (Number.isFinite(min) && min > 0 ? Math.round(min) : 88) + snapshotHeight;
+  const attachments = $('#attachments');
+  const attachmentHeight = attachments && !attachments.classList.contains('hidden') ? attachments.offsetHeight : 0;
+  return (Number.isFinite(min) && min > 0 ? Math.round(min) : 88) + snapshotHeight + attachmentHeight;
 }
 
 function composerHeightCeiling() {
@@ -5360,6 +6898,8 @@ function measureComposerContentHeight() {
   const chrome = Math.max(0, editor.offsetHeight - input.clientHeight);
   const inner = composer.querySelector('.composer-inner');
   const innerChrome = inner ? Math.max(0, inner.offsetHeight - editor.offsetHeight) : 0;
+  const attachments = $('#attachments');
+  const attachmentHeight = attachments && !attachments.classList.contains('hidden') ? attachments.offsetHeight : 0;
   if (previous) composer.style.setProperty('--composer-height', previous);
   else composer.style.removeProperty('--composer-height');
   // Apply the restored height while the transition is still suspended. Without
@@ -5368,13 +6908,18 @@ function measureComposerContentHeight() {
   // (the composer "twitches" once it has grown).
   void composer.offsetHeight;
   composer.classList.remove('composer-measuring');
-  return content + chrome + innerChrome;
+  return content + chrome + innerChrome + attachmentHeight;
 }
+
+
+
+
 
 function autoGrow() {
   composerGrowFrame = 0;
   const composer = $('#composer');
   if (!composer || composer.classList.contains('prompt-optimizing')) return;
+  
   const measured = measureComposerContentHeight();
   const sticky = composerManualHeight > 0 ? composerManualHeight : 0;
   applyComposerHeight(Math.max(measured, sticky));
@@ -5701,12 +7246,13 @@ function updateSendState(composerText = getComposerText()) {
   const runCtx = isCurrentSessionResponding() ? getRunCtx(state.currentSession?.id) : null;
   const hasText = composerHasText(composerText);
   const hasPayload = hasText || state.attachments.length > 0 || state.selectedSkills.length > 0 || state.selectedSubagents.length > 0 || state.selectedPlugins.length > 0;
+  const gateBlocked = !!nestedStartGate;
   syncConversationSubmitButton(sendBtn, {
     active: !!runCtx,
     stopping: !!runCtx?.shouldAbort,
     queueing: !!runCtx && hasPayload,
-    sendDisabled: !!promptOptimizationRun || !hasPayload,
-    sendTitle: '发送',
+    sendDisabled: gateBlocked || hasPendingAttachments() || !!promptOptimizationRun || !hasPayload,
+    sendTitle: gateBlocked ? '请先确认模型并开始子会话' : '发送',
     queueTitle: state.config?.general?.followUpMode === 'guide' ? '引导当前运行' : state.queuedTurns.has(String(state.currentSession?.id || '')) ? '更新排队对话' : '排队发送',
     stopTitle: '中止任务'
   });
@@ -5717,6 +7263,7 @@ function updateSendState(composerText = getComposerText()) {
 }
 
 sendBtn.addEventListener('click', () => {
+  if (nestedStartGate) { toast('请先确认模型并开始子会话'); return; }
   if (isCurrentSessionResponding()) {
     const hasPayload = composerHasText(getComposerText())
       || state.attachments.length > 0
@@ -5727,6 +7274,7 @@ sendBtn.addEventListener('click', () => {
     sendMessage();
   }
 });
+$('#nestedStartConfirm')?.addEventListener('click', () => { void confirmNestedStart(); });
 
 function createQueuedTurnId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -5796,6 +7344,7 @@ function buildGuidanceText(payload = {}, workspace = '') {
 }
 
 async function submitComposerFollowUp() {
+  if (hasPendingAttachments()) return;
   if (state.config?.general?.followUpMode !== 'guide') return queueCurrentComposerTurn();
   const session = state.currentSession;
   const run = getRunCtx(session?.id);
@@ -6063,6 +7612,9 @@ function reconcileRunFromCoreTerminal(runId, event) {
   if (runCtx.coreSettled) return;
   runCtx.coreSettled = true;
   runCtx.coreReconciled = true;
+  // The turn is already gone on the kernel side, so a permission panel still
+  // waiting for the user can never be delivered. Close it with this run.
+  settleAgentInteractionForRun(runCtx);
   runCtx.detachOpenCodeListeners?.();
   const reconciledError = new Error('Core 已完成任务对账，忽略迟到的 OpenCode 收尾结果。');
   reconciledError.code = 'YAN_CORE_RECONCILED';
@@ -6070,13 +7622,27 @@ function reconcileRunFromCoreTerminal(runId, event) {
   runCtx.rejectCompletion = null;
   const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
   const turn = payload.turn && typeof payload.turn === 'object' ? payload.turn : {};
+  const outcome = window.YanRunOutcome.reconcile(turn);
+  // The watchdog already explained a provider stall; reconciliation must not
+  // relabel that timeout as a user cancel.
+  if (runCtx.interruptionReason === 'response_timeout' && outcome.status === 'interrupted') {
+    outcome.interruptionReason = 'response_timeout';
+    outcome.error = runCtx.activeAgentRun?.error
+      || window.YanRunOutcome.responseTimeoutMessage(runCtx.responseTimeoutMinutes);
+  }
+  runCtx.coreOutcome = outcome;
+  runCtx.finalStatus = outcome.status;
   const label = CORE_TERMINAL_RECONCILE_LABELS[String(turn.status || '')] || '已结束';
+  runCtx.activeAgentRun ||= { status: 'working', startedAt: runCtx.startedAt, timeline: [] };
   upsertOpenCodeTimeline(runCtx, 'core-reconcile', {
     type: String(turn.status || '') === 'failed' ? 'error' : 'progress',
     content: `Core 对账：任务在内核侧已${label}，但收尾事件未送达，已解除会话占用。`
   });
-  applyAbortRunUi(sessionId);
+  applyAbortRunUi(sessionId, outcome);
   state.activeRuns.delete(String(sessionId));
+  markTaskCompletionAttention({ id: sessionId }, outcome.status === 'done'
+    ? 'completed'
+    : (outcome.status === 'interrupted' ? 'paused' : 'error'));
   syncChatAutoFollowUi(currentChatSessionId());
   updateTaskBar();
   renderSessionList();
@@ -6089,11 +7655,23 @@ function reconcileRunFromCoreTerminal(runId, event) {
   }
 }
 
-function abortSessionById(sessionId) {
+function abortSessionById(sessionId, options = {}) {
+  const reason = options.reason === 'response_timeout' ? 'response_timeout' : 'user_cancel';
+  const timeoutMinutes = Number(options.timeoutMinutes) || 0;
+  const outcome = { status: 'interrupted', interruptionReason: reason };
+  if (reason === 'response_timeout') {
+    outcome.error = window.YanRunOutcome.responseTimeoutMessage(timeoutMinutes);
+    outcome.responseTimeoutMinutes = timeoutMinutes;
+  }
+  // A nested window never owns its run. Stop through the host so the journal
+  // records an explicit cancellation instead of a renderer-only abort.
+  if (NESTED_WINDOW_SESSION_ID && String(sessionId) === NESTED_WINDOW_SESSION_ID && api.nestedStop) {
+    void api.nestedStop(String(sessionId)).catch(() => {});
+  }
   const runCtx = getRunCtx(sessionId);
   if (!runCtx) return { ok: false, error: 'not running' };
   if (runCtx.shouldAbort) {
-    applyAbortRunUi(sessionId);
+    applyAbortRunUi(sessionId, outcome);
     return { ok: true, pending: true };
   }
   const contexts = [runCtx];
@@ -6128,27 +7706,36 @@ function abortSessionById(sessionId) {
     window.yan.cancelVideoGeneration(runCtx.runId).catch(() => {});
   }
   dispatchRunCancel(runCtx);
-  applyAbortRunUi(sessionId);
+  applyAbortRunUi(sessionId, outcome);
+  const timedOut = reason === 'response_timeout';
   if (canNotifyGeneral('completion') && state.currentSession?.id === sessionId) {
     try {
-      new Notification('Yan Agent', { ...generalNotificationOptions(), body: '任务已被中断', icon: 'assets/logo.png' });
+      new Notification('Yan Agent', {
+        ...generalNotificationOptions(),
+        body: timedOut ? '模型回包超时，任务已自动中止' : '任务已被中断',
+        icon: 'assets/logo.png'
+      });
     } catch {}
   }
-  if (state.currentSession?.id === sessionId) toast('任务已被中断');
-  finishPetSupervision(runCtx, 'paused', '任务已停止');
+  if (state.currentSession?.id === sessionId && !options.silent) {
+    toast(timedOut ? '模型回包超时，任务已自动中止' : '任务已被中断');
+  }
+  finishPetSupervision(runCtx, 'paused', timedOut ? '模型回包超时' : '任务已停止');
   return { ok: true };
 }
 
-function applyAbortRunUi(sessionId) {
+function applyAbortRunUi(sessionId, outcome = { status: 'interrupted', interruptionReason: 'user_cancel' }) {
   if (!sessionId) return;
   window.YanPromptSuggestions?.clear?.();
   const entry = state.activeRuns.get(sessionId);
   if (!entry) return;
   const { assistantEl, runCtx } = entry;
   runCtx.abortedUiApplied = true;
+  runCtx.interruptionReason = outcome.interruptionReason;
+  if (outcome.responseTimeoutMinutes) runCtx.responseTimeoutMinutes = outcome.responseTimeoutMinutes;
   clearResponseWatchdog(runCtx);
-  if (runCtx.activeAgentRun) window.YanSubagentWorkflow.finalize(runCtx.activeAgentRun, 'interrupted');
-  if (runCtx.agentState) runCtx.agentState.status = 'interrupted';
+  if (runCtx.activeAgentRun) { Object.assign(runCtx.activeAgentRun, outcome); window.YanSubagentWorkflow.finalize(runCtx.activeAgentRun, outcome.status); }
+  if (runCtx.agentState) Object.assign(runCtx.agentState, outcome);
 
   if (state.currentSession?.id === sessionId) {
     showTyping(false);
@@ -6162,12 +7749,17 @@ function applyAbortRunUi(sessionId) {
   if (body) {
     markRunningToolsInterrupted(body);
     renderAgentRunHeader(body, {
-      status: 'interrupted',
+      ...outcome,
       iteration: runCtx.agentState?.iteration || 0,
       toolCallCount: runCtx.agentState?.toolCallCount || 0
     });
   }
-  appendUserAbortResult(assistantEl);
+  if (window.YanRunOutcome.userAbort(outcome)) appendUserAbortResult(assistantEl);
+  else if (body) {
+    const container = body.querySelector('.agent-activity-body') || body;
+    const error = syncAgentError(container, window.YanRunOutcome.message(outcome), outcome.status);
+    if (error && !error.isConnected) container.append(error);
+  }
 }
 
 function markRunningToolsInterrupted(bodyEl) {
@@ -6207,18 +7799,8 @@ function cancelToolStepElement(step) {
 // ============================================================
 const COMPOSER_SKILL_SLOTS = Object.freeze([
   { ids: ['code-simplifier'], group: '代码辅助', search: ['代码简化', '精简代码', '重构'] },
-  { ids: ['diagnosing-bugs'], group: '代码辅助', search: ['故障诊断', 'Bug 定位', '性能回退'] },
-  { ids: ['codebase-design'], group: '代码辅助', search: ['代码库设计', '模块设计', '接口设计'] },
-  { ids: ['ponytail-review'], group: '代码辅助', search: ['过度设计审阅', '删除复杂度', '精简审阅'] },
-  { ids: ['ponytail-audit'], group: '代码辅助', search: ['代码库精简审计', '仓库瘦身', '复杂度审计'] },
-  { ids: ['yan-serena'], group: '代码辅助', search: ['Serena', '符号定位', '语义代码编辑', 'LSP'] },
-  { ids: ['yan-codegraph'], group: '代码辅助', search: ['CodeGraph', '代码图', '调用链', '影响分析'] },
-  { ids: ['awesome-design-md'], group: '网页设计', search: ['DESIGN.md', '品牌设计参考', '设计语言'] },
-  { ids: ['yan-uiverse'], group: '网页设计', search: ['Uiverse', '网页组件', '静态网页'] },
   { ids: ['writing-for-agents'], group: 'Agent规则', search: ['Agent 文档', 'Skill 编写', 'AGENTS.md'] },
-  { ids: ['yan-prompt-optimizer'], group: 'Agent规则', search: ['Prompt Optimizer', '提示词优化', 'Prompt'] },
   { ids: ['market-anysearch', 'anysearch'], group: 'Agent规则', search: ['AnySearch', '搜索', '联网'] },
-  { ids: ['officecli'], group: '办公辅助', search: ['OfficeCLI', 'Office', '文档', '表格', '演示文稿'] },
   { ids: ['hyperframes'], group: '办公辅助', search: ['HyperFrames', '视频', '动画', 'HTML 视频', '字幕'] },
   { ids: ['remotion-best-practices'], group: '办公辅助', search: ['Remotion', 'React 视频', '视频渲染', '动态图表'] }
 ]);
@@ -6499,6 +8081,7 @@ function resetComposerSkillQueryAnchor() {
 }
 
 function refreshComposerSkillQuery(composerText, caretOffset) {
+  
   const menu = $('#attachmentMenu');
   if (menu?.classList.contains('hidden') || menu?.dataset.view !== 'skill') return;
   const text = typeof composerText === 'string' ? composerText : getComposerText();
@@ -6588,28 +8171,10 @@ function getAgentModelConfigName(providerId = '', supplierId = '', cfg = state.c
 }
 
 function getAgentModelSelection(session = state.currentSession) {
-  const selection = getStoredAgentModelSelection(session);
-  const cfg = state.config;
-  // A task snapshot is historical data, not proof that its connection still
-  // exists. Keep the snapshot intact so restoring a connection can reuse it.
-  if (Array.isArray(cfg?.api?.connections)) {
-    const available = cfg.api.connections.some(connection =>
-      connection.providerId === selection.providerId
-      && connection.supplierId === selection.supplierId
-      && (cfg.api.enabledConnections || []).includes(connection.id)
-      && connection.modelFlags?.[selection.modelId]?.enabled !== false);
-    if (!available || !cfg.agentModel?.modelId) {
-      return { providerId: '', supplierId: '', modelId: '', modelType: 'text', name: '', configName: '', capabilities: {} };
-    }
-  }
-  return selection;
-}
-
-function getStoredAgentModelSelection(session = state.currentSession) {
   const stored = session?.modelSelection || state.config?.agentModel;
-  if (stored && String(stored.modelType || '') === 'text') {
+  const storedModelId = String(stored?.modelId || stored?.model || '').trim();
+  if (stored && String(stored.modelType || '') === 'text' && storedModelId) {
     const storedProvider = String(stored.providerId || state.config?.api?.provider || '');
-    const storedModelId = String(stored.modelId || stored.model || state.config?.api?.model || '');
     const catalogModel = storedProvider === state.config?.api?.provider
       ? (state.config?.models || []).find(item => item.id === storedModelId)
       : null;
@@ -6627,6 +8192,11 @@ function getStoredAgentModelSelection(session = state.currentSession) {
         ? stored.capabilities
         : (catalogModel?.capabilities || {})
     };
+  }
+  if (stored && String(stored.modelType || '') === 'text') {
+    // An explicit empty selection (fresh install, or a task whose model was
+    // cleared) must not borrow the legacy api.model fallback below.
+    return { providerId: '', supplierId: '', modelId: '', modelType: 'text', name: '', configName: '', capabilities: {} };
   }
   const modelId = String(state.config?.api?.model || '');
   const model = (state.config?.models || []).find(item => item.id === modelId);
@@ -6670,6 +8240,7 @@ async function selectTaskModel(model, session = state.currentSession) {
     capabilities: available.capabilities || {}
   };
   try {
+    
     const saved = await api.saveSession(buildSessionSavePayload(session));
     if (saved?.error) throw new Error(saved.error);
   } catch (error) {
@@ -6786,40 +8357,7 @@ function resetComposerAddMenuView() {
 }
 
 
-function openComposerSkillView({ triggerOffset = null } = {}) {
-  window.YanComposerPlugins?.hide();
-  const menu = $('#attachmentMenu');
-  const mainView = $('#composerAddMainView');
-  const workModeView = $('#composerConfigView');
-  const skillView = $('#composerSkillView');
-  const launcher = $('#composerSkillAction');
-  if (!menu || !mainView || !workModeView || !skillView) return;
-  if (menu.classList.contains('hidden')) setAttachmentMenuOpen(true);
-  const baseHeight = Number(menu.dataset.baseHeight) || menu.getBoundingClientRect().height;
-  menu.dataset.baseHeight = String(baseHeight);
-  menu.style.height = `${baseHeight}px`;
-  mainView.classList.add('hidden');
-  workModeView.classList.add('hidden');
-  skillView.classList.remove('hidden');
-  $('#composerConfigAction')?.setAttribute('aria-expanded', 'false');
-  launcher?.setAttribute('aria-expanded', 'true');
-  menu.dataset.view = 'skill';
-  const caret = getComposerCaretTextOffset();
-  composerSkillTriggerOffset = Number.isInteger(triggerOffset) ? triggerOffset : null;
-  const triggerPrefix = composerSkillTriggerOffset == null
-    ? ''
-    : getComposerText().slice(0, composerSkillTriggerOffset);
-  composerSkillQueryAnchor = composerSkillTriggerOffset == null
-    ? caret
-    : triggerPrefix.trimEnd().length;
-  composerSkillQueryEnd = composerSkillTriggerOffset == null ? caret : composerSkillTriggerOffset + 1;
-  composerSkillQuery = '';
-  composerSkillListRenderSignature = '';
-  renderSkillCallList();
-  requestAnimationFrame(() => {
-    menu.style.height = `${baseHeight * 1.7}px`;
-  });
-}
+
 
 
 function mountComposerToolbar() {
@@ -6835,6 +8373,7 @@ function mountComposerToolbar() {
     document.querySelector('#workModeIndicator'),
     document.querySelector('#modelPickerWrap'),
     document.querySelector('#voiceMicButton'),
+    document.querySelector('#voiceCallButton'),
     document.querySelector('#sendBtn')
   ];
   controls.forEach(control => {
@@ -6851,6 +8390,7 @@ function isImageAttachmentMeta(attachment = {}) {
 }
 
 function setAttachmentMenuOpen(open) {
+  
   const menu = $('#attachmentMenu');
   const button = $('#attachBtn');
   if (!menu || !button) return;
@@ -6969,6 +8509,33 @@ $('#fileInput').addEventListener('change', async (e) => {
   }
   e.target.value = '';
 });
+function hasPendingAttachments() {
+  return [...pendingAttachmentUploads.values()].some(item => item.sessionId === state.currentSession?.id);
+}
+
+async function uploadAttachmentFile(file, mimeType, onProgress = () => {}) {
+  const filePath = droppedAttachmentPath(file);
+  if (filePath && api.uploadFilePath) {
+    const requestId = crypto.randomUUID();
+    const unsubscribe = api.onUploadProgress?.(event => { if (event.requestId === requestId) onProgress(event.percent); });
+    try { return await api.uploadFilePath(file.name, filePath, mimeType, requestId); }
+    finally { unsubscribe?.(); }
+  }
+  const draft = await api.beginFileUpload(file.name, file.size, mimeType);
+  if (draft?.error || !draft?.id) throw new Error(draft?.error || '无法创建附件');
+  try {
+    for (let offset = 0; offset < file.size; offset += 1024 * 1024) {
+      const bytes = new Uint8Array(await file.slice(offset, offset + 1024 * 1024).arrayBuffer());
+      const result = await api.appendFileUpload(draft.id, bytes);
+      if (result?.error) throw new Error(result.error);
+      onProgress(Math.floor(result.received / file.size * 90));
+    }
+    const result = await api.finishFileUpload(draft.id);
+    onProgress(100);
+    return result;
+  } finally { await api.cancelFileUpload(draft.id).catch(() => {}); }
+}
+
 async function addAttachment(file, { imageOnly = false, shouldAccept = () => true, snapshot = null } = {}) {
   const mimeType = inferImageMimeType(file);
   const isImage = !!mimeType;
@@ -6981,15 +8548,21 @@ async function addAttachment(file, { imageOnly = false, shouldAccept = () => tru
     toast(`当前模型不支持 ${mimeType.replace('image/', '').toUpperCase()} 图像`);
     return;
   }
-  if (isImage && file.size > (Number(capabilities.maxImageBytes) || 20 * 1024 * 1024)) {
-    toast('图片不能超过 20MB');
+  if (file.size > 320 * 1024 * 1024) {
+    toast('单个附件不能超过 320 MiB');
     return;
   }
+  const sessionId = state.currentSession?.id;
+  const pendingBytes = [...pendingAttachmentUploads.values()].filter(item => item.sessionId === sessionId).reduce((sum, item) => sum + item.size, 0);
+  if (pendingBytes + state.attachments.reduce((sum, item) => sum + (Number(item.size) || 0), 0) + file.size > 640 * 1024 * 1024) {
+    toast('单次附件总量不能超过 640 MiB'); return;
+  }
+  const uploadId = crypto.randomUUID();
+  pendingAttachmentUploads.set(uploadId, { sessionId, size: file.size });
+  renderAttachments(); updateSendState();
   try {
-    const b64 = await fileToBase64(file);
-    if (!shouldAccept()) return;
-    const meta = await api.uploadFile(file.name, b64, mimeType || file.type || '');
-    if (!shouldAccept()) return;
+    const meta = await uploadAttachmentFile(file, mimeType || file.type || '');
+    if (!shouldAccept() || state.currentSession?.id !== sessionId) return;
     if (meta?.error) {
       toast('上传失败：' + meta.error);
       return;
@@ -7000,12 +8573,18 @@ async function addAttachment(file, { imageOnly = false, shouldAccept = () => tru
       size: meta.size,
       kind: isImage ? 'image' : 'file',
       mimeType: mimeType || meta.mimeType || '',
+      inlinePath: meta.inlinePath,
+      inlineMimeType: meta.inlineMimeType,
+      mode: meta.mode,
       ...(snapshot ? { snapshot } : {})
     });
     renderAttachments();
     updateSendState();
   } catch (error) {
     toast('上传失败：' + attachmentErrorMessage(error, '无法读取附件'));
+  } finally {
+    pendingAttachmentUploads.delete(uploadId);
+    renderAttachments(); updateSendState();
   }
 }
 
@@ -7191,12 +8770,35 @@ async function addDroppedAttachment(snapshot) {
   await addAttachment(file);
 }
 
+const REVIEW_FILE_CODE_EXT = /^(c|cc|cpp|cs|css|cxx|dart|ex|exs|go|h|hpp|htm|html|java|js|jsx|kt|kts|less|lua|mjs|cjs|php|pl|ps1|py|r|rb|rs|sass|scala|scss|sh|sql|svelte|swift|ts|tsx|vue|xml|json|jsonc|yaml|yml|toml|bat|cmd)$/;
+const ATTACHMENT_FOLDER_OPEN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15L7.4472 12.1056C7.786 11.428 8.4785 11 9.2361 11L19.9978 11C21.4451 11 22.4132 12.4897 21.8254 13.8123L19.6032 18.8123C19.2822 19.5345 18.5659 20 17.7756 20L4 20C2.8954 20 2 19.1046 2 18L2 6C2 4.8954 2.8954 4 4 4L7.3787 4C7.7765 4 8.158 4.158 8.4393 4.4393L9.5607 5.5607C9.842 5.842 10.2235 6 10.6213 6L17 6C18.1046 6 19 6.8954 19 8L19 11"/></svg>';
+const ATTACHMENT_FOLDER_ZIP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7C3 5.3431 4.3431 4 6 4L8.6716 4C9.202 4 9.7107 4.2107 10.0858 4.5858L11.4142 5.9142C11.7893 6.2893 12.298 6.5 12.8284 6.5L18 6.5C19.6569 6.5 21 7.8431 21 9.5L21 17C21 18.6569 19.6569 20 18 20L6 20C4.3431 20 3 18.6569 3 17ZM9 4.0271L9 6M9 10L9 12M9 12C10.1046 12 11 12.8954 11 14C11 15.1046 10.1046 16 9 16C7.8954 16 7 15.1046 7 14C7 12.8954 7.8954 12 9 12Z"/></svg>';
+function attachmentCardVisual(attachment = {}) {
+  const icons = window.YanReviewFileIcons || {};
+  const fileIcon = icons.file || '';
+  if (attachment.kind === 'directory') return { kind: 'folder', top: ATTACHMENT_FOLDER_OPEN_ICON, bottom: ATTACHMENT_FOLDER_OPEN_ICON };
+  const path = String(attachment.path || attachment.name || '');
+  if (/\.(zip|rar|7z|tar|gz|tgz|bz2|xz)$/i.test(path)) return { kind: 'archive', top: ATTACHMENT_FOLDER_ZIP_ICON, bottom: ATTACHMENT_FOLDER_ZIP_ICON };
+  if (isImageAttachmentMeta(attachment)) return { kind: 'image', top: fileIcon, bottom: icons.image || fileIcon };
+  if (isVideoAttachmentMeta(attachment)) return { kind: 'video', top: fileIcon, bottom: icons['square-play'] || fileIcon };
+  const extension = path.split('.').pop().toLowerCase();
+  if (REVIEW_FILE_CODE_EXT.test(extension)) return { kind: 'code', top: fileIcon, bottom: icons['code-xml'] || fileIcon };
+  return { kind: 'file', top: fileIcon, bottom: fileIcon };
+}
+function attachmentImageSrc(filePath) {
+  const value = String(filePath || '');
+  if (/^(https?:|data:|blob:|file:)/i.test(value)) return value;
+  const normalized = value.replaceAll('\\', '/');
+  const encoded = normalized.split('/').map((part, index) => index === 0 && /^[a-z]:$/i.test(part) ? part : encodeURIComponent(part)).join('/');
+  return `file://${encoded.startsWith('/') ? '' : '/'}${encoded}`;
+}
 function renderAttachments() {
   const box = $('#attachments');
   window.YanAppSnapshot?.renderCards();
   if (!state.attachments.some(attachment => !attachment.snapshot)) {
     box.classList.add('hidden');
     box.innerHTML = '';
+    scheduleComposerGrow();
     return;
   }
   box.classList.remove('hidden');
@@ -7206,33 +8808,160 @@ function renderAttachments() {
     const image = isImageAttachmentMeta(a);
     const directory = a.kind === 'directory';
     const relay = image && !imageInputEnabled;
+    const visual = attachmentCardVisual(a);
+    const media = image
+      ? `<span class="attachment-card-art attachment-card-art-image">
+          <img class="attachment-card-thumb" src="${escapeAttr(attachmentImageSrc(a.path))}" alt="" draggable="false" loading="lazy" decoding="async">
+          <span class="attachment-card-fallback">${visual.top}</span>
+        </span>`
+      : `<span class="attachment-card-art" aria-hidden="true">${visual.top}</span>
+        <span class="attachment-card-foot">
+          <span class="attachment-card-type" aria-hidden="true">${visual.bottom}</span>
+          <span class="attachment-card-name">${escapeHtml(a.name)}</span>
+        </span>`;
     return `
-    <div class="attachment-chip ${image ? 'image' : ''} ${image && a.path ? 'is-previewable' : ''} ${directory ? 'directory' : ''} ${relay ? 'relay' : ''}" data-i="${i}" title="${relay ? '当前模型不支持图像输入，将由“多模态链路”里指定的视觉中继模型读取' : (image && a.path ? '点击预览图片：' + escapeHtml(a.name) : escapeHtml(a.path || a.name))}">
-      <span class="attachment-kind-icon">${directory ? ICONS.folder : (image ? ICONS.image : ICONS.file)}</span>
-      <span>${escapeHtml(a.name)}</span>
-      <button class="remove" data-i="${i}" title="移除">${ICONS.close}</button>
+    <div class="attachment-chip attachment-card ${image ? 'image' : ''} ${a.path && !directory ? 'is-previewable' : ''} ${directory ? 'directory' : ''} ${relay ? 'relay' : ''}" data-i="${i}" data-kind="${visual.kind}" title="${relay ? '当前模型不支持图像输入，将由“多模态链路”里指定的视觉中继模型读取' : (image && a.path ? '点击预览图片：' + escapeHtml(a.name) : escapeHtml(a.path || a.name))}">
+      ${media}
+      <button class="remove" data-i="${i}" title="移除" aria-label="移除">${ICONS.close}</button>
     </div>`;
   }).join('');
+  box.querySelectorAll('.attachment-card-thumb').forEach(img => {
+    const markError = () => img.closest('.attachment-chip')?.classList.add('is-thumb-error');
+    img.addEventListener('error', markError, { once: true });
+    if (img.complete && img.naturalWidth === 0) markError();
+  });
   box.querySelectorAll('.remove').forEach(btn => {
     btn.addEventListener('click', () => {
-      state.attachments.splice(Number(btn.dataset.i), 1);
+      const [removed] = state.attachments.splice(Number(btn.dataset.i), 1);
+      window.yanImageOverlay?.removeSource?.(removed?.path);
       renderAttachments();
       updateSendState();
     });
   });
-  box.querySelectorAll('.attachment-chip.image[data-i]').forEach(chip => {
+  box.querySelectorAll('.attachment-chip:not(.directory)[data-i]').forEach(chip => {
     chip.addEventListener('click', event => {
       if (event.target.closest('.remove')) return;
       const attachment = state.attachments[Number(chip.dataset.i)];
-      if (attachment?.path) openAttachmentPreview(attachment);
+      if (attachment?.path) openAttachmentPreview(attachment, { gallery: state.attachments });
     });
   });
+  scheduleComposerGrow();
+  requestAnimationFrame(updateAttachmentTrayScroll);
 }
 
-function openAttachmentPreview(attachment = {}) {
+let attachmentTrayDrag = null;
+let attachmentTrayDragged = false;
+const attachmentTray = $('#attachments');
+function updateAttachmentTrayScroll() {
+  if (!attachmentTray || attachmentTray.classList.contains('hidden')) return;
+  const max = attachmentTray.scrollWidth - attachmentTray.clientWidth;
+  attachmentTray.dataset.scroll = max <= 1
+    ? 'none'
+    : (attachmentTray.scrollLeft <= 1 ? 'start' : (attachmentTray.scrollLeft >= max - 1 ? 'end' : 'middle'));
+}
+attachmentTray?.addEventListener('scroll', updateAttachmentTrayScroll, { passive: true });
+window.addEventListener('resize', () => requestAnimationFrame(updateAttachmentTrayScroll));
+attachmentTray?.addEventListener('pointerdown', event => {
+  if (event.button !== 0 || event.target.closest('.remove')) return;
+  if (attachmentTray.scrollWidth - attachmentTray.clientWidth <= 1) return;
+  attachmentTrayDrag = { pointerId: event.pointerId, startX: event.clientX, startLeft: attachmentTray.scrollLeft, moved: false };
+  attachmentTrayDragged = false;
+});
+attachmentTray?.addEventListener('pointermove', event => {
+  if (!attachmentTrayDrag || event.pointerId !== attachmentTrayDrag.pointerId) return;
+  const dx = event.clientX - attachmentTrayDrag.startX;
+  if (!attachmentTrayDrag.moved && Math.abs(dx) < 4) return;
+  if (!attachmentTrayDrag.moved) {
+    attachmentTrayDrag.moved = true;
+    attachmentTray.classList.add('is-dragging');
+    try { attachmentTray.setPointerCapture(event.pointerId); } catch { /* capture unsupported */ }
+  }
+  attachmentTrayDragged = true;
+  event.preventDefault();
+  attachmentTray.scrollLeft = attachmentTrayDrag.startLeft - dx;
+  updateAttachmentTrayScroll();
+});
+function endAttachmentTrayDrag(event) {
+  if (!attachmentTrayDrag || (event && event.pointerId !== attachmentTrayDrag.pointerId)) return;
+  const moved = attachmentTrayDrag.moved;
+  attachmentTrayDrag = null;
+  attachmentTray.classList.remove('is-dragging');
+  if (!moved) return;
+  // The click that follows pointerup must not open the preview after a pan.
+  setTimeout(() => { attachmentTrayDragged = false; }, 0);
+}
+attachmentTray?.addEventListener('pointerup', endAttachmentTrayDrag);
+attachmentTray?.addEventListener('pointercancel', endAttachmentTrayDrag);
+attachmentTray?.addEventListener('click', event => {
+  if (!attachmentTrayDragged) return;
+  event.preventDefault();
+  event.stopPropagation();
+  attachmentTrayDragged = false;
+}, true);
+
+function isVideoAttachmentMeta(attachment = {}) {
+  return attachment.kind !== 'directory' && (/^video\//i.test(attachment.mimeType || attachment.type || '') || /\.(mp4|m4v|webm|ogv|mov|mkv|avi|mpeg|mpg|wmv|flv)$/i.test(attachment.path || attachment.name || ''));
+}
+function previewSourceForAttachment(attachment = {}) {
+  const filePath = String(attachment.path || '');
+  if (!filePath) return null;
+  if (isVideoAttachmentMeta(attachment)) return { filePath, name: attachment.name, video: true };
+  const image = attachment.kind !== 'directory' && isImageAttachmentMeta(attachment);
+  if (attachment.snapshot || image) return { filePath, name: attachment.name, snapshot: attachment.snapshot };
+  return null;
+}
+function previewSourceFromItem(item) {
+  if (!item) return null;
+  if (item.filePath) {
+    return { filePath: item.filePath, name: item.name, video: !!item.video, snapshot: item.snapshot };
+  }
+  return previewSourceForAttachment(item);
+}
+function uniquePreviewSources(items = []) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const source = previewSourceFromItem(item);
+    if (!source) continue;
+    const key = String(source.filePath).replaceAll('\\', '/').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(source);
+  }
+  return result;
+}
+function previewGalleryForMessage(target) {
+  const scope = target.closest('.msg') || target.closest('#messages');
+  if (!scope) return [];
+  const items = [];
+  scope.querySelectorAll('[data-preview-path]').forEach(node => {
+    const attachment = node.yanAttachment || {
+      path: node.dataset.previewPath,
+      name: node.dataset.previewName || ''
+    };
+    items.push(attachment);
+  });
+  return uniquePreviewSources(items);
+}
+function openAttachmentPreview(attachment = {}, { gallery = null } = {}) {
   const filePath = String(attachment.path || '');
   if (!filePath) return;
-  window.yanImageOverlay.open({ filePath, name: attachment.name, snapshot: attachment.snapshot });
+  const source = previewSourceFromItem(attachment);
+  // Images keep the in-place viewer; only non-image files fall back to the
+  // project-files side panel.
+  if (!source) {
+    void window.YanProjectFiles.openLocal(filePath).catch(error => toast(`无法打开附件：${error.message}`, { error: true }));
+    return;
+  }
+  const sources = uniquePreviewSources(Array.isArray(gallery) ? gallery : []);
+  if (sources.length > 1) {
+    const key = filePath.replaceAll('\\', '/').toLowerCase();
+    let index = sources.findIndex(item => String(item.filePath).replaceAll('\\', '/').toLowerCase() === key);
+    if (index < 0) index = 0;
+    window.yanImageOverlay.open(sources[index], { gallery: sources, index });
+    return;
+  }
+  window.yanImageOverlay.open(source);
 }
 
 $('#messages')?.addEventListener('click', event => {
@@ -7242,50 +8971,157 @@ $('#messages')?.addEventListener('click', event => {
   openAttachmentPreview(target.yanAttachment || {
     path: target.dataset.previewPath,
     name: target.dataset.previewName || ''
-  });
+  }, { gallery: previewGalleryForMessage(target) });
 });
 
 // Drag & drop
-const composer = $('#composer');
-['dragover', 'dragenter'].forEach(ev => {
-  composer.addEventListener(ev, (e) => { e.preventDefault(); composer.classList.add('drag'); });
-});
-['dragleave', 'drop'].forEach(ev => {
-  composer.addEventListener(ev, (e) => { e.preventDefault(); composer.classList.remove('drag'); });
-});
-composer.addEventListener('drop', async (e) => {
-  // DataTransferItem becomes unavailable after the event returns, so capture
-  // files, directory hints and Electron-backed paths before the first await.
-  const droppedAttachments = snapshotDroppedAttachments(e.dataTransfer);
+// Only the conversation column is a drop target. The left sidebar and the
+// right side panel are separate surfaces, so a file dropped there must not
+// silently become an attachment. Files and folders are captured before the
+// first await because DataTransferItem is invalidated when the event returns.
+const agentDropHost = $('#chatMainColumn');
+const agentDropOverlay = document.createElement('div');
+agentDropOverlay.id = 'agentDropOverlay';
+agentDropOverlay.className = 'agent-drop-overlay';
+agentDropOverlay.setAttribute('aria-hidden', 'true');
+agentDropOverlay.innerHTML = `
+  <div class="agent-drop-pill">
+    <span class="agent-drop-plus" aria-hidden="true">+</span>
+    <span class="agent-drop-label">松开即可添加</span>
+  </div>`;
+agentDropHost?.append(agentDropOverlay);
+
+let agentDropHideTimer = 0;
+let agentDropOverlayVisible = false;
+let agentFileDragActive = false;
+
+function agentPageAcceptsFileDrop() {
+  return currentMainPage === 'chat'
+    && !$('#app')?.classList.contains('settings-mode')
+    && !$('#pageChat')?.classList.contains('hidden');
+}
+
+function isFileDrag(event) {
+  const transfer = event?.dataTransfer;
+  if (!transfer) return false;
+  if (Array.from(transfer.types || []).includes('Files')) return true;
+  if (transfer.files && transfer.files.length) return true;
+  return Array.from(transfer.items || []).some(item => item?.kind === 'file');
+}
+
+function setAgentDropOverlay(visible) {
+  if (agentDropOverlayVisible === visible) return;
+  agentDropOverlayVisible = visible;
+  agentDropOverlay.classList.toggle('visible', visible);
+  agentDropOverlay.setAttribute('aria-hidden', String(!visible));
+}
+
+function keepAgentDropOverlay() {
+  clearTimeout(agentDropHideTimer);
+  agentDropHideTimer = 0;
+  setAgentDropOverlay(true);
+}
+
+function scheduleAgentDropOverlayHide() {
+  clearTimeout(agentDropHideTimer);
+  agentDropHideTimer = setTimeout(() => {
+    agentDropHideTimer = 0;
+    setAgentDropOverlay(false);
+  }, 180);
+}
+
+agentDropHost?.addEventListener('dragenter', event => {
+  if (!agentPageAcceptsFileDrop()) {
+    agentFileDragActive = false;
+    return;
+  }
+  if (!isFileDrag(event)) {
+    // A new non-file drag must not inherit a stale file-drop overlay.
+    agentFileDragActive = false;
+    if (agentDropOverlayVisible) {
+      clearTimeout(agentDropHideTimer);
+      agentDropHideTimer = 0;
+      setAgentDropOverlay(false);
+    }
+    return;
+  }
+  agentFileDragActive = true;
+  event.preventDefault();
+  keepAgentDropOverlay();
+}, true);
+
+agentDropHost?.addEventListener('dragover', event => {
+  if (!agentPageAcceptsFileDrop() || (!agentFileDragActive && !isFileDrag(event))) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  keepAgentDropOverlay();
+}, true);
+
+agentDropHost?.addEventListener('dragleave', event => {
+  if (!agentPageAcceptsFileDrop()) {
+    agentFileDragActive = false;
+    setAgentDropOverlay(false);
+    return;
+  }
+  if (!agentDropOverlayVisible) return;
+  if (!event.relatedTarget) {
+    agentFileDragActive = false;
+    clearTimeout(agentDropHideTimer);
+    agentDropHideTimer = 0;
+    setAgentDropOverlay(false);
+    return;
+  }
+  scheduleAgentDropOverlayHide();
+}, true);
+
+agentDropHost?.addEventListener('drop', async event => {
+  if (!agentPageAcceptsFileDrop() || (!agentFileDragActive && !isFileDrag(event))) return;
+  agentFileDragActive = false;
+  event.preventDefault();
+  event.stopPropagation();
+  clearTimeout(agentDropHideTimer);
+  agentDropHideTimer = 0;
+  setAgentDropOverlay(false);
+  const droppedAttachments = snapshotDroppedAttachments(event.dataTransfer);
   for (const attachment of droppedAttachments) await addDroppedAttachment(attachment);
-});
+}, true);
+
+// Cleanup only: dragend is not a drop target, but it must clear the layer when
+// the drag is cancelled outside the conversation column.
+document.addEventListener('dragend', () => {
+  agentFileDragActive = false;
+  clearTimeout(agentDropHideTimer);
+  agentDropHideTimer = 0;
+  setAgentDropOverlay(false);
+}, true);
 
 // ============================================================
 // Send message
 // ============================================================
 async function sendMessage() {
+  if (hasPendingAttachments()) return;
+  if (nestedStartGate) { toast('请先确认模型并开始子会话'); return; }
   const text = input.value.trim();
+  
   if (/^\/review(?:\s|$)/i.test(text)) { await startGitReview(text); return; }
   syncComposerSubagentsFromDom();
   window.YanComposerPlugins?.sync();
   if (!text && state.attachments.length === 0 && state.selectedSkills.length === 0 && state.selectedSubagents.length === 0 && state.selectedPlugins.length === 0) return;
-  if (state.currentSession) {
-    revealWorkspaceInSidebar(state.currentSession.workspace);
-    renderSessionList();
-  }
   if (isCurrentSessionExecutionActive()) {
     if (getRunCtx(state.currentSession?.id)?.shouldAbort) toast('上一任务正在完成中止清理，请稍候');
     else await submitComposerFollowUp();
     return;
   }
   const attachments = state.attachments.slice();
+  
   const agentModel = normalizeModelSelectionSnapshot(getAgentModelSelection());
-  if (agentModel.modelType !== 'text') {
-    if (!validateQueuedModelPayload(text, attachments, agentModel)) return;
-    clearComposerPayload();
-    await submitMediaMessage(text, attachments, agentModel);
+  if (!agentModel.modelId) {
+    // Keep the draft: without a model the run cannot start.
+    toast('请先配置并选择一个可用模型');
+    setTimeout(() => void openModelPicker(), 0);
     return;
   }
+  
   if (!await window.YanComposerPlugins.validate()) return;
   const pluginCalls = window.YanComposerPlugins.normalize(state.selectedPlugins);
   const skillCalls = state.selectedSkills.map(normalizeComposerSkill);
@@ -7422,6 +9258,7 @@ async function submitMediaMessage(text, attachments = [], modelSelection = {}, o
       scheduleChatAutoFollow(session.id);
     }
     await saveCurrentSession(session);
+    runCtx.agentState.status = 'done';
     finishPetSupervision(runCtx, 'completed', assistantMsg.content);
     return { ok: true };
   } catch (error) {
@@ -7444,7 +9281,11 @@ async function submitMediaMessage(text, attachments = [], modelSelection = {}, o
     return { ok: false, error: errorMessage };
   } finally {
     state.activeRuns.delete(session.id);
-  syncChatAutoFollowUi(currentChatSessionId());
+    const mediaStatus = runCtx.agentState.status === 'done'
+      ? 'completed'
+      : (runCtx.agentState.status === 'error' ? 'error' : 'paused');
+    markTaskCompletionAttention(session, mediaStatus);
+    syncChatAutoFollowUi(currentChatSessionId());
     if (state.currentSession?.id === session.id) {
       showTyping(false);
       updateSendState();
@@ -7496,18 +9337,7 @@ async function attachAgentRunChangeSummary(agentRun, session) {
   return agentRun;
 }
 
-async function syncBackgroundSessionUi(session, running) {
-  if (state.currentSession?.id === session.id) {
-    state.currentSession = session;
-    renderMessages(session.messages || []);
-    setEmptyState((session.messages || []).length === 0);
-    syncCurrentSessionAgentUi(session);
-    updateTaskBar();
-    updateSendState();
-    showTyping(!!running);
-  }
-  await refreshSessions();
-}
+
 
 // ============================================================
 // OpenCode event adapter. OpenCode owns the model/tool loop; this code only
@@ -7747,7 +9577,7 @@ function hasVisibleOpenCodeText(value) {
 
 function isOpenCodeVisibleResponseEvent(event, data = event?.data || event?.properties || {}) {
   if (event?.type === 'message.part.delta') {
-    return data.field === 'text' && hasVisibleOpenCodeText(data.delta);
+    return ['text', 'reasoning'].includes(data.field) && hasVisibleOpenCodeText(data.delta);
   }
   if (event?.type === 'message.part.updated') {
     const partType = String(data.part?.type || '');
@@ -7792,8 +9622,11 @@ function armResponseWatchdog(runCtx, sessionId) {
     runCtx.responseWatchdog = null;
     const entry = state.activeRuns.get(sessionId);
     if (!entry || entry.runCtx !== runCtx || runCtx.responseStartedAt || runCtx.shouldAbort) return;
-    abortSessionById(sessionId);
-    toast(`Yan Agent ${Math.max(1, Math.round(limitMs / 60_000))} 分钟内未成功回包，已自动中止`, { error: true });
+    const minutes = Math.max(1, Math.round(limitMs / 60_000));
+    // The cap is a provider stall, not a user cancel: keep the interruption
+    // reason distinct so the transcript never blames the user.
+    abortSessionById(sessionId, { reason: 'response_timeout', timeoutMinutes: minutes, silent: true });
+    toast(`Yan Agent ${minutes} 分钟内未成功回包，已自动中止`, { error: true });
   }, limitMs);
 }
 
@@ -7895,11 +9728,12 @@ function clearOpenCodeProtocolProbe(runCtx, partID) {
 function openCodeContextTokens(info = {}) {
   const tokens = info?.tokens || {};
   const cache = tokens.cache && typeof tokens.cache === 'object' ? tokens.cache : {};
-  // Context-window occupancy is input plus output. Reasoning is usage metadata,
-  // while cached input still occupies the provider context window.
+  // V2 output contains visible tokens only; reasoning is a separate count.
+  // Match the kernel's measured context baseline, including cached input.
   return Math.max(0,
     (Number(tokens.input) || 0)
     + (Number(tokens.output) || 0)
+    + (Number(tokens.reasoning) || 0)
     + (Number(cache.read) || 0)
     + (Number(cache.write) || 0)
   );
@@ -8053,6 +9887,10 @@ function dropOpenCodeStreamAccumulator(runCtx, type, id) {
 }
 
 function queueOpenCodeStreamFlush(runCtx) {
+  // A background task still receives deltas, but parsing its growing text on
+  // every frame competes with typing in the visible task. Rebind/completion
+  // explicitly flushes this buffer when it is needed.
+  if (!runCtx.ui || state.currentSession?.id !== runCtx.sessionId) return;
   if (runCtx.openCodeStreamFlushPending) return;
   runCtx.openCodeStreamFlushPending = true;
   const flush = () => {
@@ -8082,12 +9920,10 @@ function flushOpenCodeStreamDeltas(runCtx) {
   const pending = [...runCtx.openCodeStreamAccumulators.values()];
   runCtx.openCodeStreamAccumulators.clear();
   let applied = false;
-  let appliedText = false;
   for (const acc of pending) {
     const delta = acc.chunks.join('');
     if (!delta) continue;
     applied = true;
-    if (acc.type === 'next-text' || (acc.type === 'part' && acc.kind === 'text')) appliedText = true;
     if (acc.type === 'part') applyOpenCodePartDelta(runCtx, acc.id, acc.kind, delta);
     else if (acc.type === 'next-text') applyOpenCodeNextTextDelta(runCtx, acc.id, delta);
     else applyOpenCodeNextReasoningDelta(runCtx, acc.id, delta);
@@ -8171,6 +10007,7 @@ function applyOpenCodeNextReasoningDelta(runCtx, reasoningID, delta) {
 const OPEN_CODE_RENDER_MIN_INTERVAL_MS = 0;
 
 function scheduleOpenCodeRender(runCtx, delay = 0) {
+  if (!runCtx.ui || state.currentSession?.id !== runCtx.sessionId) return;
   if (runCtx.openCodeRenderTimer || runCtx.openCodeRenderFrame) return;
   const elapsed = performance.now() - (Number(runCtx.openCodeLastRenderAt) || 0);
   const cadenceDelay = elapsed < OPEN_CODE_RENDER_MIN_INTERVAL_MS
@@ -8201,8 +10038,22 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function renderOpenCodeStreamDeltas(runCtx, body, agentRun) {
+  if (agentRun.questionTurns?.length) return false;
   const dirtyKeys = runCtx?.openCodeDirtyTimelineKeys;
   if (!body || !(dirtyKeys instanceof Set) || dirtyKeys.size === 0) return false;
+  const segments = body.querySelector('[data-work-segments]');
+  if (segments) {
+    const dirty = [...dirtyKeys].map(key => agentRun.timeline?.find(item => item.openCodeKey === key));
+    if (!dirty.every(item => item?.type === 'subagent_status')) return false;
+    const expanded = segments.closest('.agent-run-header')?.dataset.workExpanded === 'true';
+    for (const item of dirty) {
+      const el = [...segments.children].find(el => el.dataset.segmentKey === item.openCodeKey);
+      if (el) updateAgentTimelinePartElement(el, item, null, 'running', agentRun.presentationMode);
+      else if (expanded) return false;
+    }
+    renderAgentRunHeader(body, agentRun);
+    return true;
+  }
   const activityBody = body.querySelector('.agent-activity-body');
   const timeline = Array.isArray(agentRun?.timeline) ? agentRun.timeline : [];
   const itemByKey = new Map();
@@ -8346,7 +10197,7 @@ function renderOpenCodeToolParts(activityBody, agentRun, toolKeys) {
 }
 
 function renderOpenCodeRunNow(runCtx) {
-  if (!runCtx) return;
+  if (!runCtx || runCtx.finalStatus || runCtx.utility) return;
   if (runCtx.openCodeRenderTimer) clearTimeout(runCtx.openCodeRenderTimer);
   if (runCtx.openCodeRenderFrame) cancelAnimationFrame(runCtx.openCodeRenderFrame);
   runCtx.openCodeRenderTimer = 0;
@@ -8383,12 +10234,30 @@ async function requireOpenCodeInteractionReply(result, runCtx, label) {
   const message = `${label}失败：${result?.error || 'Yan Kernel 未返回成功结果'}`;
   runCtx.openCodeError = message;
   toast(message);
-  try { await api.openCodeCancelRun(runCtx.runId); } catch {}
+  // A failed acknowledgement is not a user cancellation. Preserve the pending
+  // run so its reply can be retried rather than terminating unrelated tools.
+  return false;
 }
 
 const SHELL_PERMISSION_ACTIONS = new Set(['bash', 'shell', 'command']);
-const USER_FILE_WRITE_PERMISSIONS = new Set(['edit']);
-const WORKSPACE_REQUIRED_MESSAGE = '请先选择工作区后，再执行需要写入磁盘的任务。';
+const PERMISSION_REPLY_RETRY_LIMIT = 3;
+
+// A permission reply only lands while its run is still owned by the kernel.
+// Transport hiccups are worth retrying; a finished run, a dead sidecar or a
+// foreign window never recover, so retrying those would loop forever.
+function permissionReplyPermanentlyFailed(result) {
+  if (!result || result.ok) return false;
+  if (result.code === 'RUN_GONE') return true;
+  return /任务不存在|运行不属于此子窗口|Yan Kernel 尚未运行/.test(String(result.error || ''));
+}
+
+async function deliverPermissionReply(payload) {
+  try {
+    return await api.openCodeReplyPermission(payload);
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+}
 
 // P0/P3: shell grant scope and the risk verdict travel on the reply payload, so
 // main owns the persisted list and the audit record (single source of truth).
@@ -8404,19 +10273,9 @@ async function handleOpenCodePermission(runCtx, event) {
   const accessMode = runCtx.accessMode || getCurrentAccessMode();
   const isShellPermission = SHELL_PERMISSION_ACTIONS.has(actionKey);
   let reply = 'reject';
-  let stopForWorkspace = false;
   let shellRisk = null;
   let shellGrantToPersist = '';
-  if (!runCtx.workspace && USER_FILE_WRITE_PERMISSIONS.has(actionKey)) {
-    stopForWorkspace = true;
-    runCtx.workspaceRequired = true;
-    runCtx.partialContent = WORKSPACE_REQUIRED_MESSAGE;
-    upsertOpenCodeTimeline(runCtx, 'workspace-required', {
-      type: 'progress',
-      content: WORKSPACE_REQUIRED_MESSAGE
-    });
-    scheduleOpenCodeRender(runCtx);
-  } else if (isShellPermission && accessMode === 'full') {
+  if (isShellPermission && accessMode === 'full') {
     reply = 'always';
   } else if (isShellPermission) {
     const command = resources.join('\n')
@@ -8467,21 +10326,46 @@ async function handleOpenCodePermission(runCtx, event) {
     if (!decision) return;
     reply = decision === 'deny' ? 'reject' : decision;
   }
-  let result;
-  try {
-    result = await api.openCodeReplyPermission({
-      runId: runCtx.runId,
-      requestId,
-      reply,
-      ...(shellRisk ? { permissionRisk: shellRisk } : {}),
-      ...(shellGrantToPersist ? { grantPrefix: shellGrantToPersist } : {})
-    });
-  } catch (error) {
-    result = { ok: false, error: error?.message || String(error) };
-  }
-  await requireOpenCodeInteractionReply(result, runCtx, '权限回复');
-  if (stopForWorkspace) {
-    try { await api.openCodeCancelRun(runCtx.runId); } catch {}
+  const replyPayload = {
+    runId: runCtx.runId,
+    requestId,
+    reply,
+    ...(shellRisk ? { permissionRisk: shellRisk } : {}),
+    ...(shellGrantToPersist ? { grantPrefix: shellGrantToPersist } : {})
+  };
+  let result = await deliverPermissionReply(replyPayload);
+  let retries = 0;
+  while (!result?.ok && !runCtx.shouldAbort && runCtx.coreSettled !== true) {
+    // A permanent failure can never be repaired by the same reply. Close the
+    // dialog instead of re-asking the user for an answer that cannot be sent.
+    if (permissionReplyPermanentlyFailed(result)) {
+      toast(`任务已结束，权限回复已丢弃：${result?.error || '任务不存在'}`);
+      break;
+    }
+    if (retries >= PERMISSION_REPLY_RETRY_LIMIT) {
+      await requireOpenCodeInteractionReply(result, runCtx, '权限回复');
+      break;
+    }
+    const reported = await requestAgentPermission({
+      requestId: `${requestId}:retry`,
+      title: '权限回复未送达',
+      description: result?.error || '连接失败，请重试',
+      detail: `允许以重试原回复（还可重试 ${PERMISSION_REPLY_RETRY_LIMIT - retries} 次），或拒绝本次操作。`,
+      sessionId: runCtx.sessionId,
+      allowAlways: false
+    }, runCtx);
+    if (!reported.decision) break;
+    if (reported.decision === 'deny') {
+      // Denial is the user's final answer. Try once to deliver it so a live run
+      // stops waiting, then close the dialog regardless of the result.
+      const denied = await deliverPermissionReply({ ...replyPayload, reply: 'reject' });
+      toast(denied?.ok
+        ? '已拒绝本次操作，Agent 将尝试其他方式'
+        : '已拒绝本次操作（任务已结束，拒绝无需送达）');
+      break;
+    }
+    retries += 1;
+    result = await deliverPermissionReply(replyPayload);
   }
 }
 
@@ -8506,24 +10390,29 @@ async function handleOpenCodeQuestion(runCtx, event) {
     await requireOpenCodeInteractionReply(emptyResult, runCtx, '问题回复');
     return;
   }
-  const response = await requestAgentQuestion({
-    requestId,
-    questions,
-    sessionId: runCtx.sessionId
-  }, runCtx);
-  if (response?.cancelled) return;
-  let result;
-  try {
-    result = await api.openCodeReplyQuestion({
-      runId: runCtx.runId,
-      requestId,
-      answers: response?.answers || [],
-      reject: false
-    });
-  } catch (error) {
-    result = { ok: false, error: error?.message || String(error) };
+  let initialAnswers = [], replyError = '';
+  while (!runCtx.coreSettled && !runCtx.shouldAbort) {
+    const response = await requestAgentQuestion({
+      requestId, questions, sessionId: runCtx.sessionId, initialAnswers, replyError
+    }, runCtx);
+    if (response?.cancelled) return;
+    recordAgentQuestionTurn(runCtx, requestId, questions, response?.answers || []);
+    let result;
+    try {
+      result = await api.openCodeReplyQuestion({
+        runId: runCtx.runId, requestId, answers: response?.answers || [], reject: false
+      });
+    } catch (error) {
+      result = { ok: false, error: error?.message || String(error) };
+    }
+    if (result?.ok || runCtx.coreSettled || runCtx.shouldAbort) return;
+    // A failed form submission is not a user cancellation. Keep the answers
+    // editable and display the actual transport/validation error for retry.
+    initialAnswers = response?.answers || [];
+    replyError = `问题回复失败：${result?.error || 'Yan Kernel 未返回成功结果'}`;
+    toast(replyError);
+    if (!$('#agentPermissionPanel')) return;
   }
-  await requireOpenCodeInteractionReply(result, runCtx, '问题回复');
 }
 
 function subagentRoleLabel(role) {
@@ -8553,13 +10442,6 @@ function mapOpenCodeEventToPet(event, runCtx) {
   if (event.type === 'yan.opencode.reconnected') return { type: 'phase', message: '思考推理' };
   if (event.type === 'yan.context.compression.started') return { type: 'phase', message: '正在压缩上下文' };
   if (event.type === 'yan.context.compression.completed') return { type: 'phase', message: '上下文压缩已完成' };
-  if (event.type === 'yan.goal.acceptance.started') return { type: 'phase', message: '正在验收目标' };
-  if (event.type === 'yan.goal.acceptance.repaired') return { type: 'phase', message: '已修复问题，准备再次验收' };
-  if (event.type === 'yan.goal.acceptance.passed') return { type: 'phase', message: '验收通过，正在完成回复' };
-  if (event.type === 'yan.goal.acceptance.failed') return { type: 'phase', message: '验收未通过' };
-  if (event.type === 'yan.policy.acceptance.started') return { type: 'phase', message: '正在验收策略落实情况' };
-  if (event.type === 'yan.policy.acceptance.passed') return { type: 'phase', message: '策略验收通过，正在完成回复' };
-  if (event.type === 'yan.policy.acceptance.failed') return { type: 'phase', message: '策略验收发现未落实项' };
   if (event.type === 'yan.delivery.acceptance.started') return { type: 'phase', message: '正在核对交付结果' };
   if (event.type === 'yan.delivery.acceptance.repaired') return { type: 'phase', message: '已修缮问题，正在再次核对' };
   if (event.type === 'yan.delivery.acceptance.passed') return { type: 'phase', message: '交付核对通过，正在完成回复' };
@@ -8580,13 +10462,10 @@ function mapOpenCodeEventToPet(event, runCtx) {
   if (event.type === 'yan.dsml.recovery.completed') return { type: 'phase', message: '思考推理' };
   if (event.type === 'yan.subagent.permission') {
     const role = subagentRoleLabel(event.data?.subagentType);
-    if (!event.data?.granted && String(event.data?.subagentType || '').toLowerCase() === 'builder') {
-      return { type: 'phase', message: 'Sub Build Agent 当前 3 个槽位均已占用' };
-    }
-    return { type: 'phase', message: event.data?.granted ? `${role}已开始工作` : '子代理数量已达上限' };
+    return { type: 'phase', message: event.data?.granted ? `${role}已开始工作` : `${role}未获准启动${event.data?.reason ? `：${event.data.reason}` : ''}` };
   }
   if (event.type === 'yan.subagent.capacity') {
-    return { type: 'phase', message: `Sub Build Agent ${Number(event.data?.activeSlots) || 0}/${Number(event.data?.maxSlots) || 3}` };
+    return { type: 'phase', message: `Sub Build Agent ${Number(event.data?.activeSlots) || 0}/${Number(event.data?.maxSlots) || '—'}` };
   }
   if (event.type === 'yan.subagent.progress') {
     if (event.data?.kind === 'tool') return { type: 'phase', message: `子代理正在执行 ${event.data.tool}` };
@@ -8705,30 +10584,15 @@ function normalizeAgentTodos(value) {
 }
 
 function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
-  if (!event?.type) return;
+  if (!event?.type || runCtx.finalStatus) return;
   runCtx.openCodeLastEventAt = Date.now();
-  if (updateSubagentWorkflow(runCtx, event, deferEffects)) return;
   const data = event.data || event.properties || {};
   const part = data.part;
 
-  if (
-    event.type === 'message.part.delta'
-    && data.field === 'text'
-    && hasVisibleOpenCodeText(data.delta)
-  ) {
-    markOpenCodeResponseStarted(runCtx);
-  } else if (
-    event.type === 'message.part.updated'
-    && ['text', 'reasoning'].includes(String(data.part?.type || ''))
-    && hasVisibleOpenCodeText(data.part?.text)
-  ) {
-    markOpenCodeResponseStarted(runCtx);
-  } else if (
-    (event.type === 'session.next.text.delta' || event.type === 'session.next.reasoning.delta')
-    && hasVisibleOpenCodeText(data.delta)
-  ) {
+  if (isOpenCodeVisibleResponseEvent(event, data)) {
     markOpenCodeResponseStarted(runCtx);
   }
+  if (updateSubagentWorkflow(runCtx, event, deferEffects)) return;
   if (event.type === 'yan.reasoning.summary') {
     if (typeof data.key === 'string' && /^(reasoning|tagged-thinking):/.test(data.key)) {
       const previous = openCodeTimelineItem(runCtx, data.key);
@@ -8746,6 +10610,12 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     showOpenCodeModelWait(runCtx);
   } else if (event.type === 'yan.model.response.started') {
     markOpenCodeResponseStarted(runCtx);
+  } else if (event.type === 'yan.context.breakdown') {
+    if (['system', 'tools', 'messages'].every(key => Number.isSafeInteger(data[key]) && data[key] >= 0)) {
+      runCtx.contextBreakdown = { system: data.system, tools: data.tools, messages: data.messages,
+        agentPreset: data.agentPreset, createdAt: data.createdAt };
+      updateContextInfo(runCtx.agentState, runCtx.sessionRef || state.currentSession);
+    }
   } else if (event.type === 'yan.context.budget') {
     const configuredBudget = configuredContextBudget();
     const budgetWindow = positiveContextTokens(data.contextWindow) || configuredBudget.contextWindow;
@@ -8760,30 +10630,42 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     };
     updateContextInfo(runCtx.agentState, runCtx.sessionRef || state.currentSession);
   } else if (event.type === 'yan.context.compression.started') {
+    const reason = data.reason === 'overflow' ? '服务端上下文超限，正在恢复压缩'
+      : data.reason === 'auto' ? '已达到上下文阈值，正在压缩' : '正在压缩上下文';
+    const detail = Number(data.threshold) > 0
+      ? `（内核估算 ${formatTokenCount(data.beforeTokens)} / 阈值 ${formatTokenCount(data.threshold)}）` : '';
     upsertOpenCodeTimeline(runCtx, 'context-compression', {
       type: 'progress',
       variant: 'context-compression',
       compressionState: 'running',
-      content: '正在压缩上下文……'
+      content: `${reason}${detail}……`
     });
   } else if (event.type === 'yan.context.compression.completed') {
+    const hasAfterTokens = Number.isFinite(data.afterTokens) && data.afterTokens >= 0;
     runCtx.contextCompressionCount = (Number(runCtx.contextCompressionCount) || 0) + 1;
     runCtx.lastContextCompression = {
       beforeTokens: Math.max(0, Number(data.beforeTokens) || 0),
-      afterTokens: Math.max(0, Number(data.afterTokens) || 0),
+      ...(hasAfterTokens ? { afterTokens: data.afterTokens } : {}),
       threshold: Math.max(0, Number(data.threshold) || 0),
       contextWindow: Math.max(0, Number(data.contextWindow) || 0),
       automatic: data.automatic === true,
+      reason: data.reason || '',
+      estimated: data.estimated === true,
+      measuredTokens: Math.max(0, Number(data.measured) || 0),
+      pendingEstimatedTokens: Math.max(0, Number(data.estimatedTokens) || 0),
       completedAt: Date.now()
     };
     runCtx.contextUiCompressionEpoch = runCtx.contextCompressionCount;
-    runCtx.contextUiTokens = runCtx.lastContextCompression.afterTokens;
-    runCtx.contextUiMeasured = runCtx.contextUiTokens > 0;
+    runCtx.contextBreakdown = null;
+    if (hasAfterTokens) runCtx.contextUiTokens = data.afterTokens;
+    runCtx.contextUiMeasured = Number(runCtx.contextUiTokens) > 0;
     upsertOpenCodeTimeline(runCtx, 'context-compression', {
       type: 'progress',
       variant: 'context-compression',
       compressionState: 'completed',
-      content: '上下文压缩已完成'
+      content: `${data.reason === 'overflow' ? '服务端超限恢复压缩已完成' : '上下文压缩已完成'}${Number(data.threshold) > 0
+        ? `（触发时估算 ${formatTokenCount(data.beforeTokens)} / 阈值 ${formatTokenCount(data.threshold)}）` : ''}${hasAfterTokens
+        ? `，压缩后约 ${formatTokenCount(data.afterTokens)}` : '（压缩后大小暂不可用）'}`
     });
     if (state.currentSession?.id === runCtx.sessionId) {
       updateContextInfo(runCtx.agentState, runCtx.sessionRef || state.currentSession);
@@ -8814,7 +10696,7 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
       deletions: Number(data.deletions) || 0,
       files
     };
-    runCtx.liveReviewSummary = mergeReviewSummaries(runCtx.liveReviewSummary, summary);
+    runCtx.liveReviewSummary = summary;
     runCtx.reviewNeedsFetch = false;
     runCtx.reviewVersion = (Number(runCtx.reviewVersion) || 0) + 1;
     runCtx.fileChangeCount = runCtx.liveReviewSummary.count;
@@ -8845,7 +10727,14 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     suppressOpenCodeProtocolPart(runCtx, '');
     runCtx.openCodeError = String(data.message || '模型工具调用恢复失败');
   } else if (event.type === 'message.updated') {
-    updateOpenCodeContextUsage(runCtx, data.info || data.message || data);
+    const info = data.info || data.message || data;
+    const roundChanged = trackRunRoundUsage(runCtx, info);
+    updateOpenCodeContextUsage(runCtx, info);
+    // A finished round may report usage without a context measurement; the
+    // capsule still advances as soon as that round lands.
+    if (roundChanged && state.currentSession?.id === runCtx.sessionId) {
+      updateContextInfo(runCtx.agentState, runCtx.sessionRef || state.currentSession);
+    }
   } else if (event.type === 'yan.vision.relay.started') {
     const model = String(data.modelName || data.modelId || 'Agnes').trim() || 'Agnes';
     upsertOpenCodeTimeline(runCtx, 'vision-relay', {
@@ -8870,55 +10759,6 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
       visionRelayState: 'completed',
       modelName: model,
       content: `视觉中继已使用模型${model}完成图像读取，正转交主模型中`
-    });
-  } else if (event.type === 'yan.policy.acceptance.started') {
-    runCtx.openCodePhase = 'policy';
-    const callId = String(data.callID || `policy-acceptance:${runCtx.runId}`);
-    upsertOpenCodeTimeline(runCtx, `tool-call:${callId}`, {
-      type: 'tool_call',
-      callId,
-      name: data.tool || 'yan_policy_acceptance',
-      args: data.input || {}
-    });
-  } else if (event.type === 'yan.policy.acceptance.passed' || event.type === 'yan.policy.acceptance.failed') {
-    runCtx.openCodePhase = event.type.endsWith('.passed') ? 'policy-passed' : 'policy-failed';
-    const callId = String(data.callID || `policy-acceptance:${runCtx.runId}`);
-    const toolName = data.tool || 'yan_policy_acceptance';
-    upsertOpenCodeTimeline(runCtx, `tool-result:${callId}`, {
-      type: 'tool_result',
-      callId,
-      name: toolName,
-      output: stringifyOpenCodeValue(data.output ?? { ok: event.type.endsWith('.passed'), message: data.message || '' }),
-      ok: event.type.endsWith('.passed')
-    });
-  } else if (event.type === 'yan.goal.acceptance.started') {
-    runCtx.openCodePhase = 'goal';
-    const round = Math.max(1, Number(data.round) || 1);
-    upsertOpenCodeTimeline(runCtx, 'goal-acceptance', {
-      type: 'progress',
-      content: `Goal 第 ${round} 轮：正在按原始要求验收。`
-    });
-  } else if (event.type === 'yan.goal.acceptance.repaired') {
-    runCtx.openCodePhase = 'goal';
-    const round = Math.max(1, Number(data.round) || 1);
-    upsertOpenCodeTimeline(runCtx, 'goal-acceptance', {
-      type: 'progress',
-      content: data.guidanceHandled && !Number(data.changedFiles)
-        ? `Goal 第 ${round} 轮已应用侧边聊天引导，正在重新验收。`
-        : `Goal 第 ${round} 轮发现并修复了实际问题，正在进入下一轮验收。`
-    });
-  } else if (event.type === 'yan.goal.acceptance.passed') {
-    runCtx.openCodePhase = 'goal-passed';
-    const round = Math.max(1, Number(data.round) || 1);
-    upsertOpenCodeTimeline(runCtx, 'goal-acceptance', {
-      type: 'progress',
-      content: `Goal 已在第 ${round} 轮通过验收。`
-    });
-  } else if (event.type === 'yan.goal.acceptance.failed') {
-    runCtx.openCodePhase = 'goal-failed';
-    upsertOpenCodeTimeline(runCtx, 'goal-acceptance', {
-      type: 'progress',
-      content: String(data.message || 'Goal 验收未通过。')
     });
   } else if (event.type === 'yan.delivery.contract.updated') {
     upsertOpenCodeDeliveryAgreement(runCtx, data.contract, { contractId: data.contractId, verification: 'recorded', review: null });
@@ -9064,8 +10904,12 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
         upsertOpenCodeTimeline(runCtx, `tool-result:${callId}`, {
           type: 'tool_result', callId, name: toolName,
           output: part.state?.output || part.state?.error || '',
+          metadata: part.state?.metadata || {},
           ok: part.state.status === 'completed'
         });
+        if (toolName === 'yan_skills_create_agent' && part.state.status === 'completed') {
+          void window.YanAgentPresets?.refresh?.().catch(error => console.warn('[agent-presets] refresh failed:', error));
+        }
         showOpenCodeModelWait(runCtx);
       }
     }
@@ -9129,8 +10973,12 @@ function applyOpenCodeEvent(runCtx, event, { deferEffects = false } = {}) {
     upsertOpenCodeTimeline(runCtx, `tool-result:${callId}`, {
       type: 'tool_result', callId, name: call?.name || 'tool',
       output: stringifyOpenCodeValue(data.result ?? data.content ?? data.error),
+      metadata: data.structured || data.metadata || data.result?.metadata || {},
       ok: event.type.endsWith('.success')
     });
+    if (call?.name === 'yan_skills_create_agent' && event.type === 'session.next.tool.success') {
+      void window.YanAgentPresets?.refresh?.().catch(error => console.warn('[agent-presets] refresh failed:', error));
+    }
     showOpenCodeModelWait(runCtx);
   } else if (event.type === 'todo.updated') {
     // OpenCode emits this event for the todowrite tool; model text is not a
@@ -9273,6 +11121,14 @@ function applyOpenCodeEventBatch(runCtx, events) {
 }
 
 function openCodeResultToAgentRun(result, runCtx) {
+  if (runCtx.interruptionReason === 'response_timeout') {
+    result = {
+      ...result,
+      status: 'interrupted',
+      interruptionReason: 'response_timeout',
+      error: window.YanRunOutcome.responseTimeoutMessage(runCtx.responseTimeoutMinutes)
+    };
+  }
   flushOpenCodeStreamDeltas(runCtx);
   cancelScheduledOpenCodeRender(runCtx);
   cancelOpenCodeStreamFlush(runCtx);
@@ -9280,6 +11136,8 @@ function openCodeResultToAgentRun(result, runCtx) {
   removeOpenCodeTimeline(runCtx, 'model-wait');
   const workflow = window.YanSubagentWorkflow;
   workflow.importRecords(runCtx.activeAgentRun, result.subagents);
+  workflow.reconcile(runCtx.activeAgentRun, result.delegation?.records);
+  if (result.delegation?.workflow) workflow.consume(runCtx.activeAgentRun, { type: 'yan.workflow.updated', data: { workflow: result.delegation.workflow } });
   for (const tool of result.toolCalls || []) {
     if (tool.name === 'task') workflow.consume(runCtx.activeAgentRun, { type: 'message.part.updated', data: { part: { type: 'tool', tool: 'task', callID: tool.callId, state: { input: tool.args, output: tool.output, status: tool.ok === false ? 'error' : 'completed' } } } });
   }
@@ -9320,9 +11178,7 @@ function openCodeResultToAgentRun(result, runCtx) {
   const partialText = containsDsmlProtocolMarkup(partialAgreement.text)
     ? ''
     : splitIntentLines(splitTaggedThinkingText(partialAgreement.text).text).text.trim();
-  const summaryStarted = result.status === 'done'
-    && !runCtx.workspaceRequired
-    && !!resultText;
+  const summaryStarted = result.status === 'done' && !!resultText;
   if (summaryStarted) {
     let finalTextIndex = -1;
     for (let index = timeline.length - 1; index >= 0; index--) {
@@ -9382,11 +11238,14 @@ function openCodeResultToAgentRun(result, runCtx) {
     deletions: Number(rawReviewSummary?.deletions) || changes.reduce((sum, file) => sum + file.deletions, 0),
     files: changes
   };
-  const status = runCtx.workspaceRequired
-    ? 'done'
-    : (result.status === 'interrupted' ? 'interrupted' : (result.status === 'error' ? 'error' : 'done'));
+  const status = result.status === 'interrupted' ? 'interrupted' : (result.status === 'error' ? 'error' : 'done');
   runCtx.agentState.status = status;
   runCtx.finalStatus = status;
+  // A watchdog abort already recorded why the run stopped; the completion
+  // event must not downgrade a provider timeout into a user cancel.
+  runCtx.interruptionReason = result.interruptionReason
+    || runCtx.interruptionReason
+    || (runCtx.shouldAbort ? 'user_cancel' : 'system_interrupted');
   runCtx.agentState.toolCallCount = result.toolCalls?.length || runCtx.agentState.toolCallCount || 0;
   const resultTodos = Array.isArray(result.todos)
     ? normalizeAgentTodos(result.todos)
@@ -9402,6 +11261,9 @@ function openCodeResultToAgentRun(result, runCtx) {
     runCtx.contextUiTokens = contextTokens;
     runCtx.contextUiMeasured = true;
   }
+  // The completed run carries the authoritative usage record; drop the memo
+  // even when the assistant message is no longer the last one in the task.
+  sessionUsageMemo.key = '';
   return {
     runId: runCtx.runId,
     openCodeSessionId: result.openCodeSessionId || runCtx.openCodeSessionId || '',
@@ -9413,9 +11275,10 @@ function openCodeResultToAgentRun(result, runCtx) {
     configName: runCtx.configName || '',
     presentationMode: runCtx.presentationMode || resolveAgentPresentationMode(runCtx.modelId),
     status,
+    interruptionReason: runCtx.interruptionReason,
+    responseTimeoutMinutes: runCtx.responseTimeoutMinutes,
     summaryStarted,
     userRequestedFinish: !!result.userRequestedFinish,
-    goal: result.goal || null,
     delivery: result.delivery || null,
     startedAt: runCtx.startedAt,
     completedAt,
@@ -9426,39 +11289,28 @@ function openCodeResultToAgentRun(result, runCtx) {
       : null,
     iteration: timeline.filter(item => item.type === 'tool_call').length,
     toolCallCount: result.toolCalls?.length || 0,
-    textContent: runCtx.workspaceRequired
-      ? WORKSPACE_REQUIRED_MESSAGE
-      : (resultText || partialText || ''),
+    textContent: resultText || partialText || '',
     thinkingContent: result.reasoning || '',
     timeline,
+    questionTurns: runCtx.activeAgentRun.questionTurns || [],
     subagents: runCtx.activeAgentRun.subagents || [],
     todos: resultTodos,
     todosFromTool: runCtx.agentState.todosFromTool || resultTodos.length > 0,
-    outcome: runCtx.workspaceRequired
-      ? '任务等待用户选择工作区。'
-      : (status === 'done'
-        ? (result.goal?.verified && Number(result.goal.acceptanceRounds) > 0
-          ? `Goal 已通过 ${Number(result.goal.acceptanceRounds) || 0} 轮验收。`
-          : !result.delivery?.passive && result.delivery?.verified && Number(result.delivery.acceptanceRounds) > 0
-            ? `交付核对已通过 ${Number(result.delivery.acceptanceRounds) || 0} 轮。`
-            : !result.delivery?.passive && result.delivery?.verified && result.delivery?.prechecked
-              ? '主轮已包含真实预览或验证，交付核对直接通过。'
-              : result.delivery?.failure
-                ? (result.delivery.passive ? result.delivery.failure : '任务已完成，但交付核对未完全通过，请查看核对记录。')
-          : 'Yan Kernel 已完成执行并返回真实会话结果。')
-        : ''),
-    acceptanceCriteria: runCtx.workspaceRequired
-      ? []
-      : (runCtx.workMode === 'goal'
-      ? (resultTodos.length
-        ? resultTodos.map(todo => ({ text: todo.text, status: todo.done ? 'satisfied' : 'pending' }))
-        : [{ text: '真实工件验收轮', status: result.goal?.verified ? 'satisfied' : 'pending' }])
-      : (result.delivery && !result.delivery.skipped
-        ? [{
-          text: '真实交付核对',
-          status: result.delivery.verified ? 'satisfied' : (result.delivery.failure ? 'attention' : 'pending')
-        }]
-        : [])),
+    outcome: status === 'done'
+      ? (!result.delivery?.passive && result.delivery?.verified && Number(result.delivery.acceptanceRounds) > 0
+          ? `交付核对已通过 ${Number(result.delivery.acceptanceRounds) || 0} 轮。`
+          : !result.delivery?.passive && result.delivery?.verified && result.delivery?.prechecked
+            ? '主轮已包含真实预览或验证，交付核对直接通过。'
+            : result.delivery?.failure
+              ? (result.delivery.passive ? result.delivery.failure : '任务已完成，但交付核对未完全通过，请查看核对记录。')
+        : 'Yan Kernel 已完成执行并返回真实会话结果。')
+      : '',
+    acceptanceCriteria: result.delivery && !result.delivery.skipped
+      ? [{
+        text: '真实交付核对',
+        status: result.delivery.verified ? 'satisfied' : (result.delivery.failure ? 'attention' : 'pending')
+      }]
+      : [],
     changeCount: reviewSummary.count,
     ...(changes.length ? {
       changeSummary: reviewSummary
@@ -9467,6 +11319,8 @@ function openCodeResultToAgentRun(result, runCtx) {
     usage: result.usage || {},
     performance: result.performance || null,
     contextTokens,
+    agentPreset: runCtx.agentPreset || 'standard',
+    contextBreakdown: result.contextBreakdown || runCtx.contextBreakdown || null,
     contextCompressionCount: Math.max(
       Number(result.contextCompressionCount) || 0,
       Number(runCtx.contextCompressionCount) || 0
@@ -9476,6 +11330,20 @@ function openCodeResultToAgentRun(result, runCtx) {
     // completed run must not inherit an intermediate error that was recovered.
     error: result.error || (status === 'error' ? (runCtx.openCodeError || '') : '')
   };
+}
+
+const autoOpenedDeliverableRuns = new Set();
+async function openCompletedMarkdown(session, agentRun) {
+  if (!session || session.id !== state.currentSession?.id || agentRun?.status !== 'done') return;
+  const key = session.id + ':' + (agentRun.runId || agentRun.completedAt);
+  if (autoOpenedDeliverableRuns.has(key)) return;
+  const body = document.createElement('div');
+  body.innerHTML = renderMarkdown(agentRun.textContent || '');
+  const target = [...body.querySelectorAll('a[href]')].map(link => link.getAttribute('href'))
+    .find(href => /^file:/i.test(href) && /\.(md|markdown)$/i.test(new URL(href).pathname));
+  if (!target) return;
+  autoOpenedDeliverableRuns.add(key);
+  await window.YanProjectFiles.openLocal(target, { sessionId: session.id });
 }
 
 function extractMediaAssetsFromAgentRun(agentRun) {
@@ -9511,8 +11379,10 @@ function extractMediaAssetsFromAgentRun(agentRun) {
 }
 
 function initOpenCodeRunState(runCtx) {
+  runCtx.finalStatus = '';
   runCtx.startedAt = runCtx.startedAt || Date.now();
   runCtx.workMode = runCtx.utility ? 'normal' : (runCtx.workMode || getCurrentWorkMode());
+  runCtx.agentPreset = runCtx.utility ? 'standard' : (runCtx.agentPreset || runCtx.sessionRef?.agentPreset || 'standard');
   runCtx.openCodePhase = 'work';
   runCtx.openCodeLastEventAt = Date.now();
   runCtx.openCodeHandledRequests = new Set();
@@ -9542,6 +11412,7 @@ function initOpenCodeRunState(runCtx) {
     presentationMode: runCtx.presentationMode || 'standard',
     status: 'working',
     summaryStarted: false,
+    questionTurns: runCtx.sessionRef?.questionTurnsByRun?.[runCtx.runId] || [],
     startedAt: runCtx.startedAt,
     timeline: [{
       type: 'progress',
@@ -9595,17 +11466,35 @@ async function rejectStartedOpenCodeRunIfAborted(runCtx, runId, cancelRun = api.
   throw error;
 }
 
+// The kernel session survives an aborted turn: cancel() interrupts the turn and
+// still returns its sessionID. Clearing the binding here made every manual stop
+// start the next message in a brand-new kernel session, which silently dropped
+// the conversation the user had been working in all day.
 function syncSessionOpenCodeIdAfterRun(session, agentRun) {
   if (!session || !agentRun) return;
-  if (agentRun.status === 'interrupted') {
-    session.openCodeSessionId = '';
-    return;
-  }
   if (agentRun.openCodeSessionId) session.openCodeSessionId = agentRun.openCodeSessionId;
+}
+
+// Older builds cleared the binding on interrupt. Recover it from the run record
+// stored on each message so those tasks resume their original kernel session
+// instead of paying for a fresh one with no history.
+function lastKnownOpenCodeSessionId(session) {
+  const messages = session?.messages || [];
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const id = messages[index]?.agentRun?.openCodeSessionId;
+    if (id) return id;
+  }
+  return '';
 }
 
 async function runOpenCodeLoop(session, assistantEl, runCtx) {
   const latestUserMessage = [...(session.messages || [])].reverse().find(message => message.role === 'user') || {};
+  // A missing root binding must not force a new kernel session while the task
+  // still has run records that name one.
+  if (!session.openCodeSessionId) {
+    const recovered = lastKnownOpenCodeSessionId(session);
+    if (recovered) session.openCodeSessionId = recovered;
+  }
   runCtx.currentRequest = String(latestUserMessage.content || '').trim();
   runCtx.runId = runCtx.runId || createRendererRunId(session.id);
   const openCodeRunId = runCtx.runId;
@@ -9621,17 +11510,24 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
     try {
       const start = await api.openCodeStartRun({
         runId: openCodeRunId,
+        browserAnnotation: !!runCtx.browserAnnotation,
         modelSelection: runCtx.remoteModelSelection,
         reasoningMode: runCtx.remoteReasoningMode,
         yanSessionId: session.id,
         openCodeSessionId: session.openCodeSessionId || '',
         title: session.title || latestUserMessage.content || 'Yan task',
         prompt: String(latestUserMessage.content || ''),
+        scheduledTaskId: latestUserMessage.scheduledTaskId || '',
+        scheduledRunAt: latestUserMessage.scheduledRunAt || 0,
         attachments: latestUserMessage.attachments || [],
         selectedSkills: normalizeSkillCalls(latestUserMessage.skillCalls || latestUserMessage.skillCall),
         selectedPlugins: latestUserMessage.pluginCalls || [],
         subagentRoles: Array.isArray(latestUserMessage.subagentRoles) ? latestUserMessage.subagentRoles : [],
-        history: (session.messages || []).slice(0, -1).map(message => {
+        // The host's creation receipt is UI bookkeeping, not an agent turn.
+        // Keep actual prior executions, but omit the synthetic setup exchange.
+        history: (session.messages || []).slice(0, -1).filter((message, index, messages) => (
+          !message.scheduledTask && !(message.role === 'user' && messages[index + 1]?.scheduledTask)
+        )).map(message => {
           let mediaAssets = Array.isArray(message.mediaAssets)
             ? message.mediaAssets
             : extractMediaAssetsFromAgentRun(message.agentRun);
@@ -9643,11 +11539,13 @@ async function runOpenCodeLoop(session, assistantEl, runCtx) {
               model: message.media.model || ''
             }];
           }
-          return { role: message.role, content: message.content, mediaAssets };
+          return { role: message.role, content: message.content, attachments: message.attachments || [], mediaAssets };
         }),
         workspace: runCtx.workspace || session.workspace || '',
         workMode: runCtx.workMode,
+        agentPreset: runCtx.agentPreset,
         utility: !!runCtx.utility,
+        utilityKind: runCtx.utilityKind || '',
         handoff: session.handoff || null
       });
       if (!start?.ok) throw new Error(start?.error || 'Yan Kernel 启动失败');
@@ -9709,6 +11607,7 @@ async function persistResumedOpenCodeRunOnce(session, runCtx, result) {
   };
   session.messages = session.messages || [];
   session.messages.push(assistantMsg);
+  addMessageUsage(session, assistantMsg);
   persistSessionContextCompression(session, runCtx, agentRun);
   await saveCurrentSession(session);
 
@@ -9733,10 +11632,12 @@ async function persistResumedOpenCodeRunOnce(session, runCtx, result) {
   syncChatAutoFollowUi(currentChatSessionId());
   scheduleQueuedTurnDispatch(session);
   if (agentRun?.status !== 'error' && agentRun?.status !== 'interrupted') window.YanPromptSuggestions?.onRunSettled?.(session);
+  void openCompletedMarkdown(session, agentRun);
   const petStatus = agentRun?.status === 'interrupted'
     ? 'paused'
     : (agentRun?.status === 'error' ? 'error' : 'completed');
   finishPetSupervision(runCtx, petStatus, petStatus === 'error' ? agentRun?.error : undefined);
+  markTaskCompletionAttention(session, petStatus);
   renderSessionList();
 }
 
@@ -9925,7 +11826,10 @@ async function recoverInterruptedOpenCodeRun(descriptor = {}) {
   const snapshot = descriptor.configSnapshot && typeof descriptor.configSnapshot === 'object'
     ? descriptor.configSnapshot
     : {};
-  if (['normal', 'plan', 'goal', 'evolution'].includes(String(snapshot.workMode || ''))) {
+  const savedCustomAgents = Array.isArray(state.config?.customAgents) ? state.config.customAgents : [];
+  runCtx.agentPreset = ['daily', 'minimal', 'creative', 'uncensored'].includes(snapshot.agentPreset)
+    || savedCustomAgents.some(agent => agent.id === snapshot.agentPreset) ? snapshot.agentPreset : 'standard';
+  if (['normal', 'plan', 'evolution'].includes(String(snapshot.workMode || ''))) {
     runCtx.workMode = String(snapshot.workMode);
   }
   setRunModelPresentation(runCtx, {
@@ -9974,8 +11878,12 @@ async function recoverInterruptedOpenCodeRun(descriptor = {}) {
     agentRun,
     mediaAssets: extractMediaAssetsFromAgentRun(agentRun)
   };
+  const replacedUsage = replacementIndex >= 0
+    ? session.messages[replacementIndex]?.agentRun?.usage
+    : null;
   if (replacementIndex >= 0) session.messages.splice(replacementIndex, 1, recoveredMessage);
   else session.messages.splice(endIndex, 0, recoveredMessage);
+  if (!replacedUsage) addMessageUsage(session, recoveredMessage);
   if (state.currentSession?.id === sessionId) {
     state.currentSession = session;
     renderMessages(session.messages);
@@ -10140,6 +12048,9 @@ function scheduleQueuedTurnDispatch(session) {
 
 // 核心发送流程：每个任务完全独立，互不影响。返回 { ok, error }
 async function submitMessage(text, attachments = [], skillCalls = [], options = {}) {
+  if (nestedStartGate) { toast('请先确认模型并开始子会话'); return { ok: false, error: 'nested_start_required' }; }
+  
+
   window.YanVoiceInput?.cancel();
   const selectedSkillCalls = normalizeSkillCalls(skillCalls);
   const pluginCalls = window.YanComposerPlugins?.normalize(options.pluginCalls) || [];
@@ -10148,6 +12059,7 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
   if (!options.session && !state.currentSession) await newSession();
   const runSession = options.session || state.currentSession;
   if (!runSession) return { ok: false, error: '没有可用会话' };
+  if (state.currentSession?.id === runSession.id) window.YanPromptSuggestions?.clear?.();
   await ensureFullSessionLoaded(runSession);
   const intentId = String(options.intentId || '').trim();
   const persistedSubmission = findPersistedIntentSubmission(runSession, intentId);
@@ -10166,6 +12078,15 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       || getAgentModelSelection(runSession)
   );
   const ui = state.currentSession?.id === runSession.id;
+  if (!effectiveModelSelection.modelId) {
+    // Fresh installs start with no model selected. Do not create a run that
+    // cannot be served; send the user to the picker instead.
+    if (ui) {
+      toast('请先配置并选择一个可用模型');
+      setTimeout(() => void openModelPicker(), 0);
+    }
+    return { ok: false, error: 'model_required' };
+  }
   const runCtx = createRunCtx(runSession.id, ui, runSession.workspace || '');
   if (options.browserAnnotation) runCtx.browserAnnotation = options.browserAnnotation;
   setRunModelPresentation(runCtx, effectiveModelSelection);
@@ -10197,6 +12118,10 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
     pluginCalls,
     modelSelection: effectiveModelSelection,
     ...(modelSwitchNotice ? { modelSwitchNotice } : {}),
+    ...(options.scheduledRunAt ? {
+      scheduledRunAt: Number(options.scheduledRunAt) || Date.now(),
+      ...(options.scheduledTaskId ? { scheduledTaskId: String(options.scheduledTaskId) } : {})
+    } : {}),
     ts: Date.now()
   };
   if (!userMsg.modelSelection) userMsg.modelSelection = effectiveModelSelection;
@@ -10207,7 +12132,8 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
 
   const userMsgIndex = persistedSubmission?.userIndex ?? (runSession.messages.length - 1);
   if (ui && !persistedSubmission?.userMessage) {
-    appendMessage('user', text, attachments, true, userMsgIndex, userMsg.ts, null, null, selectedSkillCalls, null, pluginCalls);
+    const userEl = appendMessage('user', text, attachments, true, userMsgIndex, userMsg.ts, null, null, selectedSkillCalls, null, pluginCalls);
+    if (userEl && userMsg.scheduledRunAt) decorateScheduledRunMessage(userEl, userMsg, { live: true });
     if (modelSwitchNotice) appendModelSwitchNoticeElement(modelSwitchNotice);
     setEmptyState(false);
   }
@@ -10263,6 +12189,7 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       mediaAssets: extractMediaAssetsFromAgentRun(agentRun)
     };
     runSession.messages.push(assistantMsg);
+    addMessageUsage(runSession, assistantMsg);
     persistSessionContextCompression(runSession, runCtx, agentRun);
 
     if (ui) {
@@ -10271,12 +12198,15 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
     }
 
     await saveCurrentSession(runSession);
+    // Usage for this turn only lands on the assistant message now; refresh the
+    // composer capsule and the open token panel with the new task total.
+    if (ui) updateContextInfo();
     const petStatus = agentRun?.status === 'interrupted'
       ? 'paused'
       : (agentRun?.status === 'error' ? 'error' : 'completed');
     finishPetSupervision(runCtx, petStatus, petStatus === 'error' ? taskErr : undefined);
 
-    if (canNotifyGeneral('completion') && agentRun?.status !== 'interrupted') {
+    if (!completionNotificationSent && canNotifyGeneral('completion') && agentRun?.status !== 'interrupted') {
       try {
         const failed = agentRun?.status === 'error';
         new Notification(failed ? 'Yan Agent · 任务异常' : 'Yan Agent', {
@@ -10296,12 +12226,25 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       // Core already settled this Turn and released the run. A provider
       // completion arriving afterwards must not append a second assistant
       // message or overwrite the cancelled/failed outcome.
-      taskOk = false;
-      taskErr = err?.message || '任务已由 Yan Core 对账结束';
-      runCtx.agentState.status = 'interrupted';
+      const outcome = runCtx.coreOutcome || { status: 'error', error: '任务收尾失败，请查看运行日志。' };
+      taskOk = outcome.status === 'done';
+      taskErr = outcome.error || '';
+      Object.assign(runCtx.agentState, outcome);
+      runCtx.finalStatus = outcome.status;
+      const body = assistantEl?.querySelector('.msg-body');
+      const partial = runCtx.partialContent || (body ? collectAssistantText(body) : '') || '';
+      const agentRun = { ...finalizeAgentRun(partial, outcome.status, getActiveRun(runCtx), body, null, runCtx), ...outcome };
+      if (!runSession.messages.some(message => message.agentRun?.runId === runCtx.runId)) {
+        runSession.messages.push({ role: 'assistant', content: partial, ts: Date.now(), agentRun });
+        addMessageUsage(runSession, { agentRun });
+        await saveCurrentSession(runSession);
+      }
+      if (body) renderAgentRunBody(body, agentRun, partial);
       if (ui) showTyping(false);
-    } else if (err && (err.name === 'AbortError' || runCtx.shouldAbort)) {
-      runSession.openCodeSessionId = '';
+    } else if (err && (runCtx.shouldAbort || runCtx.runAbortController?.signal.aborted)) {
+      // Keep the kernel session the turn was already using; an interrupted turn
+      // is resumable and must not orphan the conversation.
+      runSession.openCodeSessionId = runCtx.openCodeSessionId || runSession.openCodeSessionId || '';
       runCtx.agentState.status = 'interrupted';
       if (ui) showTyping(false);
       if (ui) {
@@ -10323,7 +12266,9 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
           duration: taskDuration,
           agentRun
         });
+        addMessageUsage(runSession, { agentRun });
         await saveCurrentSession(runSession);
+        if (state.currentSession?.id === runSession.id) updateContextInfo();
       } else {
         const partialContent = runCtx.partialContent || '';
         const agentRun = finalizeAgentRun(partialContent, 'interrupted', getActiveRun(runCtx), null, null, runCtx);
@@ -10334,7 +12279,9 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
           ts: Date.now(),
           agentRun
         });
+        addMessageUsage(runSession, { agentRun });
         await saveCurrentSession(runSession);
+        if (state.currentSession?.id === runSession.id) updateContextInfo();
       }
       finishPetSupervision(runCtx, 'paused');
     } else {
@@ -10360,6 +12307,7 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
         duration: taskDuration,
         agentRun
       });
+      addMessageUsage(runSession, { agentRun });
       if (ui) {
         assistantEl.dataset.msgIndex = runSession.messages.length - 1;
         renderAssistantMessageActions(assistantEl, agentRun, taskDuration, messageTs);
@@ -10401,7 +12349,11 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       });
     }
     scheduleChatAutoFollow(runSession.id);
+    // Backstop for a run that settles without the completion event: a pending
+    // permission panel must never outlive the run it belongs to.
+    settleAgentInteractionForRun(runCtx);
     state.activeRuns.delete(runSession.id);
+    markTaskCompletionAttention(runSession, terminalStatus);
     syncChatAutoFollowUi(currentChatSessionId());
     syncInterjectionUi();
     renderSessionList();
@@ -10416,7 +12368,11 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
       syncCurrentSessionAgentUi(runSession);
       syncUserMessageEditAvailability();
     }
-    if (runCtx.agentState?.status === 'done') window.YanPromptSuggestions?.onRunSettled?.(runSession);
+    if (runCtx.agentState?.status === 'done') {
+      window.YanPromptSuggestions?.onRunSettled?.(runSession);
+      const completed = [...(runSession.messages || [])].reverse().find(message => message.agentRun)?.agentRun;
+      void openCompletedMarkdown(runSession, completed);
+    }
     await activatePendingAgentHandoff(runSession.id);
     scheduleQueuedTurnDispatch(runSession);
   }
@@ -10425,6 +12381,16 @@ async function submitMessage(text, attachments = [], skillCalls = [], options = 
 
 function agentRunHasCollapsibleWork(agentRun) {
   const timeline = Array.isArray(agentRun?.timeline) ? agentRun.timeline : [];
+  if (agentRun?.questionTurns?.length || agentRun?.questionSegmentTail) {
+    const turn = agentRun.questionTurns?.at(-1);
+    const keys = new Set(turn?.beforeKeys || []);
+    const end = turn ? (keys.size ? timeline.reduce((last, item, i) => keys.has(item.openCodeKey) ? i + 1 : last, 0)
+      : Math.min(timeline.length, turn.beforeLength || 0)) : 0;
+    return timeline.slice(end).some(item => (item?.type === 'text' && item.stage !== 'summary')
+      || (!['text', 'question', 'permission', 'intelligent_ui', 'tool_result'].includes(item?.type)
+        && !(item?.type === 'progress' && item.variant === 'agent-loader')
+        && !(item?.type === 'tool_call' && isSubagentToolCall(item.name))));
+  }
   return timeline.some(item => (item?.stage || 'work') === 'work');
 }
 
@@ -10437,18 +12403,22 @@ function formatMessageClock(value) {
 }
 
 function buildAssistantActionsHtml(agentRun, duration, ts = null) {
-  const canToggleWork = agentRunHasCollapsibleWork(agentRun);
+  const canToggleWork = !agentRun?.questionSegment && agentRunHasCollapsibleWork(agentRun);
   const durationTitle = duration != null ? `，任务耗时 ${formatDuration(duration)}` : '';
-  const workToggleHtml = canToggleWork
+  const workToggleHtml = canToggleWork && !(agentRun?.isSubagent && agentRun.status === 'working')
     ? `<button type="button" class="agent-work-toggle" aria-expanded="false" title="查看工作过程${escapeAttr(durationTitle)}">查看工作过程</button>`
     : '';
   const durHtml = !agentRun && duration != null
     ? `<span class="msg-duration" title="任务耗时">${ICONS.clock} ${formatDuration(duration)}</span>`
     : '';
+  const cacheStats = getAgentRunCacheStats(agentRun);
+  const cacheHtml = cacheStats
+    ? `<span class="msg-cache-hit" title="本轮缓存读取 ${formatTokenCount(cacheStats.cacheRead)} / 输入总量 ${formatTokenCount(cacheStats.promptTokens)} tokens">缓存命中 ${formatCacheHitRate(cacheStats.rate)}</span>`
+    : '';
   const clockValue = ts ?? agentRun?.completedAt;
   const clock = formatMessageClock(clockValue);
   const clockHtml = clock ? `<time class="msg-response-time" title="回复时间" datetime="${escapeAttr(new Date(clockValue).toISOString())}">${clock}</time>` : '';
-  return `${workToggleHtml}${durHtml}<button class="msg-action-btn" data-act="speak" title="朗读" aria-pressed="false" aria-label="朗读">${ICONS.speaker}</button><button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>${clockHtml}`;
+  return `${workToggleHtml}${durHtml}<button class="msg-action-btn" data-act="copy" title="复制">${ICONS.copy}</button>${cacheHtml}${clockHtml}`;
 }
 
 // Only an application the model actually operated may be presented. Discovery
@@ -10569,6 +12539,9 @@ async function computerControlAppIcons() {
 
 function renderAssistantMessageActions(assistantEl, agentRun, duration, ts = null) {
   if (!assistantEl) return null;
+  const projectedRun = agentRunRenderState.get(assistantEl.querySelector('.msg-body'))?.agentRun;
+  if (projectedRun?.questionSegmentTail) agentRun = { ...agentRun, questionTurns: [], questionSegmentTail: true, timeline: projectedRun.timeline };
+  
   assistantEl.querySelector(':scope > .computer-control-session-apps')?.remove();
   let actions = assistantEl.querySelector(':scope > .msg-actions');
   if (!actions) {
@@ -10580,6 +12553,8 @@ function renderAssistantMessageActions(assistantEl, agentRun, duration, ts = nul
   actions.querySelectorAll('.msg-action-btn').forEach(btn => {
     btn.addEventListener('click', () => handleMessageAction(btn.dataset.act, assistantEl));
   });
+  const header = assistantEl.querySelector('.agent-run-header');
+  if (header) syncAgentWorkVisibility(header);
   return actions;
 }
 
@@ -10637,7 +12612,6 @@ function createRunCtx(sessionId, ui = true, workspace = '') {
     modelName: '',
     configName: '',
     presentationMode: 'standard',
-    workspaceRequired: false,
     currentRequest: '',
     shouldAbort: false,
     abortController: controller,
@@ -10646,6 +12620,9 @@ function createRunCtx(sessionId, ui = true, workspace = '') {
     openCodeLastEventAt: Date.now(),
     contextCompressionCount: 0,
     lastContextCompression: null,
+    // Per-round usage reported while this turn is still running; cleared when
+    // the turn's authoritative usage is persisted.
+    liveUsageRounds: new Map(),
     runBudget: {
       ...contextBudget,
       inputTokensPerSecond: 10_000
@@ -10750,6 +12727,7 @@ function finalizeAgentRun(content, status, activeRun, bodyEl, error, runCtx) {
     ...(activeRun || {}),
     runId: runCtx?.runId || activeRun?.runId || '',
     status,
+    interruptionReason: runCtx?.interruptionReason || (runCtx?.shouldAbort ? 'user_cancel' : activeRun?.interruptionReason || 'system_interrupted'),
     startedAt: runCtx?.startedAt || activeRun?.startedAt || Date.now(),
     completedAt: Date.now(),
     durationMs: Math.max(0, Date.now() - (runCtx?.startedAt || Date.now())),
@@ -11153,8 +13131,10 @@ function renderAgentQuestionStep({ focus = true } = {}) {
         }
         clearAgentQuestionError();
         updateAgentQuestionNote(item, options, draft);
-        if (input.checked) {
-          window.setTimeout(() => advanceAgentQuestion(), 90);
+        if (input.checked && !question.multiple) {
+          window.setTimeout(() => {
+            if (agentQuestionRequest === request && request.currentIndex === questionIndex) advanceAgentQuestion();
+          }, 90);
         }
       });
       label.append(input, optionIndexBadge, optionCopy, optionArrow);
@@ -11180,14 +13160,14 @@ function renderAgentQuestionStep({ focus = true } = {}) {
   const customInput = $('#agentQuestionCustomInput');
   const customField = $('#agentQuestionCustomField');
   const customToggle = $('#agentQuestionCustomToggle');
-  customReply?.classList.remove('hidden');
+  customReply?.classList.toggle('hidden', question.custom === false);
   customField?.classList.add('hidden');
   customToggle?.setAttribute('aria-expanded', 'false');
   if (customInput) {
     customInput.value = draft.custom || '';
     customInput.placeholder = options.length ? '否，并告诉 Yan Agent 应该如何做不同' : '请输入你的回答';
   }
-  if (!options.length) {
+  if (!options.length && question.custom !== false) {
     customField?.classList.remove('hidden');
     customToggle?.setAttribute('aria-expanded', 'true');
   }
@@ -11273,7 +13253,7 @@ function settleAgentQuestion(result = {}, { silent = false } = {}) {
   syncBrowserFocusPromptStatus();
 }
 
-function requestAgentQuestion({ requestId = '', questions = [], sessionId }, runCtx) {
+function requestAgentQuestion({ requestId = '', questions = [], sessionId, initialAnswers = [], replyError = '' }, runCtx) {
   return new Promise(resolve => {
     if (agentPermissionRequest) settleAgentPermission('deny', { silent: true });
     if (agentQuestionRequest) settleAgentQuestion({ cancelled: true }, { silent: true });
@@ -11320,14 +13300,22 @@ function requestAgentQuestion({ requestId = '', questions = [], sessionId }, run
       requestId: String(requestId || ''),
       questions,
       currentIndex: 0,
-      drafts: questions.map(() => ({ selected: [], custom: '' }))
+      drafts: questions.map((question, index) => {
+        const labels = normalizeAgentQuestionOptions(question).map(option => option.label);
+        const answers = initialAnswers[index] || [];
+        return { selected: answers.filter(answer => labels.includes(answer)),
+          custom: answers.filter(answer => !labels.includes(answer)).join(', ') };
+      })
     };
     renderAgentQuestionStep();
-    scheduleAgentQuestionAutoDecide();
+    if (replyError) {
+      const error = fields.querySelector('.agent-question-error');
+      if (error) { error.textContent = replyError; error.classList.remove('hidden'); }
+    } else scheduleAgentQuestionAutoDecide();
   });
 }
 
-function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true, alwaysToast = '', visionRelay = null }, runCtx) {
+function requestAgentPermission({ requestId = '', title, description, detail, sessionId, allowAlways = true, alwaysToast = '', visionRelay = null, onceLabel = '本次允许', denyLabel = '拒绝' }, runCtx) {
   return new Promise((resolve) => {
     if (agentQuestionRequest) settleAgentQuestion({ cancelled: true }, { silent: true });
     if (agentPermissionRequest) settleAgentPermission('deny', { silent: true });
@@ -11352,8 +13340,8 @@ function requestAgentPermission({ requestId = '', title, description, detail, se
     detailEl.classList.remove('hidden');
     questionFields?.classList.add('hidden');
     questionFields?.replaceChildren();
-    onceButton && (onceButton.textContent = '本次允许');
-    denyButton && (denyButton.textContent = '拒绝');
+    onceButton && (onceButton.textContent = onceLabel);
+    denyButton && (denyButton.textContent = denyLabel);
     panel.dataset.mode = 'permission';
     if (canNotifyGeneral('permission')) {
       try {
@@ -11552,10 +13540,14 @@ function persistSessionContextCompression(session, runCtx, agentRun) {
   session.contextCompression = {
     runId: currentRunId,
     beforeTokens: Math.max(0, Number(detail.beforeTokens) || 0),
-    afterTokens: Math.max(0, Number(detail.afterTokens) || 0),
+    ...(Number.isFinite(detail.afterTokens) && detail.afterTokens >= 0 ? { afterTokens: detail.afterTokens } : {}),
     threshold: Math.max(0, Number(detail.threshold) || 0),
     contextWindow: Math.max(0, Number(detail.contextWindow) || 0),
     automatic: detail.automatic === true,
+    reason: detail.reason || '',
+    estimated: detail.estimated === true,
+    measuredTokens: Math.max(0, Number(detail.measuredTokens) || 0),
+    pendingEstimatedTokens: Math.max(0, Number(detail.pendingEstimatedTokens) || 0),
     completedAt: Number(detail.completedAt) || Date.now()
   };
 }
@@ -11566,6 +13558,7 @@ function persistSessionContextCompression(session, runCtx, agentRun) {
 
 function collectAssistantText(bodyEl) {
   if (!bodyEl) return '';
+  
   const directRounds = Array.from(bodyEl.children).filter(el => el.classList?.contains('msg-round'));
   const rounds = directRounds.length ? directRounds : Array.from(bodyEl.querySelectorAll('.msg-round'));
   const parts = rounds.map(el => el.textContent.trim());
@@ -11629,7 +13622,8 @@ function syncAgentRunTicker(bodyEl, header, agentRun) {
   const completedAt = parseRunTimestamp(agentRun.completedAt);
   const fixedDuration = Number(agentRun.durationMs);
   const responseStartedAt = parseRunTimestamp(agentRun.responseStartedAt);
-  const tickerKey = [status, startedAt, completedAt, fixedDuration, responseStartedAt].join(':');
+  const executionStartedAt = parseRunTimestamp(agentRun.executionStartedAt);
+  const tickerKey = [status, startedAt, completedAt, fixedDuration, responseStartedAt, executionStartedAt].join(':');
   const previousTicker = agentRunTickers.get(bodyEl);
   if (previousTicker?.key === tickerKey && previousTicker.header === header) {
     previousTicker.update();
@@ -11651,17 +13645,15 @@ function syncAgentRunTicker(bodyEl, header, agentRun) {
       agentRunTickers.delete(bodyEl);
       return;
     }
-    const elapsed = formatHandledDuration(getElapsed());
+    const elapsed = formatRunElapsed(getElapsed());
     const elapsedEl = header.querySelector('.run-elapsed');
     if (elapsedEl) elapsedEl.textContent = elapsed;
     const summary = header.querySelector('.agent-run-summary');
     if (summary) {
       const phaseLabel = header.querySelector('.run-phase')?.textContent || '';
-      const cacheLabel = header.querySelector('.run-cache-hit')?.textContent?.trim() || '';
-      const statusLabel = header.querySelector('.run-status-label')?.textContent || '已处理';
+      const statusLabel = header.querySelector('.run-status-label')?.textContent || '用时';
       summary.setAttribute('aria-label', [
         elapsedEl ? `${statusLabel} ${elapsed}` : statusLabel,
-        cacheLabel,
         phaseLabel
       ].filter(Boolean).join('，'));
     }
@@ -11669,7 +13661,7 @@ function syncAgentRunTicker(bodyEl, header, agentRun) {
 
   const ticker = { key: tickerKey, header, update, timer: null };
   update();
-  if (status === 'working' && responseStartedAt) {
+  if (status === 'working') {
     ticker.timer = setInterval(update, 1000);
   }
   agentRunTickers.set(bodyEl, ticker);
@@ -11679,9 +13671,16 @@ function bindAgentWorkToggle(container) {
   if (!container || container.dataset.workToggleBound === 'true') return;
   container.dataset.workToggleBound = 'true';
   container.addEventListener('click', event => {
-    const toggle = event.target.closest('.agent-work-toggle');
+    // The assistant element and its message body can both bind this handler.
+    // Consume one bubbled click so a single user action cannot toggle twice.
+    if (event.__yanWorkToggleHandled) return;
+    const toggle = event.target.closest('.agent-work-toggle, .agent-work-status[role="button"]');
     if (!toggle || !container.contains(toggle) || toggle.disabled) return;
-    const activity = container.querySelector('.agent-run-header');
+    event.__yanWorkToggleHandled = true;
+    // Resolve from the clicked row first. A message can contain nested run
+    // headers (for example a Nested Session); querying the binding container
+    // picked the first header and toggled a different run.
+    const activity = toggle.closest('.agent-run-header') || container.querySelector('.agent-run-header');
     if (!activity || activity.dataset.workToggleAvailable !== 'true') return;
     activity.dataset.workToggleTouched = 'true';
     activity.dataset.workExpanded = activity.dataset.workExpanded === 'true' ? 'false' : 'true';
@@ -11724,8 +13723,12 @@ function syncAgentWorkVisibility(header) {
   if (!header) return;
   const scope = header.closest('.msg, .subagents-detail-body');
   const canToggle = header.dataset.workToggleAvailable === 'true';
+  const liveChild = !!header.closest('.subagents-detail-body') && header.dataset.status === 'working';
+  const showToggle = canToggle && header.dataset.status !== 'working'
+    && !scope?.classList.contains('question-completed-segment');
   let toggle = scope?.querySelector('.msg-actions .agent-work-toggle') || null;
-  if (!toggle && scope && canToggle) {
+  if (!showToggle) { toggle?.remove(); toggle = null; }
+  if (!toggle && scope && showToggle) {
     let actions = scope.querySelector(':scope > .msg-actions');
     if (!actions) {
       actions = document.createElement('div');
@@ -11738,10 +13741,10 @@ function syncAgentWorkVisibility(header) {
     toggle.title = '查看工作过程';
     actions.prepend(toggle);
   }
-  if (header.dataset.workToggleTouched !== 'true') {
-    const status = header.dataset.status || 'working';
-    const hideWork = status === 'error' || status === 'interrupted' || (status !== 'working' && header.dataset.summaryStarted === 'true');
-    header.dataset.workExpanded = String(canToggle && !hideWork);
+  if (liveChild) {
+    header.dataset.workExpanded = 'true';
+  } else if (header.dataset.workToggleTouched !== 'true') {
+    header.dataset.workExpanded = 'false';
   }
   const expanded = canToggle && header.dataset.workExpanded === 'true';
   header.classList.toggle('agent-work-collapsed', canToggle && !expanded);
@@ -11753,13 +13756,19 @@ function syncAgentWorkVisibility(header) {
 
 function renderAgentRunHeader(bodyEl, agentRun) {
   if (!bodyEl || !agentRun) return;
+  
   const header = ensureAgentActivity(bodyEl);
   const summary = header.querySelector('.agent-run-summary');
   const activityBody = header.querySelector('.agent-activity-body');
   const status = agentRun.status || 'working';
-  if (status === 'working' && !agentRun.sideChat) showTyping(false);
+  if (status === 'working' && !agentRun.sideChat && !agentRun.isSubagent) showTyping(false);
   header.className = 'agent-run-header status-' + status;
   header.dataset.status = status;
+  let waiting = header.querySelector('[data-delegation-waiting]');
+  if (agentRun.subagentWaiting && status === 'working') {
+    if (!waiting) { waiting = document.createElement('div'); waiting.dataset.delegationWaiting = 'true'; waiting.className = 'agent-progress-note'; waiting.setAttribute('role', 'status'); header.insertBefore(waiting, activityBody); }
+    waiting.textContent = `等待 ${agentRun.subagentWaiting} 个子代理返回结果`;
+  } else waiting?.remove();
   const summaryStarted = !!agentRun.summaryStarted;
   const previousSummaryStarted = header.dataset.summaryStarted === 'true';
   header.dataset.summaryStarted = String(summaryStarted);
@@ -11767,36 +13776,32 @@ function renderAgentRunHeader(bodyEl, agentRun) {
     header.dataset.workExpanded = 'false';
   }
   const timeline = Array.isArray(agentRun.timeline) ? agentRun.timeline : [];
-  const hasWork = timeline.some(item => (item?.stage || 'work') === 'work');
+  const hasWork = timeline.some(item => (item?.type === 'text' && item.stage !== 'summary') || (!['text', 'question', 'permission', 'intelligent_ui', 'tool_result'].includes(item?.type)
+    && !(item?.type === 'progress' && item.variant === 'agent-loader')
+    && !(item?.type === 'tool_call' && isSubagentToolCall(item.name))));
   const canToggle = hasWork;
   header.dataset.workToggleAvailable = String(canToggle);
   const terminalLabel = status === 'error' ? '运行失败' : (status === 'interrupted' ? '已暂停' : '');
-  const cacheStats = status === 'working' ? null : getAgentRunCacheStats(agentRun);
-  const cacheRate = cacheStats ? formatCacheHitRate(cacheStats.rate) : '';
-  const cacheLevel = cacheStats?.rate >= 0.8 ? 'is-high' : (cacheStats?.rate > 0 ? 'is-active' : 'is-cold');
-  const cacheTitle = cacheStats
-    ? `本轮缓存读取 ${formatTokenCount(cacheStats.cacheRead)} / 输入总量 ${formatTokenCount(cacheStats.promptTokens)} tokens`
-    : '';
   const initialDuration = status === 'working'
     ? Math.max(0, Date.now() - (parseRunTimestamp(agentRun.startedAt) || Date.now()))
     : Math.max(0, Number(agentRun.durationMs) || 0);
   const responseStartedAt = parseRunTimestamp(agentRun.responseStartedAt);
-  const waitingForResponse = status === 'working' && !responseStartedAt;
+  const hasResponse = !!responseStartedAt || !!agentRun.executionStartedAt || timeline.some(item =>
+    ['tool_call', 'tool_result'].includes(item?.type)
+    || (['text', 'thinking'].includes(item?.type) && hasVisibleOpenCodeText(item.content)));
+  const waitingForResponse = status === 'working' && !hasResponse;
   const summarySignature = [
     status,
     canToggle,
     terminalLabel,
-    cacheStats?.cacheRead || 0,
-    cacheStats?.promptTokens || 0,
-    cacheStats?.rate || 0,
-    responseStartedAt || 0
+    responseStartedAt || 0,
+    hasResponse
   ].join('|');
   if (summary.dataset.renderSignature !== summarySignature) {
     const groups = [
       waitingForResponse
         ? `<span class="run-status is-waiting"><span class="run-status-label">Yan Agent is starting up</span></span>`
-        : `<span class="run-status"><span class="run-status-label">已处理</span> <span class="run-elapsed">${escapeHtml(formatHandledDuration(initialDuration))}</span></span>`,
-      cacheStats ? `<span class="run-cache-hit ${cacheLevel}" title="${escapeAttr(cacheTitle)}">缓存命中 <span class="run-cache-rate">${escapeHtml(cacheRate)}</span></span>` : '',
+        : `<span class="run-status"><span class="run-status-label">用时</span> <span class="run-elapsed">${escapeHtml(formatRunElapsed(initialDuration))}</span></span>`,
       terminalLabel ? `<span class="run-terminal ${escapeAttr(status)}">${escapeHtml(terminalLabel)}</span>` : ''
     ].filter(Boolean);
     summary.innerHTML = `
@@ -11825,7 +13830,7 @@ function buildRunChangeSummaryElement(agentRun) {
   panel.setAttribute('aria-label', `${rolledBack ? '已撤销' : '已编辑'} ${count} 个文件`);
   panel.innerHTML = `
     <header class="run-change-header">
-      <span class="run-change-icon">${ICONS.circleProgressCheck}</span>
+      <span class="run-change-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" data-keyline-icon="file-diff"><path d="M14 2L8 2C5.7909 2 4 3.7909 4 6L4 18C4 20.2091 5.7909 22 8 22L16 22C18.2091 22 20 20.2091 20 18L20 8L14 2ZM12 8L12 14M9 11L15 11M9 18L15 18"/></svg></span>
       <span class="run-change-heading">
         <span class="run-change-title">${rolledBack ? '已撤销' : '已编辑'} ${count} 个文件</span>
         <span class="run-change-stats" aria-label="新增 ${additions} 行，删除 ${deletions} 行">
@@ -11834,7 +13839,7 @@ function buildRunChangeSummaryElement(agentRun) {
         </span>
       </span>
       <button class="run-change-rollback" type="button" data-run-change-rollback title="${rolledBack ? '本轮改动已撤销' : `撤销本轮 ${count} 个文件改动`}" ${rolledBack ? 'disabled' : ''}>
-        <span>${rolledBack ? '已撤销' : '撤销'}</span>${ICONS.arrowUTurnLeft}
+        ${ICONS.arrowUTurnLeft}<span>${rolledBack ? '已撤销' : '撤销'}</span>
       </button>
     </header>
     <div class="run-change-list">
@@ -11949,7 +13954,9 @@ function getAgentTimelineRenderWindow(timeline, status) {
     {
       type: 'progress',
       stage: 'work',
+      variant: 'work-trim',
       content: `早期工作过程已折叠（${omitted} 项）`,
+      omitted,
       openCodeKey: 'timeline:trimmed'
     },
     ...timeline.slice(-MAX_RENDERED_TIMELINE_PARTS)
@@ -12019,59 +14026,12 @@ function getToolActivitySignature(calls) {
 }
 
 function buildDeliveryAgreementElement(contract = {}, agreement = {}) {
-  const details = document.createElement('details');
-  const normalized = normalizedDeliveryAgreement(contract);
-  details.className = 'tool-activity-group delivery-agreement-tool is-completed';
-  details.dataset.tool = DELIVERY_AGREEMENT_NAME;
-  details.dataset.toolState = 'completed';
-  details.dataset.toolLabelMode = 'outer';
-  details.dataset.contract = JSON.stringify(normalized);
-  const verification = DELIVERY_AGREEMENT_STATUS[agreement.verification] ? agreement.verification : 'recorded';
-  details.dataset.deliveryVerification = verification;
-  details.dataset.deliveryAgreement = JSON.stringify({ verification, contractId: agreement.contractId || '', review: agreement.review || null });
-  details.open = false;
-
-  // The state lives on the tool label itself (same purple as the name):
-  // "Yan-Delivery-Agreement ·已完成" / "Yan-Delivery-Agreement ·错误".
-  const stateSuffix = verification === 'failed' ? '·错误' : '·已完成';
-  const summary = document.createElement('summary');
-  summary.className = 'tool-activity-summary';
-  summary.innerHTML = `
-    <span class="tool-activity-icon tc-icon-svg" data-icon="${verification === 'verified' ? 'circle-progress-check' : 'clock'}">${verification === 'verified' ? ICONS.circleProgressCheck : ICONS.clock}</span>
-    <span class="tool-activity-label tool-activity-outer-label" data-tool-state="completed">${DELIVERY_AGREEMENT_NAME} ${stateSuffix}</span>
-  `;
-
-  const body = document.createElement('div');
-  body.className = 'tool-activity-body delivery-agreement-body';
-  const panel = document.createElement('div');
-  panel.className = 'tool-result-panel delivery-agreement-panel';
-  panel.setAttribute('role', 'list');
-  for (const field of DELIVERY_AGREEMENT_FIELDS) {
-    if (['direction', 'decisions', 'worldview'].includes(field) && !normalized[field]) continue;
-    const row = document.createElement('div');
-    row.className = 'delivery-agreement-field';
-    row.setAttribute('role', 'listitem');
-    const key = document.createElement('span');
-    key.className = 'delivery-agreement-key';
-    key.textContent = field;
-    const value = document.createElement('span');
-    value.className = 'delivery-agreement-value';
-    value.textContent = normalized[field] || '未声明';
-    const observation = agreement.review?.criteria?.[field];
-    if (observation?.evidence) {
-      const evidence = document.createElement('div');
-      evidence.className = 'delivery-agreement-evidence';
-      const verdict = { pass: '通过', fail: '未通过', unobserved: '未验证' }[observation.status] || '未验证';
-      evidence.textContent = `${verdict}：${observation.evidence}`;
-      value.appendChild(evidence);
-    }
-    row.append(key, value);
-    panel.appendChild(row);
-  }
-  body.appendChild(panel);
-  details.append(summary, body);
-  setToolContainerState(details, 'completed');
-  return details;
+  const row = document.createElement('div');
+  row.className = 'tool-step delivery-agreement-tool';
+  row.dataset.tool = DELIVERY_AGREEMENT_NAME;
+  row.dataset.contract = JSON.stringify(normalizedDeliveryAgreement(contract));
+  row.innerHTML = '<div class="tc-header"><span class="tc-icon-svg" data-icon="newspaper"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6C8 4.3431 9.3431 3 11 3L18 3C19.6569 3 21 4.3431 21 6L21 18C21 19.6569 19.6569 21 18 21L6 21C4.3431 21 3 19.6569 3 18L3 11C3 9.8954 3.8954 9 5 9L8 9L8 6ZM8 9L8 18C8 19.4639 6.9434 20.7141 5.5 20.958M12 8L17 8M12 12L17 12M12 16L15 16"/></svg></span><span class="tc-name">已明确本任务应用协议</span></div>';
+  return row;
 }
 
 function updateStreamingMarkdownElement(element, content, previousState) {
@@ -12107,7 +14067,80 @@ function updateStreamingMarkdownElement(element, content, previousState) {
   return { content, streaming: true, tailElement, tailTextNode, cursor };
 }
 
+// DOM-owned cache: repeated projections may allocate new item objects, while
+// streaming items may mutate in place. Compare values, not object identity.
+const agentPartRenderCache = new WeakMap();
 function updateAgentTimelinePartElement(element, item, result, phase, presentationMode = 'standard') {
+  // The derived intent label is a WeakMap side channel, so it must participate
+  // in the signature: the intent row often arrives after the thinking stretch
+  // has already ended, leaving the thinking item itself unchanged.
+  const intentLabel = item?.type === 'thinking' ? String(thinkingLabelByItem.get(item) || '') : '';
+  const signature = JSON.stringify([item, result, phase, presentationMode, intentLabel]);
+  if (agentPartRenderCache.get(element) === signature) return;
+  updateAgentTimelinePartContent(element, item, result, phase, presentationMode);
+  agentPartRenderCache.set(element, signature);
+}
+
+function updateAgentTimelinePartContent(element, item, result, phase, presentationMode = 'standard') {
+  if (item.type === 'workflow_orchestration') {
+    if (!element.workflowView) {
+      element.workflowView = window.YanWorkflowOrchestration.create(item.workflow, { onAgentClick: agent => {
+        const record = state.currentSession?.messages?.flatMap(message => message.agentRun?.subagents || []).find(record => record.agentID === agent.agentID)
+          || [...state.activeRuns.values()].flatMap(entry => entry.runCtx?.activeAgentRun?.subagents || []).find(record => record.agentID === agent.agentID);
+        if (record) subagentPanel.open(record.id);
+        else subagentPanel.open();
+      } });
+      element.replaceChildren(element.workflowView.element);
+    } else element.workflowView.update(item.workflow);
+    return;
+  }
+  if (item.type === 'computer_work_row' || item.type === 'computer_control_group') {
+    const stats = item.stats || computerControlWorkStats(item.type === 'computer_control_group' ? (item.items || []) : [item]);
+    const running = item.running === true;
+    element.className = 'tool-step computer-work-row';
+    element.innerHTML = `<div class="tc-header"><span class="tc-icon-svg" aria-hidden="true">${COMPUTER_CONTROL_CURSOR_ICON}</span><span class="tc-name${running ? ' agent-shine-text' : ''}">我正在操控你的电脑</span>${stats?.commands ? `<span class="computer-work-stats">· ${window.YanWorkSegments.statsMarkup(stats)}</span>` : ''}</div>`;
+    return;
+  }
+  if (item.type === 'browser_work_row') {
+    element.className = 'tool-step browser-work-row';
+    element.removeAttribute('open');
+    element.innerHTML = `<div class="tc-header"><span class="tc-icon-svg" aria-hidden="true">${TOOL_ICON_SVG['globe-cursor']}</span><span class="tc-name${item.running ? ' agent-shine-text' : ''}">我正在操控内置浏览器进行工作补充${item.stats ? ' · ' + window.YanWorkSegments.statsMarkup(item.stats) : ''}</span></div>`;
+    return;
+  }
+  if (item.type === 'external_agent_work_row') {
+    const meta = EXTERNAL_AGENT_UI[item.provider] || null;
+    const agentName = meta?.name || '外部智能体';
+    const label = item.running
+      ? `${agentName} 正在处理 Yan Agent 的派发任务…`
+      : `${agentName} 已处理完 Yan Agent 的派发任务`;
+    element.className = 'tool-step external-agent-work-row';
+    element.removeAttribute('open');
+    element.innerHTML = `<div class="tc-header"><span class="tc-icon-svg external-agent-work-logo" aria-hidden="true">${meta ? `<img src="${escapeAttr(meta.logo)}" alt="">` : TOOL_ICON_SVG.monitor}</span><span class="tc-name${item.running ? ' agent-shine-text' : ''}">${escapeHtml(label)}</span>${item.stats ? `<span class="external-agent-work-stats">· ${window.YanWorkSegments.statsMarkup(item.stats)}</span>` : ''}</div>`;
+    return;
+  }
+  if (item.type === 'work_mutation_row') {
+    const file = item.files?.[0] || {};
+    const pending = item.sources.some(call => call.phase === 'running');
+    element.className = 'tool-step work-mutation-row' + (pending ? ' is-running' : '');
+    element.innerHTML = `<summary class="tc-header"><span class="tc-icon-svg" aria-hidden="true">${resolveToolUi(item.name).icon}</span><span class="tc-name">${({ write: '已新建文件', edit: '编辑了文件', patch: '应用了文件补丁' })[file.action] || '编辑了文件'}</span><span class="tc-mutation-files">${mutationFilesMarkup([file])}</span></summary><div class="tc-body"></div>`;
+    const renderCalls = () => {
+      const body = element.querySelector('.tc-body');
+      if (!element.open || body.childElementCount) return;
+      const panel = document.createElement('div'); panel.className = 'tool-result-panel';
+      const output = item.sources.map(call => typeof call.result?.output === 'string' ? call.result.output : JSON.stringify(call.result?.output || '')).join('\n\n');
+      updateToolResultPanel(panel, item.name, item.sources[0].item.args, output, !item.sources.some(call => normalizeToolBoolean(call.result?.ok) === false), 'done');
+      body.append(panel);
+    };
+    if (pending) {
+      element.open = false;
+      element.querySelector('.tc-mutation-files').innerHTML = mutationFilesMarkup([{...file, additions:0, deletions:0}]) + '<span>……</span>';
+    }
+    const failed = item.sources.find(call => call.result && normalizeToolBoolean(call.result.ok) === false);
+    if (failed) element.querySelector('.tc-header').insertAdjacentHTML('beforeend', '<span class="tc-command-failure">' + ({write:'写入时发生错误',edit:'编辑该文件时发生错误',patch:'为此文件应用补丁时发生错误'})[mutationToolAction(failed.item.name)] + '</span>');
+    element.ontoggle = renderCalls;
+    renderCalls();
+    return;
+  }
   if (item.type === 'intelligent_ui') {
     window.YanIntelligentUi?.update(element, item);
     return;
@@ -12121,6 +14154,14 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
     const streaming = !!item.streaming;
     element.classList.toggle('streaming', streaming);
     if (streaming) {
+      // A marker-only delta (for example a bare 「意图」 before its sentence
+      // arrives) leaves no narration. Do not render an empty streaming tail,
+      // which would leave a lone blinking cursor in the timeline.
+      if (!content) {
+        element.replaceChildren();
+        agentElementRenderState.set(element, { content: '', streaming: false });
+        return;
+      }
       agentElementRenderState.set(element, updateStreamingMarkdownElement(element, content, previousState));
     } else {
       if (previousState.content !== content || previousState.streaming) {
@@ -12149,22 +14190,24 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
         }
       }
     }
-    const label = element.querySelector('.thinking-label');
-    element.classList.toggle('has-progress-summary', !streaming && !!thinkingLabelByItem.get(item));
-    // Keep the active state descriptive while streaming, then label the finished
-    // block with what that stretch was about (falling back to the plain label).
-    if (label) label.textContent = streaming ? '思考中' : (thinkingLabelByItem.get(item)
-      || (state.config?.agent?.reasoningSummary === 'none' ? '思考已结束' : item.summaryStatus === 'pending' ? '正在整理进展…' : item.summaryStatus === 'failed' ? '进展摘要暂不可用' : '思考已结束'));
-    element.classList.toggle('streaming', streaming);
-    if (streaming && !previousState.streaming) {
-      // Auto-expand the live reasoning unless the user turned it off; keeping it
-      // closed leaves the run readable as a single "思考中" line above the reply.
-      if (state.config?.general?.expandThinking !== false) {
-        element.open = true;
-        if (text) text.scrollTop = text.scrollHeight;
-      }
+    const preview = element.querySelector('.thinking-preview');
+    if (preview && previousState.content !== content) preview.textContent = content.replace(/\s+/gu, ' ').trim();
+    // The intent line labels the reasoning stretch it follows. Keep the live
+    // state descriptive, then show that sentence as the finished summary.
+    const summaryLabel = element.querySelector('.thinking-label');
+    const progressSummary = streaming ? '' : String(thinkingLabelByItem.get(item) || '').trim();
+    element.classList.toggle('has-progress-summary', !!progressSummary);
+    if (summaryLabel) {
+      summaryLabel.textContent = streaming
+        ? '思考中'
+        : progressSummary
+          || (state.config?.agent?.reasoningSummary === 'none' ? '思考已结束'
+            : item.summaryStatus === 'pending' ? '正在整理进展…'
+            : item.summaryStatus === 'failed' ? '进展摘要暂不可用'
+            : '思考已结束');
     }
-    if (!streaming && previousState.streaming) element.open = false;
+    element.classList.toggle('streaming', streaming);
+    // Disclosure belongs to the user, including across streaming completion.
     agentElementRenderState.set(element, { content, streaming });
     return;
   }
@@ -12187,7 +14230,7 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
     return;
   }
 
-  if (item.type === 'computer_control_group') {
+  if (item.type === 'computer_control_group' || item.type === 'browser_acceptance_group') {
     const previousState = agentElementRenderState.get(element) || {};
     const children = Array.isArray(item.items) ? item.items : [];
     const signature = getAgentPartSignature(children.map(entry => [entry.item?.type, entry.item?.openCodeKey, getAgentPartSignature(entry.item)]));
@@ -12347,7 +14390,7 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
 
   if (item.type === 'subagent_status') {
     element.className = 'agent-subagent-status';
-    element.textContent = item.content;
+    element.innerHTML = `<span class="agent-subagent-logo" aria-hidden="true">${window.YanSubagentPanel?.avatarFor?.(item) || ''}</span><span>${escapeHtml(item.content || '')}</span>`;
     element.dataset.subagentId = item.subagentId;
     element.setAttribute('aria-label', item.content + '，查看子代理');
     return;
@@ -12365,20 +14408,12 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
   }
 
   if (item.type === 'tool_call') {
-    if (
-      previousState.name === item.name
-      && previousState.argsRef === item.args
-      && previousState.resultRef === result
-      && previousState.phase === phase
-    ) {
-      agentElementRenderState.set(element, { ...previousState, itemRef: item });
-      return;
-    }
     const resultRaw = result ? result.output : null;
     const signature = [
       String(item.name || ''),
-      getCachedAgentSerializableSignature(item.args || {}),
+      getAgentPartSignature(item.args || {}),
       getAgentPartSignature(resultRaw),
+      getAgentPartSignature(result?.metadata || {}),
       result?.ok == null ? '' : String(result.ok),
       String(phase || '')
     ].join('\u001f');
@@ -12394,11 +14429,12 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
       return;
     }
     const wasOpen = element.open;
-    const next = buildToolStepElement(item.name, item.args, resultRaw, result ? result.ok : null, phase);
+    const next = buildToolStepElement(item.name, item.args, resultRaw, result ? result.ok : null, phase, result?.metadata || {});
     element.className = next.className;
     element.dataset.tool = next.dataset.tool || '';
     element.dataset.args = next.dataset.args || '{}';
     element.dataset.commandTool = next.dataset.commandTool || 'false';
+    if (next.dataset.skillRead) element.dataset.skillRead = next.dataset.skillRead;
     if (next.dataset.ok != null) element.dataset.ok = next.dataset.ok;
     else delete element.dataset.ok;
     if (item.callId) element.dataset.callId = String(item.callId);
@@ -12418,15 +14454,21 @@ function updateAgentTimelinePartElement(element, item, result, phase, presentati
 }
 
 function createAgentTimelinePartElement(item, presentationMode = 'standard') {
+  if (item.type === 'workflow_orchestration') return document.createElement('div');
+  if (item.type === 'computer_work_row' || item.type === 'computer_control_group') return document.createElement('div');
+  if (item.type === 'browser_work_row') return document.createElement('div');
+  if (item.type === 'external_agent_work_row') return document.createElement('div');
+  if (item.type === 'work_mutation_row') return document.createElement('details');
   if (item.type === 'intelligent_ui') return window.YanIntelligentUi?.create() || null;
   if (item.type === 'thinking') return buildThinkingElement('', false);
   if (item.type === 'thinking_group') return buildGptThinkingElement(item.items || [], item.placeholder || '', item.shine !== false);
-  if (item.type === 'computer_control_group') {
+  if (item.type === 'computer_control_group' || item.type === 'browser_acceptance_group') {
     const details = document.createElement('details');
-    details.className = 'computer-control-timeline-group';
+    const browserAcceptance = item.type === 'browser_acceptance_group';
+    details.className = 'computer-control-timeline-group' + (browserAcceptance ? ' browser-acceptance-timeline-group' : '');
     const summary = document.createElement('summary');
     summary.className = 'computer-control-timeline-summary';
-    summary.innerHTML = `<span class="computer-control-timeline-icon" aria-hidden="true">${COMPUTER_CONTROL_CURSOR_ICON}</span><span>Yan Agent 正在操控你的电脑</span><svg class="computer-control-timeline-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
+    summary.innerHTML = `<span class="computer-control-timeline-icon" aria-hidden="true">${browserAcceptance ? BROWSER_ACCEPTANCE_CURSOR_ICON : COMPUTER_CONTROL_CURSOR_ICON}</span><span>${browserAcceptance ? 'Yan Agent 正在调用内置浏览器进行前端验收' : 'Yan Agent 正在操控你的电脑'}</span><svg class="computer-control-timeline-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
     const body = document.createElement('div');
     body.className = 'computer-control-group-body';
     details.append(summary, body);
@@ -12447,7 +14489,7 @@ function createAgentTimelinePartElement(item, presentationMode = 'standard') {
     details.open = false;
     return details;
   }
-  if (item.type === 'tool_call') return document.createElement('details');
+  if (item.type === 'tool_call') return document.createElement(isStaticToolRow(item.name) ? 'div' : 'details');
   return null;
 }
 
@@ -12512,11 +14554,7 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
     if (item.type === 'progress' && item.variant === 'reasoning-intent'
       && (state.config?.agent?.reasoningSummary === 'none'
         || intentFoldsIntoThinking(renderTimeline, index, useGptThinkingChain))) return;
-    if (useGptThinkingChain && item.type === 'thinking' && item.streaming) {
-      flushCalls();
-      appendGptThinking(item, index);
-      return;
-    }
+
     if (useGptThinkingChain && item.type === 'progress' && item.variant === 'agent-loader') {
       // Keep the logo visible only while the model has not produced any
       // timeline content. Once work starts, the loader must not pin later
@@ -12554,6 +14592,7 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
       const phase = result?.interrupted || (!result && status === 'interrupted')
         ? 'interrupted'
         : (!result && status === 'working' ? 'running' : 'done');
+      if (calls.length && browserAcceptanceTarget(calls[0].item) !== browserAcceptanceTarget(item)) flushCalls();
       calls.push({
         item,
         index,
@@ -12620,7 +14659,12 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
   };
   for (const source of sourceParts) {
     const item = source.item;
-    const computerGroup = item?.type === 'tool_group' && Array.isArray(item.calls) && item.calls.length > 0 && item.calls.every(call => isComputerControlCall(call.item));
+    // A parallel batch can mix the plugin activation that enables computer use
+    // with the first control call. That batch still belongs to the episode;
+    // only a batch of purely unrelated tools must stay outside it.
+    const computerGroup = item?.type === 'tool_group' && Array.isArray(item.calls) && item.calls.length > 0
+      && item.calls.some(call => isComputerControlCall(call.item))
+      && item.calls.every(call => isComputerControlCall(call.item) || isComputerControlSetupCall(call.item));
     const containsComputerExit = (item?.type === 'tool_group' && Array.isArray(item.calls)
       ? item.calls.some(call => isComputerControlExitTool(call.item))
       : item?.type === 'tool_call' && isComputerControlExitTool(item));
@@ -12657,7 +14701,7 @@ function buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resul
   }
   flushComputer();
   grouped.sort((a, b) => a.index - b.index);
-  return grouped;
+  return groupBrowserAcceptanceParts(grouped);
 }
 
 const COMPUTER_CONTROL_CURSOR_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.27 9.89 13.01 21.65c.14.43.73.47.93.06l2.47-5.27a.5.5 0 0 1 .26-.24l5.02-2.09c.43-.18.4-.78-.03-.93L9.9 9.26c-.39-.13-.76.23-.63.63Z"/><path d="m12.17 5.76 1.78-1.78M7.88 4.7l-.9-2.7M4.7 7.87 2 6.97"/></svg>';
@@ -12673,6 +14717,41 @@ function isComputerControlCall(item) {
 }
 
 const COMPUTER_CONTROL_NATIVE_TOOLS = new Set(['start_session', 'escalate_session', 'get_session', 'end_session', 'list_apps', 'list_windows', 'get_window_state', 'verify_state', 'launch_app', 'bring_to_front', 'set_window_frame', 'invoke_menu', 'click', 'double_click', 'right_click', 'drag', 'type_text', 'press_key', 'hotkey', 'set_value', 'scroll', 'get_screen_size', 'get_desktop_state', 'get_cursor_position', 'move_cursor', 'check_permissions']);
+// Enabling the computer-use plugin and reading its instructions happen in the
+// same parallel batch as the first control call, so they belong to the episode.
+const COMPUTER_CONTROL_SETUP_TOOLS = new Set(['plugins_activate', 'plugins_inspect', 'plugins_read_resource']);
+function isComputerControlSetupCall(item) {
+  if (!COMPUTER_CONTROL_SETUP_TOOLS.has(parseToolIdentity(item?.name).action)) return false;
+  const target = item?.args?.id || item?.args?.pluginId || item?.args?.resource || '';
+  return /computer/i.test(String(target));
+}
+// The folded computer row reports the same command statistics as the browser
+// and external-agent rows, counting calls nested in a parallel tool batch.
+function computerControlTimeline(sources = []) {
+  const timeline = [];
+  for (const source of sources) {
+    const item = source?.item;
+    if (!item) continue;
+    if (item.type === 'computer_control_group') {
+      timeline.push(...computerControlTimeline(item.items || []));
+      continue;
+    }
+    if (item.type === 'tool_group' && Array.isArray(item.calls)) {
+      for (const call of item.calls) {
+        if (!call?.item) continue;
+        timeline.push(call.item);
+        if (call.result) timeline.push({ ...call.result, type: 'tool_result', callId: call.item.callId });
+      }
+      continue;
+    }
+    timeline.push(item);
+    if (source.result) timeline.push({ ...source.result, type: 'tool_result', callId: item.callId });
+  }
+  return timeline;
+}
+function computerControlWorkStats(sources = []) {
+  return window.YanWorkSegments.statistics(computerControlTimeline(sources));
+}
 function isComputerControlExitToolName(name) {
   const value = String(name || '').toLowerCase();
   return value === 'end_session' || value.endsWith('_end_session') || value.includes('end_session');
@@ -12691,13 +14770,24 @@ const thinkingLabelByItem = new WeakMap();
 // The reasoning-intent line is a protocol marker, not narration: it carries the
 // label of the reasoning stretch it reports on, and the orb icon of that stretch
 // introduces the work. The forward marker is 「意图：」, defined by
-// REASONING_INTENT_RULE in lib/reasoning-intent.js.
 //
 // The two arrowhead variants are the retired marker. They are still recognised
 // for two reasons only: conversations stored by earlier releases must re-render
 // without them, and a model that still emits the old form must not print it.
 // Both are written as escapes, so no marker glyph exists in this file.
-const THINKING_INTENT_LINE = /^\s*(?:意图[:：]|[\u25b8\u27a4])\s*(.*)$/;
+//
+// Models do not always emit the documented form: some stream a bare 「意图」
+// before the colon and sentence arrive, and some use a pipe as the separator.
+// All of those are the same marker and must be removed before rendering.
+function matchThinkingIntentLine(line) {
+  const value = String(line ?? '');
+  const arrow = value.match(/^\s*[\u25b8\u27a4]\s*(.*)$/);
+  if (arrow) return { label: String(arrow[1] || '').trim() };
+  if (/^\s*意图\s*$/.test(value)) return { label: '' };
+  const separated = value.match(/^\s*意图\s*[:：|｜]\s*(.*)$/);
+  if (separated) return { label: String(separated[1] || '').trim() };
+  return null;
+}
 
 // Removes every intent line from a text payload and returns the first usable
 // label. Ingestion, finalization, DOM projection and message restore all go
@@ -12710,14 +14800,36 @@ function splitIntentLines(content) {
   if (!source) return { text: '', intent: '' };
   let intent = '';
   let dropped = false;
+  let awaitingLabel = false;
   const kept = [];
+  const useLabel = value => {
+    const label = String(value || '').trim();
+    if (!intent && label.length <= 240 && !/<[^>]+>/.test(label)) intent = label;
+  };
   for (const line of source.split(/\r?\n/)) {
-    const match = line.match(THINKING_INTENT_LINE);
+    const match = matchThinkingIntentLine(line);
     if (match) {
       dropped = true;
-      const label = String(match[1] || '').trim();
-      if (!intent && label.length <= 240 && !/<[^>]+>/.test(label)) intent = label;
+      if (match.label) useLabel(match.label);
+      // A bare marker is often followed by its sentence on the next line.
+      // Keep consuming until that sentence arrives instead of leaving it as
+      // ordinary narration (which would silently lose the summary).
+      awaitingLabel = !match.label;
       continue;
+    }
+    if (awaitingLabel) {
+      if (!line.trim()) continue;
+      const label = line.trim();
+      // Only the short intent sentence belongs to the marker. A long paragraph
+      // is real narration and must stay visible even if the model omitted the
+      // colon after 「意图」.
+      if (label.length <= 240 && !/<[^>]+>/.test(label)) {
+        dropped = true;
+        useLabel(label);
+        awaitingLabel = false;
+        continue;
+      }
+      awaitingLabel = false;
     }
     kept.push(line);
   }
@@ -12865,14 +14977,7 @@ function bindAppearanceSettings() {
 }
 
 function thinkingIntentFromText(text) {
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const match = line.trim().match(THINKING_INTENT_LINE);
-    if (match?.[1]?.trim()) {
-      const label = match[1].trim();
-      if (label.length <= 240 && !/<[^>]+>/.test(label)) return label;
-    }
-  }
-  return '';
+  return splitIntentLines(text).intent;
 }
 
 // Use only an explicit model-authored summary from this exact stretch.
@@ -12915,21 +15020,33 @@ function intentFoldsIntoThinking(timeline, index, useGptThinkingChain) {
 function syncAgentTimelineParts(activityBody, timeline, status, fallbackContent, summaryStarted = false, renderWork = true, presentationMode = 'standard') {
   if (!activityBody) return;
   const renderTimeline = timeline
-    .filter(item => renderWork || item?.stage === 'summary' || window.YanIntelligentUi?.isTool(item?.name));
+    .filter(item => renderWork || item?.stage === 'summary' || window.YanIntelligentUi?.isTool(item?.name))
+    .filter(item => !(item?.type === 'tool_call' && isSubagentToolCall(item.name)));
   renderTimeline.forEach((item, index) => {
     if (item?.type === 'thinking') thinkingLabelByItem.set(item, deriveThinkingLabel(renderTimeline, index));
   });
   const sourceCacheKey = `${status}|${renderWork ? 'work' : 'summary'}|${presentationMode}|${state.config?.agent?.reasoningSummary || 'auto'}`;
   const cachedSource = agentTimelineSourcePartsCache.get(timeline);
   let sourceParts;
+  const resultIndex = buildTimelineResultIndex(renderTimeline);
   if (cachedSource?.key === sourceCacheKey) {
     sourceParts = cachedSource.parts.slice();
   } else {
-    const resultIndex = buildTimelineResultIndex(renderTimeline);
+
     const hasSubtask = renderTimeline.some(item => item.type === 'subtask');
     sourceParts = buildAgentTimelineSourceParts(renderTimeline, status, hasSubtask, resultIndex, presentationMode);
     agentTimelineSourcePartsCache.set(timeline, { key: sourceCacheKey, parts: sourceParts });
   }
+  if (activityBody.classList.contains('segment-details')) {
+    sourceParts = sourceParts.flatMap(source => source.item.type === 'browser_acceptance_group' ? source.item.items : [source]);
+    sourceParts = sourceParts.flatMap(source => source.item.type === 'tool_group'
+      ? source.item.calls.map(call => ({ item: call.item, index: call.index, result: call.result, phase: call.phase }))
+      : [source]);
+    sourceParts = mergeBuiltinBrowserRows(sourceParts);
+    sourceParts = mergeExternalAgentRows(sourceParts);
+    sourceParts = mergeWorkSegmentMutationRows(sourceParts);
+  }
+  sourceParts = mergeComputerControlRows(sourceParts);
   const claimedResults = new Set();
   const hasNarration = renderTimeline.some(item => item.type === 'text' && String(item.content || '').trim());
   if (fallbackContent && !hasNarration) {
@@ -13000,7 +15117,7 @@ function syncAgentTimelineParts(activityBody, timeline, status, fallbackContent,
     if (!element) continue;
     element.dataset.agentPartKey = key;
     element.dataset.agentPartType = item.type;
-    element.dataset.agentStage = item.type === 'subagent_status' ? 'subagent' : item.stage === 'summary' ? 'summary' : 'work';
+    element.dataset.agentStage = item.type === 'subagent_status' ? 'work' : item.stage === 'summary' ? 'summary' : 'work';
     if (item.type === 'text') {
       element.classList.toggle('agent-work-narration', element.dataset.agentStage === 'work');
       element.classList.toggle('agent-summary-output', element.dataset.agentStage === 'summary');
@@ -13022,7 +15139,9 @@ function syncAgentTimelineParts(activityBody, timeline, status, fallbackContent,
   for (const element of Array.from(activityBody.children)) {
     if (element.dataset?.agentPartKey && !desiredKeys.has(element.dataset.agentPartKey)) element.remove();
   }
-  let reference = activityBody.firstElementChild;
+  // The trim notice is owned by YanWorkSegments, not this reconciliation.
+  // Starting at it moves every retained row ahead of it on every repaint.
+  let reference = Array.from(activityBody.children).find(element => element.dataset?.agentPartKey) || null;
   for (const element of desired) {
     if (element !== reference) activityBody.insertBefore(element, reference);
     reference = element.nextElementSibling;
@@ -13043,6 +15162,7 @@ function getCachedToolActivitySignature(item) {
 }
 
 function syncAgentError(bodyEl, errorMessage, status = 'error') {
+  
   let errorEl = bodyEl.querySelector(':scope > .agent-run-error');
   const content = String(errorMessage || '').trim();
   if (!content) {
@@ -13060,14 +15180,90 @@ function syncAgentError(bodyEl, errorMessage, status = 'error') {
   return errorEl;
 }
 
+
+
+function recordAgentQuestionTurn(runCtx, requestId, questions, answers) {
+  flushOpenCodeStreamDeltas(runCtx);
+  const run = runCtx.activeAgentRun;
+  const turns = run.questionTurns ||= [];
+  const entries = questions.map((question, index) => ({
+    question: String(question.question || question.header || ''),
+    answer: (answers[index] || []).map(String).join('、')
+  }));
+  const existing = turns.find(turn => turn.requestId === requestId);
+  if (existing) existing.entries = entries;
+  else turns.push({ requestId, entries, ts: Date.now(),
+    beforeTimeline: JSON.parse(JSON.stringify(run.timeline)),
+    beforeKeys: run.timeline.map(item => item.openCodeKey).filter(Boolean),
+    beforeLength: run.timeline.length });
+  const session = runCtx.sessionRef;
+  if (session) {
+    (session.questionTurnsByRun ||= {})[runCtx.runId] = turns;
+    void saveCurrentSession(session).catch(error => console.warn('[question-turn-save]', error));
+  }
+  renderOpenCodeRunNow(runCtx);
+}
+
+function renderAgentQuestionSegments(bodyEl, agentRun, fallbackContent) {
+  const owner = bodyEl.closest('.msg.assistant');
+  if (!owner) return false;
+  const turns = agentRun.questionTurns;
+  const nodes = owner.yanQuestionSegments ||= [];
+  let start = 0;
+  const timeline = agentRun.timeline || [];
+  turns.forEach((turn, index) => {
+    const keys = new Set(turn.beforeKeys || []);
+    // Keys survive loader removal, timeline normalization and later tool results.
+    let end = keys.size ? timeline.reduce((last, item, i) => keys.has(item.openCodeKey) ? i + 1 : last, start)
+      : Math.min(timeline.length, turn.beforeLength || start);
+    end = Math.max(start, end);
+    let pair = nodes[index];
+    if (!pair) {
+      const assistant = document.createElement('div');
+      assistant.className = 'msg assistant question-completed-segment';
+      assistant.innerHTML = '<div class="msg-body agent-output"></div>';
+      const user = document.createElement('div');
+      user.className = 'msg user question-answer-message';
+      user.innerHTML = '<div class="msg-body"></div>';
+      pair = nodes[index] = { assistant, user };
+      owner.before(assistant, user);
+    }
+    if (!pair.rendered) renderAgentRunBody(pair.assistant.querySelector('.msg-body'), {
+      ...agentRun, questionTurns: [], questionSegment: true, status: 'done', error: '',
+      textContent: '', thinkingContent: '', outcome: '', delivery: null,
+      summaryStarted: false, changeSummary: null, usage: {},
+      durationMs: Math.max(0, turn.ts - (index ? turns[index - 1].ts : Number(agentRun.startedAt) || turn.ts)),
+      timeline: (turn.beforeTimeline ? turn.beforeTimeline.filter((item, i) => index === 0
+        || (item.openCodeKey ? !(turns[index - 1].beforeKeys || []).includes(item.openCodeKey)
+          : i >= (turns[index - 1].beforeLength || 0))) : timeline.slice(start, end))
+        .filter(item => !(item.type === 'progress' && item.variant === 'agent-loader'))
+    });
+    pair.rendered = true;
+    const markup = turn.entries.map(entry => `<div class="question-answer-entry"><div class="question-answer-prompt" title="${escapeAttr(entry.question)}">${escapeHtml(entry.question.replace(/\s+/g, ' '))}</div><div class="question-answer-content">${renderUserMessageText(entry.answer)}</div></div>`).join('');
+    const userBody = pair.user.querySelector('.msg-body');
+    if (userBody.innerHTML !== markup) userBody.innerHTML = markup;
+    start = end;
+  });
+  renderAgentRunBody(bodyEl, { ...agentRun, questionTurns: [], questionSegmentTail: true,
+    timeline: timeline.slice(start) }, fallbackContent);
+  invalidateConversationTurns();
+  return true;
+}
+
 function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
   if (!bodyEl) return;
+  if (agentRun.questionTurns?.length && renderAgentQuestionSegments(bodyEl, agentRun, fallbackContent)) return;
+  
   window.YanSubagentWorkflow.migrate(agentRun);
   if (bodyEl.dataset.agentOutputInitialized !== 'true') {
     bodyEl.replaceChildren();
     bodyEl.dataset.agentOutputInitialized = 'true';
   }
   const header = ensureAgentActivity(bodyEl);
+  if (agentRun.questionSegment) {
+    header.dataset.workExpanded = 'true';
+    header.dataset.workToggleTouched = 'true';
+  }
   const activityBody = header.querySelector('.agent-activity-body');
   const fallbackAgreement = extractDeliveryAgreement(fallbackContent || agentRun.textContent || '');
   const rawTimeline = Array.isArray(agentRun.timeline) ? agentRun.timeline : [];
@@ -13094,17 +15290,16 @@ function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
     ? activityBody.scrollHeight - activityBody.scrollTop - activityBody.clientHeight < 28
     : false;
 
-  const renderWork = agentRun.status === 'working'
-    || !agentRun.summaryStarted
-    || header.dataset.workExpanded === 'true';
-  syncAgentTimelineParts(
+  prepareTodoPresentation(rawTimeline);
+  prepareTodoPresentation(timeline, rawTimeline.find(item => item.type === 'tool_call' && isTodoWriteTool(item.name))?.callId);
+  window.YanWorkSegments.render(
     activityBody,
     timeline,
     agentRun.status || 'working',
     resolvedFallback,
     !!agentRun.summaryStarted,
-    renderWork,
-    presentationMode
+    presentationMode,
+    rawTimeline
   );
   if (agentRun.status !== 'working') {
     bodyEl.querySelector(':scope > .agent-final-output')?.remove();
@@ -13122,23 +15317,12 @@ function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
     });
     bodyEl.querySelector(':scope > .agent-run-error')?.remove();
     bodyEl.querySelector(':scope > .run-change-summary')?.remove();
-    bodyEl.querySelector(':scope > .run-plan-summary')?.remove();
   }
-  const terminalMessage = agentRun.status === 'interrupted'
-    ? (agentRun.recoveredAfterRestart
-      ? '应用退出导致运行中断，以上为从运行日志恢复的内容'
-      : '用户手动中止输出')
-    : agentRun.error;
+  const terminalMessage = window.YanRunOutcome.message(agentRun);
   const errorEl = syncAgentError(activityBody, terminalMessage, agentRun.status);
   if (errorEl) {
     errorEl.dataset.agentStage = 'summary';
     activityBody.appendChild(errorEl);
-  }
-  const planSummary = agentRun.status === 'working'
-    ? null
-    : renderRunPlanSummary(activityBody, agentRun);
-  if (planSummary) {
-    planSummary.dataset.agentStage = 'summary';
   }
   const changeSummary = agentRun.status === 'working'
     ? null
@@ -13160,115 +15344,6 @@ function renderAgentRunBody(bodyEl, agentRun, fallbackContent = '') {
   }
 }
 
-const planDocumentState = { file: null, content: '', error: '', loading: false };
-
-function renderPlanDocumentPanel() {
-  const panel = $('#rs-plan');
-  if (!panel) return;
-  const nameEl = panel.querySelector('[data-plan-file-name]');
-  const bodyEl = panel.querySelector('[data-plan-file-content]');
-  const file = planDocumentState.file;
-  if (nameEl) nameEl.textContent = file?.name || '计划文档';
-  const downloadButton = panel.querySelector('[data-plan-download]');
-  if (downloadButton) {
-    downloadButton.disabled = !file?.path || planDocumentState.loading || !!planDocumentState.error;
-  }
-  if (!bodyEl) return;
-  if (!file) {
-    panel.dataset.state = 'empty';
-    bodyEl.innerHTML = '<div class="rs-plan-empty">尚未生成计划文档</div>';
-    return;
-  }
-  if (planDocumentState.loading) {
-    panel.dataset.state = 'loading';
-    bodyEl.innerHTML = '<div class="rs-plan-empty">正在读取计划文件…</div>';
-    return;
-  }
-  if (planDocumentState.error) {
-    panel.dataset.state = 'error';
-    bodyEl.innerHTML = `<div class="rs-plan-empty">计划文件不可用：${escapeHtml(planDocumentState.error)}</div>`;
-    return;
-  }
-  panel.dataset.state = 'ready';
-  // Heal already-written files: strip protocol blocks and thinking blocks at
-  // display time as well, so a dirty document never reaches the panel.
-  const withoutProtocols = typeof window.YanDeliveryContract?.stripProtocolBlocks === 'function'
-    ? window.YanDeliveryContract.stripProtocolBlocks(planDocumentState.content || '')
-    : (planDocumentState.content || '');
-  const cleaned = typeof window.YanThinkingText?.stripTaggedThinkingBlocks === 'function'
-    ? window.YanThinkingText.stripTaggedThinkingBlocks(withoutProtocols)
-    : withoutProtocols;
-  bodyEl.innerHTML = `<article class="rs-plan-markdown msg-body">${renderMarkdown(cleaned)}</article>`;
-}
-
-async function showPlanDocument(planFile = {}) {
-  planDocumentState.file = {
-    name: String(planFile.name || '计划文档'),
-    path: String(planFile.path || '')
-  };
-  planDocumentState.content = '';
-  planDocumentState.error = '';
-  planDocumentState.loading = true;
-  openRightSidebarTool('plan');
-  renderPlanDocumentPanel();
-  try {
-    const result = planDocumentState.file.path ? await api.readPlanFile(planDocumentState.file.path) : null;
-    if (!result?.ok) throw new Error(result?.error || '计划文件尚未写入');
-    planDocumentState.content = String(result.content || '');
-    if (result.name) planDocumentState.file.name = String(result.name);
-  } catch (error) {
-    planDocumentState.error = error?.message || '读取计划文件失败';
-  } finally {
-    planDocumentState.loading = false;
-    renderPlanDocumentPanel();
-  }
-}
-
-$('#rs-plan [data-plan-download]')?.addEventListener('click', () => {
-  const filePath = String(planDocumentState.file?.path || '');
-  if (!filePath) return;
-  api.downloadPlanFile(filePath).then(result => {
-    if (result?.error) toast(result.error);
-    else if (result?.ok) toast(`已下载到 ${result.path}`);
-  }).catch(error => toast('下载失败：' + (error?.message || error)));
-});
-
-function buildRunPlanSummaryElement(agentRun) {
-  const planFile = agentRun?.planFile;
-  if (!planFile?.path) return null;
-  const panel = document.createElement('section');
-  panel.className = 'run-plan-summary';
-  panel.setAttribute('aria-label', '已写入计划文件');
-  panel.innerHTML = `
-    <header class="run-plan-header">
-      <span class="run-plan-icon">${ICONS.bezier}</span>
-      <span class="run-plan-title">已写入计划文件</span>
-      <button class="run-plan-view" type="button" data-run-plan-view>查看</button>
-    </header>`;
-  panel.querySelector('[data-run-plan-view]')?.addEventListener('click', event => {
-    event.preventDefault();
-    void showPlanDocument(planFile);
-  });
-  return panel;
-}
-
-function renderRunPlanSummary(bodyEl, agentRun) {
-  if (!bodyEl) return null;
-  const existing = bodyEl.querySelector(':scope > .run-plan-summary');
-  if (!agentRun?.planFile?.path) {
-    existing?.remove();
-    return null;
-  }
-  const signature = JSON.stringify(agentRun.planFile);
-  if (existing && agentElementRenderState.get(existing)?.signature === signature) return existing;
-  const summary = buildRunPlanSummaryElement(agentRun);
-  if (!summary) return null;
-  if (existing) existing.replaceWith(summary);
-  else bodyEl.appendChild(summary);
-  agentElementRenderState.set(summary, { signature });
-  return summary;
-}
-
 function buildTextRoundElement(content) {
   const roundEl = document.createElement('div');
   roundEl.className = 'msg-round';
@@ -13282,37 +15357,8 @@ function buildWorkNarrationElement(content) {
   return narration;
 }
 
-// Uiverse: Loader by Praashoo7 (MIT). Source: https://uiverse.io/Praashoo7/lucky-hound-44
 function buildAgentLoaderMarkup() {
-  return '<div class="uivhound" aria-hidden="true">'
-    + '<div class="uivhound-main">'
-    + '<div class="uivhound-up">'
-    + '<div class="uivhound-loaders">'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '<div class="uivhound-loader"></div>'
-    + '</div>'
-    + '<div class="uivhound-loadersB">'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball0"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball1"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball2"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball3"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball4"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball5"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball6"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball7"></div></div>'
-    + '<div class="uivhound-loaderA"><div class="uivhound-ball8"></div></div>'
-    + '</div>'
-    + '</div>'
-    + '</div>'
-    + '</div>';
+  return '<span class="connecting-orb-placeholder" aria-hidden="true"></span>';
 }
 
 function contextCompressionState(item = {}, content = '') {
@@ -13439,6 +15485,8 @@ function setRunModelPresentation(runCtx, selection = {}) {
 
 
 
+const THINKING_GALAXY_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16.005 15.108a5.041 6.52 28.25 00-8.008-6.217 5.041 6.52 28.25 008.008 6.217A11.884 7.288-60.76 014.029 7.001\"/><path d=\"M17 21h.01\"/><path d=\"M7 3h.01\"/><path d=\"M7.997 8.891a11.885 7.288-60.756 0111.977 8.107\"/><circle cx=\"12\" cy=\"12\" r=\"1\" fill=\"currentColor\"/></svg>";
+
 function buildThinkingElement(content, open = false) {
   const thinkEl = document.createElement('details');
   thinkEl.className = 'thinking-block';
@@ -13448,11 +15496,18 @@ function buildThinkingElement(content, open = false) {
   const icon = document.createElement('span');
   icon.className = 'think-icon thinking-bot';
   icon.setAttribute('aria-hidden', 'true');
-  icon.innerHTML = THINKING_BOT_ICON;
+  icon.innerHTML = THINKING_GALAXY_ICON;
   const label = document.createElement('span');
   label.className = 'thinking-label';
-  label.textContent = '思考中';
-  summary.append(icon, label);
+  label.textContent = '思考';
+  const separator = document.createElement('span');
+  separator.className = 'thinking-separator';
+  separator.setAttribute('aria-hidden', 'true');
+  separator.textContent = '·';
+  const preview = document.createElement('span');
+  preview.className = 'thinking-preview';
+  preview.textContent = String(content || '').replace(/\s+/gu, ' ').trim();
+  summary.append(icon, label, separator, preview);
 
   const text = document.createElement('div');
   text.className = 'thinking-text';
@@ -13507,54 +15562,59 @@ function buildGptThinkingElement(items = [], placeholder = '', showShine = true)
 }
 
 const TOOL_UI = {
+  workflow_plan: {"label": "我正在规划子代理团队工作流", "icon": "list-sparkles", "error": "工作流操作时遇到错误", "workRow": true},
+  workflow_run: {"label": "我开始启动或恢复子代理团队工作流", "icon": "list-nested", "error": "工作流操作时遇到错误", "workRow": true},
+  workflow_inspect: {"label": "我正在查看子代理团队工作流状态", "icon": "list-check", "error": "工作流操作时遇到错误", "workRow": true},
+  workflow_review: {"label": "我正在对子代理团队进行最后审阅", "icon": "clipboard-check", "error": "工作流操作时遇到错误", "workRow": true},
+  workflow_pause: {"label": "我正在暂停正在执行的子代理", "icon": "list-pin", "error": "工作流操作时遇到错误", "workRow": true},
+  yan_runtime_log: {"label":"我正在读取运行时日志","icon":"file-cog","error":"读取时遇到了错误","workRow":true},
+  list_page_assets: {"label":"我正在查阅网页资源列表","icon":"cloud-check","error":"出错","workRow":true},
+  create_plugin: {"label":"我正在创建新插件","icon":"puzzle","error":"创建创建时出错","workRow":true},
+  fire_confetti: {"label":"我正在请求放礼炮","icon":"party-popper","error":"请求时遇到错误","workRow":true},
   plugins_list: { label: '查找插件', icon: 'square-more-horizontal' },
   plugins_inspect: { label: '查看插件', icon: 'file-text' },
   plugins_activate: { label: '激活插件', icon: 'square-more-horizontal' },
   plugins_read_resource: { label: '读取插件资源', icon: 'file-text' },
   plugins_deactivate: { label: '停用会话插件', icon: 'square-more-horizontal' },
-  yan_policy_acceptance: { label: '策略验收', icon: 'badge-check' },
-  read: { label: '读取文件', icon: 'file-text' },
-  read_file: { label: '读取文件', icon: 'file-text' },
-  read_file_range: { label: '读取片段', icon: 'file-text' },
+  read: { label: '读取了文件', icon: 'file-text' },
+  read_file: { label: '读取了文件', icon: 'file-text' },
+  read_file_range: { label: '读取了文件', icon: 'file-text' },
   glob: { label: '匹配文件', icon: 'file-arrow-left' },
   list_directory: { label: '列出目录', icon: 'file-arrow-left' },
   grep: { label: '搜索内容', icon: 'file-arrow-up' },
   search_files: { label: '搜索代码', icon: 'file-arrow-up' },
-  write: { label: '写入文件', icon: 'pen-line' },
-  write_file: { label: '写入文件', icon: 'pen-line' },
+  write: { label: '已新建文件', icon: 'file-plus' },
+  write_file: { label: '已新建文件', icon: 'file-plus' },
   edit: { label: '编辑文件', icon: 'circle-pen' },
   edit_file: { label: '编辑文件', icon: 'circle-pen' },
-  apply_patch: { label: '应用补丁', icon: 'square-pen' },
-  bash: { label: '执行命令', icon: 'terminal' },
-  shell: { label: '执行命令', icon: 'terminal' },
-  command: { label: '执行命令', icon: 'terminal' },
-  run_command: { label: '执行命令', icon: 'terminal' },
-  execute_command: { label: '执行命令', icon: 'terminal' },
-  execute_shell: { label: '执行命令', icon: 'terminal' },
-  powershell: { label: '执行命令', icon: 'terminal' },
-  pwsh: { label: '执行命令', icon: 'terminal' },
-  cmd: { label: '执行命令', icon: 'terminal' },
+  apply_patch: { label: '应用了文件补丁', icon: 'pen-line' },
+  patch: { label: '应用了文件补丁', icon: 'pen-line' },
+  bash: { label: '执行命令', icon: 'square-terminal' },
+  shell: { label: '执行命令', icon: 'square-terminal' },
+  command: { label: '执行命令', icon: 'square-terminal' },
+  run_command: { label: '执行命令', icon: 'square-terminal' },
+  execute_command: { label: '执行命令', icon: 'square-terminal' },
+  execute_shell: { label: '执行命令', icon: 'square-terminal' },
+  powershell: { label: '执行命令', icon: 'square-terminal' },
+  pwsh: { label: '执行命令', icon: 'square-terminal' },
+  cmd: { label: '执行命令', icon: 'square-terminal' },
   webfetch: { label: '获取网页', icon: 'globe-plus' },
   web_fetch: { label: '获取网页', icon: 'globe-plus' },
   websearch: { label: '搜索网页', icon: 'globe' },
   web_search: { label: '搜索网页', icon: 'globe' },
-  fetch_text: { label: '抓取网页文本', icon: 'globe-plus' },
+  fetch: { label: '读取网页', icon: 'globe-plus' },
   download_file: { label: '下载资源到工作区', icon: 'download' },
   question: { label: '向用户提问', icon: 'message-plus' },
   todowrite: { label: '更新计划', icon: 'circle-more-horizontal' },
   todo_write: { label: '更新计划', icon: 'circle-more-horizontal' },
   task: { label: 'Sub Agent', icon: 'square-more-horizontal' },
-  search_capabilities: { label: '搜索能力', icon: 'eye' },
-  use_capability: { label: '调用能力', icon: 'square-more-horizontal' },
-  find_skills: { label: '查找 Skill', icon: 'eye' },
-  install_skill: { label: '安装 Skill', icon: 'download' },
-  list_installed_skills: { label: '列出 Skill', icon: 'filter' },
-  list_design_references: { label: '列出设计参考', icon: 'filter' },
-  read_skill: { label: '读取 Skill', icon: 'file' },
-  read_skill_resource: { label: '读取 Skill 资源', icon: 'file' },
-  read_skill_resources: { label: '读取 Skill 资源', icon: 'file' },
-  read_design_reference: { label: '读取设计参考', icon: 'file' },
-  remove_skill: { label: '删除 Skill', icon: 'bin' },
+  find_skills: { label: '查找 Skill', icon: 'book-open-2' },
+  install_skill: { label: '安装 Skill', icon: 'book-plus' },
+  create_skill: { label: '创建新技能', icon: 'book-plus' },
+  read_skill: { label: '参考了技能', icon: 'book-check' },
+  read_skill_resource: { label: '参考了技能', icon: 'book-check' },
+  read_skill_resources: { label: '参考了技能', icon: 'book-check' },
+  remove_skill: { label: '删除 Skill', icon: 'book-minus' },
   read_image: { label: '读取图片', icon: 'image-check' },
   generate_image: { label: '生成图片', icon: 'image-plus' },
   generate_video: { label: '生成视频', icon: 'list-video' },
@@ -13562,6 +15622,8 @@ const TOOL_UI = {
   read_source_context: { label: '读取来源上下文', icon: 'folder-arrow-up' },
   change_workspace: { label: '切换工作区', icon: 'folder-arrow-left' },
   open_builtin_browser: { category: 'yan-browser' },
+  browser_observe: { category: 'yan-browser' },
+  browser_fill: { category: 'yan-browser' },
   browser_snapshot: { category: 'yan-browser' },
   browser_read_page: { category: 'yan-browser' },
   browser_click: { category: 'yan-browser' },
@@ -13600,6 +15662,23 @@ const TOOL_UI = {
 };
 
 const TOOL_ICON_SVG = {
+  // Keyline workflow icons (MIT), sourced from keylineicons.com.
+  "list-sparkles": "<svg data-keyline-icon=\"list-sparkles\" xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6L12 6M8 13L21 13M9 20L21 20\"/>\n  <path d=\"M5 6C5 6.8284 4.3284 7.5 3.5 7.5C2.6716 7.5 2 6.8284 2 6C2 5.1716 2.6716 4.5 3.5 4.5C4.3284 4.5 5 5.1716 5 6ZM5 13C5 13.8284 4.3284 14.5 3.5 14.5C2.6716 14.5 2 13.8284 2 13C2 12.1716 2.6716 11.5 3.5 11.5C4.3284 11.5 5 12.1716 5 13Z\" fill=\"currentColor\" stroke=\"none\"/>\n  <path d=\"M19.5492 2.3739L20.1373 3.8648C20.3173 4.3213 20.6787 4.6827 21.1352 4.8627L22.6261 5.4508C22.8518 5.5397 23 5.7576 23 6C23 6.2424 22.8518 6.4603 22.6261 6.5492L21.1352 7.1373C20.6787 7.3173 20.3173 7.6787 20.1373 8.1352L19.5492 9.6261C19.4603 9.8518 19.2424 10 19 10C18.7576 10 18.5397 9.8518 18.4508 9.6261L17.8627 8.1352C17.6827 7.6787 17.3213 7.3173 16.8648 7.1373L15.3739 6.5492C15.1482 6.4603 15 6.2424 15 6C15 5.7576 15.1482 5.5397 15.3739 5.4508L16.8648 4.8627C17.3213 4.6827 17.6827 4.3213 17.8627 3.8648L18.4508 2.3739C18.5397 2.1482 18.7576 2 19 2C19.2424 2 19.4603 2.1482 19.5492 2.3739ZM3.8433 17.2337L4.2108 18.1655C4.3233 18.4508 4.5492 18.6767 4.8345 18.7892L5.7663 19.1567C5.9074 19.2123 6 19.3485 6 19.5C6 19.6515 5.9074 19.7877 5.7663 19.8433L4.8345 20.2108C4.5492 20.3233 4.3233 20.5492 4.2108 20.8345L3.8433 21.7663C3.7877 21.9074 3.6515 22 3.5 22C3.3485 22 3.2123 21.9074 3.1567 21.7663L2.7892 20.8345C2.6767 20.5492 2.4508 20.3233 2.1655 20.2108L1.2337 19.8433C1.0926 19.7877 1 19.6515 1 19.5C1 19.3485 1.0926 19.2123 1.2337 19.1567L2.1655 18.7892C2.4508 18.6767 2.6767 18.4508 2.7892 18.1655L3.1567 17.2337C3.2123 17.0926 3.3485 17 3.5 17C3.6515 17 3.7877 17.0926 3.8433 17.2337Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
+  "list-nested": "<svg data-keyline-icon=\"list-nested\" xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3L5 4.5L3 6ZM5 10.5L7 12L5 13.5ZM7 18L9 19.5L7 21ZM9 4.5L21 4.5M11 12L21 12M13 19.5L21 19.5\" fill=\"none\"/></svg>",
+  "list-check": "<svg data-keyline-icon=\"list-check\" xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 4H22M2 11H22M2 18H6M10 18H14M18 18L20 20L22 16\"/></svg>",
+  "clipboard-check": "<svg data-keyline-icon=\"clipboard-check\" xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 4C5.3431 4 4 5.3431 4 7L4 19C4 20.6569 5.3431 22 7 22L17 22C18.6569 22 20 20.6569 20 19L20 7C20 5.3431 18.6569 4 17 4M7 4C7 2.8954 7.8954 2 9 2L15 2C16.1046 2 17 2.8954 17 4L17 5C17 6.1046 16.1046 7 15 7L9 7C7.8954 7 7 6.1046 7 5L7 4ZM9 15L11 17L15 13\" fill=\"none\"/></svg>",
+  "list-pin": "<svg data-keyline-icon=\"list-pin\" xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11.5 5C11.5 4.4477 11.9477 4 12.5 4L18.5 4C19.0523 4 19.5 4.4477 19.5 5L19.5 6C19.5 6.5523 19.0523 7 18.5 7L18 7C17.7239 7 17.5 7.2239 17.5 7.5L17.5 9.9648C17.5 10.2992 17.6671 10.6114 17.9453 10.7969L21.7774 13.3516C21.9164 13.4443 22 13.6004 22 13.7676L22 14.5C22 14.7761 21.7761 15 21.5 15L9.5 15C9.2239 15 9 14.7761 9 14.5L9 13.7676C9 13.6004 9.0836 13.4443 9.2226 13.3516L13.0547 10.7969C13.3329 10.6114 13.5 10.2992 13.5 9.9648L13.5 7.5C13.5 7.2239 13.2761 7 13 7L12.5 7C11.9477 7 11.5 6.5523 11.5 6L11.5 5ZM15.5 15L15.5 20M2 10L7 10M2 15L5 15M2 20L11 20\" fill=\"none\"/></svg>",
+  // Keyline file-cog, cloud-check, puzzle; Lucide party-popper.
+  "file-cog": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 10L20 8L14 2L8 2C5.7909 2 4 3.7909 4 6L4 18C4 20.2091 5.7909 22 8 22M14 2L14 5C14 6.6569 15.3431 8 17 8L20 8M18.6667 18C18.6667 19.4728 17.4728 20.6667 16 20.6667C14.5272 20.6667 13.3333 19.4728 13.3333 18C13.3333 16.5272 14.5272 15.3333 16 15.3333C17.4728 15.3333 18.6667 16.5272 18.6667 18ZM19.5417 18L20 18M18.5043 20.5043L18.8284 20.8284M16 21.5417L16 22M13.4957 20.5043L13.1716 20.8284M12.4583 18L12 18M13.4957 15.4957L13.1716 15.1716M16 14.4583L16 14M18.5043 15.4957L18.8284 15.1716\"/></svg>",
+  "cloud-check": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 19L11 21L15 17M5 16.874C3.2748 16.4299 2 14.8638 2 13C2 10.7909 3.7909 9 6 9C6 5.6863 8.6863 3 12 3C15.3137 3 18 5.6863 18 9C20.2091 9 22 10.7909 22 13C22 14.8638 20.7252 16.4299 19 16.874\"/></svg>",
+  "puzzle": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 6L7 6.5C7 6.7761 6.7761 7 6.5 7L5 7C3.8954 7 3 7.8954 3 9L3 10.5C3 10.7761 3.2239 11 3.5 11L4 11C5.6569 11 7 12.3431 7 14C7 15.6569 5.6569 17 4 17L3.5 17C3.2239 17 3 17.2239 3 17.5L3 19C3 20.1046 3.8954 21 5 21L15 21C16.1046 21 17 20.1046 17 19L17 17.5C17 17.2239 17.2239 17 17.5 17L18 17C19.6569 17 21 15.6569 21 14C21 12.3431 19.6569 11 18 11L17.5 11C17.2239 11 17 10.7761 17 10.5L17 9C17 7.8954 16.1046 7 15 7L13.5 7C13.2239 7 13 6.7761 13 6.5L13 6C13 4.3431 11.6569 3 10 3C8.3431 3 7 4.3431 7 6Z\"/></svg>",
+  "party-popper": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" > <path d=\"M5.8 11.3 2 22l10.7-3.79\" /> <path d=\"M4 3h.01\" /> <path d=\"M22 8h.01\" /> <path d=\"M15 2h.01\" /> <path d=\"M22 20h.01\" /> <path d=\"m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10\" /> <path d=\"m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17\" /> <path d=\"m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7\" /> <path d=\"M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z\" /> </svg>",
+  'book-open-2': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6L4 6C3.4477 6 3 6.4477 3 7L3 18C3 18.5523 3.4477 19 4 19C7.1102 19 10.1825 19.6827 13 21C14.731 19.7018 16.8363 19 19 19C20.1046 19 21 18.1046 21 17L21 7C21 5.8954 20.1046 5 19 5C18.8967 5 18.7936 5.008 18.6915 5.0239C16.5187 5.3632 14.5183 6.4092 13 8C12.2613 5.7539 10.5668 3.9496 8.3714 3.0715C8.2532 3.0243 8.1272 3 8 3C7.4477 3 7 3.4477 7 4L7 15C7 15.5523 7.4477 16 8 16C10.7614 16 13 18.2386 13 21M13 8L13 21" fill="none"/></svg>',
+  'book-plus': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12L20 5C20 3.3431 18.6569 2 17 2L7 2C5.3431 2 4 3.3431 4 5L4 20M10 22L6 22C4.8954 22 4 21.1046 4 20C4 18.8954 4.8954 18 6 18L10 18M8 6L8 14M17 16V22M14 19H20" fill="none"/></svg>',
+  'book-minus': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12L20 5C20 3.3431 18.6569 2 17 2L7 2C5.3431 2 4 3.3431 4 5L4 20M10 22L6 22C4.8954 22 4 21.1046 4 20C4 18.8954 4.8954 18 6 18L10 18M8 6L8 14M14 19H20" fill="none"/></svg>',
+  'file-plus': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H8C5.79086 2 4 3.79086 4 6V18C4 20.2091 5.79086 22 8 22H10M14 2L20 8V12M14 2V5C14 6.65685 15.3431 8 17 8H20M17 16V22M14 19H20"/></svg>',
+  'book-check': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12L20 5C20 3.3431 18.6569 2 17 2L7 2C5.3431 2 4 3.3431 4 5L4 20M10 22L6 22C4.8954 22 4 21.1046 4 20C4 18.8954 4.8954 18 6 18L10 18M8 6L8 14M14 19L16 21L20 17" fill="none"/></svg>',
+  'square-terminal': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3H18C19.6569 3 21 4.34315 21 6V18C21 19.6569 19.6569 21 18 21H6C4.34315 21 3 19.6569 3 18V6C3 4.34315 4.34315 3 6 3Z"/><path d="M7 7L11 11L7 15M13 17H17"/></svg>',
   // Task working voice icons: Lucide bot + Keyline-style handshake geometry,
   // kept on the shared 24px grid with the app's 1.5px rounded stroke.
   bot: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>',
@@ -13608,7 +15687,7 @@ const TOOL_ICON_SVG = {
   'file-text': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H8C5.79086 2 4 3.79086 4 6V18C4 20.2091 5.79086 22 8 22H16C18.2091 22 20 20.2091 20 18V8L14 2ZM14 2V5C14 6.65685 15.3431 8 17 8H20M8 13H12M8 17H16"/></svg>',
   'file-arrow-left': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H8C5.79086 2 4 3.79086 4 6V18C4 20.2091 5.79086 22 8 22H10M14 2L20 8V12M14 2V5C14 6.65685 15.3431 8 17 8H20M20 19H14M17 16L14 19L17 22"/></svg>',
   'file-arrow-up': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H8C5.79086 2 4 3.79086 4 6V18C4 20.2091 5.79086 22 8 22H10M14 2L20 8V12M14 2V5C14 6.65685 15.3431 8 17 8H20M17 22V16M14 19L17 16L20 19"/></svg>',
-  'pen-line': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21L10.0711 18.1716L20.1213 8.1213C21.2929 6.9497 21.2929 5.0503 20.1213 3.8787C18.9497 2.7071 17.0503 2.7071 15.8787 3.8787L5.8284 13.9289ZM5.8284 13.9289L10.0711 18.1716M13 21H21"/></svg>',
+  'pen-line': '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.0237 7.6904L9.8567 18.8573L2 22L5.1427 14.1433L16.3096 2.9763C16.9348 2.3512 17.7826 2 18.6667 2C19.5507 2 20.3986 2.3512 21.0237 2.9763C21.6488 3.6014 22 4.4493 22 5.3333C22 6.2174 21.6488 7.0652 21.0237 7.6904ZM15.0638 4.2222L19.7778 8.9362M13.1111 22L22 22" fill="none"/></svg>',
   'circle-pen': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12M10.5 13.5L14.6248 11.8501L20.4874 5.9874C21.1709 5.304 21.1709 4.196 20.4874 3.5126C19.804 2.8291 18.696 2.8291 18.0126 3.5126L12.1499 9.3752Z"/></svg>',
   'square-pen': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H6C4.34315 3 3 4.34315 3 6V18C3 19.6569 4.34315 21 6 21H18C19.6569 21 21 19.6569 21 18V12M10.5 13.5L14.6248 11.8501L20.4874 5.9874C21.1709 5.304 21.1709 4.196 20.4874 3.5126C19.804 2.8291 18.696 2.8291 18.0126 3.5126L12.1499 9.3752Z"/></svg>',
   terminal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5L10.5571 10.6204C10.7899 10.8199 10.7899 11.1801 10.5571 11.3796L4 17M20 19H13"/></svg>',
@@ -13632,7 +15711,9 @@ const TOOL_ICON_SVG = {
   'folder-check': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20L6 20C4.3431 20 3 18.6569 3 17L3 7C3 5.3431 4.3431 4 6 4L8.6716 4C9.202 4 9.7107 4.2107 10.0858 4.5858L11.4142 5.9142C11.7893 6.2893 12.298 6.5 12.8284 6.5L18 6.5C19.6569 6.5 21 7.8431 21 9.5L21 10M15 17L17 19L21 15"/></svg>',
   monitor: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4H19C20.65685 4 22 5.34315 22 7V13C22 14.65685 20.65685 16 19 16H5C3.34315 16 2 14.65685 2 13V7C2 5.34315 3.34315 4 5 4ZM12 16V20M8 20H16"/></svg>',
   'terminal-cursor': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 18.9999H13M14.7026 5.35175L11.5789 14.9795C11.4412 15.4136 10.8422 15.4525 10.6494 15.04L8.61378 10.6858C8.56101 10.573 8.46799 10.4838 8.35296 10.436L4.30741 8.72095C3.88071 8.54335 3.90275 7.93152 4.34114 7.78509L14.0677 4.72626C14.4554 4.59674 14.8263 4.96206 14.7026 5.35175Z"/></svg>',
-  'sliders-horizontal': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5H21M3 12H21M3 19H21M16 3V7M8 10V14M14 17V21"/></svg>'
+  'sliders-horizontal': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5H21M3 12H21M3 19H21M16 3V7M8 10V14M14 17V21"/></svg>',
+  // Keyline Icons "hook" (keylineicons.com/icons?icon=hook), 24px grid.
+  hook: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L16 2M12 2L12 5C12 5.415 12.1291 5.8197 12.3694 6.1581L16.8918 12.5258C17.6127 13.5408 18 14.755 18 16C18 19.3137 15.3137 22 12 22C8.6863 22 6 19.3137 6 16" fill="none"/></svg>'
 };
 
 const TOOL_SERVER_UI = {
@@ -13654,17 +15735,12 @@ const MCP_DETAIL_TOOL_UI = Object.freeze({
   calltree: { icon: 'folder-arrow-up', description: '生成指定符号的 JavaScript/TypeScript 调用树，并过滤常见噪声和循环调用。' },
   code_search: { icon: 'file-arrow-up', description: '使用 BM25 对工作区代码和文本进行相关性检索，适合查找某个功能由哪里处理。' },
   history_search: { icon: 'circle-more-horizontal', description: '在当前工作区的分析笔记中进行 BM25 检索，查找以前记录的结论和线索。' },
-  hex_dump: { icon: 'file', description: '以带偏移量的十六进制和 ASCII 列展示二进制样本内容。' },
-  hex_stats: { icon: 'monitor', description: '统计固定步长二进制记录的每个字节位置，识别常量、低熵、高熵和变化字段。' },
-  hex_diff: { icon: 'square-pen', description: '逐字节比较两个二进制样本，报告首个差异、变化数量、密度和变化表。' },
-  crc_probe: { icon: 'badge-check', description: '检测尾部字段是否匹配常见校验和或 CRC 算法，帮助识别校验字段。' },
-  pcap_overview: { icon: 'globe', description: '概览网络抓包中的协议层级、TCP 会话和前几条消息，需要安装 tshark。' },
-  ghidra_status: { icon: 'monitor', description: '检查本机是否安装 Ghidra，并返回 headless 分析程序路径或安装提示。' },
-  ghidra_decompile: { icon: 'terminal', description: '使用 Ghidra 对二进制文件执行 headless 分析并返回反编译后的 C 代码。' },
   slice: { icon: 'folder-arrow-left', description: '对一个 JavaScript/TypeScript 符号中的变量执行语句级反向切片，找出影响该值的代码行。' },
 
   // Yan built-in browser
   open_builtin_browser: { icon: 'globe-plus', description: '在 Yan 专属内置浏览器标签页中打开网址、搜索词、本地文件或工作区预览。' },
+  browser_observe: { icon: 'eye', description: '观察页面：交互元素、正文或轻量状态。' },
+  browser_fill: { icon: 'edit', description: '替换输入框内容，可选提交。' },
   browser_snapshot: { icon: 'eye', description: '读取当前页面的新鲜元素引用、角色、标签、状态和可见文字，供后续交互使用。' },
   browser_read_page: { icon: 'file-text', description: '读取当前页面的文字、网址和标题，适合文本研究与摘要。' },
   browser_click: { icon: 'handshake', description: '点击最近一次页面快照中的元素，并验证页面或目标是否发生变化。' },
@@ -13685,19 +15761,17 @@ const MCP_DETAIL_TOOL_UI = Object.freeze({
   browser_status: { icon: 'monitor', description: '读取当前网址、标题、加载状态和历史记录可用性，不改变页面。' },
 
   // Yan Web
-  fetch_text: { icon: 'globe-plus', description: '直接抓取已知 URL 的文本内容（HTML/JSON/XML/SVG 等），不打开内置浏览器。' },
+  fetch: { icon: 'globe-plus', description: '直接抓取已知 URL 的文本内容（HTML/JSON/XML/SVG 等），不打开内置浏览器。' },
   download_file: { icon: 'download', description: '把图标、图片、字体等静态资源下载到当前工作区，并返回路径、大小与 sha256。' },
 
   // Other bundled MCP services
-  find_skills: { icon: 'eye', description: '搜索官方 Agent Skill 生态中的可用能力。' },
-  install_skill: { icon: 'download', description: '通过官方 Skill 工具安装一个或多个完整的 Yan Agent Skill。' },
-  list_installed_skills: { icon: 'filter', description: '列出 Yan Agent 当前可用的内置 Skill 和用户安装的 Skill。' },
+  find_skills: { icon: 'book-open-2', description: '搜索 Yan 已有且启用的技能，留空列出全部。' },
+  install_skill: { icon: 'book-plus', description: '通过官方 Skill 工具安装一个或多个完整的 Yan Agent Skill。' },
+  create_skill: { icon: 'book-plus', description: '在 Yan 官方技能目录创建或更新技能。' },
   read_skill: { icon: 'file', description: '读取一个完整的 Yan Agent Skill 指令文档。' },
   read_skill_resource: { icon: 'file-text', description: '读取 Skill 指令文档或引用文本资源中的一个精确分块。' },
   read_skill_resources: { icon: 'file-text', description: '并行读取多个 Skill 文档分块，并按确定顺序返回。' },
-  list_design_references: { icon: 'filter', description: '列出 Yan 内置设计参考库中可用的品牌标识。' },
-  read_design_reference: { icon: 'file-check', description: '读取指定品牌的完整 DESIGN.md 设计参考。' },
-  remove_skill: { icon: 'bin', description: '移除一个已安装的 Yan Agent Skill，并保留可恢复的隔离副本。' },
+  remove_skill: { icon: 'book-minus', description: '移除一个已安装的 Yan Agent Skill，并保留可恢复的隔离副本。' },
   read_image: { icon: 'image-check', description: '通过配置好的视觉中继读取本地图片或 Yan 生成图片中的视觉事实。' },
   generate_image: { icon: 'image-plus', description: '使用配置好的图像模型生成或编辑图片。' },
   generate_video: { icon: 'list-video', description: '使用配置好的视频模型生成视频。' },
@@ -13728,6 +15802,14 @@ function mcpDetailToolDescription(server, tool) {
   return `由 ${server?.name || '该 MCP 服务'} 提供的工具。`;
 }
 
+const BUNDLED_MCP_NAMES = Object.freeze({
+  yan_browser: 'Yan Built-in Browser', yan_skills: 'Yan Skills',
+  yan_session: 'Yan Session', yan_harness: 'Yan Continual Harness',
+  yan_analysis: 'Yan Analysis', yan_workspace: 'Yan Workspace',
+  yan_web: 'Yan Web', yan_mcp: 'Yan MCP', yan_plugin: 'Yan Plugin',
+  yan_provider: 'Yan Provider', yan_media: 'Yan Media'
+});
+
 function parseToolIdentity(toolName) {
   const raw = String(toolName || 'tool').trim();
   const legacyMcp = raw.match(/^mcp__(.+?)__(.+)$/i);
@@ -13735,6 +15817,12 @@ function parseToolIdentity(toolName) {
     return { raw, server: legacyMcp[1].toLowerCase(), action: legacyMcp[2].toLowerCase() };
   }
   const normalized = raw.replace(/\./g, '_').toLowerCase();
+  const configuredServer = (state.config?.mcpServers || []).slice().sort((a,b) => String(b.id).length - String(a.id).length)
+    .find(server => normalized.startsWith(String(server.id || '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() + '_'));
+  if (configuredServer) {
+    const prefix = String(configuredServer.id).replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    return {raw, server:String(configuredServer.id).toLowerCase(), action:normalized.slice(prefix.length + 1)};
+  }
   const computerPlugin = normalized.match(/^yanp_[a-f0-9]{16}_[a-f0-9]{10}_computer_(.+)$/);
   if (computerPlugin) return { raw, server: 'yan_computer', action: computerPlugin[1] };
   const prefixes = [
@@ -13747,10 +15835,14 @@ function parseToolIdentity(toolName) {
     'yan_web',
     'yan_session',
     'yan_skills',
-    'yan_media'
+    'yan_media',
+    ...Object.keys(BUNDLED_MCP_NAMES)
   ];
   const server = prefixes.find(prefix => normalized.startsWith(prefix + '_'));
   if (server) return { raw, server, action: normalized.slice(server.length + 1) };
+  // Newly installed servers can emit calls before the config refresh arrives.
+  const installedMcp = normalized.match(/^(mcp_\d+)_(.+)$/);
+  if (installedMcp) return { raw, server: installedMcp[1], action: installedMcp[2] };
   return { raw, server: '', action: normalized };
 }
 
@@ -13807,19 +15899,6 @@ function resolveToolUi(toolName, args = {}) {
     }
     return resolvedToolUi(subagentRoleLabel(role), 'square-more-horizontal', 'native:task');
   }
-  if (identity.action === 'use_capability' && args?.capability_id) {
-    const capabilityId = String(args.capability_id);
-    const target = capabilityId.replace(/^(?:native|skill|mcp):/, '');
-    if (capabilityId.startsWith('native:')) {
-      const nativeUi = resolveToolUi(target, args);
-      return { ...nativeUi, label: '调用能力 · ' + nativeUi.label };
-    }
-    const skill = capabilityId.startsWith('skill:')
-      ? installedSkillPickerItems().find(item => String(item.id) === target)
-      : null;
-    const iconKey = capabilityId.startsWith('skill:') ? 'file' : 'monitor';
-    return resolvedToolUi('调用能力 · ' + (skill?.name || target), iconKey, 'capability:' + capabilityId);
-  }
   const ui = TOOL_UI[identity.action];
   if (ui?.category) {
     const serverUi = TOOL_SERVER_UI[ui.category];
@@ -13830,8 +15909,8 @@ function resolveToolUi(toolName, args = {}) {
 }
 
 function getToolDisplayName(toolName) {
+  if (['patch', 'apply_patch'].includes(parseToolIdentity(toolName).action)) return 'patch';
   const identity = parseToolIdentity(toolName);
-  if (identity.action === 'yan_policy_acceptance') return TOOL_UI.yan_policy_acceptance.label;
   const nativeCategory = TOOL_UI[identity.action]?.category || '';
   const category = toolServerCategory(identity.server || nativeCategory);
   if (category) return TOOL_SERVER_UI[category].toolName;
@@ -13855,35 +15934,45 @@ function isImageGenerationTool(toolName) {
   return /(?:^|[_.:])generate_image$/i.test(String(toolName || ''));
 }
 
-function generatedImagePrompt(args = {}) {
-  const value = args.prompt ?? args.description ?? args.text ?? args.input ?? '';
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+function mediaToolAction(name) {
+  const action = parseToolIdentity(name).action;
+  return ['read_image', 'generate_image', 'generate_video'].includes(action) ? action : '';
 }
 
-function generatedImageResolution(args = {}) {
-  const explicit = args.size ?? args.resolution ?? args.aspect_ratio ?? args.aspectRatio;
-  if (explicit) return String(explicit).trim().slice(0, 32);
-  const width = Number(args.width);
-  const height = Number(args.height);
-  if (width > 0 && height > 0) return `${Math.round(width)}×${Math.round(height)}`;
-  return '1:1';
+function imageReadSources(args = {}) {
+  if (args.generated_image_id) return [{assetId: args.generated_image_id}];
+  const paths = Array.isArray(args.paths) ? args.paths : [args.path || args.filePath].filter(Boolean);
+  const root = String(args.workspace || state.currentSession?.workspace || state.config?.workspace || '').replace(/[\\/]+$/, '');
+  return [...new Set(paths)].map(path => ({filePath: /^(?:[A-Za-z]:[\\/]|\/)/.test(path) ? path : root + '/' + path}));
 }
 
-function generatedImageLoadingMarkup(args = {}, label = '正在生成图片') {
-  const prompt = generatedImagePrompt(args);
-  const resolution = generatedImageResolution(args);
-  return `<div class="generated-image-loading-card" role="status" aria-live="polite">
-    <div class="generated-image-loading-canvas" aria-hidden="true">
-      <div class="generated-image-loading-dots"></div>
-      <div class="generated-image-loading-glow"></div>
-    </div>
-    <div class="generated-image-loading-meta">
-      <strong class="generated-image-loading-label">${escapeHtml(label)}</strong>
-      <span class="generated-image-loading-resolution">${escapeHtml(resolution)}</span>
-      <span class="generated-image-loading-prompt">${escapeHtml(prompt || '正在准备画布')}</span>
-    </div>
-  </div>`;
-}
+document.addEventListener('click', event => {
+  const thumbnail = event.target.closest?.('[data-read-image-source]');
+  if (thumbnail) {
+    event.preventDefault(); event.stopPropagation();
+    window.yanImageOverlay.open(JSON.parse(thumbnail.dataset.readImageSource));
+  }
+  if (event.target.closest?.('.media-tool-running > summary, .web-tool-running > summary')) event.preventDefault();
+});
+document.addEventListener('toggle', event => {
+  const step = event.target;
+  if (!step.matches?.('.tool-step') || !step.open) return;
+  for (const button of step.querySelectorAll('[data-read-image-source]')) {
+    if (button.dataset.loaded) continue;
+    button.dataset.loaded = 'true';
+    const source = JSON.parse(button.dataset.readImageSource);
+    const request = source.assetId ? api.readGeneratedImage(source.assetId) : api.readImageFile(source.filePath);
+    Promise.resolve(request).then(result => {
+      if (!result?.dataUrl) throw new Error('图片不可用');
+      const img = document.createElement('img'); img.src = result.dataUrl; img.alt = '查看的图像'; button.replaceChildren(img);
+    }).catch(() => { button.textContent = '图片不可用'; });
+  }
+}, true);
+
+
+
+
+
 
 function renderGeneratedImagePreview(body, resultRaw) {
   const result = parseGeneratedMediaToolResult(resultRaw);
@@ -13896,23 +15985,20 @@ function renderGeneratedImagePreview(body, resultRaw) {
   const preview = document.createElement('div');
   preview.className = 'generated-image-result';
   preview.dataset.assetId = assetId;
-  preview.tabIndex = 0;
-  preview.setAttribute('role', 'button');
-  preview.setAttribute('aria-label', '打开图片预览');
-  preview.title = '打开图片预览';
-  preview.innerHTML = generatedImageLoadingMarkup({}, '正在加载图片');
+
+  const thumb = document.createElement('button');
+  thumb.type = 'button';
+  thumb.className = 'generated-media-thumb';
+  thumb.setAttribute('aria-label', '打开图片预览');
+  thumb.title = '打开图片预览';
+  thumb.textContent = '正在加载图片';
+  thumb.addEventListener('click', () => window.yanImageOverlay.open({ assetId }));
+  preview.appendChild(thumb);
+
   body.appendChild(preview);
-  const openViewer = () => window.yanImageOverlay.open({ assetId });
-  preview.addEventListener('click', openViewer);
-  preview.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    openViewer();
-  });
   api.readGeneratedImage(assetId).then(image => {
     if (image?.error || !image?.dataUrl || !preview.isConnected) {
-      const loading = preview.querySelector('.generated-image-loading-label');
-      if (loading) loading.textContent = image?.error || '会话图片已失效';
+      thumb.textContent = image?.error || '会话图片已失效';
       return;
     }
     const img = document.createElement('img');
@@ -13920,7 +16006,7 @@ function renderGeneratedImagePreview(body, resultRaw) {
     img.alt = result?.meta?.name || 'Agent 生成的图片';
     img.draggable = false;
     img.className = 'generated-image-preview';
-    preview.querySelector('.generated-image-loading-card')?.replaceWith(img);
+    thumb.replaceChildren(img);
   }).catch(() => {});
 }
 
@@ -14086,6 +16172,7 @@ function toolUiValueText(value) {
   }
   if (typeof value === 'object') {
     if (value.text != null) return toolUiValueText(value.text);
+    if (typeof value.message === 'string' && value.type === 'unknown') return value.message;
     if (value.output != null) return toolUiValueText(value.output);
     if (value.content != null && (typeof value.content === 'string' || Array.isArray(value.content))) {
       return toolUiValueText(value.content);
@@ -14163,6 +16250,7 @@ function parseToolResultDetails(raw) {
   let runtime = '';
   let explicitOk = null;
   let failedStatus = false;
+  let errorType = '';
   for (const candidate of candidates) {
     if (!outputFound && candidate.output != null) {
       output = toolUiValueText(candidate.output);
@@ -14185,6 +16273,9 @@ function parseToolResultDetails(raw) {
     if (candidate.error != null) {
       const error = toolUiValueText(candidate.error);
       if (error && !errorParts.includes(error)) errorParts.push(error);
+      if (!errorType && candidate.error && typeof candidate.error === 'object') {
+        errorType = String(candidate.error.type || '').trim();
+      }
     }
     if (candidate.ok != null) {
       const normalizedOk = normalizeToolBoolean(candidate.ok);
@@ -14213,6 +16304,7 @@ function parseToolResultDetails(raw) {
   return {
     output: String(output || ''),
     exitCode,
+    errorType,
     runtime,
     ok: errorParts.length > 0 || failedStatus || (exitCode != null && exitCode !== 0)
       ? false
@@ -14254,6 +16346,13 @@ function toolCommandState(phase, ok, details) {
   return toolPanelState(phase, ok, details);
 }
 
+// A provider transport failure (the model response stream was cut, e.g. "terminated")
+// happens before any command runs. Reporting it as a command failure with a fabricated
+// exit code misleads both the user and the model, so it gets its own label instead.
+function toolTransportInterruption(details) {
+  return /^provider\./iu.test(String(details?.errorType || '').trim());
+}
+
 function toolPanelState(phase, ok, details) {
   if (phase === 'running') return 'running';
   if (phase === 'interrupted') return 'interrupted';
@@ -14272,6 +16371,9 @@ function toolCommandStatusMarkup(state, details) {
     return `<span class="tool-panel-status tool-command-status is-interrupted">× ${code != null ? `退出码 ${escapeHtml(code)}` : '已中断'}</span>`;
   }
   if (state === 'error') {
+    if (toolTransportInterruption(details)) {
+      return '<span class="tool-panel-status tool-command-status is-interrupted">× 请求中断</span>';
+    }
     const code = details?.exitCode != null ? details.exitCode : 1;
     return `<span class="tool-panel-status tool-command-status is-error">× 退出码 ${escapeHtml(code)}</span>`;
   }
@@ -14324,9 +16426,6 @@ function updateToolCommandPanel(panel, toolName, args, resultRaw, ok, phase) {
 function toolPanelRuntimeLabel(toolName, args = {}) {
   const identity = parseToolIdentity(toolName);
   let action = String(identity.action || identity.raw || 'tool').trim();
-  if (action === 'use_capability' && args?.capability_id) {
-    action = String(args.capability_id).replace(/^(?:native|skill|mcp):/iu, '').trim() || action;
-  }
   return action || 'tool';
 }
 
@@ -14364,6 +16463,19 @@ function toolResultStatusMarkup(state, details) {
 function isTodoWriteTool(toolName) {
   const name = String(toolName || '').trim().toLowerCase();
   return name === 'todowrite' || name === 'todo_write';
+}
+
+const todoPresentation = new WeakMap();
+function prepareTodoPresentation(timeline, firstCallId) {
+  let seen = false;
+  for (const item of timeline) {
+    if (item.type !== 'tool_call' || !isTodoWriteTool(item.name) || !item.args) continue;
+    const todos = normalizeAgentTodos(item.args.todos ?? item.args);
+    const allDone = todos.length > 0 && todos.every(todo => todo.done);
+    const first = firstCallId ? item.callId === firstCallId : !seen;
+    todoPresentation.set(item.args, {label: allDone ? '标注所有计划已完成' : first ? '我已制定计划' : '更新了计划', preview: first && !allDone && todos.length ? `1/${todos.length}` : ''});
+    seen = true;
+  }
 }
 
 // The todowrite result echoes the list already carried by the tool arguments,
@@ -14412,48 +16524,7 @@ function updateToolResultPanel(panel, toolName, args, resultRaw, ok, phase) {
   panel.innerHTML = toolResultPanelMarkup(toolName, args, resultRaw, ok, phase);
 }
 
-function finishToolStepElement(step, resultRaw, ok, phase = 'done') {
-  if (!step) return;
-  step.querySelector('.generated-image-loading-card')?.remove();
-  const explicitOk = normalizeToolBoolean(ok);
-  const resultDetails = toolResultDetails(resultRaw);
-  const parsedOk = explicitOk != null
-    ? explicitOk
-    : (resultRaw !== '' && resultRaw != null ? resultDetails.ok : null);
-  if (parsedOk != null) step.dataset.ok = String(!!parsedOk);
-  setToolContainerState(step, phase === 'interrupted'
-    ? 'interrupted'
-    : (parsedOk === false ? 'error' : 'completed'));
-  const pending = toolStepDetails.get(step);
-  if (pending) {
-    setToolStepDetails(step, { ...pending, resultRaw, ok, phase });
-    renderToolStepDetails(step);
-    return;
-  }
-  const body = step.querySelector('.tc-body');
-  if (!body) return;
-  if (step.dataset.commandTool === 'true') {
-    let panel = body.querySelector(':scope > .tool-command-panel');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.className = 'tool-result-panel tool-command-panel';
-      body.replaceChildren(panel);
-    }
-    updateToolCommandPanel(panel, step.dataset.tool || 'bash',
-      (() => { try { return JSON.parse(step.dataset.args || '{}'); } catch { return {}; } })(),
-      resultRaw, ok, phase);
-    return;
-  }
-  let panel = body.querySelector(':scope > .tool-result-panel');
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.className = 'tool-result-panel';
-    body.replaceChildren(panel);
-  }
-  let args = {};
-  try { args = JSON.parse(step.dataset.args || '{}'); } catch { /* keep empty args */ }
-  updateToolResultPanel(panel, step.dataset.tool || 'tool', args, resultRaw, ok, phase);
-}
+
 
 function summarizeToolArgs(toolName, args) {
   if (!args || typeof args !== 'object') return '';
@@ -14464,15 +16535,6 @@ function summarizeToolArgs(toolName, args) {
       const label = `${todos.length} 项 · ${active.text}`;
       return label.length > 60 ? `${label.slice(0, 60)}…` : label;
     }
-  }
-  if (toolName === 'use_capability' && args.capability_id) {
-    const capabilityId = String(args.capability_id);
-    const target = capabilityId.replace(/^(?:native|skill|mcp):/, '');
-    if (capabilityId.startsWith('skill:')) {
-      const skill = installedSkillPickerItems().find(item => String(item.id) === target);
-      if (skill?.name) return String(skill.name).slice(0, 80);
-    }
-    return target.slice(0, 80);
   }
   if (args.path) return String(args.path);
   if (args.command) return String(args.command).slice(0, 80);
@@ -14513,8 +16575,325 @@ function adoptToolStepDetails(step, source) {
   renderToolStepDetails(step);
 }
 
-function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase = 'done') {
-  const step = document.createElement('details');
+function mutationToolAction(toolName) {
+  const action = parseToolIdentity(toolName).action;
+  return ({ write_file: 'write', edit_file: 'edit', apply_patch: 'patch' })[action] || action;
+}
+
+function mutationFileRows(toolName, args = {}, resultRaw, metadata = {}, completed = false) {
+  const parsed = parseToolUiValue(resultRaw);
+  const meta = { ...(parsed?.metadata || {}), ...(metadata || {}) };
+  const rows = new Map();
+  const add = (path, values = {}) => {
+    if (!path) return;
+    rows.set(String(path), { path: String(path), ...rows.get(String(path)), ...values });
+  };
+  add(args.filePath || args.path || args.file_path);
+  const patch = String(args.patchText || args.patch || '');
+  for (const line of patch.split(/\r?\n/)) {
+    const match = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
+    if (match) add(match[1]);
+    const moved = line.match(/^\*\*\* Move to: (.+)$/);
+    if (moved) { const old = [...rows.keys()].at(-1); if (old) rows.delete(old); add(moved[1]); }
+  }
+  const files = Array.isArray(meta.files) ? meta.files : meta.filediff || meta.fileDiff ? [meta.filediff || meta.fileDiff] : [];
+  if (files.some(file => file.filePath || file.path || file.file)) rows.clear();
+  for (const file of files) add(file.movePath || file.filePath || file.path || file.file, completed ? {
+    additions: file.additions == null && typeof file.patch === 'string' ? file.patch.split(/\r?\n/).filter(line => line.startsWith('+') && !line.startsWith('+++')).length : Number(file.additions),
+    deletions: file.deletions == null && typeof file.patch === 'string' ? file.patch.split(/\r?\n/).filter(line => line.startsWith('-') && !line.startsWith('---')).length : Number(file.deletions)
+  } : {});
+  if (completed && rows.size === 1) {
+    const row = [...rows.values()][0];
+    for (const key of ['additions', 'deletions']) if (meta[key] != null && Number.isFinite(Number(meta[key]))) row[key] = Number(meta[key]);
+    const diff = typeof meta.diff === 'string' ? meta.diff : typeof parsed?.diff === 'string' ? parsed.diff : '';
+    if (diff) {
+      if (!Number.isFinite(row.additions)) row.additions = diff.split(/\r?\n/).filter(line => line.startsWith('+') && !line.startsWith('+++')).length;
+      if (!Number.isFinite(row.deletions)) row.deletions = diff.split(/\r?\n/).filter(line => line.startsWith('-') && !line.startsWith('---')).length;
+    }
+  }
+  if (completed && mutationToolAction(toolName) === 'write' && rows.size === 1 && (meta.exists === false || /^Created file successfully:/m.test(String(resultRaw || ''))) && typeof args.content === 'string') {
+    const row = [...rows.values()][0];
+    if (!Number.isFinite(row.additions)) row.additions = args.content ? args.content.split(/\r?\n/).length - (args.content.endsWith('\n') ? 1 : 0) : 0;
+    if (!Number.isFinite(row.deletions)) row.deletions = 0;
+  }
+  return [...rows.values()];
+}
+
+function mutationFilesMarkup(files) {
+  return files.map(file => '<span class="tc-mutation-file"><button type="button" class="tc-file-link" data-mutation-file="' + escapeAttr(file.path) + '" title="' + escapeAttr(file.path) + '">' + escapeHtml(file.path.split(/[\\/]/u).pop()) + '</button>' +
+    (file.additions > 0 ? '<span class="run-change-add">+' + file.additions + '</span>' : '') +
+    (file.deletions > 0 ? '<span class="run-change-del">-' + file.deletions + '</span>' : '') + '</span>').join('');
+}
+
+function mergeWorkSegmentMutationRows(parts) {
+  const output = [];
+  const merged = new Map();
+  for (const source of parts) {
+    const item = source.item;
+    // A new reasoning stretch starts a new merge window, even within one disclosure.
+    if (item?.type === 'thinking' || item?.type === 'thinking_group') merged.clear();
+    if (item?.type !== 'tool_call' || !['write','edit','patch'].includes(mutationToolAction(item.name))) { output.push(source); continue; }
+    const result = source.result;
+    const completed = !!result && normalizeToolBoolean(result.ok) !== false && !result.interrupted;
+    const files = mutationFileRows(item.name, item.args || {}, result?.output, result?.metadata || {}, completed);
+    if (!files.length) { output.push(source); continue; }
+    for (const file of files) {
+      const path = String(file.path).replace(/\\/g, '/').replace(/\/{2,}/g, '/');
+      const normalized = /^[A-Za-z]:\//.test(path) ? path.toLowerCase() : path;
+      const current = merged.get(normalized);
+      if (current) {
+        current.sources.push(source);
+        current.mutationFile.additions += Number(file.additions) || 0;
+        current.mutationFile.deletions += Number(file.deletions) || 0;
+      } else {
+        const synthetic = { ...source, item: { type: 'work_mutation_row', name: item.name, openCodeKey: 'mutation:' + getAgentTimelinePartKey(item, source.index) + ':' + normalized }, result, sources: [source] };
+        synthetic.mutationFile = { ...file, additions: Number(file.additions) || 0, deletions: Number(file.deletions) || 0, action: mutationToolAction(item.name) };
+        merged.set(normalized, synthetic);
+        output.push(synthetic);
+      }
+    }
+  }
+  return output.map(source => source.mutationFile ? { ...source, item: { ...source.item, files: [source.mutationFile], sources: source.sources } } : source);
+}
+
+function mergeBuiltinBrowserRows(parts) {
+  const isBrowser = source => source.item?.type === 'tool_call'
+    && resolveToolUi(source.item.name).groupKey === 'server:yan-browser';
+  const first = parts.findIndex(isBrowser);
+  if (first < 0) return parts;
+  const last = parts.findLastIndex(isBrowser);
+  const span = parts.slice(first, last + 1);
+  // Include attached results even when they arrived after the last browser call.
+  const timeline = span.flatMap(source => [source.item, ...(source.result
+    ? [{ ...source.result, type: 'tool_result', callId: source.item.callId }] : [])]);
+  const source = parts[first];
+  const row = { ...source, item: {
+    type: 'browser_work_row',
+    openCodeKey: 'browser-work:' + getAgentTimelinePartKey(source.item, source.index),
+    stats: window.YanWorkSegments.statistics(timeline),
+    running: span.some(part => part.phase === 'running')
+  } };
+  return [...parts.slice(0, first), row, ...parts.slice(last + 1)];
+}
+
+function mergeExternalAgentRows(parts) {
+  const isExternal = source => source.item?.type === 'tool_call' && isExternalAgentToolCall(source.item.name);
+  if (!parts.some(isExternal)) return parts;
+  const externals = parts.filter(isExternal);
+  const providers = externals.map(source => externalAgentProvider(source.item.name, source.item.args));
+  // wait/read carry only job ids and a status probe carries no provider at all,
+  // so they follow the provider this disclosure is actually about: the previous
+  // dispatch when there is one, otherwise the next.
+  let inherited = '';
+  for (let index = 0; index < providers.length; index += 1) {
+    if (providers[index]) { inherited = providers[index]; continue; }
+    providers[index] = inherited || providers.slice(index + 1).find(Boolean) || '';
+  }
+  const rows = new Map();
+  const output = [];
+  let cursor = 0;
+  for (const source of parts) {
+    if (!isExternal(source)) { output.push(source); continue; }
+    const provider = providers[cursor++] || '';
+    const key = provider || 'external';
+    let row = rows.get(key);
+    if (!row) {
+      row = { ...source, item: {
+        type: 'external_agent_work_row',
+        provider,
+        openCodeKey: 'external-agent-work:' + key + ':' + getAgentTimelinePartKey(source.item, source.index),
+        stats: null,
+        running: false,
+        sources: []
+      } };
+      rows.set(key, row);
+      output.push(row);
+    }
+    row.item.sources.push({ item: source.item, result: source.result || null });
+    if (source.phase === 'running') row.item.running = true;
+  }
+  for (const row of rows.values()) {
+    const timeline = row.item.sources.flatMap(entry => [entry.item,
+      ...(entry.result ? [{ ...entry.result, type: 'tool_result', callId: entry.item.callId }] : [])]);
+    row.item.stats = window.YanWorkSegments.statistics(timeline);
+  }
+  return output;
+}
+
+// A control call can arrive in a parallel batch that also carries unrelated
+// tools, so it escapes the episode group. Fold those loose calls — and an
+// adjacent episode group — into one static row so the expanded history never
+// shows a bare "Yan Computer Use" line.
+function mergeComputerControlRows(parts) {
+  const isComputerSource = source => source.item?.type === 'computer_control_group'
+    || (source.item?.type === 'tool_call' && isComputerControlCall(source.item));
+  if (!parts.some(isComputerSource)) return parts;
+  const output = [];
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    const first = run[0];
+    output.push({ ...first, item: {
+      type: 'computer_work_row',
+      openCodeKey: 'computer-work:' + getAgentTimelinePartKey(first.item, first.index),
+      stats: computerControlWorkStats(run),
+      running: run.some(source => source.phase === 'running')
+    } });
+    run = [];
+  };
+  for (const source of parts) {
+    if (isComputerSource(source)) { run.push(source); continue; }
+    flush();
+    output.push(source);
+  }
+  flush();
+  return output;
+}
+
+// Delegate so links survive tool row reconciliation without stale listeners.
+document.addEventListener('click', event => {
+  const link = event.target.closest?.('[data-mutation-file]');
+  if (!link) return;
+  event.preventDefault();
+  event.stopPropagation();
+  void window.YanProjectFiles.openLocal(link.dataset.mutationFile).catch(error => toast('无法打开文件：' + error.message));
+});
+
+function isSkillReadTool(toolName) {
+  return ['read_skill', 'read_skill_resource', 'read_skill_resources'].includes(parseToolIdentity(toolName).action);
+}
+
+function skillManagementUi(name) {
+  return ({
+    find_skills: {icon:'book-open-2', running:'让我查找一下适合本任务的技能', done:'我找到了几个适合本任务的技能', error:'查找技能时遇到了错误'},
+    install_skill: {icon:'book-plus', running:'正在安装用户指定的技能', done:'已安装用户指定的技能', error:'安装技能时遇到了错误'},
+    create_skill: {icon:'book-plus', running:'我正在创建新技能', done:'已创建新技能', error:'创建失败'},
+    remove_skill: {icon:'book-minus', running:'正在移除你要舍弃的技能', done:'已移除你指定的技能', error:'移除技能时遇到了错误'}
+  })[parseToolIdentity(name).action];
+}
+
+function webToolUi(name) {
+  const action = parseToolIdentity(name).action;
+  if (['websearch', 'web_search'].includes(action)) return {label:'我正在搜索网页', error:'搜索网页时遇到错误'};
+  if (['webfetch', 'web_fetch', 'fetch'].includes(action)) return {label:'我正在获取该网页相关内容', error:'获取该网页相关内容时出错'};
+  if (action === 'download_file') return {label:'我正在下载该网站的相关资源', error:'下载该网页相关资源时出错'};
+  return null;
+}
+
+// Requested Keyline Icons, embedded locally from keylineicons.com.
+const PLUGIN_WORK_ICONS = {
+  "library-big": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 4C2 3.4477 2.4477 3 3 3L6 3C6.5523 3 7 3.4477 7 4L7 20C7 20.5523 6.5523 21 6 21L3 21C2.4477 21 2 20.5523 2 20L2 4ZM7 4C7 3.4477 7.4477 3 8 3L11 3C11.5523 3 12 3.4477 12 4L12 20C12 20.5523 11.5523 21 11 21L8 21C7.4477 21 7 20.5523 7 20L7 4ZM12.0543 5.2999C12.0183 5.1953 12 5.0855 12 4.9749C12 4.5479 12.2712 4.1679 12.675 4.0292L15.5122 3.0543C15.6168 3.0183 15.7266 3 15.8372 3C16.2642 3 16.6441 3.2712 16.7829 3.675L21.9457 18.7001C21.9817 18.8047 22 18.9145 22 19.0251C22 19.4521 21.7288 19.8321 21.325 19.9708L18.4878 20.9457C18.3832 20.9817 18.2734 21 18.1628 21C17.7358 21 17.3559 20.7288 17.2171 20.325L12.0543 5.2999Z\" fill=\"none\"/></svg>",
+  "square-bar-chart-horizontal-start": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3H18C19.6569 3 21 4.34315 21 6V18C21 19.6569 19.6569 21 18 21H6C4.34315 21 3 19.6569 3 18V6C3 4.34315 4.34315 3 6 3Z\"/>\n  <path d=\"M8 8H10.666666666666666M8 12H16M8 16H13.333333333333332\"/></svg>",
+  "plug-zap": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7.1854 13.0433L10.9567 16.8146C11.7377 17.5956 11.7378 18.8619 10.9567 19.643L10.4853 20.1144C8.6629 21.9369 5.7081 21.9368 3.8856 20.1144C2.0632 18.2919 2.0631 15.3371 3.8856 13.5147L4.357 13.0433C5.1381 12.2622 6.4044 12.2623 7.1854 13.0433ZM7.6569 13.5147L10.0139 11.1577M10.4853 16.3431L12.8423 13.9861M3.8856 20.1144L2 22M20.5 2L16 6.5L22 6.5L17.5 11\" fill=\"none\"/></svg>",
+  "cable": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 4L6 4C3.7909 4 2 5.7909 2 8C2 10.2091 3.7909 12 6 12L18 12C20.2091 12 22 13.7909 22 16C22 18.2091 20.2091 20 18 20L10 20M15 2L19 2C19.5523 2 20 2.4477 20 3L20 5C20 5.5523 19.5523 6 19 6L15 6C14.4477 6 14 5.5523 14 5L14 3C14 2.4477 14.4477 2 15 2ZM5 18L9 18C9.5523 18 10 18.4477 10 19L10 21C10 21.5523 9.5523 22 9 22L5 22C4.4477 22 4 21.5523 4 21L4 19C4 18.4477 4.4477 18 5 18ZM20 4L22 4M4 20L2 20\"/></svg>",
+  "brain": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 4.75C12 3.2312 10.7688 2 9.25 2C8.2128 2 7.2638 2.5836 6.7958 3.5093C5.6371 3.6149 4.75 4.5865 4.75 5.75C4.75 6.1154 4.839 6.4753 5.0093 6.7986C3.9233 7.016 3.1097 7.9221 3.0101 9.0252C2.9901 9.2474 2.8963 9.4565 2.7437 9.6192C2.2659 10.1289 2 10.8014 2 11.5C2 12.0844 2.1862 12.6536 2.5315 13.125C2.1862 13.5964 2 14.1656 2 14.75C2 15.7702 2.5648 16.7065 3.4671 17.1824C3.7892 17.3523 3.9935 17.6838 4.0005 18.0478C4.0175 18.9378 4.5064 19.7516 5.2842 20.1845C5.4183 20.2591 5.5334 20.3635 5.6206 20.4898C6.2742 21.4355 7.3504 22 8.5 22C10.433 22 12 20.433 12 18.5C12 20.433 13.567 22 15.5 22C16.6496 22 17.7258 21.4355 18.3794 20.4898C18.4666 20.3635 18.5817 20.2591 18.7158 20.1845C19.4936 19.7516 19.9825 18.9378 19.9995 18.0478C20.0065 17.6838 20.2108 17.3523 20.5329 17.1824C21.4352 16.7065 22 15.7702 22 14.75C22 14.1656 21.8138 13.5964 21.4685 13.125C21.8138 12.6536 22 12.0844 22 11.5C22 10.8014 21.7341 10.1289 21.2563 9.6192C21.1037 9.4565 21.0099 9.2474 20.9899 9.0252C20.8903 7.9221 20.0767 7.016 18.9907 6.7986C19.161 6.4753 19.25 6.1154 19.25 5.75C19.25 4.5865 18.3629 3.6149 17.2042 3.5093C16.7362 2.5836 15.7872 2 14.75 2C13.2312 2 12 3.2312 12 4.75ZM12 18.5L12 4.75M9.2158 5.3593C9.0262 4.284 8.0919 3.5 7 3.5C6.9318 3.5 6.8637 3.5031 6.7958 3.5093M7.9905 9.0321C7.8775 7.7408 6.7963 6.75 5.5 6.75C5.3352 6.75 5.1709 6.7663 5.0093 6.7986M2.5315 13.125C3.0494 13.8321 3.8735 14.25 4.75 14.25C4.9903 14.25 5.2296 14.2185 5.4618 14.1563M8.75 13.5C8.6958 14.8111 8.162 16.0566 7.25 17M14.7842 5.3593C14.9738 4.284 15.9081 3.5 17 3.5C17.0682 3.5 17.1363 3.5031 17.2042 3.5093M16.0095 9.0321C16.1225 7.7408 17.2037 6.75 18.5 6.75C18.6648 6.75 18.8291 6.7663 18.9907 6.7986M21.4685 13.125C20.9506 13.8321 20.1265 14.25 19.25 14.25C19.0097 14.25 18.7704 14.2185 18.5382 14.1563M15.25 13.5C15.3042 14.8111 15.838 16.0566 16.75 17\" fill=\"none\"/></svg>"
+};
+function pluginWorkUi(name, args = {}) {
+  const identity = parseToolIdentity(name);
+  const plugin = String(args.id || args.plugin_id || args.pluginId || args.name || '该插件');
+  if (toolServerCategory(identity.server) === 'harness') return {icon:'brain',label:'我正在总结与强化记忆',error:'构建或总结记忆时出错'};
+  switch (identity.action) {
+    case 'plugins_inspect':
+    case 'plugins_read_resource': return {icon:'library-big',label:`我正在读取${plugin}的介绍与运行时`,error:'读取该插件资源时遇到了错误',static:true};
+    case 'plugins_list': return {icon:'square-bar-chart-horizontal-start',label:'让我列出当前环境下可用的插件',error:'列出可用插件时遇到了错误'};
+    case 'plugins_activate': return {icon:'plug-zap',label:`我正在尝试激活${plugin}`,error:'激活该插件时遇到错误',static:true};
+    case 'plugins_deactivate': return {icon:'cable',label:`我现在在尝试停用${plugin}`,error:'关闭该插件时遇到了问题'};
+    default: return null;
+  }
+}
+
+function genericMcpName(name) {
+  const identity = parseToolIdentity(name);
+  if (['create_handoff', 'read_source_context'].includes(identity.action) && (!identity.server || identity.server === 'yan_session')) return 'Yan Session';
+  // These bundled management tools use the shared MCP row; their siblings
+  // keep their existing skill, media, session and browser presentations.
+  const bundledManagement = {
+    yan_skills: ['list_agents', 'create_agent', 'install_pet', 'list_pets'],
+    yan_session: ['list_external_sessions', 'read_external_session', 'list_external_tasks']
+  }[identity.server]?.includes(identity.action);
+  if (!identity.server || (!bundledManagement && identity.action !== 'connect' && ['yan_session','yan_browser','yan_skills','yan_media','yan_web','yan_computer'].includes(identity.server))) return '';
+  const server = (state.config?.mcpServers || []).find(server => String(server.id).toLowerCase() === identity.server);
+  return String(server?.name || BUNDLED_MCP_NAMES[identity.server] || ({mcp_default_serena:'Serena',mcp_default_playwright:'Playwright'})[identity.server] || identity.server).replace(/\s+MCP$/i, '');
+}
+
+// Keyline Icons: https://keylineicons.com/icons?icon=grid-circles-check
+const NESTED_SESSION_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 21C8.433 21 10 19.433 10 17.5C10 15.567 8.433 14 6.5 14C4.567 14 3 15.567 3 17.5C3 19.433 4.567 21 6.5 21ZM6.5 10C8.433 10 10 8.433 10 6.5C10 4.567 8.433 3 6.5 3C4.567 3 3 4.567 3 6.5C3 8.433 4.567 10 6.5 10ZM17.5 10C19.433 10 21 8.433 21 6.5C21 4.567 19.433 3 17.5 3C15.567 3 14 4.567 14 6.5C14 8.433 15.567 10 17.5 10ZM14 17.5L16.3333 20L21 15"/></svg>';
+function nestedSessionCount(args, resultRaw) {
+  if (Array.isArray(args?.tasks)) return args.tasks.length;
+  if (args?.session_id) return 1;
+  for (const result of toolResultCandidates(resultRaw)) {
+    if (Array.isArray(result?.group?.children)) return result.group.children.length;
+    if (Array.isArray(result?.children)) return result.children.length;
+  }
+  return '…';
+}
+
+function bashStatusJobCount(resultRaw) {
+  // The bridge returns a bare job array (or a single job) as the tool output,
+  // which toolResultDetails() cannot unwrap on its own.
+  const candidates = [String(resultRaw ?? ''), String(toolResultDetails(resultRaw).output || '')];
+  for (const candidate of candidates) {
+    const text = candidate.trim();
+    if (!text) continue;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.length;
+      if (Array.isArray(parsed?.jobs)) return parsed.jobs.length;
+      if (parsed && typeof parsed === 'object' && parsed.id) return 1;
+    } catch { /* not JSON */ }
+  }
+  return 0;
+}
+
+// Rows that summarize a finished side effect carry no expandable work detail,
+// so they render as a static line instead of a disclosure.
+function isStaticToolRow(toolName) {
+  return pluginWorkUi(toolName)?.static === true || isSkillReadTool(toolName) || !!skillManagementUi(toolName) || ['bash_status', 'nested_sessions'].includes(parseToolIdentity(toolName).action);
+}
+
+// Child lifecycle notices already describe delegation in the work list.
+// Hide its raw calls and exclude them from work counts, while keeping namespaced
+// tools such as yan_skills_list_agents visible.
+function isSubagentToolCall(toolName) {
+  const { server, action } = parseToolIdentity(toolName);
+  return action === 'subagent' || (!server && [
+    'spawn_agent', 'send_agent_message', 'list_agents',
+    'wait_agents', 'interrupt_agent', 'close_agent'
+  ].includes(action));
+}
+
+// External desktop agents are driven through a delegate/wait/read sequence that
+// reads as one step, the same way the built-in browser and computer rows fold
+// their tool calls.
+const EXTERNAL_AGENT_UI = Object.freeze({
+  codex: { name: 'Codex', logo: 'assets/provider-logos/codex.svg' },
+  claude: { name: 'Claude', logo: 'assets/provider-logos/claude.svg' },
+});
+
+const EXTERNAL_AGENT_ACTIONS = new Set([
+  'delegate_external_task', 'wait_external_tasks', 'read_external_task_result', 'external_agents_status'
+]);
+
+function isExternalAgentToolCall(toolName) {
+  return EXTERNAL_AGENT_ACTIONS.has(parseToolIdentity(toolName).action);
+}
+
+function externalAgentProvider(toolName, args = {}) {
+  const explicit = String(args?.provider || '').trim().toLowerCase();
+  return EXTERNAL_AGENT_UI[explicit] ? explicit : '';
+}
+
+function externalAgentProviderFromCalls(calls = []) {
+  for (const call of calls) {
+    const provider = externalAgentProvider(call?.item?.name || call?.name, call?.item?.args || call?.args);
+    if (provider) return provider;
+  }
+  return '';
+}
+
+function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase = 'done', metadata = {}) {
+  const skillRead = isSkillReadTool(toolName);
+  const step = document.createElement(isStaticToolRow(toolName) ? 'div' : 'details');
   step.className = 'tool-step';
   step.dataset.tool = toolName;
   step.dataset.args = JSON.stringify(args || {});
@@ -14533,15 +16912,111 @@ function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase =
   step.classList.add('is-' + toolState);
   step.dataset.toolState = toolState;
   step.dataset.commandTool = String(commandTool);
-  step.open = parsedOk === false || (phase === 'running' && isImageGenerationTool(toolName));
-  const preview = summarizeToolArgs(toolName, args);
+  const workUi = TOOL_UI[parseToolIdentity(toolName).action];
+  if (workUi?.workRow) {
+    step.innerHTML = `<summary class="tc-header"><span class="tc-icon-svg" data-icon="${escapeAttr(ui.iconKey)}">${ui.icon}</span><span class="tc-name">${escapeHtml(workUi.label)}</span>${toolState === 'error' ? `<span class="tc-command-failure">${escapeHtml(workUi.error)}</span>` : ''}</summary><div class="tc-body"></div>`;
+    setToolContainerState(step, toolState);
+    setToolStepDetails(step, {toolName,args:args || {},resultRaw,ok,phase});
+    return step;
+  }
+  const pluginWork = pluginWorkUi(toolName, args);
+  if (pluginWork) {
+    const tag = pluginWork.static ? 'div' : 'summary';
+    step.classList.add('plugin-work-row');
+    step.innerHTML = `<${tag} class="tc-header"><span class="tc-icon-svg" data-icon="${pluginWork.icon}">${PLUGIN_WORK_ICONS[pluginWork.icon]}</span><span class="tc-name">${escapeHtml(pluginWork.label)}</span>${toolState === 'error' ? `<span class="tc-command-failure">${pluginWork.error}</span>` : ''}</${tag}>${pluginWork.static ? '' : '<div class="tc-body"></div>'}`;
+    if (!pluginWork.static) setToolStepDetails(step, {toolName,args:args || {},resultRaw,ok,phase});
+    return step;
+  }
+  if (parseToolIdentity(toolName).action === 'nested_sessions') {
+    step.classList.add('nested-session-row');
+    step.innerHTML = `<div class="tc-header"><span class="tc-icon-svg" data-icon="grid-circles-check">${NESTED_SESSION_ICON}</span><span class="tc-name">我正在请求 Nested Session（${nestedSessionCount(args, resultRaw)}个）</span>${toolState === 'error' ? '<span class="tc-command-failure">工作中遇到错误</span>' : ''}</div>`;
+    return step;
+  }
+  if (parseToolIdentity(toolName).action === 'bash_status') {
+    step.classList.add('bash-status-row');
+    const count = bashStatusJobCount(resultRaw);
+    const label = phase === 'running'
+      ? '正在移至后台工作'
+      : toolState === 'error' && !count
+        ? '移至后台工作'
+        : `已将 ${count} 条命令移至后台工作`;
+    step.innerHTML = `<div class="tc-header"><span class="tc-icon-svg" data-icon="hook">${TOOL_ICON_SVG.hook}</span><span class="tc-name" data-tool-state="${toolState}">${label}</span>${toolState === 'error' ? '<span class="tc-command-failure">转移时出错</span>' : ''}</div>`;
+    return step;
+  }
+  const mcpName = genericMcpName(toolName);
+  if (mcpName) {
+    step.innerHTML = `<summary class="tc-header"><span class="tc-icon-svg">${ui.icon}</span><span class="tc-name">我正在调用 ${escapeHtml(mcpName)} MCP</span>${toolState === 'error' ? '<span class="tc-command-failure">调用该MCP时发生了错误</span>' : ''}</summary><div class="tc-body"></div>`;
+    setToolStepDetails(step, {toolName,args:args || {},resultRaw,ok,phase});
+    return step;
+  }
+  const web = webToolUi(toolName);
+  if (web) {
+    const running = phase === 'running';
+    step.classList.toggle('web-tool-running', running);
+    const url = String(args?.url || args?.urls?.[0] || args?.query || '').trim();
+    step.innerHTML = `<summary class="tc-header" ${running ? 'aria-disabled="true" tabindex="-1"' : ''}><span class="tc-icon-svg" data-icon="${escapeAttr(ui.iconKey)}">${ui.icon}</span><span class="tc-name">${web.label}</span><span class="tc-preview" title="${escapeAttr(url)}">${escapeHtml(url)}</span>${toolState === 'error' ? `<span class="tc-command-failure">${web.error}</span>` : ''}</summary><div class="tc-body"></div>`;
+    setToolStepDetails(step, {toolName,args:args || {},resultRaw,ok,phase});
+    return step;
+  }
+  const skillManagement = skillManagementUi(toolName);
+  if (skillManagement) {
+    step.classList.add('skill-management-row');
+    let label = toolState === 'completed' ? skillManagement.done : phase === 'interrupted' ? '已停止技能操作' : skillManagement.running;
+    if (parseToolIdentity(toolName).action === 'create_skill') {
+      const name = String(args?.name || args?.id || '').trim();
+      if (name) label += ` ${escapeHtml(name)}`;
+    }
+    if (parseToolIdentity(toolName).action === 'find_skills' && toolState === 'completed') {
+      const found = parseGeneratedMediaToolResult(resultRaw);
+      const count = Number(found?.count ?? found?.skills?.length);
+      if (Number.isFinite(count)) label = count > 0 ? `找到了 ${count} 个适合本任务的技能` : '未找到适合本任务的技能';
+    }
+    step.innerHTML = `<div class="tc-header"><span class="tc-icon-svg" data-icon="${skillManagement.icon}">${TOOL_ICON_SVG[skillManagement.icon]}</span><span class="tc-name">${label}</span>${toolState === 'error' ? `<span class="tc-command-failure">${skillManagement.error}</span>` : ''}</div>`;
+    return step;
+  }
+  const mediaAction = mediaToolAction(toolName);
+  if (mediaAction) {
+    const reading = mediaAction === 'read_image';
+    const running = phase === 'running';
+    const sources = reading ? imageReadSources(args) : [];
+    const label = reading ? `${running ? '正在查看' : toolState === 'error' ? '未能查看' : '已查看'}${sources.length}张图像`
+      : running ? '正在创建你要求的图像' : toolState === 'error' ? (mediaAction === 'generate_video' ? '创建你要求的视频' : '创建你要求的图像') : mediaAction === 'generate_video' ? '已创建你要求的视频' : '已创建你要求的图像';
+    step.classList.toggle('media-tool-running', running);
+    const chevrons = reading ? `<span class="media-read-chevron media-closed">${window.YanProjectFiles.chevron(false)}</span><span class="media-read-chevron media-open">${window.YanProjectFiles.chevron(true)}</span>` : '';
+    step.innerHTML = `<summary class="tc-header" ${running ? 'aria-disabled="true" tabindex="-1"' : ''}><span class="tc-icon-svg">${ui.icon}</span><span class="tc-name">${label}</span>${chevrons}${toolState === 'error' ? '<span class="tc-command-failure">创建失败</span>' : ''}</summary><div class="tc-body"></div>`;
+    if (reading && !running && toolState !== 'error') {
+      step.querySelector('.tc-body').innerHTML = '<div class="media-read-thumbnails">' + sources.map(source => `<button type="button" class="media-read-thumbnail" data-read-image-source="${escapeAttr(JSON.stringify(source))}" aria-label="打开图片预览">加载图像</button>`).join('') + '</div>';
+    } else if (!running) setToolStepDetails(step, {toolName,args:args || {},resultRaw,ok,phase});
+    return step;
+  }
+  if (skillRead) {
+    step.dataset.skillRead = 'true';
+    const id = String(args?.id || args?.skill_id || args?.name || '');
+    const skill = installedSkillPickerItems().find(entry => String(entry.id) === id);
+    const name = String(skill?.name || id);
+    const label = phase === 'running' ? '正在参考' : toolState === 'error' ? '未能参考' : phase === 'interrupted' ? '已停止参考' : '参考了';
+    step.innerHTML = `<div class="tc-header"><span class="tc-icon-svg" data-icon="book-check">${TOOL_ICON_SVG['book-check']}</span><span class="tc-skill-reference">${escapeHtml(label + name + '技能')}</span>${toolState === 'error' ? '<span class="tc-command-failure">读取失败</span>' : ''}</div>`;
+    return step;
+  }
+  const mutation = mutationToolAction(toolName);
+  const mutationLabel = ({ write: '已新建文件', edit: '编辑了文件', patch: '应用了文件补丁' })[mutation];
+  const mutationFiles = mutationLabel ? mutationFileRows(toolName, args, resultRaw, metadata, toolState === 'completed') : [];
+  const fileRead = ['read', 'read_file', 'read_file_range'].includes(parseToolIdentity(toolName).action);
+  const browserTool = ui.groupKey === 'server:yan-browser';
+  const fileSearch = ['glob', 'grep', 'list_directory', 'search_files'].includes(parseToolIdentity(toolName).action);
+  const failureLabel = toolState === 'error' ? (({write:'写入时发生错误',edit:'编辑该文件时发生错误',patch:'为此文件应用补丁时发生错误'})[mutation] || (browserTool ? '操控浏览器时遇到错误' : commandTool || fileSearch ? (toolTransportInterruption(resultDetails || toolResultDetails(resultRaw)) ? '请求中断' : '运行失败') : '')) : '';
+
+  step.open = (!commandTool && !mutationLabel && !browserTool && !fileSearch && parsedOk === false) || (phase === 'running' && isImageGenerationTool(toolName));
+  const todo = isTodoWriteTool(toolName) ? todoPresentation.get(args) : null;
+  const preview = todo ? todo.preview : fileSearch ? String(args?.filePath || args?.file_path || args?.path || args?.directory || args?.root || (parseToolIdentity(toolName).action === 'glob' ? args?.pattern : '') || '当前工作区') : fileRead ? String(args?.filePath || args?.path || args?.file_path || '').split(/[\\/]/u).pop() : commandTool ? toolCommandText(args).replace(/\s+/gu, ' ').trim() : summarizeToolArgs(toolName, args);
+  const displayName = todo?.label || mutationLabel || (fileRead ? '读取了文件' : commandTool ? (phase === 'running' ? '正在运行' : phase === 'interrupted' ? '已停止' : toolState === 'error' && toolTransportInterruption(resultDetails || toolResultDetails(resultRaw)) && !toolCommandText(args).trim() ? '未执行' : '已运行') : getToolDisplayName(toolName));
 
   step.innerHTML = `
     <summary class="tc-header">
       <span class="tc-icon-svg" data-icon="${escapeHtml(ui.iconKey)}">${ui.icon}</span>
-      <span class="tc-name" data-tool-state="${toolState}">${escapeHtml(getToolDisplayName(toolName))}</span>
-      <span class="tc-preview">${escapeHtml(preview)}</span>
-      ${toolStateMarkup(toolState)}
+      <span class="tc-name" data-tool-state="${toolState}">${escapeHtml(displayName)}</span>
+      ${mutationLabel ? `<span class="tc-mutation-files">${mutationFilesMarkup(mutationFiles)}</span>` : `<span class="tc-preview">${escapeHtml(preview)}</span>`}
+      ${failureLabel ? '<span class="tc-command-failure">' + failureLabel + '</span>' : toolStateMarkup(toolState)}
     </summary>
     <div class="tc-body"></div>
   `;
@@ -14549,9 +17024,6 @@ function buildToolStepElement(toolName, args, resultRaw = '', ok = null, phase =
 
   setToolStepDetails(step, { toolName, args: args || {}, resultRaw, ok, phase });
 
-  if (phase === 'running' && isImageGenerationTool(toolName)) {
-    step.querySelector('.tc-body').insertAdjacentHTML('beforeend', generatedImageLoadingMarkup(args, '正在生成图片'));
-  }
 
   renderToolStepDetails(step);
 
@@ -14757,7 +17229,8 @@ function buildToolStepFromCall(call) {
     call?.item?.args || {},
     resultRaw,
     call?.result ? call.result.ok : null,
-    call?.phase || 'done'
+    call?.phase || 'done',
+    call?.result?.metadata || {}
   );
   const callId = String(call?.item?.callId || '');
   if (callId) step.dataset.callId = callId;
@@ -14774,7 +17247,7 @@ function buildToolParallelGroupElement(row, shellOnly = false) {
   parallel.dataset.toolState = state;
   parallel.dataset.parallelCount = String(row.calls.length);
   parallel.dataset.toolRowKey = 'parallel:' + row.groupKey + ':' + getToolCallRowKey(row.calls[0]);
-  parallel.open = state === 'error';
+  parallel.open = state === 'error' && !row.calls.every(call => isCommandTool(call.item?.name, call.item?.args));
   const label = getToolRowLabel(row);
   parallel.innerHTML = `
     <summary class="tool-parallel-summary">
@@ -14824,17 +17297,7 @@ function buildToolActivityGroupElement(calls, shellOnly = false, precomputedRows
 }
 
 // --- Tool call UI rendering ---
-function formatToolResultForUi(raw) {
-  const parsed = parseToolUiValue(raw);
-  if (!parsed || typeof parsed !== 'object') return String(raw ?? '');
-  const details = toolResultDetails(raw);
-  const badge = parsed.ok === false || parsed.error ? 'FAIL' : 'OK';
-  const lines = [`[${badge}] ${parsed.tool || 'tool'}`];
-  if (details.output) lines.push(details.output);
-  if (details.exitCode != null) lines.push(`exitCode: ${details.exitCode}`);
-  if (parsed.meta?.verification) lines.push(`verified: ${parsed.meta.verification.ok}`);
-  return lines.join('\n');
-}
+
 
 function showTyping(show) {
   const el = $('#typingIndicator');
@@ -14850,6 +17313,103 @@ function showTyping(show) {
 // panel it opens to the left carries the token figures the composer outline
 // used to display.
 let contextRingPanelOpen = false;
+let contextPanelTaskKey;
+
+function hasContextConversation() {
+  return (state.currentSession?.messages || []).some(message => ['user', 'assistant'].includes(message.role));
+}
+
+function contextPanelTaskKeyForCurrent() {
+  return `${state.currentSession?.id || ''}:${hasContextConversation()}`;
+}
+
+// The detail panel is a transient surface: only an explicit click on the
+// context pill (or the status command) opens it. Switching tasks, sending a
+// message, closing another composer panel or changing pages never reopens it,
+// and no open/closed choice is persisted.
+function syncContextPanelPreference() {
+  const taskKey = contextPanelTaskKeyForCurrent();
+  if (contextPanelTaskKey === taskKey) return;
+  contextPanelTaskKey = taskKey;
+  if (contextRingPanelOpen) setContextRingPanelOpen(false);
+}
+
+// ============================================================
+// Composer token readout
+// ============================================================
+// The composer line is the discoverable entry to token usage: a quiet pill
+// under the input that opens the detailed panel. It replaces the old AI
+// disclaimer, which carried no information users acted on.
+let tokenUsagePanelOpen = false;
+
+function renderTokenUsagePanel() {
+  const stats = sessionUsageStats();
+  const hasUsage = stats.runs > 0;
+  const total = $('#tokenUsageTotal');
+  if (total) total.textContent = hasUsage ? `${formatTokenExact(stats.total)} tok` : '—';
+  const cacheRate = $('#tokenUsageCacheRate');
+  if (cacheRate) cacheRate.textContent = stats.rate == null ? '—' : formatCacheHitRate(stats.rate);
+  const uncached = $('#tokenUsageUncached');
+  if (uncached) uncached.textContent = hasUsage ? `${formatTokenExact(stats.uncached)} tok` : '—';
+  const cacheRead = $('#tokenUsageCacheRead');
+  if (cacheRead) cacheRead.textContent = hasUsage ? `${formatTokenExact(stats.cacheRead)} tok` : '—';
+  const output = $('#tokenUsageOutput');
+  if (output) output.textContent = hasUsage ? `${formatTokenExact(stats.output)} tok` : '—';
+}
+
+function updateComposerUsage(tokens, maxTokens) {
+  const text = $('#composerUsageText');
+  const trigger = $('#composerUsage');
+  if (!text || !trigger) return;
+  const stats = sessionUsageStats();
+  const rate = stats.rate == null ? '—' : formatCacheHitRate(stats.rate);
+  const cacheLabel = window.YanI18n?.translate?.('缓存命中') || '缓存命中';
+  // The capsule answers "how much did this task cost", so it carries the
+  // task-cumulative total. Context occupancy stays in the ring beside it and in
+  // the tooltip; mixing the two made the pill read like a context meter.
+  const tokenText = `${formatTokenCount(stats.total)} tok`;
+  const cacheText = `${cacheLabel} ${rate}`;
+  const nextTitle = `本任务累计 ${formatTokenExact(stats.total)} tokens · 当前上下文 ${formatTokenCount(tokens)} / ${formatTokenCount(maxTokens)} · 任务平均缓存命中 ${rate}`;
+  if (text.textContent !== tokenText) text.textContent = tokenText;
+  const cache = $('#composerUsageCache');
+  if (cache && cache.textContent !== cacheText) cache.textContent = cacheText;
+  if (trigger.title !== nextTitle) trigger.title = nextTitle;
+  if (tokenUsagePanelOpen) renderTokenUsagePanel();
+}
+
+function setTokenUsagePanelOpen(open) {
+  const panel = $('#tokenUsagePanel');
+  const trigger = $('#composerUsage');
+  if (!panel || !trigger) return;
+  const desired = Boolean(open) && hasContextConversation();
+  if (desired) {
+    // Only one composer-adjacent panel at a time; closing the token panel later
+    // must not reopen the context panel.
+    setContextRingPanelOpen(false);
+    renderTokenUsagePanel();
+  }
+  tokenUsagePanelOpen = desired;
+  panel.classList.toggle('hidden', !desired);
+  panel.setAttribute('aria-hidden', String(!desired));
+  trigger.setAttribute('aria-expanded', String(desired));
+}
+
+function setupComposerUsage() {
+  const trigger = $('#composerUsage');
+  if (!trigger || trigger.dataset.bound === '1') return;
+  trigger.dataset.bound = '1';
+  trigger.addEventListener('click', () => setTokenUsagePanelOpen(!tokenUsagePanelOpen));
+  document.addEventListener('click', event => {
+    if (!tokenUsagePanelOpen) return;
+    if (event.target.closest?.('#tokenUsagePanel, #composerUsage')) return;
+    setTokenUsagePanelOpen(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !tokenUsagePanelOpen) return;
+    setTokenUsagePanelOpen(false);
+    trigger.focus({ preventScroll: true });
+  });
+}
 const manualContextCompressionSessions = new Set();
 
 function contextMessageTailKey(session) {
@@ -14880,23 +17440,33 @@ async function manuallyCompressContext() {
   try {
     const result = await api.openCodeCompressSession(session.id);
     if (!result?.ok) throw new Error(result?.error || '压缩未完成');
+    const beforeTokens = Number.isFinite(result.beforeTokens) ? result.beforeTokens : null;
+    const afterTokens = Number.isFinite(result.afterTokens) ? result.afterTokens : null;
     session.contextCompressionCount = (Number(session.contextCompressionCount) || 0) + 1;
     session.contextCompression = {
-      runId: `manual-${result.completedAt}`, beforeTokens: result.beforeTokens,
-      afterTokens: result.afterTokens, completedAt: result.completedAt, automatic: false,
+      runId: `manual-${result.completedAt}`, beforeTokens, afterTokens,
+      completedAt: result.completedAt, automatic: false,
       threshold: result.budget?.softThreshold, contextWindow: result.budget?.contextWindow
     };
-    session.manualContextUsage = {
-      tokens: result.afterTokens, tailKey: contextMessageTailKey(session),
-      openCodeSessionId: session.openCodeSessionId
-    };
-    const runCtx = getRunCtx(session.id);
-    if (runCtx) {
-      runCtx.contextUiTokens = result.afterTokens;
-      runCtx.contextUiMeasured = true;
+    // Only a finite measurement may replace the ring's live estimate; otherwise
+    // the old number would silently persist and look like compression failed.
+    if (afterTokens !== null) {
+      session.manualContextUsage = {
+        tokens: afterTokens, tailKey: contextMessageTailKey(session),
+        openCodeSessionId: session.openCodeSessionId
+      };
+      const runCtx = getRunCtx(session.id);
+      if (runCtx) {
+        runCtx.contextUiTokens = afterTokens;
+        runCtx.contextUiMeasured = true;
+      }
+    } else {
+      delete session.manualContextUsage;
     }
     await saveCurrentSession(session);
-    toast('上下文已压缩');
+    toast(beforeTokens !== null && afterTokens !== null
+      ? `上下文已压缩：${formatTokenCount(beforeTokens)} → ${formatTokenCount(afterTokens)}`
+      : '上下文已压缩（未测得压缩后大小）');
   } catch (error) {
     console.error('[context] manual compression failed:', error);
     toast(`压缩失败：${error?.message || error}`);
@@ -14906,15 +17476,39 @@ async function manuallyCompressContext() {
   }
 }
 
-function setContextRingPanelOpen(open, { refresh = true } = {}) {
+function setContextRingPanelOpen(open, { refresh = false } = {}) {
   const panel = $('#contextRingPanel');
-  const button = $('#contextRingBtn');
-  if (!panel || !button) return;
-  contextRingPanelOpen = Boolean(open);
+  if (!panel) return;
+  const desired = Boolean(open);
+  // Anchor every state change to the task it happened in, so the background
+  // updates that follow an explicit open do not immediately close it again.
+  contextPanelTaskKey = contextPanelTaskKeyForCurrent();
+  if (refresh && desired) setTokenUsagePanelOpen(false);
+  contextRingPanelOpen = desired && hasContextConversation();
+  if (contextRingPanelOpen && tokenUsagePanelOpen) setTokenUsagePanelOpen(false);
   panel.classList.toggle('hidden', !contextRingPanelOpen);
   panel.setAttribute('aria-hidden', contextRingPanelOpen ? 'false' : 'true');
-  button.setAttribute('aria-expanded', contextRingPanelOpen ? 'true' : 'false');
+  $('#composerContext')?.setAttribute('aria-expanded', String(contextRingPanelOpen));
+
   if (contextRingPanelOpen && refresh) updateContextInfo();
+}
+
+function contextUsageBreakdown(session, runCtx, selection) {
+  const lastRun = (session?.messages || []).findLast(message => message?.agentRun)?.agentRun;
+  const source = runCtx || lastRun;
+  const snapshot = source?.contextBreakdown;
+  const preset = session?.agentPreset || 'standard';
+  const matches = snapshot && (snapshot.agentPreset || source.agentPreset || 'standard') === preset
+    && source.modelId === selection.modelId && source.providerId === selection.providerId
+    && (source.supplierId || '') === (selection.supplierId || '')
+    && !(Math.max(Number(session?.contextCompression?.completedAt) || 0,
+      Number(source.lastContextCompression?.completedAt || source.contextCompression?.completedAt) || 0) > Number(snapshot.createdAt));
+  if (matches && ['system', 'tools', 'messages'].every(key => Number.isSafeInteger(snapshot[key]) && snapshot[key] >= 0)) {
+    return snapshot;
+  }
+  // Historical sessions may only contain a measured total. Never fabricate
+  // a system/tool split or borrow the preceding task's request snapshot.
+  return { system: null, tools: null, messages: null };
 }
 
 function updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, meta = {}) {
@@ -14922,27 +17516,30 @@ function updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, m
   const used = Math.max(0, Number(tokens) || 0);
   const ratio = Math.max(0, Math.min(1, used / threshold));
   const percent = Math.round(ratio * 100);
-  const usedLabel = formatTokenCount(used);
-  const limitLabel = formatTokenCount(threshold);
-
-  const button = $('#contextRingBtn');
-  if (button) {
-    const progress = $('#contextRingProgress');
-    if (progress) progress.style.strokeDashoffset = String(1 - ratio);
-    button.dataset.budget = budgetState;
-    button.setAttribute('aria-valuenow', String(percent));
-    button.setAttribute('aria-valuetext', `当前上下文约 ${usedLabel} / ${limitLabel} tokens，自动压缩阈值 ${formatTokenCount(compressAt)} tokens`);
-  }
+  const percentLabel = used > 0 && percent < 1 ? '<1%' : `${percent}%`;
+  const usedLabel = formatTokenApprox(used);
+  const limitLabel = formatTokenApprox(threshold);
+  updateComposerUsage(used, threshold);
 
   const panel = $('#contextRingPanel');
   if (!panel) return;
   panel.dataset.budget = budgetState;
+
   const percentEl = $('#contextRingPercent');
-  if (percentEl) percentEl.textContent = used > 0 && percent < 1 ? '<1%' : `${percent}%`;
-  const usedEl = $('#contextRingUsed');
-  if (usedEl) usedEl.textContent = usedLabel;
-  const limitEl = $('#contextRingLimit');
-  if (limitEl) limitEl.textContent = `/ ${limitLabel}`;
+  if (percentEl) percentEl.textContent = percentLabel;
+  const valueEl = $('#contextRingValue');
+  if (valueEl) valueEl.textContent = `~${usedLabel} / ${limitLabel}`;
+
+  const breakdown = meta.breakdown || {};
+  const categoryLabel = value => Number.isFinite(value) ? `~${formatTokenApprox(value)}` : '—';
+  const categoryHint = '最近一次模型请求的文本估算；不含图片等媒体用量和协议开销，与模型实测总量可能不同。';
+  const systemEl = $('#contextRingSystem');
+  if (systemEl) { systemEl.textContent = categoryLabel(breakdown.system); systemEl.title = Number.isFinite(breakdown.system) ? categoryHint : '尚无当前模式的请求统计'; }
+  const toolsEl = $('#contextRingTools');
+  if (toolsEl) { toolsEl.textContent = categoryLabel(breakdown.tools); toolsEl.title = Number.isFinite(breakdown.tools) ? categoryHint : '尚无当前模式的请求统计'; }
+  const messagesEl = $('#contextRingMessages');
+  if (messagesEl) { messagesEl.textContent = categoryLabel(breakdown.messages); messagesEl.title = Number.isFinite(breakdown.messages) ? categoryHint : '尚无当前模式的请求统计'; }
+
   const track = $('#contextRingTrack');
   if (track) {
     track.setAttribute('aria-valuenow', String(percent));
@@ -14950,6 +17547,23 @@ function updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, m
   }
   const bar = $('#contextRingBar');
   if (bar) bar.style.setProperty('--ctx-token-ratio', String(ratio));
+
+  const contextTrigger = $('#composerContext');
+  if (contextTrigger) {
+    contextTrigger.dataset.budget = budgetState;
+    const text = $('#composerContextText');
+    if (text) text.textContent = percentLabel;
+    const ring = $('#composerContextRingProgress');
+    if (ring) {
+      const circumference = 2 * Math.PI * 7.5;
+      ring.style.strokeDasharray = String(circumference);
+      ring.style.strokeDashoffset = String(circumference * (1 - ratio));
+    }
+    const title = `上下文已用 ${percentLabel} · ~${usedLabel} / ${limitLabel}`;
+    if (contextTrigger.title !== title) contextTrigger.title = title;
+    contextTrigger.setAttribute('aria-label', title);
+  }
+
   const hint = $('#contextRingHint');
   if (hint) {
     if (used >= hardAt) {
@@ -14960,53 +17574,47 @@ function updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, m
       hint.textContent = `距离自动压缩还有 ${formatTokenCount(Math.max(0, compressAt - used))}`;
     }
   }
-  const metaEl = $('#contextRingMeta');
-  if (metaEl) metaEl.textContent = [meta.modelName, meta.statusLabel].filter(Boolean).join(' · ') || '—';
   updateContextCompressButton();
 }
 
 function setupContextRing() {
-  const button = $('#contextRingBtn');
-  if (!button || button.dataset.bound === '1') return;
-  button.dataset.bound = '1';
-  $('#contextCompressBtn')?.addEventListener('click', manuallyCompressContext);
-  button.addEventListener('click', (event) => {
-    event.stopPropagation();
-    setContextRingPanelOpen(!contextRingPanelOpen);
-  });
-  document.addEventListener('click', (event) => {
-    if (!contextRingPanelOpen) return;
-    if (event.target.closest('#contextRingWrap')) return;
-    setContextRingPanelOpen(false, { refresh: false });
-  });
   const panel = $('#contextRingPanel');
-  if (panel) panel.addEventListener('click', (event) => event.stopPropagation());
+  if (!panel || panel.dataset.bound === '1') return;
+  panel.dataset.bound = '1';
+  $('#contextCompressBtn')?.addEventListener('click', manuallyCompressContext);
+  $('#composerContext')?.addEventListener('click', () => {
+    const next = !contextRingPanelOpen;
+    setContextRingPanelOpen(next, { refresh: next });
+    if (!next) input.focus({ preventScroll: true });
+  });
+  syncContextPanelPreference();
 }
 
 // Full-session token estimation walks every message; during long sessions a
 // per-event recompute stalls the main thread and typing lags. Memoize per
 // session shape and throttle recomputes to ~2.5/s during streaming.
-let contextEstimateMemo = { key: '', value: 0, at: 0 };
+let contextEstimateMemo = { session: null, key: '', value: 0, at: 0 };
 function sessionEstimateTokens(session, liveContext) {
   const msgs = session?.messages || [];
-  const last = msgs.at(-1);
+  const last = liveContext?.at(-1) || msgs.at(-1);
   const lastSize = typeof last?.content === 'string'
     ? last.content.length
     : JSON.stringify(last?.content || '').length;
-  const key = `${session?.id || ''}:${msgs.length}:${lastSize}:${liveContext ? liveContext.length : -1}`;
+  const key = `${session?.id || ''}:${msgs.length}:${lastSize}:${liveContext ? liveContext.length : -1}:${msgs.at(-1)?.agentRun?.contextTokens || 0}`;
   const now = Date.now();
-  if (contextEstimateMemo.key === key) return contextEstimateMemo.value;
-  if (now - contextEstimateMemo.at < 400) return contextEstimateMemo.value;
+  if (contextEstimateMemo.session === session && contextEstimateMemo.key === key) return contextEstimateMemo.value;
+  if (contextEstimateMemo.session === session && now - contextEstimateMemo.at < 400) return contextEstimateMemo.value;
   const value = Math.max(
     estimateTokens(liveContext || msgs),
     persistedOpenCodeContextTokens(msgs)
   );
-  contextEstimateMemo = { key, value, at: now };
+  contextEstimateMemo = { session, key, value, at: now };
   return value;
 }
 
 function updateContextInfo(as, session = state.currentSession) {
-  $('#contextRingWrap')?.classList.toggle('hidden', state.config?.general?.showContextUsage !== true);
+  syncContextPanelPreference();
+  if (session?.id !== state.currentSession?.id) return;
   if (as && !isAgentStateForCurrentSession(as)) return;
   if (!as) as = getCurrentAgentState();
   const modelSelection = getAgentModelSelection(session);
@@ -15014,16 +17622,19 @@ function updateContextInfo(as, session = state.currentSession) {
   const status = String(as.status || 'idle');
   const statusLabel = { idle: '空闲', working: '执行中', done: '已完成', interrupted: '已暂停', error: '运行失败' }[status] || status;
 
-  const msgs = session?.messages || [];
+  (session?.messages || []);
   const activeRunCtx = session?.id ? getRunCtx(session.id) : null;
   const liveContext = Array.isArray(activeRunCtx?.contextMessages)
     ? activeRunCtx.contextMessages.slice(1).filter(message => !message?._runtimeContext)
     : null;
+  const breakdown = contextUsageBreakdown(session, activeRunCtx, modelSelection);
   // Skip the expensive estimate entirely once a measured context value from
   // real usage exists — it was being recomputed on every event regardless.
   const estimatedTokens = activeRunCtx?.contextUiMeasured
     ? 0
-    : sessionEstimateTokens(session, liveContext);
+    : activeRunCtx && Number.isFinite(breakdown.system)
+      ? breakdown.system + breakdown.tools + breakdown.messages
+      : sessionEstimateTokens(session, liveContext);
   let tokens = estimatedTokens;
   const manualUsage = session?.manualContextUsage;
   if (!activeRunCtx && manualUsage?.openCodeSessionId === session?.openCodeSessionId
@@ -15062,7 +17673,7 @@ function updateContextInfo(as, session = state.currentSession) {
   );
   const hardAt = positiveContextTokens(resolvedBudget.compressHardThreshold) || maxTokens;
   const budgetState = tokens >= hardAt ? 'critical' : (tokens >= compressAt ? 'warn' : 'normal');
-  updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, { modelName, statusLabel });
+  updateContextRing(tokens, maxTokens, compressAt, hardAt, budgetState, { modelName, statusLabel, breakdown });
 }
 
 let rsRefreshTimer = null;
@@ -15134,9 +17745,13 @@ function renderTodos(as) {
   const changeStatsText = todoChangeStatsText(additions, deletions);
   const changeStatsMarkup = todoChangeStatsMarkup(additions, deletions);
   const mode = todos.length > 0 ? 'todos' : 'files';
+  // Keep the last checklist after completion. A user submission creates an
+  // empty agentState; automatic Bash continuations restore the current plan.
+  const resolvedMode = mode === 'todos' ? 'todos' : (changeFiles.length ? 'files' : 'hidden');
   // Todo updates are tool-driven. Avoid rebuilding the list on every
   // high-frequency text/reasoning render; status changes invalidate the key.
   const renderKey = JSON.stringify({
+    mode: resolvedMode,
     status: String(as.status || ''),
     todos: todos.map(todo => ({
       text: String(todo?.text || ''),
@@ -15153,7 +17768,7 @@ function renderTodos(as) {
   });
   if (host.dataset.todoRenderKey === renderKey) return;
   host.dataset.todoRenderKey = renderKey;
-  const visible = todos.length > 0 || changeFiles.length > 0;
+  const visible = resolvedMode !== 'hidden';
   host.classList.toggle('hidden', !visible);
   if (!visible) {
     delete host.dataset.mode;
@@ -15162,13 +17777,13 @@ function renderTodos(as) {
     return;
   }
 
-  host.dataset.mode = mode;
+  host.dataset.mode = resolvedMode;
   const pillCount = $('#todoProgressCount');
   const panelSummary = $('#todoProgressSummary');
   const pill = $('#todoProgressPill');
   const panel = $('#todoProgressPanel');
 
-  if (mode === 'todos') {
+  if (resolvedMode === 'todos') {
     const completed = todos.filter(todo => todo.done).length;
     const progress = completed / todos.length;
     const baseLabel = `第 ${completed}/${todos.length} 已完成`;
@@ -15350,7 +17965,6 @@ function gitReviewTarget() {
 function openTaskGitChanges() {
   const workspace = currentGitWorkspace();
   if (!workspace || !taskGitState.status?.isRepository) return;
-  closeTaskGitPanel();
   rsReviewState.source = 'git';
   rsReviewState.sessionId = String(state.currentSession?.id || '');
   rsReviewState.runId = 'git-working-tree';
@@ -15407,9 +18021,7 @@ function setReviewEmpty(title, detail, stateName = 'idle') {
   if (detailNode) detailNode.textContent = detail;
 }
 
-function reviewStatusLabel(status) {
-  return { created: '新增', modified: '修改', deleted: '删除', unknown: '未知' }[status] || '修改';
-}
+
 
 function reviewFileLetter(status) {
   return { created: 'A', modified: 'M', deleted: 'D', unknown: 'M' }[status] || 'M';
@@ -15903,67 +18515,7 @@ function reviewDiffHeaderMarkup(selected) {
     '</span>';
 }
 
-function reviewUnifiedDiffMarkup(rows, filePath) {
-  const notes = Array.isArray(rsReviewState.comments[filePath]) ? rsReviewState.comments[filePath] : [];
-  const notesByKey = new Map(notes.map(note => [note.key, note]));
-  const composerFullKey = rsReviewState.openComposerKey;
-  const parts = [];
-  const emitRow = (row, type, codeHtml) => {
-    const key = reviewLineKey(row);
-    parts.push(
-      '<div class="rv-row ' + type + '" role="row" data-review-row-key="' + escapeAttr(key) + '">' +
-        reviewGutterMarkup(row) +
-        '<span class="rv-sign" aria-hidden="true">' + (type === 'add' ? '+' : (type === 'del' ? '−' : '')) + '</span>' +
-        '<code class="rv-code">' + codeHtml + '</code>' +
-        '<button class="rv-note-trigger" type="button" data-review-note-trigger="' + escapeAttr(key) + '" title="添加行内评论" aria-label="添加行内评论">' +
-          '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>' +
-        '</button>' +
-      '</div>'
-    );
-    const note = notesByKey.get(key);
-    if (note) parts.push(reviewNoteMarkup(note));
-    if (composerFullKey === filePath + '::' + key) parts.push(reviewComposerMarkup());
-  };
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index] || {};
-    if (row.type === 'skip') {
-      parts.push('<div class="rv-hunk" role="row"><span>⋯ 未改动 ' + (Number(row.count) || 0) + ' 行</span></div>');
-      continue;
-    }
-    if (row.type === 'truncate') {
-      parts.push('<div class="rv-hunk is-truncated" role="row"><span>差异较大，已省略 ' + (Number(row.count) || 0) + ' 行</span></div>');
-      continue;
-    }
-    if (row.type !== 'add' && row.type !== 'del') {
-      emitRow(row, 'context', escapeHtml(row.text || ''));
-      continue;
-    }
-    const run = [];
-    while (index < rows.length && rows[index] && ['add', 'del'].includes(rows[index].type)) {
-      run.push(rows[index]);
-      index += 1;
-    }
-    index -= 1;
-    const dels = run.filter(item => item.type === 'del');
-    const adds = run.filter(item => item.type === 'add');
-    const pairs = Math.max(dels.length, adds.length);
-    for (let offset = 0; offset < pairs; offset += 1) {
-      const del = dels[offset];
-      const add = adds[offset];
-      if (del && add) {
-        const ops = reviewWordDiffOps(del.text || '', add.text || '');
-        if (ops) {
-          emitRow(del, 'del', reviewOpsMarkup(ops, 'del'));
-          emitRow(add, 'add', reviewOpsMarkup(ops, 'add'));
-          continue;
-        }
-      }
-      if (del) emitRow(del, 'del', escapeHtml(del.text || ''));
-      if (add) emitRow(add, 'add', escapeHtml(add.text || ''));
-    }
-  }
-  return parts.join('');
-}
+
 
 async function reviewRunFileAction(action, filePath) {
   const workspace = currentGitWorkspace();
@@ -16261,7 +18813,7 @@ function renderReviewSummary(summary, target) {
 }
 
 async function renderRightSidebarReviewLegacy({ force = false } = {}) {
-  if (!openRightSidebarTabs.some(tab => tab.type === 'review')) return;
+  if (!visibleRightSidebarTabs().some(tab => tab.type === 'review')) return;
   const panel = $('#rs-review');
   const refreshButton = $('#reviewRefreshBtn');
   if (!panel) return;
@@ -16499,7 +19051,7 @@ async function loadReviewFileDiff(target, filePath, context = {}) {
 }
 
 function renderYanDshReviewSidebar(options = {}) {
-  if (!openRightSidebarTabs.some(tab => tab.type === 'review')) return;
+  if (!visibleRightSidebarTabs().some(tab => tab.type === 'review')) return;
   const panel = $('#rs-review');
   if (!panel || !globalThis.YanDshReview) return;
   const context = {
@@ -16553,7 +19105,7 @@ async function performYanDshReviewRender(context, renderVersion, key) {
     && rsReviewState.source === context.source
     && rsReviewState.scope === context.scope
     && currentGitWorkspace() === context.workspace
-    && openRightSidebarTabs.some(tab => tab.type === 'review');
+    && visibleRightSidebarTabs().some(tab => tab.type === 'review');
   const setLoading = () => {
     panel.dataset.state = 'loading';
     // The embedded review page owns its own refresh control; hide the legacy
@@ -16686,9 +19238,10 @@ const taskGitState = {
   workspace: '',
   commitBranch: '',
   busy: false,
+  refreshing: false,
   refreshVersion: 0,
-  graphVersion: 0,
-  lastRefreshAt: 0
+  lastRefreshAt: 0,
+  menuAnchor: null
 };
 
 function taskGitBranchLabel(status = taskGitState.status) {
@@ -16709,30 +19262,96 @@ function closeTaskGitBranchPopover({ restoreFocus = false } = {}) {
   if (!popover || !button) return;
   const wasOpen = !popover.classList.contains('hidden');
   popover.classList.add('hidden');
+  popover.classList.remove('capsule-anchored');
+  popover.style.removeProperty('left');
+  popover.style.removeProperty('top');
+  const branchWrap = $('#taskGitBranchWrap');
+  if (branchWrap && popover.parentElement !== branchWrap) branchWrap.appendChild(popover);
   button.setAttribute('aria-expanded', 'false');
   button.classList.remove('active');
   if (restoreFocus && wasOpen) button.focus({ preventScroll: true });
 }
 
-function closeTaskGitPanel({ restoreFocus = false } = {}) {
-  const panel = $('#taskGitPanel');
-  const button = $('#taskGitHubBtn');
-  if (!panel || !button) return;
-  const wasOpen = !panel.classList.contains('hidden');
-  panel.classList.add('hidden');
-  panel.setAttribute('aria-hidden', 'true');
-  button.setAttribute('aria-expanded', 'false');
-  button.classList.remove('active');
-  if (restoreFocus && wasOpen) button.focus({ preventScroll: true });
+function positionTaskGitBranchPopoverLeft() {
+  const popover = $('#taskGitBranchPopover');
+  const panel = $('#taskCapsulePanel');
+  if (!popover || !panel || popover.classList.contains('hidden')) return;
+  const panelRect = panel.getBoundingClientRect();
+  const width = popover.offsetWidth;
+  const height = popover.offsetHeight;
+  const margin = 8;
+  let left = panelRect.left - width - margin;
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+  let top = panelRect.top;
+  if (top + height > window.innerHeight - margin) {
+    top = Math.max(margin, window.innerHeight - height - margin);
+  }
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
 }
 
-function taskGitBranchOption(branch, kind, status) {
-  const selected = kind === 'local' && branch.name === status.currentBranch && !status.detached;
-  const changeCount = Array.isArray(status.changes) ? status.changes.length : 0;
-  return `<button class="task-git-branch-option${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-task-git-branch-kind="${kind}" data-task-git-branch-name="${escapeAttr(branch.name)}">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V9C6.16667 12 8.2 18 15 18M6 9C7.65685 9 9 7.65685 9 6C9 4.34315 7.65685 3 6 3C4.34315 3 3 4.34315 3 6C3 7.65685 4.34315 9 6 9ZM18 21C19.6569 21 21 19.6569 21 18C21 16.3431 19.6569 15 18 15C15 15 15 16.6569 15 18.5C15 20.1569 16.3431 21.5 18 21.5Z"/></svg>
-    <span><strong>${escapeHtml(branch.name)}</strong>${selected && changeCount ? `<small>未提交的更改：${changeCount} 个文件</small>` : ''}</span>
-    ${selected ? '<svg class="task-git-branch-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>' : ''}
+function positionTaskGitOpsMenu(anchor = taskGitState.menuAnchor || $('#taskGitOpsBtn')) {
+  const menu = $('#taskGitOpsMenu');
+  const button = anchor;
+  if (!menu || !button || menu.classList.contains('hidden')) return;
+  const rect = button.getBoundingClientRect();
+  const margin = 8;
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  let left = rect.right - width;
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+  // Git operations always open downward from the trigger; clamp to the
+  // viewport when the menu would otherwise run past the bottom edge.
+  let top = rect.bottom + 6;
+  if (top + height > window.innerHeight - margin) {
+    top = Math.max(margin, window.innerHeight - height - margin);
+  }
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function openTaskGitOpsMenu(anchor = $('#taskGitOpsBtn')) {
+  const menu = $('#taskGitOpsMenu');
+  const button = anchor || $('#taskGitOpsBtn');
+  if (!menu || !button || button.disabled) return;
+  closeTaskGitBranchPopover();
+  closeNewTaskBranchMenu();
+  closeWorkspaceChoiceMenu();
+  taskGitState.menuAnchor = button;
+  menu.classList.remove('hidden');
+  button.setAttribute('aria-expanded', 'true');
+  positionTaskGitOpsMenu(button);
+  requestAnimationFrame(() => {
+    positionTaskGitOpsMenu(button);
+    menu.querySelector('.task-git-ops-item:not(:disabled)')?.focus({ preventScroll: true });
+  });
+}
+
+function closeTaskGitOpsMenu({ restoreFocus = false } = {}) {
+  const menu = $('#taskGitOpsMenu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  const anchor = taskGitState.menuAnchor || $('#taskGitOpsBtn');
+  menu.classList.add('hidden');
+  $('#taskGitOpsBtn')?.setAttribute('aria-expanded', 'false');
+  $('#taskCapsuleGitOpsBtn')?.setAttribute('aria-expanded', 'false');
+  taskGitState.menuAnchor = null;
+  if (restoreFocus) anchor?.focus({ preventScroll: true });
+}
+
+function toggleTaskGitOpsMenu(anchor = $('#taskGitOpsBtn')) {
+  if ($('#taskGitOpsMenu')?.classList.contains('hidden')) openTaskGitOpsMenu(anchor);
+  else closeTaskGitOpsMenu({ restoreFocus: true });
+}
+
+// Both branch pickers share this row markup so the two panels stay identical.
+const branchPanelOptionIcon = '<svg class="branch-panel-option-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V9C6.16667 12 8.2 18 15 18M6 9C7.65685 9 9 7.65685 9 6C9 4.34315 7.65685 3 6 3C4.34315 3 3 4.34315 3 6C3 7.65685 4.34315 9 6 9ZM18 21C19.6569 21 21 19.6569 21 18C21 16.3431 19.6569 15 18 15C15 15 15 16.6569 15 18.5C15 20.1569 16.3431 21.5 18 21.5Z"/></svg>';
+
+function branchPanelOption({ name, selected, changeCount, attrs }) {
+  const count = Math.max(0, Number(changeCount) || 0);
+  return `<button class="branch-panel-option${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" ${attrs}>
+    ${branchPanelOptionIcon}
+    <span class="branch-panel-option-text"><strong>${escapeHtml(name)}</strong>${selected ? `<small>未提交：${count.toLocaleString('zh-CN')} 个文件</small>` : ''}</span>
+    ${selected ? '<svg class="branch-panel-option-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>' : ''}
   </button>`;
 }
 
@@ -16740,17 +19359,21 @@ function renderTaskGitBranches(status = taskGitState.status) {
   const list = $('#taskGitBranchList');
   if (!list) return;
   if (!status?.isRepository) {
-    list.innerHTML = '<div class="task-git-branch-empty">当前工作区没有可用分支</div>';
+    list.innerHTML = '<div class="branch-panel-empty">当前工作区没有可用分支</div>';
     return;
   }
   const query = String($('#taskGitBranchSearch')?.value || '').trim().toLocaleLowerCase();
   const filterBranch = branch => !query || String(branch.name || '').toLocaleLowerCase().includes(query);
   const local = (Array.isArray(status.branches?.local) ? status.branches.local : []).filter(filterBranch);
-  const sections = [];
-  if (local.length) {
-    sections.push(`<section><h4>分支</h4>${local.map(branch => taskGitBranchOption(branch, 'local', status)).join('')}</section>`);
-  }
-  list.innerHTML = sections.join('') || `<div class="task-git-branch-empty">没有匹配“${escapeHtml(query)}”的分支</div>`;
+  const changeCount = Array.isArray(status.changes) ? status.changes.length : 0;
+  list.innerHTML = local.length
+    ? local.map(branch => branchPanelOption({
+      name: branch.name,
+      selected: branch.name === status.currentBranch && !status.detached,
+      changeCount,
+      attrs: `data-task-git-branch-kind="local" data-task-git-branch-name="${escapeAttr(branch.name)}"`
+    })).join('')
+    : `<div class="branch-panel-empty">没有匹配“${escapeHtml(query)}”的分支</div>`;
 }
 
 // New-task branch picker: a lightweight, upward-opening list that reuses only the
@@ -16768,12 +19391,15 @@ function renderNewTaskBranches() {
   const query = String($('#newTaskBranchSearch')?.value || '').trim().toLocaleLowerCase();
   const locals = (Array.isArray(status?.branches?.local) ? status.branches.local : [])
     .filter(branch => !query || String(branch.name || '').toLocaleLowerCase().includes(query));
+  const changeCount = Array.isArray(status?.changes) ? status.changes.length : 0;
   list.innerHTML = locals.length
-    ? locals.map(branch => {
-      const current = branch.name === status?.currentBranch;
-      return `<button class="new-task-branch-option${current ? ' is-current' : ''}" type="button" role="option" aria-selected="${current}" data-new-task-branch="${escapeAttr(branch.name)}">${escapeHtml(branch.name)}</button>`;
-    }).join('')
-    : `<div class="new-task-branch-empty">${query ? '没有匹配的分支' : '没有可用分支'}</div>`;
+    ? locals.map(branch => branchPanelOption({
+      name: branch.name,
+      selected: branch.name === status?.currentBranch,
+      changeCount,
+      attrs: `data-new-task-branch="${escapeAttr(branch.name)}"`
+    })).join('')
+    : `<div class="branch-panel-empty">${query ? '没有匹配的分支' : '没有可用分支'}</div>`;
 }
 
 function closeNewTaskBranchMenu() {
@@ -16801,17 +19427,7 @@ function openNewTaskBranchMenu() {
 const taskGitWorktreeState = { open: false, items: [], loading: false, forceArmed: '' };
 let taskGitPrCliAvailable = null;
 
-function setTaskGitSubsectionOpen(toggleId, sectionId, open) {
-  const toggle = toggleId ? $(toggleId) : null;
-  const section = $(sectionId);
-  if (!section) return open;
-  section.classList.toggle('hidden', !open);
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', String(open));
-    toggle.classList.toggle('is-open', open);
-  }
-  return open;
-}
+
 
 function renderTaskGitWorktrees() {
   const list = $('#taskGitWorktreeList');
@@ -16870,53 +19486,11 @@ async function refreshTaskGitWorktrees({ quiet = false } = {}) {
   renderTaskGitWorktrees();
 }
 
-async function createTaskGitWorktree(trigger) {
-  const workspace = currentGitWorkspace();
-  const input = $('#taskGitWorktreeName');
-  const name = String(input?.value || '').trim();
-  if (!workspace || !name) return;
-  await runTaskGitAction(trigger, async () => {
-    const result = await api.gitWorktreeCreate(workspace, name);
-    if (result?.ok === false) throw new Error(result?.error || '创建任务工作树失败');
-    if (input) input.value = '';
-    await refreshTaskGitWorktrees({ quiet: true });
-    return result;
-  }, `已创建工作树 ${name}`);
-}
 
-async function mergeTaskGitWorktree(trigger, taskId) {
-  const workspace = currentGitWorkspace();
-  if (!workspace) return;
-  const result = await runTaskGitAction(trigger, () => api.gitWorktreeMerge(workspace, taskId), `已合并工作树 ${taskId}`);
-  if (result?.merged) {
-    taskGitWorktreeState.forceArmed = '';
-    await refreshTaskGitWorktrees({ quiet: true });
-    return;
-  }
-  if (result?.reason === 'conflicts') {
-    toast(`合并冲突：${(result.conflicts || []).slice(0, 3).join('、')}${(result.conflicts || []).length > 3 ? ' 等' : ''}，已回滚合并。请先在主工作区解决。`);
-  } else if (result?.reason === 'main-tree-dirty') {
-    toast('当前分支有未提交修改，请先提交或暂存后再合并工作树。');
-  }
-}
 
-async function removeTaskGitWorktree(trigger, taskId) {
-  const workspace = currentGitWorkspace();
-  if (!workspace) return;
-  const force = taskGitWorktreeState.forceArmed === taskId;
-  const result = await runTaskGitAction(trigger, () => api.gitWorktreeRemove(workspace, taskId, force));
-  if (result?.removed) {
-    taskGitWorktreeState.forceArmed = '';
-    toast(result.archived ? `已归档工作树 ${taskId}，可在设置中恢复` : `已删除工作树 ${taskId}${result.branchKept ? '（分支未合并，已保留）' : ''}`);
-    await refreshTaskGitWorktrees({ quiet: true });
-    return;
-  }
-  if (result?.reason === 'dirty' && !force) {
-    taskGitWorktreeState.forceArmed = taskId;
-    renderTaskGitWorktrees();
-    toast(`工作树 ${taskId} 有未提交修改，再点一次“确认删除”将保存快照并归档。`);
-  }
-}
+
+
+
 
 async function detectTaskGitPrCli() {
   try {
@@ -16960,7 +19534,6 @@ function openTaskGitPrDialog() {
   const dialog = $('#taskGitPrDialog');
   if (!dialog) return;
   if ($('#taskGitPrDraft')) $('#taskGitPrDraft').checked = state.config?.git?.draftPr !== false;
-  closeTaskGitPanel();
   closeTaskGitBranchPopover();
   renderTaskGitPrDialogState();
   void detectTaskGitPrCli();
@@ -16973,6 +19546,7 @@ function openTaskGitPrDialog() {
 async function createTaskGitBranch(trigger) {
   closeTaskGitBranchPopover();
   closeNewTaskBranchMenu();
+  closeTaskGitOpsMenu();
   const values = await requestGitAction({
     title: '创建并检出新分支',
     description: `基于 ${taskGitBranchLabel()} 创建一个新的本地分支，并在创建成功后立即切换过去。`,
@@ -17002,6 +19576,38 @@ function closeTaskGitPrDialog() {
   if (dialog?.open) dialog.close();
 }
 
+async function refreshTaskGitFromControls() {
+  if (taskGitState.refreshing) return;
+  const button = $('#taskGitRefreshBtn');
+  const statsElement = $('#taskGitBranchStats');
+  const capsuleStats = $('#taskCapsuleBranchStats');
+  taskGitState.refreshing = true;
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+  }
+  statsElement?.classList.add('is-refreshing');
+  if (statsElement) statsElement.textContent = '更新变更中';
+  capsuleStats?.classList.add('is-refreshing');
+  if (capsuleStats) capsuleStats.textContent = '更新变更中';
+  syncTaskGitControls();
+  try {
+    const status = await refreshTaskGitStatus({ force: true });
+    if (status && status.available === false) toast(status.error || 'Git 状态刷新失败', { error: true });
+    else toast('Git 状态已刷新');
+  } catch (error) {
+    toast(error?.message || 'Git 状态刷新失败', { error: true });
+  } finally {
+    taskGitState.refreshing = false;
+    button?.removeAttribute('aria-busy');
+    statsElement?.classList.remove('is-refreshing');
+    capsuleStats?.classList.remove('is-refreshing');
+    renderTaskGitStats('#taskGitBranchStats', taskGitState.status?.diffStats || {});
+    renderTaskGitStats('#taskCapsuleBranchStats', taskGitState.status?.diffStats || {});
+    syncTaskGitControls();
+  }
+}
+
 function syncTaskGitControls() {
   const status = taskGitState.status;
   const workspace = String(status?.workspace || taskGitState.workspace || '');
@@ -17014,20 +19620,22 @@ function syncTaskGitControls() {
   const hasRemote = !!status?.remotes?.length;
   const canPush = ready && hasRemote && !!status?.currentBranch && !status?.operation;
 
-  const panel = $('#taskGitPanel');
-  panel?.setAttribute('aria-busy', String(busy));
-  panel?.classList.toggle('is-busy', busy);
-  if (panel && busy) panel.dataset.state = 'loading';
-  $('#taskGitBranchPopover')?.classList.toggle('is-busy', busy);
-  // The capsule panel now also hosts subagents and desktop Agent collaboration,
-  // so it stays reachable even before a Git workspace is selected.
-  if ($('#taskGitHubBtn')) $('#taskGitHubBtn').disabled = false;
   if ($('#taskGitBranchBtn')) $('#taskGitBranchBtn').disabled = !gitAvailable || busy;
-  if ($('#taskGitRefreshBtn')) $('#taskGitRefreshBtn').disabled = !workspace || busy;
-  if ($('#taskGitCreateBranchBtn')) $('#taskGitCreateBranchBtn').disabled = !gitAvailable || busy || !!status?.operation;
-  if ($('#taskGitGraphOpenBtn')) $('#taskGitGraphOpenBtn').disabled = !ready;
-  if ($('#taskGitBranchOpenBtn')) $('#taskGitBranchOpenBtn').disabled = !ready;
-  if ($('#taskGitCommitOpenBtn')) $('#taskGitCommitOpenBtn').disabled = !ready;
+  if ($('#taskGitRefreshBtn')) $('#taskGitRefreshBtn').disabled = !workspace || busy || taskGitState.refreshing;
+  if ($('#taskGitReviewBtn')) $('#taskGitReviewBtn').disabled = !ready;
+  if ($('#taskGitOpsBtn')) {
+    $('#taskGitOpsBtn').disabled = !ready || busy;
+    if (!ready || busy) closeTaskGitOpsMenu();
+  }
+  if ($('#taskCapsuleGitOpsBtn')) {
+    $('#taskCapsuleGitOpsBtn').disabled = !ready || busy;
+    if (!ready || busy) closeTaskGitOpsMenu();
+  }
+  updateTaskCapsuleGit(status);
+  if ($('#taskGitBranchCreateBtn')) $('#taskGitBranchCreateBtn').disabled = !ready || busy;
+  if ($('#newTaskBranchCreateBtn')) $('#newTaskBranchCreateBtn').disabled = !ready || busy;
+  $$('[data-task-git-ops]').forEach(button => { button.disabled = !ready || busy; });
+  $$('[data-task-git-ops="refresh"]').forEach(button => { button.disabled = !ready || busy || taskGitState.refreshing; });
   $$('[data-task-git-action="commit"], [data-task-git-action="commit-push"]').forEach(button => {
     button.disabled = !ready || !committable || (button.dataset.taskGitAction === 'commit-push' && !hasRemote);
   });
@@ -17036,14 +19644,6 @@ function syncTaskGitControls() {
   if ($('#taskGitPrTitle')) $('#taskGitPrTitle').disabled = !ready;
   if ($('#taskGitPrBase')) $('#taskGitPrBase').disabled = !ready;
   if ($('#taskGitPrBody')) $('#taskGitPrBody').disabled = !ready;
-  const nameEl = $('#taskGitWorkspaceName');
-  if (nameEl) {
-    const trimmed = String(workspace || '').replace(/[\\/]+$/, '');
-    const label = trimmed ? (trimmed.split(/[\\/]/).filter(Boolean).pop() || trimmed) : '未设置工作区';
-    nameEl.textContent = label;
-    nameEl.title = workspace || label;
-  }
-  if ($('#taskGitWorktreeMigrateBtn')) $('#taskGitWorktreeMigrateBtn').disabled = !ready;
 }
 
 function renderTaskGitStatus(status) {
@@ -17052,14 +19652,10 @@ function renderTaskGitStatus(status) {
   taskGitState.lastRefreshAt = Date.now();
   const ready = !!status?.isRepository;
   const branchWrap = $('#taskGitBranchWrap');
-  const unavailable = $('#taskGitUnavailable');
-  const actions = $('#taskGitOverviewActions');
   // Git controls are gated on the workspace actually being a repository: without
   // one there is no branch to show or create, so the branch capsule
   // stays out of the task bar entirely.
   branchWrap?.classList.toggle('hidden', !ready);
-  unavailable?.classList.toggle('hidden', ready);
-  actions?.classList.toggle('hidden', !ready);
   if (!ready) {
     closeTaskGitBranchPopover();
   }
@@ -17069,35 +19665,19 @@ function renderTaskGitStatus(status) {
     taskGitState.commitBranch = status?.detached ? '' : String(status?.currentBranch || '');
   }
   if ($('#taskGitBranchName')) $('#taskGitBranchName').textContent = branchLabel;
-  if ($('#taskGitPanelBranchName')) $('#taskGitPanelBranchName').textContent = branchLabel;
   if ($('#taskGitCommitBranch')) $('#taskGitCommitBranch').textContent = taskGitState.commitBranch || branchLabel;
   const stats = status?.diffStats || {};
-  renderTaskGitStats('#taskGitDiffStats', stats);
+  if (!taskGitState.refreshing) renderTaskGitStats('#taskGitBranchStats', stats);
   renderTaskGitStats('#taskGitCommitStats', stats);
-  // Keep open subsections in sync with panel refreshes without extra churn.
+  // Keep open subsections in sync with status refreshes without extra churn.
   if (taskGitWorktreeState.open) void refreshTaskGitWorktrees({ quiet: true });
   if ($('#taskGitCommitFileCount')) {
     const count = Array.isArray(status?.changes) ? status.changes.length : 0;
     $('#taskGitCommitFileCount').textContent = `${count} 个文件`;
   }
 
-  const panel = $('#taskGitPanel');
-  if (panel) panel.dataset.state = taskGitState.busy ? 'loading' : (ready ? 'success' : 'error');
-  const unavailableTitle = $('#taskGitUnavailableTitle');
-  const unavailableText = $('#taskGitUnavailableText');
-  if (!taskGitState.workspace) {
-    if (unavailableTitle) unavailableTitle.textContent = '未设置工作区';
-    if (unavailableText) unavailableText.textContent = '先为当前任务选择一个文件夹。';
-  } else if (!status?.available) {
-    if (unavailableTitle) unavailableTitle.textContent = '未检测到 Git';
-    if (unavailableText) unavailableText.textContent = status?.error || '请安装 Git for Windows 后重试。';
-  } else if (!ready) {
-    if (unavailableTitle) unavailableTitle.textContent = '当前目录不是 Git 仓库';
-    if (unavailableText) unavailableText.textContent = '请先在当前工作区中初始化或克隆 Git 仓库。';
-  }
   renderTaskGitBranches(status);
   renderNewTaskBranches();
-  renderTaskGitAgentSections();
   syncTaskGitControls();
 }
 
@@ -17110,21 +19690,18 @@ async function refreshTaskGitStatus({ quiet = false, force = false, status = nul
     return taskGitState.status;
   }
   // Git UI fully hidden: skip the status sweep on workspace-event bursts
-  // (each one is a multi-process git run). Opening the panel or the branch
-  // popover refreshes, so hidden data is only ever read on open. Callers
-  // that pass a fresh mutation result bypass the skip; a workspace change
-  // invalidates the cached snapshot.
-  const panelHidden = $('#taskGitPanel')?.classList.contains('hidden') !== false;
+  // (each one is a multi-process git run). Opening the branch popover refreshes,
+  // so hidden data is only ever read on open. Callers that pass a fresh mutation
+  // result bypass the skip; a workspace change invalidates the cached snapshot.
+  const branchHidden = $('#taskGitBranchWrap')?.classList.contains('hidden') !== false;
   const popoverHidden = $('#taskGitBranchPopover')?.classList.contains('hidden') !== false;
-  if (status == null && taskGitState.status?.workspace === workspace && panelHidden && popoverHidden) {
+  if (!force && status == null && taskGitState.status?.workspace === workspace && branchHidden && popoverHidden) {
     return taskGitState.status;
   }
   if (!force && status == null && taskGitState.status?.workspace === workspace && Date.now() - taskGitState.lastRefreshAt < 700) {
     renderTaskGitStatus(taskGitState.status);
     return taskGitState.status;
   }
-  const panel = $('#taskGitPanel');
-  if (!quiet && panel) panel.dataset.state = 'loading';
   try {
     let nextStatus = status;
     if (!nextStatus) {
@@ -17143,152 +19720,64 @@ async function refreshTaskGitStatus({ quiet = false, force = false, status = nul
   }
 }
 
-// The capsule panel's agent sections: subagents plus the relocated desktop
-// multi-agent activity. Subagent records come from the same runs the right-side
-// subagents panel reads.
-function taskSubagentRecords() {
-  const session = state.currentSession;
-  if (!session) return [];
-  const workflow = window.YanSubagentWorkflow;
-  const runs = new Map();
-  for (const message of (session.messages || [])) {
-    const run = message?.agentRun;
-    if (!run) continue;
-    runs.set(run.runId || `history:${runs.size}`, run);
-  }
-  const live = getRunCtx(session.id)?.activeAgentRun;
-  if (live) runs.set(live.runId || 'live', live);
-  return [...runs.values()].flatMap(run => {
-    try { workflow?.migrate?.(run); } catch { /* keep whatever the run exposes */ }
-    return Array.isArray(run.subagents) ? run.subagents : [];
-  });
-}
-
-function renderTaskGitAgentSections() {
-  const row = $('#taskGitSubagentsRow');
-  if (!row) return;
-  const records = taskSubagentRecords();
-  const running = records.filter(record => record.status === 'running');
-  row.dataset.state = running.length ? 'running' : 'idle';
-  const working = $('#taskGitSubagentsWorking');
-  if (!working) return;
-  working.hidden = running.length === 0;
-  if (!running.length) return;
-  const panel = window.YanSubagentPanel;
-  const avatars = $('#taskGitSubagentAvatars');
-  if (avatars) {
-    const shown = running.slice(0, 5);
-    const overflow = running.length - shown.length;
-    avatars.innerHTML = shown.map(record => {
-      const role = panel?.roleFor?.(record.role) || record.role || '';
-      const title = panel?.nameFor?.(role) || role || '子代理';
-      return `<span class="task-git-agent-avatar" data-agent-role="${escapeAttr(role)}" title="${escapeAttr(title)}">${panel?.iconFor?.(record.role) || ''}</span>`;
-    }).join('') + (overflow > 0
-      ? `<span class="task-git-agent-avatar is-more" title="${escapeAttr(`${overflow} 个更多子代理`)}">+${overflow}</span>`
-      : '');
-  }
-  const label = $('#taskGitSubagentWorkingLabel');
-  if (label) label.textContent = `${running.length} 个子代理正在工作`;
-}
-
-function openTaskGitBranchPopover() {
+function openTaskGitBranchPopover({ capsule = false } = {}) {
   const workspace = currentGitWorkspace();
   if (!workspace || taskGitState.status?.available === false || !taskGitState.status?.isRepository) return;
-  closeTaskGitPanel();
+  closeTaskGitOpsMenu();
   const popover = $('#taskGitBranchPopover');
   const button = $('#taskGitBranchBtn');
   if (!popover || !button) return;
+  if (capsule) document.body.appendChild(popover);
+  else $('#taskGitBranchWrap')?.appendChild(popover);
+  popover.classList.toggle('capsule-anchored', capsule);
   popover.classList.remove('hidden');
-  button.classList.add('active');
-  button.setAttribute('aria-expanded', 'true');
+  if (capsule) {
+    button.classList.remove('active');
+    button.setAttribute('aria-expanded', 'false');
+    positionTaskGitBranchPopoverLeft();
+  } else {
+    popover.style.removeProperty('left');
+    popover.style.removeProperty('top');
+    button.classList.add('active');
+    button.setAttribute('aria-expanded', 'true');
+  }
   const search = $('#taskGitBranchSearch');
   if (search) search.value = '';
   renderTaskGitBranches();
   // The popover renders from cached status for an instant list; refresh
   // behind it so branches changed since the last open show up.
   void refreshTaskGitStatus({ quiet: true, force: true });
-  requestAnimationFrame(() => search?.focus({ preventScroll: true }));
-}
-
-function openTaskGitPanel() {
-  if ($('#taskGitHubBtn')?.disabled) return;
-  closeTaskGitBranchPopover();
-  const panel = $('#taskGitPanel');
-  const button = $('#taskGitHubBtn');
-  if (!panel || !button) return;
-  panel.classList.remove('hidden');
-  panel.setAttribute('aria-hidden', 'false');
-  button.classList.add('active');
-  button.setAttribute('aria-expanded', 'true');
-  renderTaskGitAgentSections();
-  positionTaskGitPanel();
-  void refreshTaskGitStatus({ quiet: true, force: true });
-}
-
-// The Git tools wrap is not the last element in the task bar (the workspace
-// tools pill and switch follow), so a fixed right offset would leave the summary
-// inset. Pin the panel's right edge to the task bar's right edge instead.
-function positionTaskGitPanel() {
-  const panel = $('#taskGitPanel');
-  const wrap = $('#taskGitToolsWrap');
-  const bar = $('.task-bar');
-  if (!panel || !wrap || !bar) return;
-  const gap = bar.getBoundingClientRect().right - wrap.getBoundingClientRect().right;
-  panel.style.right = `${-Math.max(0, Math.round(gap))}px`;
+  requestAnimationFrame(() => {
+    if (capsule) positionTaskGitBranchPopoverLeft();
+    search?.focus({ preventScroll: true });
+  });
 }
 
 function taskGitSlug(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
 
-function openTaskGitMigrateDialog() {
-  const dialog = $('#taskGitMigrateDialog');
-  const input = $('#taskGitMigrateBranch');
-  if (!dialog || !input) return;
+async function openTaskGitMigrateDialog() {
+  const workspace = currentGitWorkspace();
+  if (!workspace) return;
   const prefix = String(state.config?.git?.branchPrefix ?? 'yan/');
   const session = state.currentSession || {};
   const slug = taskGitSlug(session.title || '') || `agent-${String(session.id || '').slice(-6)}`;
-  input.value = `${prefix}${slug}`;
-  const error = $('#taskGitMigrateError');
-  if (error) { error.hidden = true; error.textContent = ''; }
-  closeTaskGitPanel();
-  if (!dialog.open) dialog.showModal();
-  requestAnimationFrame(() => {
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(input.value.length, input.value.length);
+  const values = await requestGitAction({
+    title: '将会话移至工作树',
+    description: '在新的工作树中创建并检出一个分支，以继续并行工作。',
+    submitLabel: '移交',
+    fields: [{ name: 'branch', label: '分支名称', value: `${prefix}${slug}` }]
   });
-}
-
-async function submitTaskGitMigrate(event) {
-  event?.preventDefault();
-  const workspace = currentGitWorkspace();
-  const input = $('#taskGitMigrateBranch');
-  const submit = $('#taskGitMigrateSubmit');
-  const errorEl = $('#taskGitMigrateError');
-  const fail = message => { if (errorEl) { errorEl.textContent = message; errorEl.hidden = false; } };
-  const branch = String(input?.value || '').trim();
-  if (!workspace) return fail('请先选择工作区。');
-  if (!branch) return fail('请输入分支名称。');
-  if (taskGitState.busy) return;
-  taskGitState.busy = true;
-  if (submit) submit.disabled = true;
-  if (errorEl) { errorEl.hidden = true; errorEl.textContent = ''; }
-  try {
-    const taskId = branch.split('/').filter(Boolean).pop() || branch;
-    const result = await api.gitWorktreeCreate(workspace, taskId, '', branch);
-    if (result?.ok === false) throw new Error(result?.error || '创建工作树失败');
-    const worktree = result?.worktree;
-    if (!worktree?.path) throw new Error('未返回工作树路径');
-    $('#taskGitMigrateDialog')?.close();
-    await applySessionWorkspace(worktree.path);
-    toast(`已移交至工作树 ${worktree.branch || branch}`);
-  } catch (error) {
-    fail(error?.message || '移交失败');
-  } finally {
-    taskGitState.busy = false;
-    if (submit) submit.disabled = false;
-    await refreshTaskGitStatus({ quiet: true, force: true });
-  }
+  if (!values) return;
+  const branch = String(values.branch || '').trim();
+  if (!branch) return;
+  const taskId = branch.split('/').filter(Boolean).pop() || branch;
+  const result = await runTaskGitAction(null, () => api.gitWorktreeCreate(workspace, taskId, '', branch));
+  const worktree = result?.worktree;
+  if (!worktree?.path) return;
+  await applySessionWorkspace(worktree.path);
+  toast(`已移交至工作树 ${worktree.branch || branch}`);
 }
 
 function renderTaskGitCommitBranches() {
@@ -17328,7 +19817,7 @@ function closeTaskGitCommitDialog({ restoreFocus = false } = {}) {
   setTaskGitCommitBranchMenuOpen(false);
   const wasOpen = !!dialog?.open;
   if (wasOpen) dialog.close();
-  if (restoreFocus && wasOpen) $('#taskGitCommitOpenBtn')?.focus({ preventScroll: true });
+  if (restoreFocus && wasOpen) $('#taskGitOpsBtn')?.focus({ preventScroll: true });
 }
 
 function taskGitAutoCommitMessage(status = taskGitState.status) {
@@ -17437,8 +19926,6 @@ async function runTaskGitCommitAction(action, trigger) {
     'commit-push': '提交已创建并推送',
     push: '已推送当前分支'
   };
-  const panel = $('#taskGitPanel');
-  if (panel) panel.dataset.state = 'loading';
   const result = await runTaskGitAction(trigger, async () => {
     let response = null;
     const targetBranch = String(taskGitState.commitBranch || '').trim();
@@ -17468,166 +19955,16 @@ async function runTaskGitCommitAction(action, trigger) {
   if (result) {
     if (action !== 'push' && $('#taskGitCommitMessageInput')) $('#taskGitCommitMessageInput').value = '';
     closeTaskGitCommitDialog();
-    if (panel) panel.dataset.state = 'success';
-  } else if (panel) {
-    panel.dataset.state = 'error';
   }
-}
-
-function taskGitGraphRefs(refs = '') {
-  return String(refs || '').split(',').map(value => value.trim()).filter(Boolean).map(ref => `<span>${escapeHtml(ref)}</span>`).join('');
-}
-
-function taskGitGraphLayout(commits) {
-  let nextColor = 0;
-  let active = [];
-  let maxLanes = 1;
-  const rows = commits.map(commit => {
-    const parentHashes = Array.isArray(commit.parents) ? commit.parents : [];
-    const matching = active.map((lane, index) => lane.hash === commit.hash ? index : -1).filter(index => index >= 0);
-    const isNewTip = matching.length === 0;
-    const laneIndex = isNewTip ? active.length : matching[0];
-    if (isNewTip) active.push({ hash: commit.hash, color: nextColor++ });
-    const before = active;
-    const current = before[laneIndex];
-    const duplicateIndexes = before.map((lane, index) => (
-      index !== laneIndex && lane.hash === commit.hash ? index : -1
-    )).filter(index => index >= 0);
-    const afterCandidates = before.map((lane, index) => {
-      if (index === laneIndex) return parentHashes[0] ? { hash: parentHashes[0], color: current.color } : null;
-      if (duplicateIndexes.includes(index)) return null;
-      return lane;
-    });
-    const extraParents = parentHashes.slice(1).map(hash => ({ hash, color: nextColor++ }));
-    afterCandidates.splice(laneIndex + 1, 0, ...extraParents);
-    const after = afterCandidates.filter(Boolean);
-    const edges = [];
-
-    before.forEach((lane, from) => {
-      if (from === laneIndex) return;
-      if (duplicateIndexes.includes(from)) {
-        edges.push({ from, to: laneIndex, color: lane.color, end: 'center' });
-        return;
-      }
-      const to = after.indexOf(lane);
-      if (to >= 0) edges.push({ from, to, color: lane.color, end: 'bottom' });
-    });
-    if (!isNewTip) edges.push({ from: laneIndex, to: laneIndex, color: current.color, end: 'center' });
-    const firstParentLane = after.findIndex(lane => lane.hash === parentHashes[0] && lane.color === current.color);
-    if (firstParentLane >= 0) edges.push({ from: laneIndex, to: firstParentLane, color: current.color, start: 'center', end: 'bottom' });
-    extraParents.forEach(parent => {
-      const to = after.indexOf(parent);
-      if (to >= 0) edges.push({ from: laneIndex, to, color: parent.color, start: 'center', end: 'bottom' });
-    });
-
-    maxLanes = Math.max(maxLanes, before.length, after.length);
-    active = after;
-    return { commit, laneIndex, color: current.color, edges };
-  });
-  const displayColors = new Map();
-  const usedDisplayColors = new Set();
-  const headColor = rows.find(row => /(?:^|,\s*)HEAD(?:\s*->|\s*(?:,|$))/.test(String(row.commit.refs || '')))?.color;
-  const prColor = rows.find(row => /(?:^|,\s*)origin\/pr-[^,\s]+/.test(String(row.commit.refs || '')))?.color;
-
-  if (Number.isInteger(headColor)) {
-    displayColors.set(headColor, 0);
-    usedDisplayColors.add(0);
-  }
-  if (Number.isInteger(prColor) && !displayColors.has(prColor)) {
-    displayColors.set(prColor, 1);
-    usedDisplayColors.add(1);
-  }
-  const sourceColors = [...new Set(rows.flatMap(row => [row.color, ...row.edges.map(edge => edge.color)]))];
-  let nextDisplayColor = 0;
-  sourceColors.forEach(color => {
-    if (displayColors.has(color)) return;
-    while (usedDisplayColors.has(nextDisplayColor)) nextDisplayColor++;
-    displayColors.set(color, nextDisplayColor);
-    usedDisplayColors.add(nextDisplayColor);
-  });
-
-  rows.forEach(row => {
-    row.color = displayColors.get(row.color) ?? row.color;
-    row.edges.forEach(edge => { edge.color = displayColors.get(edge.color) ?? edge.color; });
-  });
-  return { rows, maxLanes };
-}
-
-function taskGitGraphTrack(row, maxLanes) {
-  const step = maxLanes <= 1 ? 0 : Math.min(16, 46 / (maxLanes - 1));
-  const laneX = lane => 18 + lane * step;
-  const pathFor = edge => {
-    const fromX = laneX(edge.from);
-    const toX = laneX(edge.to);
-    const startY = edge.start === 'center' ? 29 : 0;
-    const endY = edge.end === 'center' ? 29 : 58;
-    const path = fromX === toX
-      ? `M${fromX} ${startY}L${toX} ${endY}`
-      : `M${fromX} ${startY}C${fromX} 29 ${toX} 29 ${toX} ${endY}`;
-    return `<path class="task-git-lane lane-${edge.color % 6}" d="${path}"/>`;
-  };
-  return `<svg class="task-git-graph-track" viewBox="0 0 72 58" preserveAspectRatio="none" aria-hidden="true">
-    ${row.edges.map(pathFor).join('')}
-    <circle class="task-git-graph-node lane-${row.color % 6}" cx="${laneX(row.laneIndex)}" cy="29" r="${String(row.commit.refs || '').includes('HEAD') ? 6 : 4}"/>
-  </svg>`;
-}
-
-async function renderTaskGitGraph() {
-  const list = $('#taskGitGraphList');
-  if (!list) return;
-  const workspace = currentGitWorkspace();
-  const version = ++taskGitState.graphVersion;
-  list.innerHTML = '<div class="task-git-graph-empty">正在读取提交历史…</div>';
-  $('#taskGitGraphDialog')?.setAttribute('aria-busy', 'true');
-  try {
-    const result = await api.gitHistory(workspace, 120);
-    if (version !== taskGitState.graphVersion || workspace !== currentGitWorkspace()) return;
-    if (result?.ok === false) throw new Error(result.error || '无法读取提交历史');
-    const commits = Array.isArray(result?.commits) ? result.commits : [];
-    const layout = taskGitGraphLayout(commits);
-    list.innerHTML = commits.length ? layout.rows.map(row => {
-      const commit = row.commit;
-      const date = commit.date ? new Date(commit.date) : null;
-      const dateLabel = date && !Number.isNaN(date.getTime())
-        ? date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-        : '';
-      const isHead = String(commit.refs || '').split(',').some(ref => /^\s*HEAD(?:\s*->|\s*$)/.test(ref));
-      return `<article class="task-git-graph-row${isHead ? ' is-head' : ''}">
-        ${taskGitGraphTrack(row, layout.maxLanes)}
-        <div class="task-git-graph-subject"><div class="task-git-graph-refs">${taskGitGraphRefs(commit.refs)}</div><strong>${escapeHtml(commit.subject || '无提交说明')}</strong></div>
-        <time datetime="${escapeAttr(commit.date || '')}">${escapeHtml(dateLabel)}</time>
-        <span class="task-git-graph-author">${escapeHtml(commit.author || '—')}</span>
-        <code>${escapeHtml(commit.shortHash || '')}</code>
-      </article>`;
-    }).join('') : '<div class="task-git-graph-empty">当前仓库还没有提交记录</div>';
-  } catch (error) {
-    if (version !== taskGitState.graphVersion) return;
-    list.innerHTML = `<div class="task-git-graph-empty is-error">${escapeHtml(error?.message || '无法读取提交历史')}</div>`;
-  } finally {
-    if (version === taskGitState.graphVersion) $('#taskGitGraphDialog')?.setAttribute('aria-busy', 'false');
-  }
-}
-
-function openTaskGitGraph() {
-  if (!taskGitState.status?.isRepository) return;
-  closeTaskGitBranchPopover();
-  closeTaskGitPanel();
-  const dialog = $('#taskGitGraphDialog');
-  if (!dialog) return;
-  if (!dialog.open) dialog.showModal();
-  void renderTaskGitGraph();
 }
 
 function setTaskGitBusy(busy, trigger = null) {
   taskGitState.busy = !!busy;
-  const panel = $('#taskGitPanel');
   const dialog = $('#taskGitCommitDialog');
-  panel?.setAttribute('aria-busy', String(!!busy));
-  panel?.classList.toggle('is-busy', !!busy);
   dialog?.setAttribute('aria-busy', String(!!busy));
   dialog?.classList.toggle('is-busy', !!busy);
   if (trigger) trigger.setAttribute('aria-busy', String(!!busy));
-  document.querySelectorAll('#taskGitPanel button, #taskGitPanel input, #taskGitPanel textarea, #taskGitCommitDialog button, #taskGitCommitDialog input, #taskGitCommitDialog textarea').forEach(control => {
+  document.querySelectorAll('#taskGitCommitDialog button, #taskGitCommitDialog input, #taskGitCommitDialog textarea').forEach(control => {
     if (busy) {
       control.dataset.gitWasDisabled = String(control.disabled);
       control.disabled = true;
@@ -17692,8 +20029,8 @@ function requestGitAction({ title, description = '', submitLabel = '确认', dan
 }
 
 function bindTaskGit() {
-  if ($('#taskGitToolsWrap')?.dataset.bound === 'true') return;
-  if ($('#taskGitToolsWrap')) $('#taskGitToolsWrap').dataset.bound = 'true';
+  if ($('#taskGitBranchWrap')?.dataset.bound === 'true') return;
+  if ($('#taskGitBranchWrap')) $('#taskGitBranchWrap').dataset.bound = 'true';
 
   $('#taskGitBranchBtn')?.addEventListener('click', event => {
     event.stopPropagation();
@@ -17704,12 +20041,12 @@ function bindTaskGit() {
   $('#taskGitBranchSearch')?.addEventListener('keydown', event => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      $('#taskGitBranchList .task-git-branch-option')?.focus();
+      $('#taskGitBranchList .branch-panel-option')?.focus();
     }
   });
   $('#taskGitBranchList')?.addEventListener('keydown', event => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const options = [...event.currentTarget.querySelectorAll('.task-git-branch-option:not(:disabled)')];
+    const options = [...event.currentTarget.querySelectorAll('.branch-panel-option:not(:disabled)')];
     if (!options.length) return;
     event.preventDefault();
     const current = options.indexOf(document.activeElement);
@@ -17730,44 +20067,45 @@ function bindTaskGit() {
     closeTaskGitBranchPopover();
     await runTaskGitAction(option, () => api.gitSwitchBranch(currentGitWorkspace(), name), `已切换到 ${name}`);
   });
-  $('#taskGitCreateBranchBtn')?.addEventListener('click', event => { void createTaskGitBranch(event.currentTarget); });
-  $('#newTaskBranchCreateBtn')?.addEventListener('click', event => { void createTaskGitBranch(event.currentTarget); });
-  $('#newTaskBranchSearch')?.addEventListener('input', () => renderNewTaskBranches());
-  $('#taskGitHubBtn')?.addEventListener('click', event => {
-    event.stopPropagation();
-    if ($('#taskGitPanel')?.classList.contains('hidden')) openTaskGitPanel();
-    else closeTaskGitPanel({ restoreFocus: true });
-  });
-  $('#taskGitRefreshBtn')?.addEventListener('click', async event => {
-    const button = event.currentTarget;
-    button?.setAttribute('aria-busy', 'true');
-    try {
-      const status = await refreshTaskGitStatus({ force: true });
-      if (status && status.available === false) toast(status.error || 'Git 状态刷新失败', { error: true });
-      else toast('Git 状态已刷新');
-    } catch (error) {
-      toast(error?.message || 'Git 状态刷新失败', { error: true });
-    } finally {
-      button?.removeAttribute('aria-busy');
-    }
-  });
-  $('#taskGitBranchOpenBtn')?.addEventListener('click', () => {
+  $('#taskGitReviewBtn')?.addEventListener('click', () => {
+    closeTaskGitBranchPopover();
+    closeTaskGitOpsMenu();
     openTaskGitChanges();
   });
-  $('#taskGitSubagentsRow')?.addEventListener('click', () => {
-    closeTaskGitPanel();
-    openRightSidebarTool('subagents');
+  $('#taskGitOpsBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    toggleTaskGitOpsMenu();
   });
-  $('#taskGitCommitOpenBtn')?.addEventListener('click', () => {
-    closeTaskGitPanel();
-    closeTaskGitBranchPopover();
-    openTaskGitCommitDialog();
+  $('#taskGitOpsMenu')?.addEventListener('click', event => {
+    const item = event.target.closest('[data-task-git-ops]');
+    if (!item || item.disabled) return;
+    const kind = item.dataset.taskGitOps;
+    if (kind === 'create-branch') {
+      closeTaskGitOpsMenu();
+      void createTaskGitBranch(item);
+    } else if (kind === 'switch-branch') {
+      const fromCapsule = taskGitState.menuAnchor === $('#taskCapsuleGitOpsBtn');
+      closeTaskGitOpsMenu();
+      openTaskGitBranchPopover({ capsule: fromCapsule });
+    } else if (kind === 'commit') {
+      closeTaskGitOpsMenu();
+      closeTaskGitBranchPopover();
+      openTaskGitCommitDialog();
+    } else if (kind === 'worktree') {
+      closeTaskGitOpsMenu();
+      openTaskGitMigrateDialog();
+    } else if (kind === 'refresh') {
+      closeTaskGitOpsMenu();
+      void refreshTaskGitFromControls();
+    }
   });
-  $('#taskGitGraphOpenBtn')?.addEventListener('click', () => {
-    closeTaskGitPanel();
-    openTaskGitGraph();
+  $('#newTaskBranchCreateBtn')?.addEventListener('click', event => { void createTaskGitBranch(event.currentTarget); });
+  $('#taskGitBranchCreateBtn')?.addEventListener('click', event => { void createTaskGitBranch(event.currentTarget); });
+  $('#newTaskBranchSearch')?.addEventListener('input', () => renderNewTaskBranches());
+  $('#taskGitRefreshBtn')?.addEventListener('click', event => {
+    if (event.currentTarget?.disabled) return;
+    void refreshTaskGitFromControls();
   });
-  $('#taskGitWorktreeMigrateBtn')?.addEventListener('click', () => openTaskGitMigrateDialog());
   $('#newTaskBranchBtn')?.addEventListener('click', event => {
     event.stopPropagation();
     if ($('#newTaskBranchMenu')?.classList.contains('hidden')) openNewTaskBranchMenu();
@@ -17822,13 +20160,6 @@ function bindTaskGit() {
     if (event.target === event.currentTarget) closeTaskGitCommitDialog({ restoreFocus: true });
   });
 
-  $('#taskGitGraphRefreshBtn')?.addEventListener('click', renderTaskGitGraph);
-  $('#taskGitGraphCloseBtn')?.addEventListener('click', () => $('#taskGitGraphDialog')?.close());
-  $('#taskGitGraphDialog')?.addEventListener('click', event => {
-    if (event.target === event.currentTarget) event.currentTarget.close();
-  });
-  $('#taskGitGraphDialog')?.addEventListener('close', () => { taskGitState.graphVersion++; });
-
   $('#gitActionForm')?.addEventListener('submit', event => {
     event.preventDefault();
     closeGitActionDialog(Object.fromEntries(new FormData(event.currentTarget).entries()));
@@ -17840,39 +20171,41 @@ function bindTaskGit() {
     closeGitActionDialog(null);
   });
 
-  $('#taskGitMigrateForm')?.addEventListener('submit', submitTaskGitMigrate);
-  $('#taskGitMigrateCloseBtn')?.addEventListener('click', () => $('#taskGitMigrateDialog')?.close());
-  $('#taskGitMigrateDialog')?.addEventListener('cancel', event => {
-    event.preventDefault();
-    $('#taskGitMigrateDialog')?.close();
-  });
-  $('#taskGitMigrateDialog')?.addEventListener('click', event => {
-    if (event.target === event.currentTarget) event.currentTarget.close();
-  });
-
   document.addEventListener('pointerdown', event => {
-    if (!event.target.closest('#taskGitBranchWrap')) closeTaskGitBranchPopover();
+    if (!event.target.closest('#taskGitBranchWrap, #taskGitBranchPopover')) closeTaskGitBranchPopover();
     if (!event.target.closest('#newTaskBranchWrap')) closeNewTaskBranchMenu();
-    if (!event.target.closest('#taskGitToolsWrap')) closeTaskGitPanel();
+    if (!event.target.closest('#taskGitOpsMenu') && !event.target.closest('#taskGitOpsBtn, #taskCapsuleGitOpsBtn')) closeTaskGitOpsMenu();
     if (!event.target.closest('#taskGitCommitBranchBtn, #taskGitCommitBranchMenu')) setTaskGitCommitBranchMenuOpen(false);
   }, { passive: true });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
+    if (!$('#taskGitOpsMenu')?.classList.contains('hidden')) {
+      closeTaskGitOpsMenu({ restoreFocus: true });
+      return;
+    }
     closeTaskGitBranchPopover({ restoreFocus: true });
     closeNewTaskBranchMenu();
-    closeTaskGitPanel({ restoreFocus: true });
-  });
+    });
   window.addEventListener('resize', () => {
-    if (!$('#taskGitPanel')?.classList.contains('hidden')) positionTaskGitPanel();
+    if (!$('#taskGitOpsMenu')?.classList.contains('hidden')) positionTaskGitOpsMenu(taskGitState.menuAnchor || $('#taskGitOpsBtn'));
+    if (!$('#taskGitBranchPopover')?.classList.contains('hidden') && $('#taskGitBranchPopover').classList.contains('capsule-anchored')) {
+      positionTaskGitBranchPopoverLeft();
+    }
   });
+  window.addEventListener('scroll', event => {
+    const menu = $('#taskGitOpsMenu');
+    if (!menu || menu.classList.contains('hidden')) return;
+    if (event.target instanceof Node && menu.contains(event.target)) return;
+    closeTaskGitOpsMenu();
+  }, true);
   syncTaskGitControls();
 }
 
 const fullChatParking = document.createComment('agent-chat-home');
 $('#chatMainColumn').before(fullChatParking);
-let fullChatSelected = false;
 function syncFullChatTab() {
   const selected = browserFocusMode && fullChatSelected;
+  if (browserFocusMode && !selected) closeTaskCapsulePanel();
   const app = $('#app');
   app.classList.toggle('full-agent-chat', selected);
   app.classList.toggle('browser-focus-mode', browserFocusMode && !selected);
@@ -17894,6 +20227,16 @@ function syncFullChatTab() {
   $('#rightSidebarTabStrip [data-agent-chat-tab]')?.setAttribute('aria-selected', String(selected));
 }
 
+function ensureFullscreenPanelContent() {
+  // A fullscreen panel must show something: prefer an active tool tab, and
+  // otherwise fall back to the Agent canvas instead of an empty pane.
+  if (!browserFocusMode || fullChatSelected) return;
+  if (getActiveRightSidebarTab()) return;
+  fullChatSelected = true;
+  syncFullChatTab();
+  renderRightSidebarTabs();
+}
+
 // The full-screen right panel carries an "Agent" tab whose label mirrors the
 // active task title. Switching tasks in the left sidebar used to leave that
 // label stale until an unrelated tab click rebuilt the strip, so refresh just
@@ -17908,6 +20251,7 @@ function syncAgentChatTabLabel() {
 }
 
 const RIGHT_SIDEBAR_TOOLS = Object.freeze({
+  files: { label: '文件', icon: window.YanProjectFiles.folderIcon },
   'image-editor': {
     label: '用户附件',
     icon: window.YanImageEditorIcons['image-plus']
@@ -17924,10 +20268,6 @@ const RIGHT_SIDEBAR_TOOLS = Object.freeze({
     label: '侧边聊天',
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5686 16.353C2.915 14.8839 2 12.9769 2 11C2 6.5817 6.4772 3 12 3C17.5228 3 22 6.5817 22 11C22 15.4183 17.5228 19 12 19C11.1845 19 10.3721 18.9202 9.5808 18.7624L5 21L4.5686 16.353Z"/><path d="M12 8V14M9 11H15"/></svg>'
   },
-  plan: {
-    label: '计划文档',
-    icon: ICONS.billList
-  },
   subagents: {
     label: '子代理',
     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-keyline-icon="bot-2"><path d="M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/><path d="M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574"/></svg>'
@@ -17942,36 +20282,38 @@ function setRightSidebarAddMenuOpen(open) {
   button.setAttribute('aria-expanded', String(open));
 }
 
+// A new-tab page that has not loaded anything yet. Modern browsers replace
+// that placeholder with the next opened page, so any new tab consumes it
+// instead of leaving a stray "新标签页" behind.
+function findBlankBrowserTab() {
+  return openRightSidebarTabs.find(tab => tab.type === 'browser'
+    && tab.agentOwned !== true
+    && !tab.poppedOut
+    && rightSidebarTabBelongsToCurrentTask(tab)
+    && !(getBrowserTabController(tab.id)?.currentUrl)) || null;
+}
+
+function takeBlankBrowserTab() {
+  const blank = findBlankBrowserTab();
+  if (!blank) return null;
+  const index = openRightSidebarTabs.indexOf(blank);
+  if (index >= 0) openRightSidebarTabs.splice(index, 1);
+  if (activeRightSidebarTab === blank.id) activeRightSidebarTab = null;
+  if (lastActiveBrowserTabId === blank.id) {
+    lastActiveBrowserTabId = [...openRightSidebarTabs].reverse().find(tab => tab.type === 'browser')?.id || null;
+  }
+  destroyBrowserTabController(blank.id, { userInitiated: true });
+  return blank;
+}
+
 function rightSidebarTabIconMarkup(tab) {
+  if (tab?.filePath) return window.YanProjectFiles.icon(tab.filePath);
   const meta = RIGHT_SIDEBAR_TOOLS[tab?.type];
   if (!meta) return '';
   if (tab.type === 'browser' && tab.favicon) {
     return `<img class="rs-tab-favicon" data-rs-tab-favicon="${escapeAttr(tab.id)}" src="${escapeAttr(tab.favicon)}" alt="" />`;
   }
   return meta.icon;
-}
-
-function measureRightSidebarTabWidth(tab, button) {
-  const label = String(tab?.label || '');
-  const source = button?.querySelector('.rs-work-tab-label');
-  const style = button ? getComputedStyle(button) : null;
-  const measure = document.createElement('span');
-  measure.textContent = label;
-  measure.style.position = 'absolute';
-  measure.style.visibility = 'hidden';
-  measure.style.whiteSpace = 'nowrap';
-  measure.style.pointerEvents = 'none';
-  if (style) {
-    measure.style.fontFamily = style.fontFamily;
-    measure.style.fontSize = style.fontSize;
-    measure.style.fontWeight = style.fontWeight;
-    measure.style.letterSpacing = style.letterSpacing;
-  }
-  document.body.appendChild(measure);
-  const textWidth = Math.ceil(measure.getBoundingClientRect().width || source?.scrollWidth || 0);
-  measure.remove();
-  // left padding + icon + label gap + close-button reserve + right padding
-  return textWidth + 9 + 14 + 5 + 28 + 1;
 }
 
 function setRightSidebarTabOverflowMenuOpen(open) {
@@ -18002,9 +20344,11 @@ function rightSidebarTabStripCapacity({ overflowVisible = false } = {}) {
     - (parseFloat(style.paddingLeft) || 0)
     - (parseFloat(style.paddingRight) || 0);
   const gap = Math.max(0, parseFloat(style.columnGap || style.gap) || 0);
+  const panelButton = $('#rightDockLaunch');
   const controls = [
     overflowVisible ? overflowWrap : null,
     addWrap?.classList.contains('hidden') ? null : addWrap,
+    panelButton?.parentElement === tabbar ? panelButton : null,
     focusButton
   ].filter(Boolean);
   const controlsWidth = controls.reduce((sum, element) => (
@@ -18026,22 +20370,31 @@ function syncRightSidebarTabLayout() {
     strip.style.removeProperty('--rs-tab-unit-min-width');
     overflowWrap.classList.add('hidden');
     overflowMenu.innerHTML = '';
+    const emptyCount = $('#rightSidebarTabOverflowCount');
+    if (emptyCount) emptyCount.textContent = '0';
     setRightSidebarTabOverflowMenuOpen(false);
     return;
   }
 
-  // Measure all tabs before hiding the oldest prefix. A label is never
-  // allowed to make the shared tab width grow without a cap.
+  // Fixed-width pills: the visible window follows the active tab and everything
+  // outside it moves into the overflow menu. Opening a page never resizes the
+  // tabs that are already open.
   units.forEach(unit => { unit.hidden = false; });
-  const tabs = openRightSidebarTabs.slice(0, units.length);
-  const naturalWidth = Math.max(...units.map((unit, index) => (
-    measureRightSidebarTabWidth(tabs[index], unit.querySelector('[data-rs-tab]'))
-  )));
-  const baseWidth = Math.max(RIGHT_SIDEBAR_TAB_MIN_WIDTH, Math.min(RIGHT_SIDEBAR_TAB_MAX_WIDTH, naturalWidth));
+  const visibleTabs = visibleRightSidebarTabs();
+  const tabs = units.map(unit => {
+    const id = unit.dataset.rsTabUnit;
+    if (id) return visibleTabs.find(tab => tab.id === id) || { label: '' };
+    return { label: unit.querySelector('.rs-work-tab-label')?.textContent || '' };
+  });
+  const tabWidth = RIGHT_SIDEBAR_TAB_WIDTH;
   const gap = Math.max(0, parseFloat(getComputedStyle(strip).columnGap || getComputedStyle(strip).gap) || 2);
+  // Agent tabs are pinned: both the Agent's own browser tabs and the Agent
+  // conversation tab stay in the bar; overflow may only hide user tabs.
+  const pinned = units.map((unit, index) => (
+    tabs[index]?.agentOwned === true || !!unit.querySelector('[data-agent-chat-tab]')
+  ));
   let overflowVisible = false;
-  let firstVisible = 0;
-  let tabWidth = baseWidth;
+  let hiddenIndices = new Set();
 
   // Showing the overflow trigger consumes strip width, so settle once after
   // toggling it. Two passes cover both the normal and overflow layouts.
@@ -18049,65 +20402,74 @@ function syncRightSidebarTabLayout() {
     overflowWrap.classList.toggle('hidden', !overflowVisible);
     const available = rightSidebarTabStripCapacity({ overflowVisible });
     if (!available) break;
-    const totalAtBase = units.length * baseWidth + Math.max(0, units.length - 1) * gap;
-    if (totalAtBase <= available) {
-      firstVisible = 0;
-      tabWidth = baseWidth;
-      overflowVisible = false;
-    } else {
-      const compressed = Math.floor((available - Math.max(0, units.length - 1) * gap) / units.length);
-      if (compressed >= RIGHT_SIDEBAR_TAB_MIN_WIDTH) {
-        firstVisible = 0;
-        tabWidth = compressed;
-        overflowVisible = false;
-      } else {
-        const visibleCount = Math.max(1, Math.min(units.length, Math.floor((available + gap) / (RIGHT_SIDEBAR_TAB_MIN_WIDTH + gap))));
-        const activeIndex = Math.max(0, tabs.findIndex(tab => tab?.id === activeRightSidebarTab));
-        firstVisible = Math.max(0, Math.min(activeIndex - visibleCount + 1, units.length - visibleCount));
-        tabWidth = Math.max(RIGHT_SIDEBAR_TAB_MIN_WIDTH, Math.floor((available - Math.max(0, visibleCount - 1) * gap) / visibleCount));
+    const pinnedCount = pinned.filter(Boolean).length;
+    const remaining = Math.max(0, available - pinnedCount * (tabWidth + gap));
+    const nonPinnedTotal = units.length - pinnedCount;
+    const visibleNonPinned = Math.min(nonPinnedTotal, Math.max(0, Math.floor((remaining + gap) / (tabWidth + gap))));
+    const chosen = new Set();
+    if (visibleNonPinned > 0) {
+      const activeIndex = tabs.findIndex(tab => tab?.id === activeRightSidebarTab);
+      if (activeIndex >= 0 && !pinned[activeIndex]) chosen.add(activeIndex);
+      for (let index = units.length - 1; index >= 0 && chosen.size < visibleNonPinned; index -= 1) {
+        if (!pinned[index]) chosen.add(index);
       }
     }
-    const nextOverflow = firstVisible > 0;
-    if (nextOverflow === overflowVisible) break;
+    const nextHidden = new Set();
+    units.forEach((_, index) => {
+      if (!pinned[index] && !chosen.has(index)) nextHidden.add(index);
+    });
+    const nextOverflow = nextHidden.size > 0;
+    const settled = nextOverflow === overflowVisible
+      && nextHidden.size === hiddenIndices.size
+      && [...nextHidden].every(index => hiddenIndices.has(index));
+    hiddenIndices = nextHidden;
     overflowVisible = nextOverflow;
+    if (settled) break;
   }
 
   strip.style.setProperty('--rs-tab-unit-width', `${tabWidth}px`);
-  strip.style.setProperty('--rs-tab-unit-min-width', `${RIGHT_SIDEBAR_TAB_MIN_WIDTH}px`);
+  strip.style.setProperty('--rs-tab-unit-min-width', `${tabWidth}px`);
   units.forEach((unit, index) => {
-    const hidden = index < firstVisible;
+    const hidden = hiddenIndices.has(index);
     unit.hidden = hidden;
     unit.setAttribute('aria-hidden', String(hidden));
     const button = unit.querySelector('[data-rs-tab]');
     if (button) button.tabIndex = hidden ? -1 : 0;
   });
 
-  const hiddenTabs = tabs.slice(0, firstVisible);
+  const hiddenTabs = tabs.filter((_, index) => hiddenIndices.has(index));
   overflowWrap.classList.toggle('hidden', hiddenTabs.length === 0);
-  overflowMenu.innerHTML = hiddenTabs.map(tab => {
-    const active = tab.id === activeRightSidebarTab && !(browserFocusMode && fullChatSelected);
-    const label = String(tab.label || RIGHT_SIDEBAR_TOOLS[tab.type]?.label || '');
-    return `<button class="rs-tab-overflow-item${active ? ' active' : ''}" type="button" role="menuitem" data-rs-overflow-tab="${escapeAttr(tab.id)}" title="${escapeAttr(label)}">
-      <span class="rs-work-tab-icon" aria-hidden="true">${rightSidebarTabIconMarkup(tab)}</span>
-      <span class="rs-work-tab-label">${escapeHtml(label)}</span>
-      ${active ? '<span class="rs-tab-overflow-mark">当前</span>' : ''}
-    </button>`;
-  }).join('');
+  overflowMenu.innerHTML = hiddenTabs.length
+    ? `<div class="rs-tab-overflow-head" role="presentation">隐藏的标签页</div>${hiddenTabs.map(tab => {
+      const active = tab.id === activeRightSidebarTab && !(browserFocusMode && fullChatSelected);
+      const label = String(tab.label || RIGHT_SIDEBAR_TOOLS[tab.type]?.label || '');
+      return `<button class="rs-tab-overflow-item${active ? ' active' : ''}" type="button" role="menuitem" data-rs-overflow-tab="${escapeAttr(tab.id)}" title="${escapeAttr(label)}">
+        <span class="rs-work-tab-icon" aria-hidden="true">${rightSidebarTabIconMarkup(tab)}</span>
+        <span class="rs-work-tab-label">${escapeHtml(label)}</span>
+        ${active ? '<span class="rs-tab-overflow-mark">当前</span>' : ''}
+      </button>`;
+    }).join('')}`
+    : '';
   overflowButton.setAttribute('aria-label', hiddenTabs.length ? `显示 ${hiddenTabs.length} 个已隐藏标签页` : '显示已隐藏的标签页');
   overflowButton.title = hiddenTabs.length ? `显示 ${hiddenTabs.length} 个已隐藏标签页` : '显示已隐藏的标签页';
+  const overflowCount = $('#rightSidebarTabOverflowCount');
+  if (overflowCount) overflowCount.textContent = String(hiddenTabs.length);
   if (!hiddenTabs.length) setRightSidebarTabOverflowMenuOpen(false);
 }
 
 function renderRightSidebarTabs() {
+  if (visibleRightSidebarTabs().some(tab => tab.type === 'files')) window.YanProjectFiles.sync();
+  const tabs = visibleRightSidebarTabs();
   const strip = $('#rightSidebarTabStrip');
   if (!strip) return;
-  strip.innerHTML = openRightSidebarTabs.map(tab => {
+  strip.innerHTML = tabs.map(tab => {
     const meta = RIGHT_SIDEBAR_TOOLS[tab.type];
     const active = tab.id === activeRightSidebarTab;
     const label = String(tab.label || meta.label);
     const icon = rightSidebarTabIconMarkup(tab);
-    return `<div class="rs-tab-unit${active ? ' active' : ''}" data-rs-tab-unit="${tab.id}" data-rs-tab-type="${tab.type}">
-      <button class="rs-work-tab${active ? ' active' : ''}" type="button" role="tab" aria-selected="${active}" aria-controls="rs-${tab.id}" data-rs-tab="${tab.id}" title="${escapeAttr(label)}">
+    const popped = tab.type === 'browser' && !!tab.poppedOut;
+    return `<div class="rs-tab-unit${active ? ' active' : ''}${popped ? ' is-browser-popped' : ''}" data-rs-tab-unit="${tab.id}" data-rs-tab-type="${tab.type}">
+      <button class="rs-work-tab${active ? ' active' : ''}${window.YanProjectFiles?.isTabDirty(tab) ? ' pf-dirty' : ''}" type="button" role="tab" aria-selected="${active}" aria-controls="${rightSidebarPanelId(tab)}" data-rs-tab="${tab.id}" title="${escapeAttr(label)}">
         <span class="rs-work-tab-icon" aria-hidden="true">${icon}</span><span class="rs-work-tab-label">${escapeHtml(label)}</span>
       </button>
       <button class="rs-work-tab-close" type="button" data-rs-close-tab="${tab.id}" title="关闭${escapeAttr(label)}" aria-label="关闭${escapeAttr(label)}">
@@ -18120,12 +20482,15 @@ function renderRightSidebarTabs() {
     const title = state.currentSession?.title || '新聊天';
     strip.insertAdjacentHTML('afterbegin', `<div class="rs-tab-unit${fullChatSelected ? ' active' : ''}"><button type="button" class="rs-work-tab${fullChatSelected ? ' active' : ''}" data-agent-chat-tab role="tab" aria-selected="${fullChatSelected}" title="${escapeAttr(title)}"><span class="rs-work-tab-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"/>  <path d="M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574"/></svg></span><span class="rs-work-tab-label">${escapeHtml(title)}</span></button></div>`);
   }
-  const hasOpenTabs = openRightSidebarTabs.length > 0;
+  const hasOpenTabs = tabs.length > 0;
   $('#rightSidebarAddWrap')?.classList.toggle('hidden', !hasOpenTabs);
   if (!hasOpenTabs) setRightSidebarAddMenuOpen(false);
-  const hasActiveTab = !!getActiveRightSidebarTab();
+  // A popped-out browser tab keeps its strip entry but shows a static handoff
+  // panel instead of a live webview.
+  tabs.filter(tab => tab.type === 'browser' && tab.poppedOut).forEach(syncBrowserPopoutState);
+  const activePanelId = rightSidebarPanelId(getActiveRightSidebarTab());
   $$('.rs-panel').forEach(panel => {
-    const active = $('#app').classList.contains('pr-diff-open') ? panel.id === 'rs-review' : hasActiveTab && panel.id === `rs-${activeRightSidebarTab}`;
+    const active = $('#app').classList.contains('pr-diff-open') ? panel.id === 'rs-review' : !!activePanelId && panel.id === activePanelId;
     panel.classList.toggle('active', active);
     panel.toggleAttribute('inert', !active);
     panel.setAttribute('aria-hidden', String(!active));
@@ -18133,6 +20498,7 @@ function renderRightSidebarTabs() {
   syncFullChatTab();
   syncRightSidebarTabLayout();
   syncSidebarAccessibility();
+  syncRightDock();
 }
 
 function browserTabLabel(title, url = '') {
@@ -18199,37 +20565,230 @@ function updateBrowserTabFavicon(tabId, favicons = []) {
 }
 
 function getActiveRightSidebarTab() {
-  return openRightSidebarTabs.find(tab => tab.id === activeRightSidebarTab) || null;
+  const tab = openRightSidebarTabs.find(tab => tab.id === activeRightSidebarTab) || null;
+  return tab && rightSidebarTabBelongsToCurrentTask(tab) ? tab : null;
+}
+
+// ------------------------------------------------------------
+// Detached browser window handoff
+// ------------------------------------------------------------
+const BROWSER_POPOUT_DROP_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21H6C4.34315 21 3 19.6569 3 18V6C3 4.34315 4.34315 3 6 3H18C19.6569 3 21 4.34315 21 6V11M15.3636 20.7825L13.0152 13.4061C12.9379 13.1634 13.1688 12.9356 13.4104 13.0161L20.7865 15.4719C21.0599 15.5629 21.0736 15.9444 20.8075 16.0548L17.6567 17.362C17.5847 17.3919 17.5265 17.4475 17.4934 17.518L15.9447 20.8204C15.8239 21.0779 15.4499 21.0535 15.3636 20.7825Z"/><path d="M8 7C8 7.5523 7.5523 8 7 8C6.4477 8 6 7.5523 6 7C6 6.4477 6.4477 6 7 6C7.5523 6 8 6.4477 8 7ZM12 7C12 7.5523 11.5523 8 11 8C10.4477 8 10 7.5523 10 7C10 6.4477 10.4477 6 11 6C11.5523 6 12 6.4477 12 7ZM16 7C16 7.5523 15.5523 8 15 8C14.4477 8 14 7.5523 14 7C14 6.4477 14.4477 6 15 6C15.5523 6 16 6.4477 16 7Z" fill="currentColor" stroke="none"/></svg>';
+
+function browserPopoutTitle(tab) {
+  return String(tab?.poppedOut?.title || tab?.label || '标签页');
+}
+
+function syncBrowserPopoutIcon(iconHost, tab) {
+  if (!iconHost) return;
+  const favicon = normalizeBrowserTabFavicon(tab?.poppedOut?.favicon || tab?.favicon);
+  const signature = favicon ? `${favicon.length}:${favicon.slice(0, 48)}:${favicon.slice(-24)}` : 'browser';
+  if (iconHost.dataset.iconSource === signature) return;
+  iconHost.dataset.iconSource = signature;
+  iconHost.innerHTML = favicon
+    ? `<img src="${escapeAttr(favicon)}" alt="" />`
+    : RIGHT_SIDEBAR_TOOLS.browser.icon;
+  iconHost.querySelector('img')?.addEventListener('error', () => {
+    iconHost.dataset.iconSource = 'browser';
+    iconHost.innerHTML = RIGHT_SIDEBAR_TOOLS.browser.icon;
+  }, { once: true });
+}
+
+function syncBrowserPopoutState(tab) {
+  if (!tab || tab.type !== 'browser') return;
+  const controller = getBrowserTabController(tab.id);
+  if (!controller) return;
+  const popped = !!tab.poppedOut;
+  controller.root.classList.toggle('browser-popped-out', popped);
+  const toolbarHeight = controller.toolbar?.getBoundingClientRect().height;
+  if (toolbarHeight) controller.panel.style.setProperty('--browser-toolbar-height', Math.ceil(toolbarHeight) + 'px');
+  const popout = controller.root.querySelector('[data-browser-role="popout-state"]');
+  popout?.classList.toggle('hidden', !popped);
+  controller.root.querySelectorAll('.right-browser-toolbar button, .right-browser-toolbar input').forEach(control => {
+    control.disabled = popped;
+    if (popped) control.setAttribute('tabindex', '-1');
+    else control.removeAttribute('tabindex');
+  });
+  try { controller.webview.setAudioMuted(popped); } catch {}
+  if (!popped) {
+    syncBrowserAddressInput(controller);
+    return;
+  }
+  const url = String(tab.poppedOut.url || '');
+  const title = popout?.querySelector('[data-browser-role="popout-title"]');
+  if (title) title.textContent = browserPopoutTitle(tab);
+  syncBrowserPopoutIcon(popout?.querySelector('[data-browser-role="popout-icon"]'), tab);
+  controller.urlInput.value = getBrowserCompactUrl(url);
+  controller.urlInput.title = url;
+}
+
+function closePoppedOutBrowserTab(tabId) {
+  const index = openRightSidebarTabs.findIndex(tab => tab.id === tabId);
+  if (index < 0) return;
+  const visibleBefore = visibleRightSidebarTabs();
+  const visibleIndex = visibleBefore.findIndex(tab => tab.id === tabId);
+  const wasActive = activeRightSidebarTab === tabId;
+  openRightSidebarTabs.splice(index, 1);
+  destroyBrowserTabController(tabId);
+  if (lastActiveBrowserTabId === tabId) {
+    lastActiveBrowserTabId = [...openRightSidebarTabs].reverse().find(tab => tab.type === 'browser')?.id || null;
+  }
+  if (wasActive) {
+    const visibleAfter = visibleRightSidebarTabs();
+    activeRightSidebarTab = visibleAfter[Math.min(Math.max(visibleIndex, 0), visibleAfter.length - 1)]?.id || null;
+  }
+  renderRightSidebarTabs();
+  updateBrowserFocusControls();
+  syncBrowserFocusComposerAvailability();
+  if (!visibleRightSidebarTabs().length) setRightSidebarOpen(false);
+  saveRightSidebarTaskUi();
+}
+
+function rehydrateBrowserPopoutTab(tabId, tabs = []) {
+  const tab = openRightSidebarTabs.find(item => item.id === tabId && item.type === 'browser');
+  if (!tab || !tab.poppedOut) return;
+  const list = (Array.isArray(tabs) ? tabs : [])
+    .filter(item => item && /^(?:https?|file):/i.test(String(item.url || '')));
+  const controller = getBrowserTabController(tabId) || createBrowserTabController(tab);
+  delete tab.poppedOut;
+  if (list[0]) {
+    tab.label = browserTabLabel(list[0].title, list[0].url);
+    tab.favicon = normalizeBrowserTabFavicon(list[0].favicon);
+  }
+  // The sidebar guest stays alive behind the handoff panel, so restoring the
+  // same URL must not fetch the site again. Only a real URL change navigates.
+  const targetUrl = String(list[0]?.url || '');
+  if (targetUrl && controller && targetUrl !== String(controller.currentUrl || '')) {
+    void controller.navigate(targetUrl, { waitForLoad: false }).catch(reportBrowserLoadFailure);
+  }
+  syncBrowserPopoutState(tab);
+  for (const extra of list.slice(1)) {
+    const extraTab = createRightSidebarTab('browser');
+    if (!extraTab) continue;
+    extraTab.label = browserTabLabel(extra.title, extra.url);
+    extraTab.favicon = normalizeBrowserTabFavicon(extra.favicon);
+    const extraController = getBrowserTabController(extraTab.id);
+    if (extra.url) void extraController?.navigate(extra.url, { waitForLoad: false }).catch(reportBrowserLoadFailure);
+  }
+  renderRightSidebarTabs();
+  activateRightSidebarTab(tabId);
+  toast('已恢复到标签页');
+}
+
+async function popOutBrowserTab(tab, anchor = null) {
+  if (!tab || tab.type !== 'browser' || tab.poppedOut) return false;
+  const controller = getBrowserTabController(tab.id);
+  if (tab.agentOwned || controller?.agentControlActive) {
+    toast('Agent 正在使用此标签页，暂时无法移到独立窗口');
+    return false;
+  }
+  const url = String(controller?.currentUrl || '');
+  if (!url) {
+    toast('空标签页不能移到独立窗口');
+    return false;
+  }
+  const title = String(tab.label || browserTabLabel('', url) || '新标签页');
+  const favicon = String(tab.favicon || '');
+  closeAllBrowserSettingsMenus();
+  const result = await Promise.resolve(api.browserWindowOpen?.({
+    tabId: tab.id,
+    url,
+    title,
+    favicon,
+    tabs: [{ url, title, favicon }],
+    anchor: anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
+      ? { x: anchor.x, y: anchor.y }
+      : null
+  })).catch(error => ({ ok: false, error: error.message }));
+  if (!result?.ok) {
+    toast(result?.error || '无法打开独立窗口');
+    return false;
+  }
+  // Keep the sidebar guest alive behind the handoff panel so restoring it
+  // shows the already loaded page instead of fetching the site again.
+  tab.poppedOut = { url, title, favicon };
+  syncBrowserPopoutState(tab);
+  renderRightSidebarTabs();
+  if (activeRightSidebarTab !== tab.id) activateRightSidebarTab(tab.id);
+  toast('已在独立窗口中打开');
+  return true;
+}
+
+function updatePoppedOutBrowserTabMeta(detail) {
+  const tab = openRightSidebarTabs.find(item => item.id === detail.tabId && item.type === 'browser' && item.poppedOut);
+  if (!tab) return;
+  if (detail.url) tab.poppedOut.url = detail.url;
+  if (detail.title) tab.poppedOut.title = detail.title;
+  if (detail.favicon !== undefined) {
+    const favicon = normalizeBrowserTabFavicon(detail.favicon);
+    tab.poppedOut.favicon = favicon;
+    if (favicon !== (tab.favicon || '')) updateBrowserTabFavicon(tab.id, [favicon]);
+  }
+  updateBrowserTabLabel(tab.id, detail.title, detail.url);
+  syncBrowserPopoutState(tab);
+}
+
+function rightSidebarTabIdForTask(tool, ownerSessionId) {
+  if (!ownerSessionId || !openRightSidebarTabs.some(tab => tab.id === tool)) return tool;
+  return `${tool}:${ownerSessionId}`;
 }
 
 function createRightSidebarTab(tool, options = {}) {
+  const ownerSessionId = tool === 'browser'
+    ? String(options.agentSessionId || options.sessionId || currentRightSidebarTaskId())
+    : currentRightSidebarTaskId();
   if (tool === 'subagents') {
-    const existing = openRightSidebarTabs.find(tab => tab.type === tool);
+    const existing = openRightSidebarTabs.find(tab => tab.type === tool && String(tab.ownerSessionId || ownerSessionId) === ownerSessionId);
     if (existing) return existing;
-    const tab = { id: tool, type: tool, label: RIGHT_SIDEBAR_TOOLS[tool].label };
+    takeBlankBrowserTab();
+    const tab = { id: rightSidebarTabIdForTask(tool, ownerSessionId), type: tool, label: RIGHT_SIDEBAR_TOOLS[tool].label, ownerSessionId };
     openRightSidebarTabs.push(tab);
     return tab;
   }
-  if (tool === 'review' || tool === 'interjection' || tool === 'plan' || tool === 'image-editor') {
-    const existing = openRightSidebarTabs.find(tab => tab.type === tool);
+  if (tool === 'files' || tool === 'review' || tool === 'interjection' || tool === 'plan' || tool === 'image-editor') {
+    const existing = openRightSidebarTabs.find(tab => tab.type === tool && !tab.filePath && String(tab.ownerSessionId || ownerSessionId) === ownerSessionId);
     if (existing) return existing;
-    const tab = { id: tool, type: tool, label: RIGHT_SIDEBAR_TOOLS[tool].label };
+    takeBlankBrowserTab();
+    const tab = { id: rightSidebarTabIdForTask(tool, ownerSessionId), type: tool, label: RIGHT_SIDEBAR_TOOLS[tool].label, ownerSessionId };
     openRightSidebarTabs.push(tab);
     return tab;
   }
   if (tool !== 'browser') return null;
+  const wantsAgentTab = options.agentOwned === true || !!options.agentRunId;
+  if (wantsAgentTab) {
+    // An agent tab needs its own controller lease; only consume the placeholder.
+    takeBlankBrowserTab();
+  } else {
+    // A new user page takes over the fresh empty tab, exactly like a browser
+    // navigating away from its new-tab page. Never stack blank tabs.
+    const pending = findBlankBrowserTab();
+    if (pending) {
+      pending.ownerSessionId = ownerSessionId;
+      pending.label = '新标签页';
+      pending.favicon = '';
+      pending.agentRunId = '';
+      pending.agentWorkspace = String(options.agentWorkspace ?? options.workspace ?? currentBrowserScope().workspace);
+      pending.agentSessionId = ownerSessionId;
+      pending.agentScopeKey = browserScopeKey(
+        options.agentWorkspace ?? options.workspace ?? currentBrowserScope().workspace,
+        ownerSessionId
+      );
+      pending.agentOwned = false;
+      return pending;
+    }
+  }
   const number = ++rightSidebarBrowserCounter;
   const tab = {
     id: `browser-${number}`,
     type: 'browser',
     label: '新标签页',
     favicon: '',
+    ownerSessionId,
     agentRunId: String(options.agentRunId || ''),
-    agentWorkspace: String(options.agentWorkspace || options.workspace || ''),
-    agentSessionId: String(options.agentSessionId || options.sessionId || ''),
+    agentWorkspace: String(options.agentWorkspace ?? options.workspace ?? currentBrowserScope().workspace),
+    agentSessionId: ownerSessionId,
     agentScopeKey: browserScopeKey(
-      options.agentWorkspace || options.workspace || '',
-      options.agentSessionId || options.sessionId || ''
+      options.agentWorkspace ?? options.workspace ?? currentBrowserScope().workspace,
+      ownerSessionId
     ),
     // Agent tabs outlive a single run. The run id is only the current
     // controller lease; agentOwned identifies tabs eligible for the next run.
@@ -18245,10 +20804,7 @@ function activateRightSidebarTab(tabId, { forceReview = false } = {}) {
   if (!tab) return false;
   fullChatSelected = false;
   syncFullChatTab();
-  if (tab.type === 'browser' && !browserTabMatchesScope(tab)) {
-    setRightSidebarOpen(false);
-    return false;
-  }
+  if (!rightSidebarTabBelongsToCurrentTask(tab)) return false;
   if (tab.type !== 'review') hideReviewQuickDiff();
   activeRightSidebarTab = tab.id;
   if (tab.type === 'browser') lastActiveBrowserTabId = tab.id;
@@ -18256,6 +20812,7 @@ function activateRightSidebarTab(tabId, { forceReview = false } = {}) {
   updateBrowserFocusControls();
   syncBrowserFocusComposerAvailability();
   setRightSidebarOpen(true);
+  saveRightSidebarTaskUi();
   if (tab.type === 'review') {
     expandRightSidebarForReview();
     void renderRightSidebarReview({ force: forceReview, reuse: !forceReview });
@@ -18264,14 +20821,23 @@ function activateRightSidebarTab(tabId, { forceReview = false } = {}) {
     syncInterjectionUi();
     requestAnimationFrame(() => sideChatElement('composerInput')?.focus({ preventScroll: true }));
   }
-  if (tab.type === 'plan') renderPlanDocumentPanel();
-  if (tab.type === 'browser') syncBrowserViewport(tab.id);
+  if (tab.type === 'files') expandRightSidebarForReview();
+  if (tab.type === 'browser') {
+    if (tab.poppedOut) {
+      syncBrowserPopoutState(tab);
+    } else {
+      syncBrowserViewport(tab.id);
+      const controller = getBrowserTabController(tab.id);
+      if (controller && !controller.currentUrl) void renderBrowserStartRecent(controller);
+    }
+  }
   if (tab.type === 'subagents') renderSubagentUi();
   return true;
 }
 
 function openRightSidebarTool(tool, { reuseBrowser = false } = {}) {
   if (!RIGHT_SIDEBAR_TOOLS[tool]) return false;
+  if (tool === 'files') window.YanProjectFiles.sync({ reopen: !visibleRightSidebarTabs().some(tab => tab.type === 'files') || $('#app').classList.contains('rs-hidden') });
   if (tool === 'review') {
     rsReviewState.source = 'agent';
     rsReviewState.requestedSessionId = '';
@@ -18282,7 +20848,7 @@ function openRightSidebarTool(tool, { reuseBrowser = false } = {}) {
   if (tool === 'browser' && reuseBrowser) {
     const scope = currentBrowserScope();
     const active = getActiveRightSidebarTab();
-    const candidates = openRightSidebarTabs.filter(item => item.type === 'browser' && browserTabMatchesScope(item, scope));
+    const candidates = openRightSidebarTabs.filter(item => item.type === 'browser' && rightSidebarTabBelongsToCurrentTask(item) && browserTabMatchesScope(item, scope));
     tab = active?.type === 'browser' && candidates.includes(active)
       ? active
       : candidates.find(item => item.id === lastActiveBrowserTabId)
@@ -18309,18 +20875,25 @@ function openBrowserUrlInNewTab(url) {
   activateRightSidebarTab(tab.id);
   const controller = getBrowserTabController(tab.id);
   controller?.navigate?.(targetUrl, { waitForLoad: true })
-    .catch(error => toast(`网页加载失败：${error.message}`));
+    .catch(reportBrowserLoadFailure);
   return true;
 }
 
 function closeRightSidebarTool(tool) {
   const index = openRightSidebarTabs.findIndex(tab => tab.id === tool);
   if (index < 0) return false;
+  if (window.YanProjectFiles.isTabDirty(openRightSidebarTabs[index])) {
+    void window.YanProjectFiles.confirmClose(openRightSidebarTabs[index]).then(confirmed => { if (confirmed) closeRightSidebarTool(tool); });
+    return false;
+  }
   if (openRightSidebarTabs[index].type === 'image-editor' && window.YanImageEditor?.hasEdits()) {
     void window.YanImageEditor.confirmClose().then(confirmed => { if (confirmed) closeRightSidebarTool(tool); });
     return false;
   }
+  const visibleBefore = visibleRightSidebarTabs();
+  const visibleIndex = visibleBefore.findIndex(tab => tab.id === tool);
   const [closedTab] = openRightSidebarTabs.splice(index, 1);
+  if (closedTab.type === 'files') window.YanProjectFiles.closeTab(closedTab);
   if (closedTab.type === 'image-editor') window.YanImageEditor?.reset();
   if (closedTab.type === 'review') {
     rsReviewRenderVersion++;
@@ -18330,12 +20903,20 @@ function closeRightSidebarTool(tool) {
     hideReviewQuickDiff();
     globalThis.YanDshReview?.close?.();
   }
-  if (closedTab.type === 'browser') destroyBrowserTabController(closedTab.id, { userInitiated: true });
+  if (closedTab.type === 'browser') {
+    if (closedTab.poppedOut) {
+      void api.browserWindowCloseTab?.(closedTab.id);
+      destroyBrowserTabController(closedTab.id, { userInitiated: true });
+    } else {
+      destroyBrowserTabController(closedTab.id, { userInitiated: true });
+    }
+  }
   if (activeRightSidebarTab === tool) {
-    activeRightSidebarTab = openRightSidebarTabs[index - 1]?.id || openRightSidebarTabs[index]?.id || null;
+    const visibleAfter = visibleRightSidebarTabs();
+    activeRightSidebarTab = visibleAfter[Math.min(Math.max(visibleIndex, 0), visibleAfter.length - 1)]?.id || null;
   }
   if (lastActiveBrowserTabId === tool) {
-    lastActiveBrowserTabId = [...openRightSidebarTabs].reverse().find(tab => tab.type === 'browser')?.id || null;
+    lastActiveBrowserTabId = [...visibleRightSidebarTabs()].reverse().find(tab => tab.type === 'browser')?.id || null;
   }
   renderRightSidebarTabs();
   const active = getActiveRightSidebarTab();
@@ -18344,7 +20925,20 @@ function closeRightSidebarTool(tool) {
   if (active?.type === 'review') void renderRightSidebarReview({ reuse: true });
   if (active?.type === 'interjection') syncInterjectionUi();
   if (active?.type === 'browser') syncBrowserViewport(active.id);
-  if (!openRightSidebarTabs.length) setRightSidebarOpen(false);
+  if (!visibleRightSidebarTabs().length) setRightSidebarOpen(false);
+  saveRightSidebarTaskUi();
+  return true;
+}
+
+function closeAllRightSidebarTabs() {
+  const tabs = visibleRightSidebarTabs();
+  if (!tabs.length) return false;
+  setRightSidebarAddMenuOpen(false);
+  setRightSidebarTabOverflowMenuOpen(false);
+  closeAllBrowserSettingsMenus();
+  for (const tab of [...tabs].reverse()) closeRightSidebarTool(tab.id);
+  if (!visibleRightSidebarTabs().length) setRightSidebarOpen(false);
+  saveRightSidebarTaskUi();
   return true;
 }
 
@@ -18363,6 +20957,131 @@ $('#rightSidebarTabStrip')?.addEventListener('click', event => {
   const tabButton = event.target.closest('[data-rs-tab]');
   if (tabButton) activateRightSidebarTab(tabButton.dataset.rsTab);
 });
+
+// Drag a browser tab out of the strip to open it in a detached window. Pointer
+// capture keeps the gesture alive when the cursor crosses the webview surface.
+const BROWSER_TAB_DRAG_THRESHOLD = 6;
+let browserTabDrag = null;
+let suppressBrowserTabClickUntil = 0;
+
+function createBrowserTabDragOverlay() {
+  let overlay = document.getElementById('browserTabDragOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'browserTabDragOverlay';
+    overlay.className = 'browser-tab-drag-overlay';
+    document.body.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function browserTabDragAllowed(tab) {
+  if (!tab || tab.type !== 'browser' || tab.poppedOut) return false;
+  const controller = getBrowserTabController(tab.id);
+  if (!controller || !String(controller.currentUrl || '').trim()) return false;
+  return !tab.agentOwned && !controller.agentControlActive;
+}
+
+function createBrowserTabDragGhost(tab) {
+  const ghost = document.createElement('div');
+  ghost.className = 'browser-tab-drag-ghost';
+  const favicon = normalizeBrowserTabFavicon(tab.favicon);
+  const url = String(getBrowserTabController(tab.id)?.currentUrl || '');
+  ghost.innerHTML = `<div class="browser-tab-drag-head">
+      <span class="browser-tab-drag-favicon">${favicon ? `<img src="${escapeAttr(favicon)}" alt="" />` : RIGHT_SIDEBAR_TOOLS.browser.icon}</span>
+      <span class="browser-tab-drag-copy">
+        <span class="browser-tab-drag-title">${escapeHtml(String(tab.label || '新标签页'))}</span>
+        <span class="browser-tab-drag-url">${escapeHtml(getBrowserCompactUrl(url) || '新标签页')}</span>
+      </span>
+    </div>
+    <div class="browser-tab-drag-preview">
+      <span class="browser-tab-drag-drop">${BROWSER_POPOUT_DROP_ICON}<span>松开，然后在新窗口中打开</span></span>
+    </div>`;
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+function positionBrowserTabDragGhost(ghost, x, y) {
+  if (!ghost) return;
+  const pad = 12;
+  const width = ghost.offsetWidth || 300;
+  const height = ghost.offsetHeight || 250;
+  ghost.style.left = `${Math.min(Math.max(pad, x + 14), window.innerWidth - width - pad)}px`;
+  ghost.style.top = `${Math.min(Math.max(pad, y + 14), window.innerHeight - height - pad)}px`;
+}
+
+function finishBrowserTabDrag({ drop = false, screenX = 0, screenY = 0 } = {}) {
+  const drag = browserTabDrag;
+  if (!drag) return;
+  browserTabDrag = null;
+  drag.overlay?.remove();
+  drag.ghost?.remove();
+  drag.unit.classList.remove('is-browser-dragging');
+  document.body.classList.remove('browser-tab-dragging');
+  suppressBrowserTabClickUntil = Date.now() + 450;
+  if (!drag.started) {
+    if (!drop) activateRightSidebarTab(drag.tab.id);
+    return;
+  }
+  if (drop) void popOutBrowserTab(drag.tab, { x: screenX, y: screenY });
+}
+
+$('#rightSidebarTabStrip')?.addEventListener('pointerdown', event => {
+  if (event.button !== 0) return;
+  const unit = event.target.closest('.rs-tab-unit');
+  if (!unit || event.target.closest('.rs-work-tab-close') || event.target.closest('[data-agent-chat-tab]')) return;
+  const tab = openRightSidebarTabs.find(item => item.id === unit.dataset.rsTabUnit);
+  if (!browserTabDragAllowed(tab)) return;
+  browserTabDrag = {
+    tab,
+    unit,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    started: false,
+    ghost: null,
+    overlay: createBrowserTabDragOverlay()
+  };
+});
+
+window.addEventListener('pointermove', event => {
+  const drag = browserTabDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.started) {
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < BROWSER_TAB_DRAG_THRESHOLD) return;
+    drag.started = true;
+    drag.ghost = createBrowserTabDragGhost(drag.tab);
+    drag.unit.classList.add('is-browser-dragging');
+    document.body.classList.add('browser-tab-dragging');
+  }
+  event.preventDefault();
+  positionBrowserTabDragGhost(drag.ghost, event.clientX, event.clientY);
+}, { passive: false });
+
+window.addEventListener('pointerup', event => {
+  const drag = browserTabDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const tabbar = $('#rightSidebarTabbar');
+  const rect = tabbar?.getBoundingClientRect();
+  const insideTabbar = !!rect
+    && event.clientX >= rect.left - 8 && event.clientX <= rect.right + 8
+    && event.clientY >= rect.top - 8 && event.clientY <= rect.bottom + 8;
+  finishBrowserTabDrag({ drop: drag.started && !insideTabbar, screenX: event.screenX, screenY: event.screenY });
+});
+
+window.addEventListener('pointercancel', event => {
+  if (!browserTabDrag || event.pointerId !== browserTabDrag.pointerId) return;
+  finishBrowserTabDrag();
+});
+
+window.addEventListener('blur', () => finishBrowserTabDrag());
+
+$('#rightSidebarTabStrip')?.addEventListener('click', event => {
+  if (Date.now() >= suppressBrowserTabClickUntil) return;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
+
 $('#rightSidebarTabOverflowBtn')?.addEventListener('click', event => {
   event.stopPropagation();
   const button = event.currentTarget;
@@ -18390,6 +21109,7 @@ $('#rightSidebarAddBtn')?.addEventListener('click', event => {
   event.stopPropagation();
   openRightSidebarTool('browser');
 });
+
 $('#reviewFileList')?.addEventListener('click', event => {
   const folderButton = event.target.closest('[data-review-folder-toggle]');
   if (folderButton) {
@@ -18556,17 +21276,21 @@ $('#rightSidebarFocusBtn')?.addEventListener('click', () => {
   setBrowserFocusMode(!browserFocusMode);
 });
 
-// Right dock: tools open the panel, the active tool toggles it closed, and
-// the circular close button mirrors the tab bar's own close affordance.
-$('#rightDockClose')?.addEventListener('click', () => closeRightSidebar());
+// Task-bar launcher: the active tool toggles the panel closed.
 $('#rightDockLaunch')?.addEventListener('click', () => {
-  if (!$('#app').classList.contains('rs-hidden')) closeRightSidebar();
-  else if (getActiveRightSidebarTab()) activateRightSidebarTab(activeRightSidebarTab);
-  else {
-    const agentTab = [...openRightSidebarTabs].reverse().find(tab => tab.type === 'browser' && tab.agentOwned && browserTabMatchesScope(tab));
-    if (agentTab) activateRightSidebarTab(agentTab.id);
-    else openRightSidebarTool('browser');
+  if (!$('#app').classList.contains('rs-hidden')) {
+    // Fullscreen first leaves fullscreen; the next click hides the panel.
+    if (browserFocusMode) { setBrowserFocusMode(false); syncRightDock(); return; }
+    closeRightSidebar();
+    return;
   }
+  const activeTab = getActiveRightSidebarTab();
+  if (activeTab && activateRightSidebarTab(activeTab.id)) return;
+  const agentTab = [...visibleRightSidebarTabs()].reverse().find(tab => tab.type === 'browser' && tab.agentOwned);
+  if (agentTab && activateRightSidebarTab(agentTab.id)) return;
+  const anyTab = visibleRightSidebarTabs().at(-1);
+  if (anyTab && activateRightSidebarTab(anyTab.id)) return;
+  openRightSidebarTool('browser');
 });
 
 // ============================================================
@@ -18592,11 +21316,12 @@ $('#closeSettings')?.addEventListener('click', closeSettings);
 
 let settingsReturnFocus = null;
 function openSettings(tab = 'general') {
+  recordAppViewSoon();
+  captureChatScrollPosition();
   window.YanVoiceInput?.cancel();
   // Settings is a separate workspace. Close transient chat-only surfaces
   // before the layout is hidden so an expanded todo panel cannot remain
   // painted above a wallpaper-backed settings page during the handoff.
-  closeAbout();
   window.YanRemoteControl?.close();
   setTodoProgressOpen(false);
   mountSettingsOverlay();
@@ -18613,16 +21338,17 @@ function openSettings(tab = 'general') {
       element?.setAttribute('aria-hidden', 'true');
     });
   }
-  switchTab(tab);
-  void populateSettings();
+  switchTab(tab); void populateSettings();
   syncSidebarAccessibility();
   if (!alreadyOpen) $('#settingsSidebarNav .sheet-nav-btn.active')?.focus({ preventScroll: true });
 }
 
 function closeSettings() {
   if (settingsOverlay.classList.contains('hidden')) return;
+  recordAppViewSoon();
   if (quickLaunchCapturing) stopQuickLaunchCapture();
   settingsOverlay.classList.add('hidden');
+  syncWallpaperVideoPreviews();
   $('#app').classList.remove('settings-mode');
   [
     '#rightSidebar', '#rightResizeHandle'
@@ -18634,61 +21360,10 @@ function closeSettings() {
   syncSidebarAccessibility();
   if (settingsReturnFocus?.isConnected) settingsReturnFocus.focus({ preventScroll: true });
   requestAnimationFrame(() => parkSettingsOverlay());
+  restoreChatScrollPosition();
+  markVisibleTaskRead();
 }
 
-// About is an independent workspace reached from the app rail; it is not a
-// settings tab. It mirrors the settings overlay lifecycle so the underlying
-// task layout is removed from paint and hit testing while it is open.
-const aboutPageLayer = $('#aboutPage');
-let aboutReturnFocus = null;
-
-function renderAboutContent() {
-  const content = window.YanAboutContent || {};
-  const versionEl = $('#aboutVersionLabel');
-  if (versionEl && content.versionLabel) versionEl.textContent = content.versionLabel;
-  const notes = $('#aboutReleaseNotes');
-  if (notes) notes.innerHTML = renderMarkdown(String(content.releaseNotes || ''));
-}
-
-function openAbout() {
-  if (!aboutPageLayer) return;
-  if (!$('#settingsOverlay')?.classList.contains('hidden')) closeSettings();
-  window.YanRemoteControl?.close();
-  setTodoProgressOpen(false);
-  const alreadyOpen = !aboutPageLayer.classList.contains('hidden');
-  if (!alreadyOpen) {
-    aboutReturnFocus = document.activeElement;
-    renderAboutContent();
-    $('#app').classList.add('about-mode');
-    aboutPageLayer.classList.remove('hidden');
-    [
-      '#rightSidebar', '#rightResizeHandle'
-    ].forEach(selector => {
-      const element = $(selector);
-      element?.toggleAttribute('inert', true);
-      element?.setAttribute('aria-hidden', 'true');
-    });
-  }
-  syncSidebarAccessibility();
-  if (!alreadyOpen) requestAnimationFrame(() => $('#aboutCheckUpdateBtn')?.focus({ preventScroll: true }));
-}
-
-function closeAbout() {
-  if (!aboutPageLayer || aboutPageLayer.classList.contains('hidden')) return;
-  aboutPageLayer.classList.add('hidden');
-  $('#app').classList.remove('about-mode');
-  [
-    '#rightSidebar', '#rightResizeHandle'
-  ].forEach(selector => {
-    const element = $(selector);
-    element?.removeAttribute('inert');
-    element?.removeAttribute('aria-hidden');
-  });
-  syncSidebarAccessibility();
-  if (aboutReturnFocus?.isConnected) aboutReturnFocus.focus({ preventScroll: true });
-}
-
-$('#aboutNavBtn')?.addEventListener('click', () => openAbout());
 
 $$('.sheet-nav-btn').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -18701,10 +21376,10 @@ const SETTINGS_TAB_META = Object.freeze({
   archived: { title: '已归档的聊天', description: '' },
   worktrees: { title: 'Worktrees', description: '' },
   'code-review': { title: '代码审查', description: '' },
-  subagents: { title: '子代理', description: '' },
+  'nested-sessions': { title: 'Nested Sessions', description: '让主会话继续发起嵌套。' },
   git: { title: 'Git', description: '' },
   general: { title: '常规', description: '文件打开方式、编辑器与通知' },
-  configuration: { title: '配置', description: '配置新聊天的权限与朗读以及智能体的回复' },
+  configuration: { title: '配置', description: '配置新聊天的权限以及智能体的回复' },
   storage: { title: '存储空间', description: '' },
   api: { title: '服务商配置', description: '模型服务商、凭据与兼容端点，可同时启用多家' },
   'main-model': { title: '主模型', description: '' },
@@ -18739,14 +21414,135 @@ $('#settingsSidebarNav')?.addEventListener('keydown', event => {
   switchTab(tabs[nextIndex].dataset.tab);
 });
 
+function currentSubagentModelSelection() {
+  const stored = state.config?.agent?.subagentModel;
+  if (!stored || !stored.modelId) return null;
+  return {
+    providerId: String(stored.providerId || ''),
+    supplierId: String(stored.supplierId || ''),
+    modelId: String(stored.modelId || ''),
+    name: String(stored.name || stored.modelId)
+  };
+}
+
+function renderNestedSubagentModelPill() {
+  const pill = $('#nestedSubagentModelPill');
+  const nameEl = $('#nestedSubagentModelPillName');
+  if (!pill || !nameEl) return;
+  const current = currentSubagentModelSelection();
+  nameEl.textContent = current ? current.name : '跟随主模型';
+  pill.title = current ? `子代理模型：${current.name}` : '子代理跟随主模型，点击选择';
+}
+
+// Reuse the composer's model menu verbatim: move the live node under the
+// settings pill, then drive it with the same open/refresh path as the composer.
+function setNestedSubagentModelMenuOpen(open) {
+  const host = $('#nestedSubagentModelMenuHost');
+  const menu = $('#modelQuickMenu');
+  const pill = $('#nestedSubagentModelPill');
+  if (!host || !menu || !pill) return;
+  if (!open) {
+    host.classList.add('hidden');
+    pill.setAttribute('aria-expanded', 'false');
+    closeModelPicker();
+    return;
+  }
+  const current = currentSubagentModelSelection();
+  modelPickerTarget = 'subagent';
+  host.appendChild(menu);
+  host.classList.remove('hidden');
+  pill.setAttribute('aria-expanded', 'true');
+  setModelQuickMenuOpen(true);
+  modelPickerDraft.providerId = current?.providerId || '';
+  modelPickerDraft.supplierId = current?.supplierId || '';
+  modelPickerDraft.modelId = current?.modelId || '';
+  renderModelPickerChoices();
+  setModelQuickView('models', { focus: false });
+}
+
+async function saveSubagentModelSelection(selectedModel) {
+  const next = {
+    providerId: String(selectedModel.providerId || ''),
+    supplierId: String(selectedModel.supplierId || ''),
+    modelId: String(selectedModel.id || ''),
+    name: String(selectedModel.name || selectedModel.id || '')
+  };
+  try {
+    state.config = await api.setConfig({ agent: { subagentModel: next } });
+    renderNestedSubagentModelPill();
+    toast(`子代理模型已设为 ${next.name || next.modelId}`);
+    setNestedSubagentModelMenuOpen(false);
+  } catch (error) {
+    setModelPickerMenuNotice(`保存失败：${error?.message || error}`);
+  }
+}
+
+async function syncNestedSettings() {
+  renderNestedSubagentModelPill();
+  if (!api.nestedPreferences) return;
+  const prefs = await api.nestedPreferences();
+  state.config.nestedSessions = prefs;
+  const enabled = prefs.enabled === true;
+  $('#nestedSessionsEnabled').checked = enabled;
+  const styleSection = document.querySelector('.nested-sessions-style-section');
+  if (styleSection) styleSection.hidden = !enabled;
+  document.querySelectorAll('[name="nestedSessionsStyle"]').forEach(input => {
+    input.checked = input.value === prefs.style;
+    input.closest('.nested-style-card').classList.toggle('is-selected', input.checked);
+  });
+}
+$('#nestedSessionsAboutDialog')?.addEventListener('click', event => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+let nestedAboutPage = 0;
+const nestedAboutIcon = $('#settings-tab-nested-sessions svg')?.cloneNode(true);
+if (nestedAboutIcon) $('#nestedAboutBrand')?.prepend(nestedAboutIcon);
+function renderNestedAbout() {
+  $('#nestedAboutBrand').hidden = nestedAboutPage !== 0;
+  $('#nestedAboutWorktrees').hidden = nestedAboutPage === 0;
+  $('#nestedAboutCopy').textContent = nestedAboutPage === 0
+    ? '嵌套会话允许Yan Agent派发子会话并行推进你的工作'
+    : '工作树隔离，你无需担心你的项目受损';
+  $('#nestedAboutPrevious').hidden = nestedAboutPage === 0;
+  $('#nestedAboutNext').textContent = nestedAboutPage === 0 ? '继续' : '我明白了';
+  $('#nestedAboutDots').setAttribute('aria-label', `第 ${nestedAboutPage + 1} 页，共 2 页`);
+  $$('#nestedAboutDots i').forEach((dot, index) => dot.classList.toggle('active', index === nestedAboutPage));
+}
+$('.nested-question-btn')?.addEventListener('click', () => {
+  nestedAboutPage = 0;
+  renderNestedAbout();
+  if (!$('#nestedSessionsAboutDialog').open) $('#nestedSessionsAboutDialog').showModal();
+  $('#nestedAboutNext').focus({ preventScroll: true });
+});
+$('#nestedAboutPrevious')?.addEventListener('click', () => {
+  nestedAboutPage = 0;
+  renderNestedAbout();
+  $('#nestedAboutNext').focus({ preventScroll: true });
+});
+$('#nestedAboutNext')?.addEventListener('click', () => {
+  if (nestedAboutPage === 1) { $('#nestedSessionsAboutDialog').close(); return; }
+  nestedAboutPage = 1;
+  renderNestedAbout();
+});
+document.addEventListener('change', async event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || (input.name !== 'nestedSessionsStyle' && input.id !== 'nestedSessionsEnabled')) return;
+  try {
+    const prefs = { enabled: $('#nestedSessionsEnabled').checked, style: document.querySelector('[name="nestedSessionsStyle"]:checked')?.value || 'tree' };
+    state.config.nestedSessions = await api.nestedPreferences(prefs);
+    await syncNestedSettings();
+  } catch (error) { toast(error.message); await syncNestedSettings(); }
+});
+
 function switchTab(tab) {
   if (!visibleSettingsTabButtons().some(button => button.dataset.tab === tab)) tab = 'general';
+  recordAppViewSoon();
   if (tab !== 'quick-launch' && quickLaunchCapturing) stopQuickLaunchCapture();
   const meta = SETTINGS_TAB_META[tab] || SETTINGS_TAB_META.about;
   settingsOverlay.dataset.activeTab = tab;
+  if (tab === 'nested-sessions') void syncNestedSettings();
   if (tab === 'archived') void window.YanArchiveSettings?.refresh();
   if (tab === 'code-review') void window.YanCodeReviewSettings?.refresh();
-  if (tab === 'subagents') void window.YanSubagentSettings?.refresh();
   if (tab === 'worktrees') void window.YanWorktreeSettings?.refresh();
   if (tab === 'storage') void window.YanStorageSettings?.refresh();
   if (tab === 'usage') void window.YanUsageSettings?.refresh();
@@ -18763,8 +21559,8 @@ function switchTab(tab) {
     p.setAttribute('aria-hidden', String(!active));
   });
   if ($('#settingsSectionTitle')) $('#settingsSectionTitle').textContent = meta.title;
-  if (tab === 'storage') {
-    const icon = $('#settings-tab-storage svg')?.cloneNode(true);
+  if (tab === 'storage' || tab === 'usage') {
+    const icon = $(`#settings-tab-${tab} svg`)?.cloneNode(true);
     if (icon) $('#settingsSectionTitle')?.prepend(icon);
   }
   if ($('#settingsSectionDescription')) $('#settingsSectionDescription').textContent = meta.description;
@@ -18778,59 +21574,17 @@ function switchTab(tab) {
   if (tab === 'model-secondary') void refreshSecondaryModels();
   if (tab === 'browser') window.YanBrowserSettings?.sync();
   if (tab === 'voice') void window.YanVoiceInput?.refresh();
+  syncWallpaperVideoPreviews();
 }
 
-// About panel: check updates from the COS release feed
-const UPDATE_BUTTON_IDLE_LABEL = '检查版本并更新';
-const aboutCheckUpdateButton = $('#aboutCheckUpdateBtn');
+// 帮助 → 检查更新……: reopen the current update before requesting a new check.
 let updateDownloading = false;
-let updateProgressOff = null;
-
-function setUpdateButtonLabel(label, disabled = false) {
-  if (!aboutCheckUpdateButton) return;
-  const text = window.YanI18n?.translate(label) || label;
-  const labelEl = aboutCheckUpdateButton.querySelector('.about-update-label');
-  if (labelEl) labelEl.textContent = text;
-  else aboutCheckUpdateButton.textContent = text;
-  aboutCheckUpdateButton.disabled = !!disabled;
-}
-
-async function installDownloadedUpdate(version) {
-  const confirmed = window.confirm(`v${version} 安装包已下载完成。\n是否立即运行安装程序？更新会关闭当前应用。`);
-  if (!confirmed) {
-    toast('安装包已保存，可稍后手动运行');
-    return;
-  }
-  const result = await window.yan?.updateInstall?.();
-  if (!result?.ok) toast(`启动安装程序失败（${result?.error || '未知错误'}）`);
-}
-
-async function downloadUpdatePackage(info) {
-  updateDownloading = true;
-  setUpdateButtonLabel('准备下载…', true);
-  updateProgressOff = window.yan?.onUpdateProgress?.((progress) => {
-    if (!progress) return;
-    setUpdateButtonLabel(`下载中 ${Number(progress.percent) || 0}%`, true);
-  }) || null;
-  try {
-    const result = await window.yan?.updateDownload?.();
-    if (!result?.ok) {
-      toast(`下载失败（${result?.error || '未知错误'}）`);
-      return;
-    }
-    setUpdateButtonLabel('下载完成', true);
-    await installDownloadedUpdate(result.version || info.latestVersion);
-  } finally {
-    updateDownloading = false;
-    if (updateProgressOff) updateProgressOff();
-    updateProgressOff = null;
-    setUpdateButtonLabel(UPDATE_BUTTON_IDLE_LABEL);
-  }
-}
+let updateChecking = false;
 
 async function checkForUpdatesFromAbout() {
-  if (updateDownloading) return;
-  setUpdateButtonLabel('正在检查…', true);
+  if (window.YanUpdateDialog?.reopen()) return;
+  if (updateChecking || updateDownloading) return;
+  updateChecking = true;
   try {
     const result = await window.yan?.updateCheck?.();
     if (!result) {
@@ -18841,24 +21595,27 @@ async function checkForUpdatesFromAbout() {
       toast(`检查更新失败（${result.error || '未知错误'}）`);
       return;
     }
-    if (!result.hasUpdate) {
-      toast(`已是最新版本 v${result.currentVersion}`);
-      return;
-    }
-    const confirmed = window.confirm(`发现新版本 v${result.latestVersion}（当前 v${result.currentVersion}）\n是否下载安装包？`);
-    if (!confirmed) {
-      toast('已取消更新');
-      return;
-    }
-    await downloadUpdatePackage(result);
+    window.YanUpdateDialog.show(result, {
+      download: async progress => {
+        updateDownloading = true;
+        const off = window.yan?.onUpdateProgress?.(progress);
+        try {
+          const downloaded = await window.yan?.updateDownload?.();
+          if (!downloaded?.ok) throw new Error(downloaded?.error || '下载失败');
+        } finally {
+          off?.(); updateDownloading = false;
+        }
+      },
+      install: async () => {
+        const installed = await window.yan?.updateInstall?.();
+        if (!installed?.ok) throw new Error(installed?.error || '安装程序启动失败');
+      },
+      onError: error => toast(String(error.message || error))
+    });
   } finally {
-    if (!updateDownloading) setUpdateButtonLabel(UPDATE_BUTTON_IDLE_LABEL);
+    updateChecking = false;
   }
 }
-
-aboutCheckUpdateButton?.addEventListener('click', () => {
-  checkForUpdatesFromAbout();
-});
 
 let connectionCache = [];
 let activeConnectionId = '';
@@ -18942,6 +21699,29 @@ function wallpaperCustomEntries(wallpaper = {}) {
     : [];
 }
 
+function releaseWallpaperVideoPreviews(root) {
+  root.querySelectorAll('.wallpaper-card-video[src]').forEach(video => {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  });
+}
+
+function syncWallpaperVideoPreviews() {
+  // Settings is retained in a DocumentFragment while closed. A detached video
+  // with src still allocates a decoder, even with preload="metadata".
+  const visible = settingsOverlay.isConnected
+    && !settingsOverlay.classList.contains('hidden')
+    && settingsOverlay.dataset.activeTab === 'wallpaper';
+  if (!visible) {
+    releaseWallpaperVideoPreviews(settingsOverlay);
+    return;
+  }
+  settingsOverlay.querySelectorAll('.wallpaper-card-video[data-preview-src]').forEach(video => {
+    if (!video.hasAttribute('src')) video.src = video.dataset.previewSrc;
+  });
+}
+
 function renderWallpaperMarket(wallpaper = {}) {
   const grid = $('#wallpaperMarketGrid');
   if (!grid) return;
@@ -18954,6 +21734,7 @@ function renderWallpaperMarket(wallpaper = {}) {
       card.setAttribute('aria-hidden', String(hidden));
     }
   });
+  releaseWallpaperVideoPreviews(grid);
   grid.querySelectorAll('[data-wallpaper-custom="true"]').forEach(card => card.remove());
   const addCard = grid.querySelector('[data-wallpaper-action="add"]');
   if (!addCard) return;
@@ -18966,15 +21747,16 @@ function renderWallpaperMarket(wallpaper = {}) {
     card.setAttribute('role', 'listitem');
     card.setAttribute('aria-pressed', 'false');
     const isVideo = wallpaperIsVideo(entry.path);
-    // MP4 previews show the frame at 0.1s through a media fragment so the card
-    // never plays sound or decodes the whole clip.
+    // Keep the source inert until the wallpaper page opens. Pausing alone does
+    // not release the hardware decoder and its full-resolution frame buffers.
     const preview = isVideo
-      ? `<video class="wallpaper-card-video" src="${escapeAttr(`${wallpaperFileUrl(entry.path)}#t=0.1`)}" muted preload="metadata" playsinline disablepictureinpicture aria-hidden="true"></video>`
+      ? `<video class="wallpaper-card-video" data-preview-src="${escapeAttr(`${wallpaperFileUrl(entry.path)}#t=0.1`)}" muted preload="metadata" playsinline disablepictureinpicture aria-hidden="true"></video>`
       : `<img src="${escapeAttr(wallpaperFileUrl(entry.path))}" alt="${escapeAttr(entry.name)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" draggable="false" />`;
     const tag = isVideo ? '<em class="wallpaper-card-tag">视频</em>' : '';
     card.innerHTML = `${preview}<div class="wallpaper-card-footer"><span>${escapeHtml(entry.name)}</span>${tag}<button class="wallpaper-card-delete" type="button" data-wallpaper-delete="${escapeAttr(entry.id)}" title="删除壁纸" aria-label="删除${escapeAttr(entry.name)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg></button></div>`;
     grid.insertBefore(card, addCard);
   }
+  syncWallpaperVideoPreviews();
 }
 
 function syncWallpaperMarket(wallpaper = {}) {
@@ -19318,7 +22100,7 @@ async function removeWallpaper(id) {
   }
 }
 
-const wallpaperAddDraft = { file: null };
+const wallpaperAddDraft = { file: null, previewUrl: null, saving: false };
 
 function showWallpaperAddNotice(message = '', kind = 'error') {
   const notice = $('#wallpaperAddNotice');
@@ -19330,12 +22112,37 @@ function showWallpaperAddNotice(message = '', kind = 'error') {
 
 function resetWallpaperAddDialog() {
   wallpaperAddDraft.file = null;
+  clearWallpaperPreview();
   const input = $('#wallpaperAddFile');
   if (input) input.value = '';
   const name = $('#wallpaperAddName');
   if (name) name.value = '';
-  const fileName = $('#wallpaperAddFileName');
-  if (fileName) fileName.textContent = '尚未选择文件';
+  showWallpaperAddNotice('');
+}
+
+function clearWallpaperPreview() {
+  const video = $('#wallpaperAddMedia video');
+  if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+  $('#wallpaperAddMedia')?.replaceChildren();
+  if (wallpaperAddDraft.previewUrl) URL.revokeObjectURL(wallpaperAddDraft.previewUrl);
+  wallpaperAddDraft.previewUrl = null;
+  $('#wallpaperAddPreview')?.classList.remove('has-file', 'drag-over');
+}
+
+function selectWallpaperDraft(file) {
+  if (!file || wallpaperAddDraft.saving) return;
+  if (!wallpaperFileIsValid(file)) { showWallpaperAddNotice('仅支持 JPG、PNG 图片或 MP4、WebM 视频。'); return; }
+  if (file.size > 50 * 1024 * 1024) { showWallpaperAddNotice('壁纸不能超过 50MB。'); return; }
+  clearWallpaperPreview();
+  wallpaperAddDraft.file = file;
+  const media = document.createElement(/^video\//i.test(file.type) || /\.(mp4|webm)$/i.test(file.name) ? 'video' : 'img');
+  if (media.tagName === 'VIDEO') { media.muted = true; media.loop = true; media.autoplay = true; media.playsInline = true; }
+  else media.alt = '壁纸预览';
+  wallpaperAddDraft.previewUrl = URL.createObjectURL(file);
+  media.src = wallpaperAddDraft.previewUrl;
+  media.addEventListener('error', () => showWallpaperAddNotice('无法预览该文件，请选择有效的图片或视频。'));
+  $('#wallpaperAddMedia').append(media);
+  $('#wallpaperAddPreview').classList.add('has-file');
   showWallpaperAddNotice('');
 }
 
@@ -19356,6 +22163,7 @@ function wallpaperFileIsValid(file) {
 }
 
 async function saveWallpaperFromDraft() {
+  if (wallpaperAddDraft.saving) return;
   const file = wallpaperAddDraft.file;
   const name = $('#wallpaperAddName')?.value?.trim() || '';
   if (!file || !wallpaperFileIsValid(file)) {
@@ -19371,18 +22179,12 @@ async function saveWallpaperFromDraft() {
     return;
   }
   const nextButton = $('#wallpaperAddNext');
+  wallpaperAddDraft.saving = true;
+  $('#wallpaperAddCancel').disabled = $('#wallpaperAddPick').disabled = true;
   if (nextButton) nextButton.disabled = true;
   showWallpaperAddNotice('正在保存壁纸…', 'progress');
   try {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(reader.error || new Error('读取壁纸失败'));
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.readAsDataURL(file);
-    });
-    const comma = dataUrl.indexOf(',');
-    const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : '';
-    const uploaded = await api.uploadFile(file.name, base64, file.type);
+    const uploaded = await uploadAttachmentFile(file, file.type);
     if (!uploaded || uploaded.error || !uploaded.path) throw new Error(uploaded?.error || '保存壁纸失败');
     const id = `custom-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`}`;
     const current = state.config?.wallpaper && typeof state.config.wallpaper === 'object' ? state.config.wallpaper : {};
@@ -19397,6 +22199,8 @@ async function saveWallpaperFromDraft() {
   } catch (error) {
     showWallpaperAddNotice(`保存失败：${error?.message || error}`);
   } finally {
+    wallpaperAddDraft.saving = false;
+    $('#wallpaperAddCancel').disabled = $('#wallpaperAddPick').disabled = false;
     if (nextButton) nextButton.disabled = false;
   }
 }
@@ -19405,18 +22209,16 @@ function bindWallpaperAddDialog() {
   const dialog = $('#wallpaperAddDialog');
   if (!dialog || dialog.dataset.bound === 'true') return;
   dialog.dataset.bound = 'true';
-  $('#wallpaperAddFile')?.addEventListener('change', event => {
-    const file = event.currentTarget.files?.[0] || null;
-    wallpaperAddDraft.file = file;
-    const label = $('#wallpaperAddFileName');
-    if (label) label.textContent = file ? file.name : '尚未选择文件';
-    showWallpaperAddNotice(file && !wallpaperFileIsValid(file) ? '仅支持 JPG、PNG 图片或 MP4 视频。' : '');
-  });
+  $('#wallpaperAddFile')?.addEventListener('change', event => selectWallpaperDraft(event.currentTarget.files?.[0]));
+  $('#wallpaperAddPick')?.addEventListener('click', () => $('#wallpaperAddFile').click());
   $('#wallpaperAddNext')?.addEventListener('click', () => { void saveWallpaperFromDraft(); });
-  $('#wallpaperAddClose')?.addEventListener('click', () => dialog.close());
-  dialog.addEventListener('click', event => {
-    if (event.target === dialog) dialog.close();
-  });
+  $('#wallpaperAddCancel')?.addEventListener('click', () => dialog.close());
+  const preview = $('#wallpaperAddPreview');
+  preview.addEventListener('dragover', event => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'; preview.classList.add('drag-over'); });
+  preview.addEventListener('dragleave', event => { if (!preview.contains(event.relatedTarget)) preview.classList.remove('drag-over'); });
+  preview.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); preview.classList.remove('drag-over'); selectWallpaperDraft(event.dataTransfer.files?.[0]); });
+  dialog.addEventListener('cancel', event => { if (wallpaperAddDraft.saving) event.preventDefault(); });
+  dialog.addEventListener('click', event => { if (event.target === dialog && !wallpaperAddDraft.saving) dialog.close(); });
   dialog.addEventListener('close', resetWallpaperAddDialog);
 }
 
@@ -19435,7 +22237,6 @@ function renderGeneralSettings(cfg = {}) {
   updateThemeSegmented(cfg.theme);
   syncPetSettings(cfg.pet?.selected);
   syncPetWindowButton().catch(() => {});
-  renderTtsSettings(cfg);
   syncGeneralPreferences();
   syncGitPreferences();
   window.YanWorktreeSettings?.sync();
@@ -19450,7 +22251,6 @@ function bindGeneralSettings() {
   bindGeneralPreferences();
   bindGitPreferences();
   bindPetSettings();
-  bindTtsSettings();
   const themeToggle = $('#themeModeToggle');
   if (themeToggle && themeToggle.dataset.bound !== 'true') {
     themeToggle.dataset.bound = 'true';
@@ -20154,8 +22954,8 @@ async function renderModelGrid(cfg) {
     return;
   }
 
-  const textProviderId = cfg.agentModel?.providerId || cfg.api?.provider || '';
-  const textModelId = cfg.agentModel?.modelId || cfg.api?.model || '';
+  const textProviderId = cfg.agentModel ? String(cfg.agentModel.providerId || '') : String(cfg.api?.provider || '');
+  const textModelId = cfg.agentModel ? String(cfg.agentModel.modelId || '') : String(cfg.api?.model || '');
   const groups = [
     { id: 'text', title: '文本' },
     { id: 'image', title: '生图' },
@@ -20208,9 +23008,6 @@ async function renderModelGrid(cfg) {
   });
 }
 
-function bindSubagentSettings() {
-}
-
 // ============================================================
 // Model controls
 // ============================================================
@@ -20226,6 +23023,8 @@ const modelPickerDraft = {
   modelId: '',
   reasoningSpeed: 'medium'
 };
+// 'task' edits the composer model; 'subagent' writes agent.subagentModel.
+let modelPickerTarget = 'task';
 
 function isModelPickerBusy() {
   return modelPickerSaving || modelQuickSaving;
@@ -20893,17 +23692,7 @@ function setModelPickerNotice(message = '', stateName = 'default') {
   notice.classList.toggle('hidden', !message);
 }
 
-function renderModelPickerChoices() {
-  const lists = ['#modelQuickList', '#modelPickerChoices']
-    .map(selector => $(selector))
-    .filter(Boolean);
-  if (!lists.length) return;
-  const models = quickTextModels();
-  if (!models.length) {
-    const empty = `<div class="model-picker-empty">${escapeHtml(quickModelsCache?.notice || '当前没有可用的文本模型。')}</div>`;
-    lists.forEach(list => { list.innerHTML = empty; });
-    return;
-  }
+function modelMenuHtml(models, selected = {}) {
   const groups = new Map();
   for (const model of models) {
     const key = JSON.stringify([model.providerId || '', model.supplierId || '']);
@@ -20915,23 +23704,37 @@ function renderModelPickerChoices() {
     }
     groups.get(key).models.push(model);
   }
-  const menuHtml = [...groups.values()].map(group => {
+  return [...groups.values()].map(group => {
     const options = group.models.map(model => {
       const providerId = String(model.providerId || '');
       const supplierId = String(model.supplierId || '');
       const modelId = String(model.id || '');
-      const selected = providerId === modelPickerDraft.providerId
-        && supplierId === modelPickerDraft.supplierId
-        && modelId === modelPickerDraft.modelId;
+      const isSelected = providerId === String(selected.providerId || '')
+        && supplierId === String(selected.supplierId || '')
+        && modelId === String(selected.modelId || '');
       const label = String(model.name || modelId);
-      return `<button type="button" class="model-quick-item model-selector-option${selected ? ' is-selected' : ''}"
+      return `<button type="button" class="model-quick-item model-selector-option${isSelected ? ' is-selected' : ''}"
         data-model-picker-provider="${escapeAttr(providerId)}" data-model-picker-supplier="${escapeAttr(supplierId)}"
-        data-model-picker-model="${escapeAttr(modelId)}" role="option" aria-selected="${selected}"
+        data-model-picker-model="${escapeAttr(modelId)}" role="option" aria-selected="${isSelected}"
         title="${escapeAttr(`${group.name} · ${label}`)}"><span class="model-quick-name">${escapeHtml(label)}</span><span class="model-quick-check" aria-hidden="true">✓</span></button>`;
     }).join('');
     return `<div class="model-quick-group" role="group" aria-label="${escapeAttr(group.name)}">
       <div class="model-quick-group-label" aria-hidden="true" title="${escapeAttr(group.name)}">${escapeHtml(group.name)}</div>${options}</div>`;
   }).join('');
+}
+
+function renderModelPickerChoices() {
+  const lists = ['#modelQuickList', '#modelPickerChoices']
+    .map(selector => $(selector))
+    .filter(Boolean);
+  if (!lists.length) return;
+  const models = quickTextModels();
+  if (!models.length) {
+    const empty = `<div class="model-picker-empty">${escapeHtml(quickModelsCache?.notice || '当前没有可用的文本模型。')}</div>`;
+    lists.forEach(list => { list.innerHTML = empty; });
+    return;
+  }
+  const menuHtml = modelMenuHtml(models, modelPickerDraft);
   const legacyHtml = models.map(model => {
     const providerId = String(model.providerId || '');
     const supplierId = String(model.supplierId || '');
@@ -21087,6 +23890,12 @@ function setModelQuickMenuOpen(open, { restoreFocus = false } = {}) {
   pill.setAttribute('aria-expanded', 'false');
   setModelQuickView('control', { focus: false });
   modelPickerRefreshSequence++;
+  // Return the shared menu to the composer and drop the subagent target.
+  const home = $('#modelPickerWrap');
+  if (home && menu.parentElement !== home) home.appendChild(menu);
+  $('#nestedSubagentModelMenuHost')?.classList.add('hidden');
+  $('#nestedSubagentModelPill')?.setAttribute('aria-expanded', 'false');
+  modelPickerTarget = 'task';
   if (restoreFocus) requestAnimationFrame(() => pill.focus({ preventScroll: true }));
 }
 
@@ -21102,9 +23911,7 @@ function closeModelPicker({ restoreFocus = false } = {}) {
   if (dialog?.open) dialog.close();
 }
 
-function openReasoningPicker() {
-  void openModelPicker();
-}
+
 
 function closeReasoningPicker({ restoreFocus = false } = {}) {
   const menu = $('#reasoningPickerMenu');
@@ -21124,6 +23931,10 @@ async function selectModelFromMenu(option) {
     && String(model.id || '') === String(option.dataset.modelPickerModel || '')
   ));
   if (!selectedModel) return;
+  if (modelPickerTarget === 'subagent') {
+    await saveSubagentModelSelection(selectedModel);
+    return;
+  }
   const current = getAgentModelSelection();
   const modelChanged = String(current.providerId || '') !== String(selectedModel.providerId || '')
     || String(current.supplierId || '') !== String(selectedModel.supplierId || '')
@@ -21236,6 +24047,17 @@ document.addEventListener('click', event => {
   const button = event.target.closest('.agent-subagent-status');
   if (button) subagentPanel.openRoot(button.dataset.subagentId || '');
 });
+document.addEventListener('click', event => {
+  const pill = event.target.closest('#nestedSubagentModelPill');
+  if (pill) {
+    setNestedSubagentModelMenuOpen($('#nestedSubagentModelMenuHost')?.classList.contains('hidden') === true);
+    return;
+  }
+  const host = $('#nestedSubagentModelMenuHost');
+  if (host && !host.classList.contains('hidden') && !event.target.closest('#nestedSubagentModelMenuHost')) {
+    setNestedSubagentModelMenuOpen(false);
+  }
+});
 const REASONING_SPEED_ORDER = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 const REASONING_FLOWER_LIT_COUNT = Object.freeze({ low: 1, medium: 2, high: 3, xhigh: 4, max: 5 });
 const REASONING_FLOWER_PETAL_PATHS = Object.freeze([
@@ -21330,18 +24152,14 @@ function renderReasoningSpeedControl(modeOverride, { updateBadge = true, progres
     ? Math.max(0, Math.min(1, Number(progressOverride)))
     : modeIndex / (REASONING_SPEED_ORDER.length - 1);
   if (updateBadge) {
-    const hasModel = !!getAgentModelSelection().modelId;
-    if ($('#modelPillSpeed')) {
-      $('#modelPillSpeed').textContent = hasModel ? meta.label : '';
-      $('#modelPillSpeed').classList.toggle('hidden', !hasModel);
-    }
+    if ($('#modelPillSpeed')) $('#modelPillSpeed').textContent = meta.label;
     const modelPill = $('#modelPill');
     if (modelPill) {
       const selection = getAgentModelSelection();
       const modelName = selection.name || selection.modelId || '未选择模型';
       modelPill.dataset.reasoningMode = mode;
-      modelPill.title = hasModel ? `模型：${modelName} · 推理强度：${meta.label}` : '未选择模型，请先在服务商配置中启用文本模型';
-      modelPill.setAttribute('aria-label', hasModel ? `当前模型 ${modelName}，推理强度 ${meta.label}，点击切换` : modelPill.title);
+      modelPill.title = `模型：${modelName} · 推理强度：${meta.label}`;
+      modelPill.setAttribute('aria-label', `当前模型 ${modelName}，推理强度 ${meta.label}，点击切换`);
     }
   }
   const routeReasoning = $('#modelQuickRouteReasoning');
@@ -21457,7 +24275,6 @@ async function commitReasoningSlider(value) {
 const WORK_MODE_UI = Object.freeze({
   normal: { label: '常规', toast: '工作方式：常规' },
   plan: { label: '计划', toast: '工作方式：计划' },
-  goal: { label: '目标', toast: '工作方式：目标' },
 });
 
 function getCurrentWorkMode() {
@@ -21695,6 +24512,7 @@ async function refreshVsCodeAvailability() {
   } else if (getCurrentTaskTool() === 'vscode') {
     setTaskToolsPillTool('vscode');
   }
+  syncTaskCapsuleWorkspace();
   return vsCodeStatus.available;
 }
 
@@ -21815,8 +24633,7 @@ async function confirmTaskRename() {
 }
 
 function bindTaskActions() {
-  const moreButton = $('#taskBarMoreBtn');
-  moreButton?.addEventListener('click', event => {
+  const moreButton = $('#taskBarMoreBtn');  moreButton?.addEventListener('click', event => {
     event.stopPropagation();
     const opening = moreButton.getAttribute('aria-expanded') !== 'true';
     closeTaskActionsMenu();
@@ -21844,8 +24661,243 @@ function bindTaskActions() {
   });
 }
 
+// The task capsule is a transient right-side surface. It opens only from its
+// own task-bar button and starts empty; session switches and run updates never
+// open or close it.
+const TASK_CAPSULE_TOOLS = Object.freeze({
+  vscode: { label: 'VS Code', icon: 'assets/code-editor.svg' },
+  explorer: { label: '资源管理器', icon: 'assets/file-explorer.png' },
+  terminal: { label: '终端', icon: 'assets/terminal.svg' }
+});
+const TASK_CAPSULE_TOOL_KEY = 'yan.task-capsule.open-tool.v1';
+
+function loadTaskCapsuleTool() {
+  try {
+    const saved = window.localStorage.getItem(TASK_CAPSULE_TOOL_KEY);
+    if (TASK_CAPSULE_TOOLS[saved]) return saved;
+  } catch {}
+  return 'explorer';
+}
+
+let taskCapsuleOpenTool = loadTaskCapsuleTool();
+
+function taskCapsuleToolIcon(tool) {
+  if (tool === 'vscode' && vsCodeStatus.iconDataUrl) return vsCodeStatus.iconDataUrl;
+  return TASK_CAPSULE_TOOLS[tool]?.icon || TASK_CAPSULE_TOOLS.explorer.icon;
+}
+
+function syncTaskCapsuleToolSelection() {
+  for (const item of $$('#taskCapsuleOpenMenu [data-capsule-tool]')) {
+    const selected = item.dataset.capsuleTool === taskCapsuleOpenTool;
+    item.classList.toggle('is-selected', selected);
+    item.setAttribute('aria-checked', String(selected));
+  }
+  const icon = $('#taskCapsuleOpenIcon');
+  if (icon) icon.src = taskCapsuleToolIcon(taskCapsuleOpenTool);
+  const openButton = $('#taskCapsuleOpenBtn');
+  const label = TASK_CAPSULE_TOOLS[taskCapsuleOpenTool]?.label || '工作区';
+  if (openButton) {
+    openButton.title = `打开${label}`;
+    openButton.setAttribute('aria-label', `打开${label}`);
+  }
+}
+
+function updateTaskCapsuleGit(status = taskGitState.status) {
+  const ready = !!status?.isRepository;
+  const branchRow = $('#taskCapsuleGitRow');
+  branchRow?.classList.toggle('hidden', !ready);
+  const branchName = $('#taskCapsuleBranchName');
+  if (branchName) {
+    const text = status ? (ready ? taskGitBranchLabel(status) : '非 Git 工作区') : '分支';
+    branchName.textContent = text;
+    branchName.title = text;
+  }
+  const stats = $('#taskCapsuleBranchStats');
+  if (stats) {
+    stats.classList.toggle('hidden', !ready);
+    if (ready && !taskGitState.refreshing) renderTaskGitStats(stats, status?.diffStats || {});
+  }
+  const reviewButton = $('#taskCapsuleReviewBtn');
+  if (reviewButton) {
+    const reviewDisabled = !ready || !!taskGitState.busy;
+    reviewButton.disabled = reviewDisabled;
+    reviewButton.title = !ready
+      ? '当前工作区没有可审阅的 Git 变更'
+      : (taskGitState.busy ? 'Git 操作进行中' : '打开审阅面板');
+  }
+  const button = $('#taskCapsuleGitOpsBtn');
+  if (button) {
+    button.disabled = !ready || !!taskGitState.busy;
+    if (button.disabled) button.setAttribute('aria-expanded', 'false');
+  }
+  syncTaskCapsuleDivider();
+}
+
+function syncTaskCapsuleDivider() {
+  const divider = $('#taskCapsuleDivider');
+  if (!divider) return;
+  const gitVisible = !$('#taskCapsuleGitRow')?.classList.contains('hidden');
+  const bashVisible = !$('#taskCapsuleBashRow')?.classList.contains('hidden');
+  divider.classList.toggle('hidden', !gitVisible && !bashVisible);
+}
+
+function syncTaskCapsuleBashRow(count) {
+  const row = $('#taskCapsuleBashRow');
+  const badge = $('#taskCapsuleBashCount');
+  const value = Math.max(0, Number(count) || 0);
+  row?.classList.toggle('hidden', value === 0);
+  if (badge) badge.textContent = String(value);
+  syncTaskCapsuleDivider();
+}
+
+window.syncTaskCapsuleDivider = syncTaskCapsuleDivider;
+window.syncTaskCapsuleBashRow = syncTaskCapsuleBashRow;
+
+function setTaskCapsulePanelOpen(open) {
+  const panel = $('#taskCapsulePanel');
+  const button = $('#taskCapsuleBtn');
+  if (!panel || !button) return;
+  const desired = Boolean(open) && (currentMainPage === 'chat' || isScheduledTaskView()) && !!state.currentSession
+    && (!browserFocusMode || fullChatSelected);
+  taskCapsulePanelOpen = desired;
+  if (!desired) {
+    closeTaskCapsuleOpenMenu();
+    closeTaskGitOpsMenu();
+    closeTaskGitBranchPopover();
+  }
+  panel.classList.toggle('open', desired);
+  panel.setAttribute('aria-hidden', String(!desired));
+  button.classList.toggle('active', desired);
+  button.setAttribute('aria-expanded', String(desired));
+  if (desired) {
+    syncTaskCapsuleWorkspace();
+    updateTaskCapsuleGit(taskGitState.status);
+    void window.YanBackgroundBash?.refresh?.();
+  }
+}
+
+function taskCapsuleWorkspace() {
+  return String(state.currentSession?.workspace || state.config?.workspace || '').trim();
+}
+
+function closeTaskCapsuleOpenMenu() {
+  $('#taskCapsuleOpenMenu')?.classList.add('hidden');
+  $('#taskCapsuleOpenMenuBtn')?.setAttribute('aria-expanded', 'false');
+  taskCapsuleMenuOpen = false;
+}
+
+function setTaskCapsuleOpenMenuOpen(open) {
+  const menu = $('#taskCapsuleOpenMenu');
+  const trigger = $('#taskCapsuleOpenMenuBtn');
+  if (!menu || !trigger) return;
+  const desired = Boolean(open) && taskCapsulePanelOpen;
+  taskCapsuleMenuOpen = desired;
+  menu.classList.toggle('hidden', !desired);
+  trigger.setAttribute('aria-expanded', String(desired));
+  if (desired) syncTaskCapsuleToolSelection();
+}
+
+function syncTaskCapsuleWorkspace() {
+  const workspace = taskCapsuleWorkspace();
+  const name = $('#taskCapsuleWorkspaceName');
+  if (name) name.textContent = workspaceGroupLabel(workspace);
+  const vsIcon = $('#taskCapsuleVsCodeMenuIcon');
+  if (vsIcon) {
+    const src = vsCodeStatus.iconDataUrl || TASK_CAPSULE_TOOLS.vscode.icon;
+    if (vsIcon.getAttribute('src') !== src) vsIcon.src = src;
+  }
+  for (const item of $$('#taskCapsuleOpenMenu [data-capsule-tool]')) {
+    const tool = item.dataset.capsuleTool;
+    item.disabled = !workspace || (tool === 'vscode' && !vsCodeStatus.available);
+  }
+  const selectedItem = $(`#taskCapsuleOpenMenu [data-capsule-tool="${taskCapsuleOpenTool}"]`);
+  if (!selectedItem || selectedItem.disabled) {
+    const fallback = $$('#taskCapsuleOpenMenu [data-capsule-tool]').find(item => !item.disabled);
+    if (fallback) taskCapsuleOpenTool = fallback.dataset.capsuleTool;
+  }
+  syncTaskCapsuleToolSelection();
+  const activeItem = $(`#taskCapsuleOpenMenu [data-capsule-tool="${taskCapsuleOpenTool}"]`);
+  const openButton = $('#taskCapsuleOpenBtn');
+  if (openButton) openButton.disabled = !workspace || !activeItem || activeItem.disabled;
+  updateTaskCapsuleGit(taskGitState.status);
+}
+
+async function runTaskCapsuleTool(tool) {
+  const workspace = taskCapsuleWorkspace();
+  if (!workspace) { toast('请先选择工作区'); return; }
+  if (tool === 'vscode') {
+    if (!vsCodeStatus.available) { toast('未检测到 VS Code'); return; }
+    await openCurrentWorkspaceInVsCode();
+    return;
+  }
+  if (tool === 'explorer') {
+    const result = await api.openWorkspaceInExplorer?.(workspace);
+    if (result?.ok === false) toast(result.error || '无法打开资源管理器');
+    return;
+  }
+  const result = await api.openExternalPowerShell?.(workspace);
+  if (result?.ok) toast(`终端已打开${result.cwd ? ` · ${result.cwd}` : ''}`);
+  else toast(result?.error || '打开终端失败');
+}
+
+function closeTaskCapsulePanel() {
+  setTaskCapsulePanelOpen(false);
+}
+
+function setupTaskCapsulePanel() {
+  const button = $('#taskCapsuleBtn');
+  if (!button || button.dataset.bound === '1') return;
+  button.dataset.bound = '1';
+  button.addEventListener('click', event => {
+    event.stopPropagation();
+    setTaskCapsulePanelOpen(!taskCapsulePanelOpen);
+  });
+  $('#taskCapsuleOpenBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    closeTaskCapsuleOpenMenu();
+    void runTaskCapsuleTool(taskCapsuleOpenTool);
+  });
+  $('#taskCapsuleOpenMenuBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    setTaskCapsuleOpenMenuOpen(!taskCapsuleMenuOpen);
+  });
+  $('#taskCapsuleOpenMenu')?.addEventListener('click', event => {
+    const item = event.target.closest('[data-capsule-tool]');
+    if (!item || item.disabled) return;
+    event.stopPropagation();
+    taskCapsuleOpenTool = item.dataset.capsuleTool;
+    try { window.localStorage.setItem(TASK_CAPSULE_TOOL_KEY, taskCapsuleOpenTool); } catch {}
+    syncTaskCapsuleToolSelection();
+    closeTaskCapsuleOpenMenu();
+  });
+  $('#taskCapsuleGitOpsBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    toggleTaskGitOpsMenu(event.currentTarget);
+  });
+  $('#taskCapsuleReviewBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    closeTaskCapsuleOpenMenu();
+    closeTaskCapsulePanel();
+    openTaskGitChanges();
+  });
+  $('#taskCapsuleBashOpenBtn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    window.YanBackgroundBash?.open?.();
+  });
+  syncTaskCapsuleWorkspace();
+  document.addEventListener('pointerdown', event => {
+    if (taskCapsuleMenuOpen && !event.target.closest?.('#taskCapsuleOpenWrap')) closeTaskCapsuleOpenMenu();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (taskCapsuleMenuOpen) closeTaskCapsuleOpenMenu();
+  });
+}
+
 // Update the task bar (title + folder + buttons)
 function updateTaskBar() {
+  window.YanAgentPresets?.sync();
+  if (visibleRightSidebarTabs().some(tab => tab.type === 'files')) renderRightSidebarTabs();
   syncAgentChatTabLabel();
   const bar = $('#taskBar');
   if (!bar) return;
@@ -21857,15 +24909,16 @@ function updateTaskBar() {
   syncRightDock();
   if (!state.currentSession) {
     bar.classList.add('hidden');
+    closeTaskCapsulePanel();
     closeTaskGitBranchPopover();
     closeNewTaskBranchMenu();
-    closeTaskGitPanel();
-    renderTaskGitStatus({ available: true, workspace: '', isRepository: false });
+      renderTaskGitStatus({ available: true, workspace: '', isRepository: false });
     return;
   }
   bar.classList.remove('hidden');
   $('#taskBarTitle').textContent = displaySessionTitle(state.currentSession.title);
   const ws = String(state.currentSession.workspace || '').trim();
+  syncTaskCapsuleWorkspace();
   const folderName = $('#taskBarFolderName');
   const folderButton = $('#taskBarFolder');
   const openBtn = $('#taskBarOpenFolder');
@@ -21935,6 +24988,7 @@ async function applySessionWorkspace(workspace) {
   const targetSession = state.currentSession;
   if (!targetSession) return;
   const normalized = String(workspace || '').trim();
+  
   // A still-empty task that changes homes collapses into the empty chat that
   // already lives on the target side, instead of leaving two "new chat" rows
   // behind for the same home.
@@ -22321,27 +25375,66 @@ function renderMarkdown(text, { softBreaks = false } = {}) {
   t = escapeHtml(t);
   t = t.replace(/\u0000INLINE(\d+)\u0000/g, (_, i) => `<code>${escapeHtml(inlineCodes[Number(i)])}</code>`);
   // bold / italic
-  t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  t = t.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em>$1</em>');
+  t = t.replace(/\*\*([^*\r\n]+)\*\*/g, '<strong>$1</strong>');
+  // A list marker is not emphasis, and emphasis never spans separate blocks.
+  t = t.replace(/(?<![\w*])\*(?=\S)([^*\r\n]*?\S)\*(?![\w*])/g, '<em>$1</em>');
   // headers
   t = t.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
   t = t.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
   t = t.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
   // tables (在列表/段落处理之前)
   t = renderMarkdownTables(t);
-  // ordered lists — 用哨兵标记合并连续项为 <ol>
-  t = t.replace(/^\s*\d+[.)]\s+(.*)$/gm, '\u0001$1\u0002');
-  t = t.replace(/(\u0001[\s\S]*?\u0002(?:\s*\u0001[\s\S]*?\u0002)*)/g,
-    m => '<ol>' + m.replace(/\u0001/g, '<li>').replace(/\u0002/g, '</li>').replace(/\s+/g, ' ') + '</ol>');
-  // unordered lists — 合并连续的 <li> 为一个 <ul>
-  t = t.replace(/^(?:- |\* )(.*)$/gm, '<li>$1</li>');
-  t = t.replace(/(<li>[\s\S]*?<\/li>(?:\s*<li>[\s\S]*?<\/li>)*)/g, '<ul>$1</ul>');
+  // Preserve complete list blocks before paragraph splitting. Splitting inside
+  // <ul> previously produced invalid paragraphs and huge empty list gaps.
+  const listBlocks = [];
+  const lines = t.split('\n');
+  const marker = line => /^( *)([-+*]|\d+[.)])[ \t]+(.*)$/.exec(line || '');
+  const listAt = (start, indent) => {
+    const first = marker(lines[start]), ordered = /^\d/.test(first[2]);
+    const tag = ordered ? 'ol' : 'ul';
+    let html = `<${tag}${ordered && parseInt(first[2], 10) !== 1 ? ` start="${parseInt(first[2], 10)}"` : ''}>`, i = start;
+    while (i < lines.length) {
+      const item = marker(lines[i]);
+      if (!item || item[1].length !== indent || /^\d/.test(item[2]) !== ordered) break;
+      html += '<li>' + item[3]; i++;
+      while (i < lines.length) {
+        if (!lines[i].trim()) {
+          let next = i + 1; while (next < lines.length && !lines[next].trim()) next++;
+          const following = marker(lines[next]);
+          if (!following || following[1].length < indent) break;
+          i = next;
+        }
+        const child = marker(lines[i]);
+        if (child) {
+          if (child[1].length <= indent) break;
+          const nested = listAt(i, child[1].length); html += nested.html; i = nested.end;
+        } else if (lines[i]?.trim() && /^ */.exec(lines[i])[0].length > indent) {
+          html += '<br>' + lines[i].trim(); i++;
+        } else break;
+      }
+      html += '</li>';
+      let next = i; while (next < lines.length && !lines[next].trim()) next++;
+      const following = marker(lines[next]);
+      if (!following || following[1].length !== indent || /^\d/.test(following[2]) !== ordered) break;
+      i = next;
+    }
+    return { html: html + `</${tag}>`, end: i };
+  };
+  const blocks = [];
+  for (let i = 0; i < lines.length;) {
+    const item = marker(lines[i]);
+    if (!item) { blocks.push(lines[i++]); continue; }
+    const list = listAt(i, item[1].length);
+    listBlocks.push(list.html);
+    blocks.push(`\n\u0000LIST${listBlocks.length - 1}\u0000\n`); i = list.end;
+  }
+  t = blocks.join('\n');
   // paragraphs
   t = t.split(/\n{2,}/).map(block => {
     const b = block.trim();
     if (!b) return '';
     if (/^<(h\d|ul|ol|pre|li|table|blockquote)/.test(b)) return block;
-    if (/^\u0000(?:CODE|AGENTIMAGE)\d+\u0000$/.test(b)) return block;
+    if (/^\u0000(?:CODE|AGENTIMAGE|LIST)\d+\u0000$/.test(b)) return block;
     // Skill documents often wrap source prose at 80 columns. Those soft
     // line breaks should reflow; explicit Markdown hard breaks still remain.
     const prose = softBreaks
@@ -22349,6 +25442,7 @@ function renderMarkdown(text, { softBreaks = false } = {}) {
       : block.replace(/\n/g, '<br>');
     return '<p>' + prose + '</p>';
   }).join('\n');
+  t = t.replace(/\u0000LIST(\d+)\u0000/g, (_, i) => listBlocks[Number(i)]);
   // 还原代码块（内容做转义）
   t = t.replace(/\u0000CODE(\d+)\u0000/g, (_, i) =>
     `<div class="md-code-block"><span class="md-code-kind">纯文本</span><button type="button" class="md-code-copy" data-state="idle" aria-label="复制整段代码" aria-live="polite" title="复制整段代码">${ICONS.copy}</button><pre><code>${escapeHtml(codeBlocks[Number(i)])}</code></pre></div>`);
@@ -22361,24 +25455,33 @@ function renderMarkdown(text, { softBreaks = false } = {}) {
     if (!image) return '';
     return `<figure class="agent-markdown-image"><a class="agent-markdown-image-link" href="${escapeAttr(image.url)}" data-yan-browser-link="${escapeAttr(image.url)}" rel="noreferrer" aria-label="打开图片预览" title="打开图片预览"><img src="${escapeAttr(image.url)}" alt="${escapeAttr(image.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a></figure>`;
   });
-  return math ? math.restore(t) : t;
+  const html = math ? math.restore(t) : t;
+  return html;
 }
 
-function toast(msg, { error = false, duration } = {}) {
+function toast(msg, { error = false, duration, persistent = false, spinner = false } = {}) {
   const t = $('#toast');
   if (!t) return;
-  t.textContent = window.YanI18n?.translate(msg) || msg;
+  const text = window.YanI18n?.translate(msg) || msg;
+  if (spinner) {
+    t.innerHTML = `<span class="toast-spinner" aria-hidden="true"></span><span>${escapeHtml(text)}</span>`;
+  } else {
+    t.textContent = text;
+  }
   // Failures use the error pill and stay long enough to be read; a plain
   // confirmation keeps the short default.
   t.classList.toggle('toast-error', error === true);
   // The toast is a manual popover so it lives in the top layer and stays above
   // an open modal dialog (a plain z-index would be trapped below it).
   if (typeof t.showPopover === 'function') {
-    if (!t.matches(':popover-open')) t.showPopover();
+    // Re-enter the top layer: a newer modal may have opened above an earlier toast.
+    if (t.matches(':popover-open')) t.hidePopover();
+    t.showPopover();
   } else {
     t.classList.remove('hidden');
   }
   clearTimeout(toast._t);
+  if (persistent) return;
   toast._t = setTimeout(() => {
     if (typeof t.hidePopover === 'function') {
       if (t.matches(':popover-open')) t.hidePopover();
@@ -22418,6 +25521,7 @@ function setupResizeHandles() {
     if (frame) cancelAnimationFrame(frame);
     flush();
     if (drag.side === 'left') root.style.setProperty('--sidebar-w', drag.leftWidth + 'px');
+    else rightSidebarUserWidth = drag.rightWidth;
     root.style.setProperty('--rs-w', drag.rightWidth + 'px');
     left.style.removeProperty('width');
     right.style.removeProperty('width');
@@ -22446,6 +25550,7 @@ function setupResizeHandles() {
   window.addEventListener('resize', () => {
     finish();
     if (browserFocusMode) return;
+    if (applyRightSidebarFullscreenWidth()) return;
     if (agentBrowserTabsByRun.size && !$('#app').classList.contains('pr-diff-open')) { expandRightSidebarForAgentBrowser(); return; }
     const leftWidth = $('#app').classList.contains('sidebar-hidden') ? 0 : left.getBoundingClientRect().width;
     const current = parseFloat(getComputedStyle(root).getPropertyValue('--rs-w')) || 360;
@@ -22467,7 +25572,6 @@ function bindUI() {
   bindComposerRichInput();
   bindInterjectionUi();
   bindGeneralSettings();
-  bindSubagentSettings();
   bindMediaStudio();
   bindAgentPermissionPanel();
   bindDeleteSessionDialog();
@@ -22487,6 +25591,8 @@ function bindUI() {
   // messages page by page; loadEarlierMessages() early-returns when the
   // session is fully loaded, so this stays cheap for normal tasks.
   chatScroll?.addEventListener('scroll', () => {
+    if (chatScrollRestoring) return;
+    if ($('#pageChat')?.classList.contains('hidden')) return;
     if (!stopSessionEntryFollow && chatScroll.scrollTop <= 160) void loadEarlierMessages();
   }, { passive: true });
   let chatScrollSyncFrame = 0;
@@ -22534,7 +25640,7 @@ function bindUI() {
   });
 
   document.addEventListener('click', event => {
-    if (!event.target.closest('#taskBarFolderWrap')) closeWorkspaceChoiceMenu();
+    if (!event.target.closest('#taskBarFolderWrap, #workspaceChoiceMenu')) closeWorkspaceChoiceMenu();
   });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeWorkspaceChoiceMenu();
@@ -22545,7 +25651,7 @@ function bindUI() {
   $('#modelPill').addEventListener('click', event => {
     event.stopPropagation();
     const menu = $('#modelQuickMenu');
-    if (menu?.classList.contains('hidden')) void openModelPicker();
+    if (menu?.classList.contains('hidden')) setTimeout(() => void openModelPicker(), 0);
     else closeModelPicker({ restoreFocus: true });
   });
   $('#modelQuickMenu')?.addEventListener('click', event => event.stopPropagation());
@@ -22690,7 +25796,7 @@ function bindUI() {
   });
   document.addEventListener('click', event => {
     if (!event.target.closest('#accessModeWrap')) setAccessModeMenuOpen(false);
-    if (!event.target.closest('#modelPickerWrap')) {
+    if (!event.target.closest('#modelPickerWrap, #nestedSubagentModelMenuHost, #nestedSubagentModelPill')) {
       closeModelPicker();
       closeReasoningPicker();
     }
@@ -22701,7 +25807,6 @@ function bindUI() {
       closeModelPicker({ restoreFocus: modelPickerOpen && !isModelPickerBusy() });
       closeReasoningPicker();
       setAccessModeMenuOpen(false);
-      setContextRingPanelOpen(false, { refresh: false });
     }
   });
 
@@ -22710,6 +25815,8 @@ function bindUI() {
   renderAccessModeControl();
 
   setupContextRing();
+  setupComposerUsage();
+  setupTaskCapsulePanel();
 
   // Resize handles for both sidebars
   setupResizeHandles();
@@ -22729,8 +25836,389 @@ function bindUI() {
   api.window.onMaximizeChange(setMaxIcon);
   api.window.isMaximized().then(setMaxIcon);
 
+  // ---- Title bar menu bar (文件 / 帮助) ----
+  // Panels are body-level and fixed-positioned under their trigger, so the
+  // custom title bar can never clip them. Options use full-width rectangular
+  // flashes; the panel itself keeps the 14px rounded chrome.
+  const titlebarMenus = [
+    { button: '#titlebarFileMenuBtn', menu: '#titlebarFileMenu' },
+    { button: '#titlebarViewMenuBtn', menu: '#titlebarViewMenu' },
+    { button: '#titlebarHelpMenuBtn', menu: '#titlebarHelpMenu' }
+  ];
+  const titlebarMenuState = { anchor: null, menu: null };
+
+  function positionTitlebarMenu() {
+    const menu = titlebarMenuState.menu;
+    const anchor = titlebarMenuState.anchor;
+    if (!menu || !anchor || menu.classList.contains('hidden')) return;
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    const width = menu.offsetWidth || 248;
+    const height = menu.offsetHeight;
+    let left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    let top = rect.bottom + 6;
+    if (top + height > window.innerHeight - margin) {
+      top = Math.max(margin, window.innerHeight - height - margin);
+    }
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+  }
+
+  function openTitlebarMenu(button) {
+    const entry = titlebarMenus.find(item => $(item.button) === button);
+    const menu = entry && $(entry.menu);
+    if (!menu) return;
+    closeTitlebarMenu();
+    titlebarMenuState.anchor = button;
+    titlebarMenuState.menu = menu;
+    menu.classList.remove('hidden');
+    button.setAttribute('aria-expanded', 'true');
+    positionTitlebarMenu();
+    requestAnimationFrame(() => {
+      positionTitlebarMenu();
+      menu.querySelector('.titlebar-menu-item:not(:disabled)')?.focus({ preventScroll: true });
+    });
+  }
+
+  function closeTitlebarMenu({ restoreFocus = false } = {}) {
+    const menu = titlebarMenuState.menu;
+    const anchor = titlebarMenuState.anchor;
+    titlebarMenuState.menu = null;
+    titlebarMenuState.anchor = null;
+    if (!menu || menu.classList.contains('hidden')) return;
+    menu.classList.add('hidden');
+    anchor?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) anchor?.focus({ preventScroll: true });
+  }
+
+  function toggleTitlebarMenu(button) {
+    if (titlebarMenuState.anchor === button) closeTitlebarMenu({ restoreFocus: true });
+    else openTitlebarMenu(button);
+  }
+
+  // Ctrl+O / menu: pick a folder. A running task cannot change homes, so the
+  // pick opens a fresh task in that folder instead of silently failing.
+  async function openFolderFromTitlebar() {
+    const picked = api.pickWorkspace ? await api.pickWorkspace() : await api.chooseWorkspace();
+    if (!picked) return;
+    if (!state.currentSession || $('#taskBar')?.classList.contains('task-bar-locked')) {
+      await newSession({ workspace: picked });
+      return;
+    }
+    await applySessionWorkspace(picked);
+  }
+
+  const titlebarAboutDialog = $('#titlebarAboutDialog');
+  let titlebarAboutReturnFocus = null;
+
+  // Version and release date come from the same offline release metadata the
+  // about page uses, so the dialog can never drift from the About page.
+  function syncTitlebarAboutContent() {
+    const content = window.YanAboutContent || {};
+    const label = String(content.versionLabel || '').trim() || 'Yan Agent v1.8.0 Beta3-RC1';
+    const version = label.replace(/^Yan Agent\s*v?/i, '').trim();
+    const versionEl = $('#titlebarAboutVersion');
+    if (versionEl) versionEl.textContent = `版本 ${version}`;
+    const dateEl = $('#titlebarAboutDate');
+    const date = String(content.releaseDateLabel || '').trim() || '2026年10月28日';
+    if (dateEl) dateEl.textContent = `发布于 ${date}`;
+  }
+
+  function openTitlebarAbout() {
+    if (!titlebarAboutDialog || titlebarAboutDialog.open) return;
+    titlebarAboutReturnFocus = document.activeElement;
+    syncTitlebarAboutContent();
+    titlebarAboutDialog.showModal();
+    titlebarAboutDialog.querySelector('.about-dialog-ok')?.focus({ preventScroll: true });
+  }
+
+  function closeTitlebarAbout() {
+    if (!titlebarAboutDialog?.open) return;
+    titlebarAboutDialog.close();
+  }
+
+  // 帮助 → 新功能: this build's release notes, rendered as strict section
+  // headings plus bullet lists (the raw markdown numbers its sections).
+  const titlebarWhatsNewDialog = $('#titlebarWhatsNewDialog');
+  let whatsNewReturnFocus = null;
+
+  function renderTitlebarWhatsNewNotes(markdown) {
+    const sections = [];
+    let current = null;
+    for (const raw of String(markdown || '').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || /^#\s/.test(line)) continue;
+      const heading = line.match(/^\d+[.、]\s*(.+)$/);
+      if (heading) {
+        current = { title: heading[1].trim(), items: [] };
+        sections.push(current);
+        continue;
+      }
+      if (!current) {
+        current = { title: '', items: [] };
+        sections.push(current);
+      }
+      current.items.push(line.replace(/^[-*]\s+/, '').trim());
+    }
+    return sections.map(section => `
+      <section class="whats-new-section">
+        ${section.title ? `<h3>${escapeHtml(section.title)}</h3>` : ''}
+        ${section.items.length ? `<ul>${section.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      </section>`).join('');
+  }
+
+  function renderTitlebarWhatsNew() {
+    const content = window.YanAboutContent || {};
+    const versionEl = $('#titlebarWhatsNewVersion');
+    if (versionEl) versionEl.textContent = String(content.versionLabel || 'Yan Agent');
+    const notesEl = $('#titlebarWhatsNewNotes');
+    if (notesEl) notesEl.innerHTML = renderTitlebarWhatsNewNotes(content.releaseNotes || '');
+  }
+
+  function openTitlebarWhatsNew() {
+    if (!titlebarWhatsNewDialog || titlebarWhatsNewDialog.open) return;
+    whatsNewReturnFocus = document.activeElement;
+    renderTitlebarWhatsNew();
+    titlebarWhatsNewDialog.showModal();
+    // Focus the scroll area: keyboard users can scroll the notes immediately,
+    // and the close button keeps its quiet resting state.
+    titlebarWhatsNewDialog.querySelector('.whats-new-body')?.focus({ preventScroll: true });
+  }
+
+  function closeTitlebarWhatsNew() {
+    if (!titlebarWhatsNewDialog?.open) return;
+    titlebarWhatsNewDialog.close();
+  }
+
+  // 帮助 → 赞赏我们一杯咖啡
+  const titlebarDonateDialog = $('#titlebarDonateDialog');
+  let donateReturnFocus = null;
+
+  function openTitlebarDonate() {
+    if (!titlebarDonateDialog || titlebarDonateDialog.open) return;
+    donateReturnFocus = document.activeElement;
+    titlebarDonateDialog.showModal();
+    titlebarDonateDialog.querySelector('[data-donate-close]')?.focus({ preventScroll: true });
+  }
+
+  function closeTitlebarDonate() {
+    if (!titlebarDonateDialog?.open) return;
+    titlebarDonateDialog.close();
+  }
+
+  const TITLEBAR_HELP_LABEL = '帮助';
+  const TITLEBAR_HELP_CHECKING_LABEL = '正在检查更新……';
+  let titlebarHelpChecking = false;
+
+  // 检查更新 gives immediate feedback on the trigger itself: the label becomes
+  // 正在检查更新…… for the duration of the real update check, then restores.
+  async function runTitlebarUpdateCheck() {
+    if (titlebarHelpChecking) return;
+    const button = $('#titlebarHelpMenuBtn');
+    titlebarHelpChecking = true;
+    if (button) {
+      button.textContent = TITLEBAR_HELP_CHECKING_LABEL;
+      button.setAttribute('aria-busy', 'true');
+    }
+    try {
+      await checkForUpdatesFromAbout();
+    } finally {
+      titlebarHelpChecking = false;
+      if (button) {
+        button.textContent = TITLEBAR_HELP_LABEL;
+        button.removeAttribute('aria-busy');
+      }
+    }
+  }
+
+  // 视图 → 显示/隐藏侧边栏、显示/隐藏侧边面板、新建标签页、放大/缩小
+  function toggleLeftSidebarFromTitlebar() {
+    setLeftSidebarOpen($('#app').classList.contains('sidebar-hidden'));
+  }
+
+  // Showing an empty panel used to leave a blank sheet. The panel's real empty
+  // state is its default 新标签页 (the start page with 工具/推荐), so create
+  // that placeholder when the panel has nothing to show.
+  function toggleRightSidebarFromTitlebar() {
+    if ($('#app').classList.contains('settings-mode')) return;
+    if ($('#app').classList.contains('rs-hidden')) {
+      setRightSidebarOpen(true);
+      if (!visibleRightSidebarTabs().length) openRightSidebarTool('browser');
+      return;
+    }
+    setRightSidebarOpen(false);
+  }
+
+  // Ctrl+T mirrors the panel's + button: create a 新标签页. The tab factory
+  // reuses the current blank start page, so pressing it while that placeholder
+  // is showing never stacks a second empty tab.
+  function openNewRightSidebarTabFromTitlebar() {
+    if ($('#app').classList.contains('settings-mode')) return;
+    openRightSidebarTool('browser');
+  }
+
+  const APP_ZOOM_STEP = 0.1;
+  const APP_ZOOM_MIN = 0.5;
+  const APP_ZOOM_MAX = 2;
+
+  function zoomApp(direction) {
+    const current = Number(api.zoom?.get?.());
+    const base = Number.isFinite(current) && current > 0 ? current : 1;
+    const next = base + (direction === 'in' ? APP_ZOOM_STEP : -APP_ZOOM_STEP);
+    const clamped = Math.min(APP_ZOOM_MAX, Math.max(APP_ZOOM_MIN, Math.round(next * 100) / 100));
+    api.zoom?.set?.(clamped);
+  }
+
+  async function runTitlebarMenuAction(action) {
+    if (!action) return;
+    if (action === 'quit') {
+      closeTitlebarMenu();
+      api.window.quitApp?.();
+      return;
+    }
+    // 关于 hands focus to its own dialog, so the trigger must own it first.
+    closeTitlebarMenu({ restoreFocus: action === 'about' });
+    if (action === 'new-chat') await newSession();
+    else if (action === 'open-folder') await openFolderFromTitlebar();
+    else if (action === 'close-window') api.window.close();
+    // Same handler as the About page's "检查版本并更新" button.
+    else if (action === 'check-update') await runTitlebarUpdateCheck();
+    else if (action === 'whats-new') openTitlebarWhatsNew();
+    else if (action === 'donate') openTitlebarDonate();
+    else if (action === 'open-website') {
+      const result = await api.openWebsite?.('https://yanagent.top');
+      if (result && result.ok === false) toast(result.error || '官网打开失败');
+    }
+    else if (action === 'about') openTitlebarAbout();
+    else if (action === 'toggle-left-sidebar') toggleLeftSidebarFromTitlebar();
+    else if (action === 'toggle-right-sidebar') toggleRightSidebarFromTitlebar();
+    else if (action === 'new-tab') openNewRightSidebarTabFromTitlebar();
+    else if (action === 'history-back') navigateAppHistory(-1);
+    else if (action === 'history-forward') navigateAppHistory(1);
+    else if (action === 'zoom-in') zoomApp('in');
+    else if (action === 'zoom-out') zoomApp('out');
+  }
+
+  for (const entry of titlebarMenus) {
+    const button = $(entry.button);
+    const menu = $(entry.menu);
+    if (!button || !menu) continue;
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleTitlebarMenu(button);
+    });
+    menu.addEventListener('click', event => {
+      const item = event.target.closest('[data-titlebar-action]');
+      if (item) void runTitlebarMenuAction(item.dataset.titlebarAction);
+    });
+    menu.addEventListener('keydown', event => {
+      const items = [...menu.querySelectorAll('.titlebar-menu-item')].filter(item => !item.disabled);
+      if (!items.length) return;
+      const index = items.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        const next = index < 0 ? 0 : (index + step + items.length) % items.length;
+        items[next].focus({ preventScroll: true });
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        items[event.key === 'Home' ? 0 : items.length - 1].focus({ preventScroll: true });
+      } else if (event.key === 'Tab') {
+        closeTitlebarMenu();
+      }
+    });
+  }
+  document.addEventListener('pointerdown', event => {
+    if (!event.target.closest('.titlebar-menu, .titlebar-menubar')) closeTitlebarMenu();
+  }, { passive: true });
+  window.addEventListener('resize', () => positionTitlebarMenu());
+  window.addEventListener('scroll', event => {
+    const menu = titlebarMenuState.menu;
+    if (!menu || menu.classList.contains('hidden')) return;
+    if (event.target instanceof Node && menu.contains(event.target)) return;
+    closeTitlebarMenu();
+  }, true);
+
+  titlebarAboutDialog?.addEventListener('click', event => {
+    if (event.target === titlebarAboutDialog) closeTitlebarAbout();
+  });
+  titlebarAboutDialog?.querySelectorAll('[data-about-dialog-close]').forEach(button => {
+    button.addEventListener('click', closeTitlebarAbout);
+  });
+  titlebarAboutDialog?.addEventListener('close', () => {
+    titlebarAboutReturnFocus?.focus?.({ preventScroll: true });
+    titlebarAboutReturnFocus = null;
+  });
+  titlebarWhatsNewDialog?.addEventListener('click', event => {
+    if (event.target === titlebarWhatsNewDialog) closeTitlebarWhatsNew();
+  });
+  titlebarWhatsNewDialog?.querySelectorAll('[data-whats-new-close]').forEach(button => {
+    button.addEventListener('click', closeTitlebarWhatsNew);
+  });
+  titlebarWhatsNewDialog?.addEventListener('close', () => {
+    whatsNewReturnFocus?.focus?.({ preventScroll: true });
+    whatsNewReturnFocus = null;
+  });
+  titlebarDonateDialog?.addEventListener('click', event => {
+    if (event.target === titlebarDonateDialog) closeTitlebarDonate();
+  });
+  titlebarDonateDialog?.querySelectorAll('[data-donate-close]').forEach(button => {
+    button.addEventListener('click', closeTitlebarDonate);
+  });
+  titlebarDonateDialog?.addEventListener('close', () => {
+    donateReturnFocus?.focus?.({ preventScroll: true });
+    donateReturnFocus = null;
+  });
+
+  // Seed the navigation history with the page the app booted on.
+  recordAppViewSoon();
+
   // keyboard: Ctrl/Cmd+B toggle sidebar
   document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (e.shiftKey && key === 'e') {
+        e.preventDefault();
+        closeTitlebarMenu();
+        toggleRightSidebarFromTitlebar();
+        return;
+      }
+      if (!e.shiftKey && key === 't') {
+        e.preventDefault();
+        closeTitlebarMenu();
+        openNewRightSidebarTabFromTitlebar();
+        return;
+      }
+      if (!e.shiftKey && (e.key === '[' || e.key === ']')) {
+        e.preventDefault();
+        closeTitlebarMenu();
+        navigateAppHistory(e.key === '[' ? -1 : 1);
+        return;
+      }
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        closeTitlebarMenu();
+        zoomApp('in');
+        return;
+      }
+      if (e.key === '-') {
+        e.preventDefault();
+        closeTitlebarMenu();
+        zoomApp('out');
+        return;
+      }
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'n' || key === 'o' || key === 'w') {
+        e.preventDefault();
+        closeTitlebarMenu();
+        if (key === 'n') void newSession();
+        else if (key === 'o') void openFolderFromTitlebar();
+        else api.window.close();
+        return;
+      }
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       setLeftSidebarOpen($('#app').classList.contains('sidebar-hidden'));
@@ -22739,9 +26227,21 @@ function bindUI() {
       e.preventDefault();
       $('#newTaskNavBtn').click();
     }
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'c') {
+      if (e.repeat || e.isComposing) return;
+      const app = $('#app');
+      if (app?.classList.contains('settings-mode') || app?.classList.contains('rs-hidden')) return;
+      if (document.querySelector('dialog[open]')) return;
+      if (!visibleRightSidebarTabs().length) return;
+      e.preventDefault();
+      closeAllRightSidebarTabs();
+    }
     if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
+      if (titlebarMenuState.menu) {
+        closeTitlebarMenu({ restoreFocus: true });
+        return;
+      }
       if (!settingsOverlay.classList.contains('hidden')) closeSettings();
-      else if (aboutPageLayer && !aboutPageLayer.classList.contains('hidden')) closeAbout();
     }
   });
 
@@ -22798,9 +26298,84 @@ function syncBrowserAddressInput(controller) {
   controller.urlInput.title = fullUrl;
 }
 
+async function renderBrowserStartRecent(controller) {
+  const list = controller.root.querySelector('.side-start-recent');
+  if (!list || controller.recentLoading) return;
+  controller.recentLoading = true;
+  try {
+    const history = await api.browserHistory();
+    if (!list.isConnected) return;
+    const entries = (Array.isArray(history) ? history : []).filter(item => {
+        try {
+          const url = new URL(item.url);
+          return (['http:', 'https:'].includes(url.protocol) || (url.protocol === 'file:' && /\.html?$/i.test(url.pathname))) && Number.isFinite(Number(item.time));
+        } catch { return false; }
+      })
+      .sort((a, b) => b.time - a.time).slice(0, 10);
+    list.replaceChildren();
+    list.closest('.side-start-recent-section').hidden = !entries.length;
+    for (const item of entries) {
+      const button = document.createElement('button'); button.type = 'button'; button.title = item.url;
+      const icon = document.createElement('span'); icon.className = 'side-start-recent-icon'; icon.setAttribute('aria-hidden', 'true');
+      const image = document.createElement('img'); image.alt = ''; image.referrerPolicy = 'no-referrer'; image.loading = 'lazy';
+      const localPage = /^file:/i.test(item.url);
+      const fallback = new URL(localPage ? './favicon.ico' : '/favicon.ico', item.url).href;
+      const favicon = /^https?:\/\/|^data:image\//i.test(item.favicon || '') || (localPage && /^file:/i.test(item.favicon || '')) ? item.favicon : fallback;
+      image.addEventListener('error', () => {
+        if (image.src !== fallback) image.src = fallback;
+        else icon.innerHTML = RIGHT_SIDEBAR_TOOLS.browser.icon;
+      });
+      image.src = favicon;
+      icon.append(image);
+      const copy = document.createElement('span'); copy.className = 'side-start-recent-copy';
+      const title = document.createElement('strong'); title.textContent = item.title || item.url;
+      const url = document.createElement('small'); url.textContent = item.url;
+      copy.append(title, url);
+      const time = document.createElement('time'); const date = new Date(Number(item.time));
+      time.dateTime = date.toISOString(); time.title = date.toLocaleString('zh-CN');
+      time.textContent = date.toLocaleDateString() === new Date().toLocaleDateString()
+        ? '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        : date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      button.append(icon, copy, time);
+      button.addEventListener('click', () => controller.navigate(item.url, { waitForLoad: true }).catch(reportBrowserLoadFailure));
+      list.append(button);
+    }
+
+  } catch {
+    list.replaceChildren();
+    list.closest('.side-start-recent-section').hidden = true;
+  } finally { controller.recentLoading = false; }
+}
+
+// A freshly created <webview> keeps reporting about:blank after the target
+// navigation has been requested. Its late dom-ready/did-finish-load must not
+// pull the panel back to the start page or blank the address bar mid-load.
+function resolveBrowserDocumentUrl(controller, url) {
+  const value = getBrowserDisplayUrl(url);
+  return value || getBrowserDisplayUrl(controller?.pendingNavigation?.url);
+}
+
+// Only a navigation that has not produced a committed document yet gets the
+// loading layer. A same-document link click keeps the current page visible.
+function syncBrowserLoadingState(controller) {
+  const el = controller?.loadingState;
+  if (!el) return;
+  const loading = Boolean(controller.pendingNavigation)
+    && !getBrowserDisplayUrl(controller.committedUrl)
+    && !controller.errorInfo;
+  el.classList.toggle('active', loading);
+  el.setAttribute('aria-hidden', String(!loading));
+  const host = el.querySelector('[data-browser-role="loading-host"]');
+  if (host) {
+    const label = getBrowserCompactUrl(controller.pendingNavigation?.url);
+    if (host.textContent !== label) host.textContent = label;
+  }
+  controller.root?.setAttribute('aria-busy', String(loading));
+}
+
 function setBrowserPageState(controller, url) {
   if (!controller) return;
-  const displayUrl = getBrowserDisplayUrl(url);
+  const displayUrl = resolveBrowserDocumentUrl(controller, url);
   controller.currentUrl = displayUrl;
   if (!controller.addressEditing) {
     controller.addressDraft = displayUrl;
@@ -22809,6 +26384,9 @@ function setBrowserPageState(controller, url) {
   const empty = !displayUrl;
   controller.emptyState?.classList.toggle('active', empty);
   controller.emptyState?.setAttribute('aria-hidden', String(!empty));
+  if (empty) void renderBrowserStartRecent(controller);
+  syncBrowserLoadingState(controller);
+  syncRightDock();
 }
 
 // Show or clear the browser panel's load-error state. The headline always comes
@@ -22854,10 +26432,63 @@ function setBrowserErrorState(controller, error) {
   el.hidden = false;
 }
 
+// Electron's <webview> throws from getWebContentsId() once it is detached from
+// the DOM or before its dom-ready event, so deferred timers and async
+// continuations must verify attachment before touching guest APIs. Closing a tab
+// while its page is still loading used to crash the renderer from the 15 s
+// load-timeout timer calling webview.stop() on the removed element.
+function isBrowserWebviewAttached(webview) {
+  if (!webview?.isConnected) return false;
+  try {
+    webview.getWebContentsId();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stopBrowserWebview(webview) {
+  if (!isBrowserWebviewAttached(webview)) return false;
+  try {
+    webview.stop();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function reloadBrowserWebview(webview, { ignoreCache = false } = {}) {
+  if (!isBrowserWebviewAttached(webview)) return false;
+  try {
+    if (ignoreCache && typeof webview.reloadIgnoringCache === 'function') webview.reloadIgnoringCache();
+    else webview.reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Pending navigations must settle when their tab is closed; the UI suppresses
+// this error instead of reporting a load failure for a page the user dismissed.
+function browserTabClosedError() {
+  // DOMException.code is a getter-only WebIDL attribute, so assigning a custom
+  // code throws; a plain Error keeps the AbortError name and a marker code.
+  const error = new Error('Browser tab closed');
+  error.name = 'AbortError';
+  error.code = 'BROWSER_TAB_CLOSED';
+  error.silent = true;
+  return error;
+}
+
+function reportBrowserLoadFailure(error) {
+  if (error?.silent) return;
+  toast(`网页加载失败：${error.message}`);
+}
+
 function waitForBrowserDomReady(controller, timeoutMs = 5000) {
   if (controller?.domReady) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('浏览器标签初始化超时')), timeoutMs);
+    const timer = setTimeout(() => finish(controller?.destroyed ? browserTabClosedError() : new Error('浏览器标签初始化超时')), timeoutMs);
     const finish = error => {
       clearTimeout(timer);
       controller?.webview?.removeEventListener('dom-ready', onReady);
@@ -23057,13 +26688,18 @@ function setBrowserFocusMode(enabled) {
   $('#app')?.classList.toggle('browser-focus-mode', next);
   syncBrowserFocusComposerAvailability();
   if (!next && browserFocusStoredRightWidth) {
-    const requested = parseFloat(browserFocusStoredRightWidth) || 360;
-    const leftWidth = $('#app')?.classList.contains('sidebar-hidden') ? 0 : ($('#sidebar')?.getBoundingClientRect().width || 0);
-    const maxWidth = Math.max(280, window.innerWidth - ($('#appRail')?.offsetWidth || 0) - leftWidth - 494 - 12);
-    const restored = Math.max(280, Math.min(maxWidth, requested));
-    document.documentElement.style.setProperty('--rs-w', `${restored}px`);
-    browserFocusStoredRightWidth = '';
+    if (applyRightSidebarFullscreenWidth()) {
+      browserFocusStoredRightWidth = '';
+    } else {
+      const requested = parseFloat(browserFocusStoredRightWidth) || 360;
+      const leftWidth = $('#app')?.classList.contains('sidebar-hidden') ? 0 : ($('#sidebar')?.getBoundingClientRect().width || 0);
+      const maxWidth = Math.max(280, window.innerWidth - ($('#appRail')?.offsetWidth || 0) - leftWidth - 494 - 12);
+      const restored = Math.max(280, Math.min(maxWidth, requested));
+      document.documentElement.style.setProperty('--rs-w', `${restored}px`);
+      browserFocusStoredRightWidth = '';
+    }
   }
+  if (next) ensureFullscreenPanelContent();
   observeFloatingComposer();
   if (next) {
     setBrowserFocusComposerMode('standby');
@@ -23157,7 +26793,7 @@ function browserScopeKey(workspace, sessionId = '') {
 }
 
 function browserControllerMatchesScope(controller, { workspace = '', sessionId = '' } = {}) {
-  if (!controller?.agentOwned) return false;
+  if (!controller || !sessionId || controller.agentSessionId !== String(sessionId)) return false;
   const scope = browserScopeKey(workspace, sessionId);
   return !!scope && controller.agentScopeKey === scope;
 }
@@ -23177,7 +26813,8 @@ function currentBrowserScope() {
 
 function browserControllerVisibleInCurrentSession(controller) {
   if (currentMainPage !== 'chat') return false;
-  if (!controller?.agentOwned) return true;
+  if (!controller) return false;
+  if (controller.agentSessionId && controller.agentSessionId !== currentRightSidebarTaskId()) return false;
   return browserControllerMatchesScope(controller, currentBrowserScope());
 }
 
@@ -23194,6 +26831,53 @@ function getAgentBrowserController(runId = '', scope = null) {
   return getBrowserTabController(lastActiveBrowserTabId)
     || [...browserTabControllers.values()].at(-1)
     || null;
+}
+
+// Manual and released Agent tabs are usable by a run in the same workspace and
+// session. Reuse is always explicit (tab_id or reuse:"scope") so a run never
+// silently inherits a page it did not ask for, and an actively controlled or
+// still-releasing tab is never taken over.
+function agentBrowserTabReuseError(controller, scope, runId) {
+  const id = String(controller?.id || '');
+  if (!controller || !browserTabControllers.has(id)) {
+    return { ok: false, error: `找不到标签页 ${id || '(未指定)'}，请调用 browser_list_tabs 查看可用标签页。`, code: 'BROWSER_TAB_NOT_FOUND' };
+  }
+  if (!browserControllerMatchesScope(controller, scope)) {
+    return { ok: false, error: '该标签页属于其他任务或其他工作区，不能复用。', code: 'BROWSER_TAB_SCOPE_MISMATCH' };
+  }
+  if (controller.agentControlActive && controller.agentRunId !== String(runId || '')) {
+    return { ok: false, error: '该标签页正被其他任务操控，请使用当前任务的独立标签页。', code: 'BROWSER_TAB_OWNED' };
+  }
+  if (controller.agentReleasePromise) {
+    return { ok: false, error: '该标签页正在结束上一次操控，请稍后重试或新建标签页。', code: 'BROWSER_TAB_RELEASING' };
+  }
+  return null;
+}
+
+function findReusableAgentBrowserController(scope, runId = '') {
+  const candidates = [...browserTabControllers.values()]
+    .filter(controller => !agentBrowserTabReuseError(controller, scope, runId));
+  if (!candidates.length) return null;
+  return candidates.find(controller => controller.id === lastActiveBrowserTabId)
+    || candidates.find(controller => controller.id === activeRightSidebarTab)
+    || candidates.at(-1);
+}
+
+function listAgentBrowserTabs(scope, runId = '') {
+  return [...browserTabControllers.values()]
+    .filter(controller => browserControllerMatchesScope(controller, scope))
+    .map(controller => ({
+      tabId: controller.id,
+      agentOwned: controller.agentOwned,
+      active: controller.id === activeRightSidebarTab,
+      url: controller.webview?.getURL?.() || controller.currentUrl || '',
+      title: controller.webview?.getTitle?.() || '',
+      loading: !!controller.webview?.isLoading?.(),
+      controlledByThisTask: !!controller.agentControlActive && controller.agentRunId === String(runId || ''),
+      controlledByOtherTask: !!controller.agentControlActive && controller.agentRunId !== String(runId || ''),
+      reusable: !agentBrowserTabReuseError(controller, scope, runId),
+      releasing: !!controller.agentReleasePromise
+    }));
 }
 
 function findRunCtxByRunId(runId) {
@@ -23296,8 +26980,53 @@ function getAgentBrowserRightSidebarBounds() {
   return { min, max };
 }
 
+function isAppFullscreen() {
+  if (document.fullscreenElement) return true;
+  const screenWidth = Number(window.screen?.width) || 0;
+  const screenHeight = Number(window.screen?.height) || 0;
+  if (!screenWidth || !screenHeight) return false;
+  const availWidth = Number(window.screen?.availWidth) || screenWidth;
+  const availHeight = Number(window.screen?.availHeight) || screenHeight;
+  const outerWidth = Number(window.outerWidth) || 0;
+  const outerHeight = Number(window.outerHeight) || 0;
+  const innerWidth = Number(window.innerWidth) || 0;
+  const innerHeight = Number(window.innerHeight) || 0;
+  const near = (a, b) => Math.abs(a - b) <= 2;
+  const matches = (width, height) => (near(outerWidth, width) && near(outerHeight, height))
+    || (near(innerWidth, width) && near(innerHeight, height));
+  return matches(screenWidth, screenHeight) || matches(availWidth, availHeight);
+}
+
+function setRightSidebarWidth(width) {
+  document.documentElement.style.setProperty('--rs-w', `${Math.round(width)}px`);
+  scheduleRightSidebarTabLayoutSync();
+  notifySidebarLayoutChanged();
+}
+
+function rightSidebarMaximumWidth() {
+  const leftWidth = $('#app')?.classList.contains('sidebar-hidden') ? 0 : ($('#sidebar')?.getBoundingClientRect().width || 0);
+  return Math.max(280, window.innerWidth - ($('#appRail')?.offsetWidth || 0) - leftWidth - 494 - 12);
+}
+
+function applyRightSidebarUserWidth() {
+  if (!rightSidebarUserWidth) return false;
+  setRightSidebarWidth(Math.max(280, Math.min(rightSidebarMaximumWidth(), rightSidebarUserWidth)));
+  return true;
+}
+
+function applyRightSidebarFullscreenWidth() {
+  if (applyRightSidebarUserWidth()) return true;
+  if (!isAppFullscreen()) return false;
+  setRightSidebarWidth(RIGHT_SIDEBAR_FULLSCREEN_WIDTH);
+  return true;
+}
+
 function expandRightSidebarForReview() {
   if (browserFocusMode) return;
+  if (applyRightSidebarFullscreenWidth()) {
+    requestAnimationFrame(() => rsReviewEditorController?.layout());
+    return;
+  }
   const root = document.documentElement;
   const current = parseFloat(getComputedStyle(root).getPropertyValue('--rs-w')) || 360;
   const { min, max } = getAgentBrowserRightSidebarBounds();
@@ -23310,6 +27039,7 @@ function expandRightSidebarForReview() {
 
 function expandRightSidebarForAgentBrowser() {
   if (browserFocusMode || state.config?.browser?.agentExposure === 'manual') return;
+  if (applyRightSidebarFullscreenWidth()) return;
   const root = document.documentElement;
   const current = parseFloat(getComputedStyle(root).getPropertyValue('--rs-w')) || 360;
   const { min, max } = getAgentBrowserRightSidebarBounds();
@@ -23331,7 +27061,9 @@ function releaseBrowserAgentControl(runId, { userReleased = false, skipAgentRele
 }
 
 function syncAgentBrowserVisibility() {
-  const active = getActiveRightSidebarTab();
+  // Use the raw active tab: an out-of-scope Agent tab is intentionally hidden
+  // from the current task, but the panel it left open must still be closed.
+  const active = openRightSidebarTabs.find(tab => tab.id === activeRightSidebarTab) || null;
   if (active?.type !== 'browser') return;
   const controller = getBrowserTabController(active.id);
   if (controller?.agentOwned && !browserControllerVisibleInCurrentSession(controller)) {
@@ -23447,7 +27179,7 @@ async function resolveBrowserUrl(input, runCtx) {
   return 'file:///' + encodeURI(norm.replace(/^([a-zA-Z]:)/, '$1'));
 }
 
-async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', operationId = '' } = {}) {
+async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', operationId = '', tabId = '', reuse = '' } = {}) {
   const ownerRunId = String(runId || runCtx?.runId || '');
   if (!ownerRunId) {
     return { ok: false, error: '内置浏览器缺少当前 Agent 任务身份。', code: 'BROWSER_RUN_ID_REQUIRED' };
@@ -23459,19 +27191,43 @@ async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', o
     workspace: String(runCtx?.workspace || ''),
     sessionId: String(runCtx?.sessionId || '')
   };
+  const requestedTabId = String(tabId || '').trim();
+  const reuseScope = String(reuse || '').trim() === 'scope';
+  const attachOnly = !String(urlOrPath || '').trim();
+  if (attachOnly && !requestedTabId && !reuseScope) return { ok: false, error: '请提供 URL 或文件路径' };
   let url = '';
-  try {
-    url = await resolveBrowserUrl(urlOrPath, runCtx);
-  } catch (error) {
-    return { ok: false, error: `无法解析预览地址：${error.message}` };
+  if (!attachOnly) {
+    try {
+      url = await resolveBrowserUrl(urlOrPath, runCtx);
+    } catch (error) {
+      return { ok: false, error: `无法解析预览地址：${error.message}` };
+    }
+    if (!url) return { ok: false, error: '请提供 URL 或文件路径' };
   }
-  if (!url) return { ok: false, error: '请提供 URL 或文件路径' };
 
   const autoExpose = state.config?.browser?.agentExposure !== 'manual';
   if (autoExpose) switchSidebarNav('tasks');
 
   let browser = getAgentBrowserController(ownerRunId, scope);
   let created = false;
+  let reused = false;
+  if (browser && requestedTabId && requestedTabId !== browser.id) {
+    return { ok: false, error: `当前任务已在标签页 ${browser.id} 上操控，不能同时接管 ${requestedTabId}。`, code: 'BROWSER_TAB_ALREADY_ACTIVE' };
+  }
+  if (!browser && (requestedTabId || reuseScope)) {
+    if (requestedTabId) {
+      const candidate = getBrowserTabController(requestedTabId);
+      const rejected = agentBrowserTabReuseError(candidate, scope, ownerRunId);
+      if (rejected) return rejected;
+      browser = candidate;
+    } else {
+      browser = findReusableAgentBrowserController(scope, ownerRunId);
+      if (!browser) {
+        return { ok: false, error: '当前会话与工作区没有可复用的空闲浏览器标签页，请直接新建。', code: 'BROWSER_NO_REUSABLE_TAB' };
+      }
+    }
+    reused = true;
+  }
   if (!browser) {
     const tab = createRightSidebarTab('browser', {
       agentRunId: ownerRunId,
@@ -23493,6 +27249,18 @@ async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', o
   if (!setBrowserAgentControl(browser, true, { runId: ownerRunId })) {
     return { ok: false, error: '该标签页正被其他任务操控，请使用当前任务的独立标签页。', code: 'BROWSER_TAB_OWNED' };
   }
+  if (attachOnly) {
+    return {
+      ok: true,
+      url: browser.webview?.getURL?.() || '',
+      tabId: browser.id,
+      dedicatedAgentTab: true,
+      created: false,
+      reused: true,
+      attached: true,
+      output: '已接管现有标签页，未重新加载页面。'
+    };
+  }
   try {
     const navigation = browser.agent?.enqueueAction
       ? await browser.agent.enqueueAction(operationId, signal => browser.navigate(url, { waitForLoad: true, signal }))
@@ -23503,7 +27271,8 @@ async function agentOpenBuiltinBrowser(urlOrPath, { runCtx = null, runId = '', o
       url: navigation?.url || url,
       tabId: browser.id,
       dedicatedAgentTab: true,
-      created
+      created,
+      reused
     };
   } catch (error) {
     return { ok: false, error: `内置浏览器加载失败：${error.message}` };
@@ -23524,6 +27293,21 @@ async function executeBrowserAgentCommand(detail = {}) {
       ? params.yan_session_id
       : runCtx ? runCtx.sessionId : state.currentSession?.id || '')
   };
+  if (action === 'request_acceptance_upgrade') {
+    if (!runCtx || runCtx.shouldAbort || agentPermissionRequest || agentQuestionRequest) return { ok: false, code: 'BROWSER_APPROVAL_UNAVAILABLE' };
+    const { decision } = await requestAgentPermission({
+      requestId: `browser-upgrade:${operationId}`,
+      title: '内置浏览器验收现请求严谨模式，是否允许？',
+      description: '允许一次仅对当前这轮任务生效；总是允许会记住后续升级授权。重新选择验收程度可撤销此授权。',
+      detail: String(params.reason || ''), sessionId: runCtx.sessionId,
+      onceLabel: '允许一次', denyLabel: '不允许', alwaysToast: '已允许后续内置浏览器验收升级'
+    }, runCtx);
+    return { ok: ['once', 'always'].includes(decision) && !runCtx.shouldAbort, decision };
+  }
+  if (action === 'cancel' || action === 'release') {
+    if (agentPermissionRequest?.runCtx === runCtx && agentPermissionRequest?.requestId.startsWith('browser-upgrade:')
+      && (action === 'release' || agentPermissionRequest.requestId === `browser-upgrade:${params.operation_id || operationId}`)) settleAgentPermission('deny', { silent: true });
+  }
   if (action === 'cancel') {
     if (!runId) return { ok: false, code: 'BROWSER_RUN_CONTEXT_MISSING' };
     const controller = getAgentBrowserController(runId);
@@ -23539,12 +27323,17 @@ async function executeBrowserAgentCommand(detail = {}) {
     return { ok: released, released: true, cancelled };
   }
   if (action === 'open' && !runCtx?.browserAnnotation) {
-    const target = params.target_type === 'search'
-      ? `https://www.bing.com/search?q=${encodeURIComponent(String(params.url_or_path || ''))}`
-      : params.url_or_path;
+    const rawTarget = String(params.url_or_path || '').trim();
+    const target = !rawTarget
+      ? ''
+      : params.target_type === 'search'
+        ? `https://www.bing.com/search?q=${encodeURIComponent(rawTarget)}`
+        : params.url_or_path;
     return agentOpenBuiltinBrowser(target, {
       runId,
       operationId,
+      tabId: params.tab_id,
+      reuse: params.reuse,
       runCtx: runCtx || {
         runId,
         workspace: scope.workspace,
@@ -23559,6 +27348,16 @@ async function executeBrowserAgentCommand(detail = {}) {
   if (blockedAgentBrowserRuns.has(runId)) {
     return { ok: false, error: blockedAgentBrowserRuns.get(runId), code: 'BROWSER_AGENT_CONTROL_RELEASED' };
   }
+  if (action === 'list_tabs') {
+    const tabs = listAgentBrowserTabs(scope, runId);
+    return {
+      ok: true,
+      tabs,
+      output: tabs.length
+        ? `当前会话与工作区有 ${tabs.length} 个浏览器标签页（含用户手动打开的页面）；reusable 为 true 的可通过 open_builtin_browser 的 tab_id 或 reuse:"scope" 接管。`
+        : '当前会话与工作区没有浏览器标签页。'
+    };
+  }
   let controller = getAgentBrowserController(runId, scope);
   if (runCtx?.browserAnnotation) {
     const annotated = browserTabControllers.get(runCtx.browserAnnotation.tabId);
@@ -23568,7 +27367,7 @@ async function executeBrowserAgentCommand(detail = {}) {
     if (!controller.agentControlActive) setBrowserAgentControl(controller,true,{runId});
   }
   if (!controller) {
-    return { ok: false, error: '当前任务尚未创建 Agent 专属浏览器标签页。请先调用 open_builtin_browser。', code: 'BROWSER_NOT_OPEN' };
+    return { ok: false, error: '当前轮尚未绑定浏览器标签页；这不代表没有已打开的页面。请先调用 browser_list_tabs，使用 open_builtin_browser + tab_id 接管需要的已有页面；没有合适页面时再新建。', code: 'BROWSER_NOT_OPEN' };
   }
   if (!controller.agentControlActive || controller.agentRunId !== runId) {
     return { ok: false, error: 'Agent 已退出对此网页的操控。', code: 'BROWSER_AGENT_CONTROL_RELEASED' };
@@ -23583,6 +27382,41 @@ async function executeBrowserAgentCommand(detail = {}) {
       if (controller.agentControlActive) controller.agentInputShield?.focus({ preventScroll: true });
     }
   };
+
+  // Hard gate: quick acceptance may not sign off a page that needs real
+  // scrutiny. This is enforced here, not left to the prompt, because a fast
+  // "looks fine" on a login/checkout/3D page is worse than a slow honest check.
+  if (params.purpose === 'frontend_acceptance' && action !== 'request_acceptance_upgrade') {
+    const prefs = state.config?.browser || {};
+    const quick = prefs.acceptanceLevel === 'quick'
+      && prefs.acceptanceUpgradeAlways !== true
+      && runCtx?.browserAcceptanceRigorous !== true;
+    if (quick) {
+      // Probe every time: the static signals are cheap, and the write monitor's
+      // state changes without the URL changing. On a blocked guest the probe
+      // yields null and the acceptance call itself will fail with a guest
+      // timeout anyway.
+      const risk = await Promise.race([
+        agent.acceptanceRisk().catch(() => null),
+        new Promise(resolve => setTimeout(() => resolve(null), 3000))
+      ]);
+      const reasons = [];
+      if (risk?.webgl) reasons.push('页面包含 WebGL/3D 画布');
+      if (risk?.sensitiveInput) reasons.push('页面包含密码/邮箱/手机/银行卡/验证码等敏感输入');
+      if (risk?.writeForm) reasons.push('页面包含非 GET 表单（登录/下单/上传等写入操作）');
+      if (risk?.fileUpload) reasons.push('页面包含文件上传');
+      if (risk?.destructiveLabel) reasons.push('页面包含删除/发布/支付/发送等破坏性操作');
+      if (risk?.dirty) reasons.push(`页面已发起写请求（${risk.dirty.kind}：${risk.dirty.detail}）`);
+      if (reasons.length) {
+        return {
+          ok: false,
+          code: 'BROWSER_ACCEPTANCE_APPROVAL_REQUIRED',
+          risk: reasons,
+          error: `当前是快速验收，但这个页面需要认真核查（${reasons.join('、')}）。请先调用 browser_request_acceptance_upgrade 说明原因并等待用户批准，不要在快速模式下给出结论或跳过验收。`
+        };
+      }
+    }
+  }
 
   if (action === 'open' && runCtx?.browserAnnotation) return {ok:true,tabId:controller.id,url:controller.webview.getURL(),output:'已绑定用户注释的原页面，无需重新打开。请调用 browser_apply_annotation 修改所选元素。'};
   if (action === 'set_viewport') return runAgentAction(() => agent.withAction(async () => {
@@ -23609,11 +27443,18 @@ async function executeBrowserAgentCommand(detail = {}) {
     toY: params.to_y,
     button: params.button
   }));
-  if (action === 'press') return runAgentAction(() => agent.press(params.key, { durationMs: params.duration_ms }));
+  if (action === 'press') return runAgentAction(() => agent.press(params.key, { durationMs: params.duration_ms, ref: params.ref }));
   if (action === 'scroll') return runAgentAction(() => agent.scroll(params.direction, params.amount, params.ref));
   if (action === 'wait') return runAgentAction(() => agent.wait(params.timeout_ms, params.text, params.ref, params.state));
-  if (action === 'screenshot') return runAgentAction(() => agent.screenshot());
-  if (action === 'inspect_page') return runAgentAction(() => agent.inspectPage());
+  if (action === 'screenshot') return runAgentAction(() => agent.screenshot({ fullSize: params.full_size === true, force: params.force === true }));
+  if (action === 'acceptance_sweep') return runAgentAction(() => agent.acceptanceSweep({
+    checks: params.checks,
+    settleMs: params.settle_ms,
+    includePerformance: params.include_performance === true,
+    fullSize: params.full_size === true
+  }));
+  if (action === 'inspect_page') return runAgentAction(() => agent.inspectPage({ includePerformance: params.include_performance === true }));
+  if (action === 'evaluate') return runAgentAction(() => agent.evaluate(params.expression, { storage: params.storage === true }));
   if (action === 'apply_annotation') {
     const note=runCtx?.browserAnnotation;
     if (!note || note.tabId!==controller.id) return {ok:false,error:'本任务没有用户选定的注释目标'};
@@ -23634,7 +27475,7 @@ async function executeBrowserAgentCommand(detail = {}) {
       agentControlled: controller.agentControlActive
     };
   }
-  return runAgentAction(async () => {
+  return runAgentAction(() => agent.withAction(async () => {
     if (!['back', 'forward', 'reload'].includes(action)) {
       return { ok: false, error: `不支持的内置浏览器操作：${action}`, code: 'UNKNOWN_BROWSER_ACTION' };
     }
@@ -23643,18 +27484,65 @@ async function executeBrowserAgentCommand(detail = {}) {
     } else if (action === 'forward' && !controller.webview?.canGoForward?.()) {
       return { ok: false, error: '当前页面没有可前进的历史记录。', code: 'BROWSER_CANNOT_GO_FORWARD' };
     }
-    const navigation = agent.waitForNavigation(5_000);
-    if (action === 'back') {
-      controller.webview.goBack();
-    } else if (action === 'forward') {
-      controller.webview.goForward();
-    } else if (action === 'reload') {
-      controller.webview?.reload?.();
+    const url = () => controller.webview?.getURL?.() || '';
+    const withStep = (step, code, message, cause) => {
+      const error = new Error(message);
+      error.code = code;
+      error.step = step;
+      error.cause = cause;
+      return error;
+    };
+    const attempt = async () => {
+      const navigation = agent.waitForNavigation(5_000);
+      if (action === 'back') controller.webview.goBack();
+      else if (action === 'forward') controller.webview.goForward();
+      else controller.webview?.reload?.();
+      const navigationCompleted = await navigation;
+      try {
+        await Promise.race([
+          agent.waitForSettle(1_500),
+          new Promise((_resolve, reject) => setTimeout(() => reject(new Error('settle timeout')), 3_000))
+        ]);
+      } catch (error) {
+        throw withStep('settle', 'BROWSER_RELOAD_SETTLE_TIMEOUT', `${action} 后等待页面稳定超过 3 秒（${url()}）`, error);
+      }
+      let pageState = null;
+      try {
+        pageState = await Promise.race([
+          agent.pageState(),
+          new Promise((_resolve, reject) => setTimeout(() => reject(new Error('pageState timeout')), 3_000))
+        ]);
+      } catch (error) {
+        throw withStep('pageState', 'BROWSER_RELOAD_STATE_TIMEOUT', `${action} 后读取页面状态超过 3 秒（${url()}）`, error);
+      }
+      return { navigationCompleted, pageState };
+    };
+    try {
+      const first = await attempt();
+      return { ok: true, url: url(), ...first };
+    } catch (error) {
+      if (error?.code === 'BROWSER_TAB_CLOSED' || error?.silent) throw error;
+      // Only reload is safe to retry: repeating back/forward would move another
+      // step through history. A transient guest stall usually clears on reload.
+      if (action !== 'reload') {
+        return { ok: false, code: error?.code || 'BROWSER_NAVIGATION_FAILED', step: error?.step || action,
+          error: `${error?.message || error}。可以先改用 browser_snapshot / browser_read_page（不依赖渲染），仍不行再考虑其它浏览器。` };
+      }
+      try {
+        const second = await attempt();
+        return { ok: true, retried: true, url: url(), ...second };
+      } catch (retryError) {
+        return {
+          ok: false,
+          code: retryError?.code || 'BROWSER_RELOAD_FAILED',
+          step: retryError?.step || 'reload',
+          retried: true,
+          url: url(),
+          error: `reload 失败（步骤 ${retryError?.step || 'reload'}）：${retryError?.message || retryError}。已自动重试 1 次仍未恢复；请改用 browser_snapshot / browser_read_page（不依赖渲染）继续核对，仍不行再考虑其它浏览器。`
+        };
+      }
     }
-    const navigationCompleted = await navigation;
-    await agent.waitForSettle(1_500);
-    return { ok: true, url: controller.webview?.getURL?.() || '', navigationCompleted, pageState: await agent.pageState() };
-  });
+  }));
 }
 
 api.onBrowserAgentCommand?.((detail = {}) => {
@@ -23682,7 +27570,7 @@ function normalizeBrowserAddress(input) {
 function createBrowserTabController(tab) {
   const template = $('#browserTabTemplate');
   const host = $('#rsBrowserHost');
-  if (!template || !host || browserTabControllers.has(tab.id)) return browserTabControllers.get(tab.id) || null;
+  if (!template || !host || tab.poppedOut || browserTabControllers.has(tab.id)) return browserTabControllers.get(tab.id) || null;
 
   const fragment = template.content.cloneNode(true);
   const root = fragment.querySelector('.rs-browser-panel');
@@ -23693,6 +27581,7 @@ function createBrowserTabController(tab) {
   const status = fragment.querySelector('[data-browser-role="agent-status"]');
   const emptyState = fragment.querySelector('[data-browser-role="empty-state"]');
   const errorState = fragment.querySelector('[data-browser-role="error-state"]');
+  const loadingState = fragment.querySelector('[data-browser-role="loading-state"]');
   const settingsButton = fragment.querySelector('[data-browser-action="settings"]');
   const settingsMenu = fragment.querySelector('[data-browser-role="settings-menu"]');
   const zoomValue = fragment.querySelector('[data-browser-zoom="reset"]');
@@ -23721,6 +27610,8 @@ function createBrowserTabController(tab) {
     icon.innerHTML = RIGHT_SIDEBAR_TOOLS[icon.dataset.startIcon].icon;
   });
   root.querySelectorAll('[data-start-tool]').forEach(button => {
+    button.title = button.textContent.trim();
+    button.setAttribute('aria-label', button.title);
     button.addEventListener('click', () => {
       if (button.dataset.startTool === 'browser') urlInput.focus();
       else openRightSidebarTool(button.dataset.startTool);
@@ -23729,7 +27620,7 @@ function createBrowserTabController(tab) {
   root.querySelectorAll('[data-start-url]').forEach(button => {
     button.addEventListener('click', () => {
       controller.navigate(button.dataset.startUrl, { waitForLoad: true })
-        .catch(error => toast(`网页加载失败：${error.message}`));
+        .catch(reportBrowserLoadFailure);
     });
   });
   root.querySelectorAll('.side-start-sites img').forEach(icon => {
@@ -23753,6 +27644,7 @@ function createBrowserTabController(tab) {
     status,
     emptyState,
     errorState,
+    loadingState,
     agent: null,
     agentRunId: String(tab.agentRunId || ''),
     agentOwned: tab.agentOwned === true || !!tab.agentRunId,
@@ -23784,21 +27676,53 @@ function createBrowserTabController(tab) {
     pendingScrollLeft: 0,
     domReady: false,
     currentUrl: '',
+    committedUrl: '',
+    pendingNavigation: null,
     addressEditing: false,
     addressDraft: '',
     observer: null,
     navigate: null,
     recoveringUrl: '',
-    waitingForLoad: false
+    waitingForLoad: false,
+    destroyed: false,
+    pendingLoadCancels: new Set()
   };
   browserTabControllers.set(tab.id, controller);
+  root.querySelector('[data-browser-action="popout-restore"]')?.addEventListener('click', () => {
+    const current = openRightSidebarTabs.find(item => item.id === tab.id);
+    if (current?.poppedOut) void api.browserWindowRequestRestore?.(tab.id);
+  });
+  root.querySelector('[data-browser-action="popout-show"]')?.addEventListener('click', () => {
+    void api.browserWindowFocus?.(tab.id);
+  });
+  const startTools = root.querySelector('.side-start-tools');
+  const syncStartTools = () => {
+    if (!startTools?.isConnected || !startTools.clientWidth) return;
+    // Measure the full labels independently of the current compact state.
+    const probe = startTools.cloneNode(true);
+    probe.classList.remove('is-compact');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;width:max-content;max-width:none;';
+    const buttons = [...probe.querySelectorAll('button')];
+    buttons.forEach(button => { button.style.flex = '0 0 auto'; });
+    startTools.parentElement.append(probe);
+    const style = getComputedStyle(startTools);
+    const available = startTools.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const required = Math.max(...buttons.map(button => button.offsetWidth)) * buttons.length;
+    probe.remove();
+    startTools.classList.toggle('is-compact', available < required + 8);
+  };
+  controller.startToolsObserver = new ResizeObserver(syncStartTools);
+  if (startTools) controller.startToolsObserver.observe(startTools);
+  document.fonts.ready.then(syncStartTools);
   const reportActivity = () => {
     if (!controller.domReady) return;
     let id;
     try { id = webview.getWebContentsId(); } catch { return; }
     void api.browserTabActivity({ id, active: root.classList.contains('active') && !document.hidden
       && !$('#app').classList.contains('rs-hidden') && !$('#app').classList.contains('settings-mode'),
-      protected: controller.agentOwned || controller.agentControlActive || controller.waitingForLoad })
+      protected: controller.agentOwned || controller.agentControlActive || controller.waitingForLoad
+        || Boolean(controller.pendingNavigation) })
       .then(result => { root.dataset.sleeping = String(result.sleeping); })
       .catch(() => {});
   };
@@ -23879,16 +27803,18 @@ function createBrowserTabController(tab) {
   });
   webview.addEventListener('dom-ready', () => {
     controller.domReady = true;
-    setBrowserPageState(controller, webview.getURL?.());
-    updateBrowserTabLabel(tab.id, webview.getTitle?.(), webview.getURL?.());
+    const documentUrl = resolveBrowserDocumentUrl(controller, webview.getURL?.());
+    setBrowserPageState(controller, documentUrl);
+    updateBrowserTabLabel(tab.id, webview.getTitle?.(), documentUrl);
     syncBrowserViewport(tab.id);
     webview.insertCSS?.(BROWSER_SCROLLBAR_CSS).catch(() => {});
     void syncBrowserHorizontalScroll(controller);
   });
   webview.addEventListener('did-finish-load', () => {
     clearTimeout(controller.navigationErrorTimer);
-    setBrowserPageState(controller, webview.getURL?.());
-    updateBrowserTabLabel(tab.id, webview.getTitle?.(), webview.getURL?.());
+    const documentUrl = resolveBrowserDocumentUrl(controller, webview.getURL?.());
+    setBrowserPageState(controller, documentUrl);
+    updateBrowserTabLabel(tab.id, webview.getTitle?.(), documentUrl);
     syncBrowserViewport(tab.id);
     void syncBrowserHorizontalScroll(controller);
   });
@@ -23908,9 +27834,16 @@ function createBrowserTabController(tab) {
     controller.consoleEntries = [];
     controller.loadErrors = [];
     if (!event.url || event.url === 'about:blank') return;
+    // The budget covers "the main document never committed", not "the load
+    // event finished": ads, analytics or a streaming request that never
+    // settles must not replace a readable page with ERR_TIMED_OUT.
+    const navigation = { url: event.url, startedAt: Date.now() };
+    controller.pendingNavigation = navigation;
+    syncBrowserLoadingState(controller);
     controller.navigationErrorTimer = setTimeout(() => {
-      webview.stop();
-      setBrowserErrorState(controller, { code: -7, description: '加载超时（15 秒）', url: event.url });
+      if (controller.pendingNavigation !== navigation) return; // committed or superseded
+      if (controller.waitingForLoad) return; // loadOnce owns this navigation's budget
+      failBrowserNavigation(event.url, '加载超时（15 秒）');
     }, 15000);
   });
   const onBrowserPageCrash = event => {
@@ -23925,26 +27858,47 @@ function createBrowserTabController(tab) {
   webview.addEventListener('crashed', onBrowserPageCrash);
   controller.scrollPollTimer = window.setInterval(() => {
     if (document.hidden) return; // stay idle for a fast restore frame
+    // Only poll fast while the page actually has horizontal overflow; otherwise
+    // probe once every ~2 s. This poll is ~3 guest round trips per second and
+    // used to be the largest source of implicit IPC during acceptance work.
+    const scrollable = (controller.scrollMetrics?.maxScroll || 0) > 0;
+    controller.scrollPollTick = ((controller.scrollPollTick || 0) + 1) % 6;
+    if (!scrollable && controller.scrollPollTick !== 0) return;
     void syncBrowserHorizontalScroll(controller);
   }, 320);
 
+  // Single reporter for "this navigation never produced a document". The panel
+  // watchdog and the Agent-facing loadOnce budget share it so a navigation can
+  // never leave the loading layer or the start page behind.
+  function failBrowserNavigation(url, description = '加载超时（15 秒）') {
+    stopBrowserWebview(webview);
+    controller.pendingNavigation = null;
+    setBrowserErrorState(controller, { code: -7, description, url });
+    setBrowserPageState(controller, url);
+  }
+
   const loadOnce = (url, { signal } = {}) => new Promise((resolve, reject) => {
     let targetNavigationStarted = false;
+    let settled = false;
+    const cancel = () => finish(browserTabClosedError());
     const timer = setTimeout(() => {
       const error = Object.assign(new Error('加载超时（15 秒）'), { code: -7, url });
-      webview.stop();
-      setBrowserErrorState(controller, { code: error.code, description: error.message, url });
+      failBrowserNavigation(url, error.message);
       finish(error);
     }, 15000);
     const cleanup = () => {
       clearTimeout(timer);
+      controller.pendingLoadCancels.delete(cancel);
       webview.removeEventListener('did-start-navigation', onStartNavigation);
-      webview.removeEventListener('did-finish-load', onFinish);
+      webview.removeEventListener('did-navigate', onCommit);
+      webview.removeEventListener('did-finish-load', onCommit);
       webview.removeEventListener('did-fail-load', onFail);
       signal?.removeEventListener('abort', onAbort);
       controller.waitingForLoad = false;
     };
     const finish = (error) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       if (error) reject(error);
       else resolve({ url: webview.getURL?.() || url });
@@ -23953,12 +27907,16 @@ function createBrowserTabController(tab) {
       if (event.isMainFrame === false || String(event.url || '').toLowerCase() === 'about:blank') return;
       targetNavigationStarted = true;
     };
-    const onFinish = () => {
+    // Commit is the success signal: the requested document is now the one on
+    // screen, even while subresources are still streaming. did-finish-load
+    // stays as a fallback for documents without a main-frame did-navigate.
+    const onCommit = event => {
       // A freshly-created webview can finish its initial about:blank after the
       // target listeners are attached. That event is not proof that the
       // requested page loaded and must not complete the Tool early.
-      const currentUrl = String(webview.getURL?.() || '');
-      if (!targetNavigationStarted || currentUrl.toLowerCase() === 'about:blank') return;
+      if (!targetNavigationStarted) return;
+      const committed = String(event?.url || webview.getURL?.() || '');
+      if (!committed || committed.toLowerCase() === 'about:blank') return;
       finish(null);
     };
     const onFail = event => {
@@ -23971,14 +27929,20 @@ function createBrowserTabController(tab) {
     };
     const onAbort = () => finish(new DOMException('Browser navigation cancelled', 'AbortError'));
     controller.waitingForLoad = true;
+    controller.pendingLoadCancels.add(cancel);
     webview.addEventListener('did-start-navigation', onStartNavigation);
-    webview.addEventListener('did-finish-load', onFinish);
+    webview.addEventListener('did-navigate', onCommit);
+    webview.addEventListener('did-finish-load', onCommit);
     webview.addEventListener('did-fail-load', onFail);
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) {
       onAbort();
       return;
     }
+    // Also covers the network-recovery retry, which re-enters here without
+    // going through navigate() again.
+    controller.pendingNavigation = { url, startedAt: Date.now() };
+    setBrowserPageState(controller, url);
     if (webview.getURL?.() === url) webview.reload();
     else webview.src = url;
   });
@@ -23987,17 +27951,23 @@ function createBrowserTabController(tab) {
     const url = normalizeBrowserAddress(input);
     if (!url) return { url: '' };
     await waitForBrowserDomReady(controller);
+    if (controller.destroyed) throw browserTabClosedError();
+    setBrowserErrorState(controller, null);
+    // Record the target before touching src: the new webview's about:blank
+    // lifecycle events arrive afterwards and must not clear it.
+    controller.pendingNavigation = { url, startedAt: Date.now() };
     setBrowserPageState(controller, url);
     updateBrowserTabLabel(tab.id, '', url);
     updateBrowserTabFavicon(tab.id, []);
     if (!waitForLoad) {
-      webview.src = url;
+      if (webview.getURL?.() === url) reloadBrowserWebview(webview);
+      else webview.src = url;
       return { url };
     }
     try {
       return await loadOnce(url, { signal });
     } catch (error) {
-      if (retryNetwork && error.code === -100 && typeof api.browserRecoverNetwork === 'function') {
+      if (retryNetwork && error.code === -100 && !controller.destroyed && typeof api.browserRecoverNetwork === 'function') {
         const recovered = await api.browserRecoverNetwork(error.url || url).catch(() => null);
         console.warn(`[browser] connection closed; refreshed system proxy (${recovered?.proxy || 'unknown'}) and retrying ${url}`);
         return loadOnce(url, { signal });
@@ -24009,14 +27979,14 @@ function createBrowserTabController(tab) {
   root.querySelector('[data-browser-action="go"]')?.addEventListener('click', () => {
     const target = controller.addressDraft || urlInput.value;
     controller.addressEditing = false;
-    controller.navigate(target, { waitForLoad: true }).catch(error => toast(`网页加载失败：${error.message}`));
+    controller.navigate(target, { waitForLoad: true }).catch(reportBrowserLoadFailure);
   });
   urlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       const target = controller.addressDraft || urlInput.value;
       controller.addressEditing = false;
       urlInput.blur();
-      controller.navigate(target, { waitForLoad: true }).catch(error => toast(`网页加载失败：${error.message}`));
+      controller.navigate(target, { waitForLoad: true }).catch(reportBrowserLoadFailure);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       urlInput.blur();
@@ -24052,7 +28022,7 @@ function createBrowserTabController(tab) {
       controller.navigate(target, { waitForLoad: true }).catch(() => {});
       return;
     }
-    webview.reload();
+    reloadBrowserWebview(webview);
   });
   root.querySelector('[data-browser-error-action="retry"]')?.addEventListener('click', () => {
     const target = controller.errorInfo?.url || controller.currentUrl || urlInput.value;
@@ -24121,8 +28091,7 @@ function createBrowserTabController(tab) {
         const result = await api.browserClearData(type);
         if (!result?.ok) throw new Error(result?.error || '清理失败');
         if (type === 'cache') {
-          if (typeof webview.reloadIgnoringCache === 'function') webview.reloadIgnoringCache();
-          else webview.reload();
+          reloadBrowserWebview(webview, { ignoreCache: true });
         }
         toast(type === 'cookies'
           ? 'Cookie 已清除，已登录网站可能需要重新登录'
@@ -24138,12 +28107,16 @@ function createBrowserTabController(tab) {
   });
 
   webview.addEventListener('did-navigate', (e) => {
+    controller.committedUrl = getBrowserDisplayUrl(e.url);
+    controller.pendingNavigation = null;
+    clearTimeout(controller.navigationErrorTimer);
     setBrowserPageState(controller, e.url);
     updateBrowserTabLabel(tab.id, '', e.url);
     updateBrowserTabFavicon(tab.id, []);
     void syncBrowserHorizontalScroll(controller);
   });
   webview.addEventListener('did-navigate-in-page', (e) => {
+    controller.committedUrl = getBrowserDisplayUrl(e.url) || controller.committedUrl;
     setBrowserPageState(controller, e.url);
     void syncBrowserHorizontalScroll(controller);
   });
@@ -24166,7 +28139,9 @@ function createBrowserTabController(tab) {
     if (event.isMainFrame !== false && event.errorCode !== -3) {
       const failedUrl = event.validatedURL || webview.getURL?.() || controller.addressDraft || '';
       if (String(failedUrl).toLowerCase() !== 'about:blank') {
+        controller.pendingNavigation = null;
         setBrowserErrorState(controller, { code: event.errorCode, description: event.errorDescription, url: failedUrl });
+        setBrowserPageState(controller, failedUrl);
       }
     }
     if (controller.waitingForLoad || event.isMainFrame === false || event.errorCode !== -100) return;
@@ -24174,7 +28149,7 @@ function createBrowserTabController(tab) {
     if (!failedUrl || controller.recoveringUrl === failedUrl || typeof api.browserRecoverNetwork !== 'function') return;
     controller.recoveringUrl = failedUrl;
     api.browserRecoverNetwork(failedUrl)
-      .then(() => webview.reload())
+      .then(() => reloadBrowserWebview(webview))
       .catch(() => {})
       .finally(() => { controller.recoveringUrl = ''; });
   });
@@ -24232,6 +28207,11 @@ function createBrowserTabController(tab) {
 function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
   const controller = browserTabControllers.get(tabId);
   if (!controller) return;
+  controller.destroyed = true;
+  for (const cancel of [...(controller.pendingLoadCancels || [])]) {
+    try { cancel(); } catch {}
+  }
+  controller.pendingLoadCancels?.clear();
   controller.annotations?.dispose();
   const ownerRunId = String(controller.agentRunId || '');
   if (ownerRunId && agentBrowserTabsByRun.get(ownerRunId) === tabId) {
@@ -24242,6 +28222,7 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
   }
   void controller.agent?.releaseActions?.();
   controller.observer?.disconnect();
+  controller.startToolsObserver?.disconnect();
   cancelAnimationFrame(controller.resizeFrame);
   cancelAnimationFrame(controller.scrollCommandFrame);
   clearInterval(controller.scrollPollTimer);
@@ -24258,3 +28239,48 @@ function destroyBrowserTabController(tabId, { userInitiated = false } = {}) {
 // Boot
 // ============================================================
 window.addEventListener('DOMContentLoaded', init);
+
+// Keyline cursor-window: https://keylineicons.com/icons?icon=cursor-window
+const BROWSER_ACCEPTANCE_CURSOR_ICON = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 20H6C4.34315 20 3 18.6569 3 17V6C3 4.34315 4.34315 3 6 3H17C18.6569 3 20 4.34315 20 6V9M7 7H9M10.8295 11.4097L13.7772 20.6718C13.9071 21.0802 14.4723 21.1169 14.6542 20.7287L16.5751 16.6314C16.625 16.5252 16.7127 16.4414 16.8213 16.3963L20.7094 14.7824C21.1122 14.6153 21.0913 14.0396 20.6776 13.9017L11.4287 10.8211C11.0628 10.6992 10.7128 11.043 10.8295 11.4097Z\"/></svg>";
+const BUILTIN_BROWSER_ACCEPTANCE_TOOLS = new Set(["browser_observe","browser_fill","browser_apply_annotation","open_builtin_browser","browser_snapshot","browser_read_page","browser_click","browser_type","browser_select","browser_check","browser_hover","browser_focus","browser_drag","browser_pointer","browser_press","browser_scroll","browser_wait","browser_set_viewport","browser_screenshot","browser_inspect_page","browser_search_history","browser_history","browser_status"]);
+
+// Explicit per-call intent is persisted in tool arguments. Never classify from
+// page contents, URL shape, narration keywords or a previous call's purpose.
+function browserAcceptanceTarget(item) {
+  const name = String(item?.name || '').replace(/^yan_browser_/, '');
+  const args = item?.args;
+  if (!BUILTIN_BROWSER_ACCEPTANCE_TOOLS.has(name) || args?.purpose !== 'frontend_acceptance') return '';
+  if (name === 'browser_search_history' || (name === 'open_builtin_browser' && args.target_type === 'search')) return '';
+  const acceptance = args.acceptance;
+  return typeof acceptance?.target === 'string' && acceptance.target.trim()
+    && typeof acceptance?.check === 'string' && acceptance.check.trim() ? acceptance.target.trim() : '';
+}
+
+function groupBrowserAcceptanceParts(parts) {
+  const output = [];
+  let active = null;
+  const flush = () => {
+    if (active) output.push(active);
+    active = null;
+  };
+  for (const source of parts) {
+    const item = source.item;
+    const calls = item.type === 'tool_group' ? item.calls : item.type === 'tool_call' ? [{ item }] : [];
+    const target = calls?.length ? browserAcceptanceTarget(calls[0].item) : '';
+    const acceptance = item.stage !== 'summary' && target && calls.every(call => browserAcceptanceTarget(call.item) === target);
+    if (acceptance) {
+      if (active?.item.target !== target) flush();
+      if (!active) active = { index: source.index, item: { type: 'browser_acceptance_group', stage: 'work', target, items: [], openCodeKey: 'browser-acceptance:' + getAgentTimelinePartKey(item, source.index) } };
+      active.item.items.push(source);
+    } else if (active && item.stage !== 'summary' && ['text', 'thinking', 'thinking_group', 'progress'].includes(item.type)) {
+      // Once acceptance starts, stream narration in place. Never wait for a
+      // future call to decide its parent: that reparents already-visible UI.
+      active.item.items.push(source);
+    } else {
+      flush();
+      output.push(source);
+    }
+  }
+  flush();
+  return output;
+}

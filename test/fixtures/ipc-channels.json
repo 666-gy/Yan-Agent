@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-19",
   "baselineCommit": "a8ba36b",
-  "count": 243,
+  "count": 245,
   "channels": [
     {
       "name": "app-snapshot:capture",
@@ -89,7 +89,8 @@
     },
     {
       "name": "computer-control:record-review",
-      "kind": "handle"
+      "kind": "handle",
+      "file": "lib/main/computer-control.js"
     },
     {
       "name": "computer-control:remove-allowed",
@@ -195,7 +196,8 @@
     },
     {
       "name": "gh:connection-status",
-      "kind": "handle"
+      "kind": "handle",
+      "file": "lib/main/ipc-gh.js"
     },
     {
       "name": "gh:detect",
@@ -232,7 +234,8 @@
     },
     {
       "name": "gh:review-project",
-      "kind": "handle"
+      "kind": "handle",
+      "file": "lib/main/ipc-gh.js"
     },
     {
       "name": "git:branch-create",
@@ -260,10 +263,6 @@
     },
     {
       "name": "git:fetch",
-      "kind": "handle"
-    },
-    {
-      "name": "git:history",
       "kind": "handle"
     },
     {
@@ -540,7 +539,8 @@
     },
     {
       "name": "pet:refresh-data",
-      "kind": "on"
+      "kind": "on",
+      "file": "lib/main/windows/pet.js"
     },
     {
       "name": "pet:stop-task",
@@ -560,14 +560,6 @@
     },
     {
       "name": "pets:list",
-      "kind": "handle"
-    },
-    {
-      "name": "plan:download-file",
-      "kind": "handle"
-    },
-    {
-      "name": "plan:read-file",
       "kind": "handle"
     },
     {
@@ -624,6 +616,22 @@
     },
     {
       "name": "powershell:open-external",
+      "kind": "handle"
+    },
+    {
+      "name": "project-files:action",
+      "kind": "handle"
+    },
+    {
+      "name": "project-files:list",
+      "kind": "handle"
+    },
+    {
+      "name": "project-files:read",
+      "kind": "handle"
+    },
+    {
+      "name": "project-files:resolve",
       "kind": "handle"
     },
     {
@@ -769,23 +777,7 @@
       "kind": "handle"
     },
     {
-      "name": "skills:source-apply",
-      "kind": "handle"
-    },
-    {
-      "name": "skills:source-forget",
-      "kind": "handle"
-    },
-    {
-      "name": "skills:source-pick",
-      "kind": "handle"
-    },
-    {
-      "name": "skills:source-preview",
-      "kind": "handle"
-    },
-    {
-      "name": "skills:source-state",
+      "name": "storage:open-dir",
       "kind": "handle"
     },
     {
@@ -798,18 +790,6 @@
     },
     {
       "name": "task-link:ready",
-      "kind": "handle"
-    },
-    {
-      "name": "tts:cancel",
-      "kind": "handle"
-    },
-    {
-      "name": "tts:synth",
-      "kind": "handle"
-    },
-    {
-      "name": "tts:voices",
       "kind": "handle"
     },
     {
@@ -842,6 +822,34 @@
     },
     {
       "name": "vision-relay:status",
+      "kind": "handle"
+    },
+    {
+      "name": "voice-call:cancel-speech",
+      "kind": "handle"
+    },
+    {
+      "name": "voice-call:media",
+      "kind": "handle"
+    },
+    {
+      "name": "voice-call:open",
+      "kind": "handle"
+    },
+    {
+      "name": "voice-call:synthesize",
+      "kind": "handle"
+    },
+    {
+      "name": "voice-call:turn-result",
+      "kind": "on"
+    },
+    {
+      "name": "voice-call:utterance",
+      "kind": "handle"
+    },
+    {
+      "name": "voice-call:window-action",
       "kind": "handle"
     },
     {

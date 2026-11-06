@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeExperiments, intelligentUiContext } = require('../lib/intelligent-ui');
-const { combineTurnPrompt } = require('../lib/opencode-sidecar');
+const { combineTurnPrompt } = require('../lib/kernel-policy');
 const { startRun } = require('../lib/run-orchestrator');
 const { createRunContext } = require('./helpers/run-context.cjs');
 
@@ -71,4 +71,33 @@ test('Creator network grants follow saved permissions even when the client forge
     assert.equal(fixture.ctx.openCodeActiveRuns.get(runId).intelligentUiNetworkAllowed, allowNetwork !== false);
     fixture.complete({ status: 'done', text: '结果' }); await fixture.idle;
   }
+});
+
+
+test('daily expresses answers visually while standard and uncensored use UI as a task capability',()=>{
+ const {turnContextSystem}=require('../lib/kernel-policy/prompts');
+ const daily=require('../lib/daily-agent');
+ assert.match(turnContextSystem({...enabled,agentPreset:'daily'}),/way of expressing an answer/);
+ for(const agentPreset of ['standard','uncensored'])assert.match(intelligentUiContext({...enabled,agentPreset}),/UI is a task capability/);
+ assert.doesNotMatch(intelligentUiContext({...enabled,agentPreset:'standard'}),/无审查|uncensored/i);
+ const effect=request=>daily.permissions(request).find(rule=>rule.action==='yan_session_intelligent_ui_creator').effect;
+ assert.equal(effect({...enabled,agentPreset:'daily'}),'allow');
+ assert.equal(effect({...enabled,intelligentUiEnabled:false}),'deny');
+ assert.equal(effect({...enabled,sandboxMode:'read-only'}),'deny');
+ assert.equal(daily.toolAllowed('yan_session_intelligent_ui_creator'),true);
+ assert.equal(daily.toolAllowed('yan_session_nested_sessions'),false);
+});
+
+
+test('daily dispatch keeps only its web server and opted-in UI session server',async t=>{
+ for(const optIn of [false,true]) {
+  const fixture=createRunContext(t);fixture.config.experiments={intelligentUi:optIn};
+  fixture.ctx.mcpRuntimeConfig.getOpenCodeMcpServers=()=>['yan_web','yan_session','unrelated'].map(id=>({id}));
+  fixture.ctx.mcpRuntimeConfig.getOpenCodeCapabilityContext=(_cfg,servers)=>({mcpServers:servers});
+  assert.equal((await startRun(fixture.ctx,{runId:'daily-ui-'+optIn,agentPreset:'daily',prompt:'比较两个预算'})).ok,true);
+  const request=fixture.calls.provider[0].request;
+  assert.deepEqual(request.mcpServers.map(server=>server.id),optIn?['yan_web','yan_session']:['yan_web']);
+  assert.equal(request.intelligentUiAvailable,optIn);
+  fixture.complete({status:'done',text:'结果'});await fixture.idle;
+ }
 });

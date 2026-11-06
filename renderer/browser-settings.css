@@ -87,3 +87,10 @@
 .browser-download-actions .browser-pill svg { width: 17px; height: 17px; }
 @media (max-width: 768px) { .browser-download-row { flex-wrap: wrap; } .browser-download-actions { max-width: 100%; width: 100%; } }
 @media (max-width: 640px) { .browser-setting-row { flex-wrap: wrap; gap: 12px; } .browser-history-domain { display: none; } .browser-history-toolbar { flex-wrap: wrap; } #browserClearDialog { padding: 18px; } }
+
+/* Reuse the composer Agent picker; popover escapes the settings scroll container. */
+#browserAcceptancePicker { flex: 0 0 auto; }
+#browserAcceptanceButton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 90px; padding: 7px 14px; border: 1px solid var(--border-strong); border-radius: var(--r-pill); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+#browserAcceptanceButton:hover, #browserAcceptanceButton[aria-expanded="true"] { background: var(--bg-hover); }
+#browserAcceptanceMenu { position: fixed; inset: auto; margin: 0; width: min(320px, calc(100vw - 24px)); }
+#browserAcceptanceMenu:not(:popover-open) { display: none; }

@@ -1,10 +1,14 @@
 {
   "name": "yan-agent",
-  "version": "1.7.0",
+  "version": "1.8.0-beta.3-rc.1",
   "description": "Yan Agent — a modern, minimalist Agent desktop client built with Electron",
   "main": "main.js",
   "scripts": {
+    "kernel:v2:install": "node scripts/install-kernel-v2.cjs",
+    "kernel:v2:check": "node --test test/kernel-v2-runtime.test.cjs test/kernel-v2-lifecycle.e2e.cjs",
     "start": "electron .",
+    "prestart": "npm run kernel:v2:install -- --check",
+    "test:kernel-v2-desktop": "node test/kernel-v2-desktop.e2e.cjs",
     "dev": "electron . --dev",
     "test": "node --test --test-concurrency=4 \"test/*.test.cjs\"",
     "bundle:katex": "node scripts/build-katex.cjs",
@@ -12,22 +16,25 @@
     "prebuild:release": "npm run bundle:katex",
     "prebuild:portable": "npm run bundle:katex",
     "bundle:opencode-provider": "node scripts/build-opencode-provider.cjs",
-    "bundle:dsh-review": "node scripts/build-dsh-code-review.cjs",
-    "bundle:tts": "node scripts/build-tts-bundle.cjs",
+    "bundle:review": "node scripts/build-review-core.cjs",
+    "bundle:call-avatar": "node scripts/build-call-avatar.cjs",
     "bundle:voice": "node scripts/build-voice-bundle.cjs",
     "verify:packaged-runtime": "node scripts/verify-packaged-runtime.cjs",
     "verify:packaged-providers": "node test/provider-runtime-matrix.e2e.cjs",
-    "verify:codegraph": "node test/codegraph-mcp.e2e.cjs",
-    "build": "npm run build:desktop-bridge && npm run build:cua-driver && npm run build:setup-ui && npm run build:playwright && npm run bundle:opencode-provider && npm run bundle:dsh-review && npm run bundle:tts && npm run bundle:voice && npm run bundle:intelligent-ui && node scripts/write-build-manifest.cjs && electron-builder --win nsis --publish never && node scripts/stamp-update-feed.cjs && npm run update:manifest && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:codegraph && npm run verify:playwright",
+    "build": "npm run build:desktop-bridge && npm run build:cua-driver && npm run build:setup-ui && npm run build:playwright && npm run bundle:opencode-provider && npm run bundle:review && npm run bundle:call-avatar && npm run bundle:tts && npm run bundle:voice && npm run bundle:intelligent-ui && node scripts/write-build-manifest.cjs && electron-builder --win nsis --publish never && node scripts/stamp-update-feed.cjs && npm run update:delta && npm run update:manifest && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:playwright",
     "update:manifest": "node scripts/prepare-update-manifest.cjs",
     "build:setup-ui": "node scripts/build-setup-ui.cjs",
-    "build:release": "npm run build:desktop-bridge && npm run build:cua-driver && npm run build:setup-ui && npm run build:playwright && npm run bundle:opencode-provider && npm run bundle:dsh-review && npm run bundle:tts && npm run bundle:voice && npm run bundle:intelligent-ui && node scripts/write-build-manifest.cjs && electron-builder --win nsis portable --publish never && node scripts/stamp-update-feed.cjs && npm run update:manifest && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:codegraph && npm run verify:playwright",
-    "build:portable": "npm run build:desktop-bridge && npm run build:cua-driver && npm run build:playwright && npm run bundle:opencode-provider && npm run bundle:dsh-review && npm run bundle:tts && npm run bundle:voice && npm run bundle:intelligent-ui && node scripts/write-build-manifest.cjs && electron-builder --win portable --publish never && node scripts/stamp-update-feed.cjs && npm run update:manifest && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:codegraph",
+    "build:release": "npm run build:desktop-bridge && npm run build:cua-driver && npm run build:setup-ui && npm run build:playwright && npm run bundle:opencode-provider && npm run bundle:review && npm run bundle:call-avatar && npm run bundle:tts && npm run bundle:voice && npm run bundle:intelligent-ui && node scripts/write-build-manifest.cjs && electron-builder --win nsis portable --publish never && node scripts/stamp-update-feed.cjs && npm run update:manifest && npm run verify:packaged-runtime && npm run verify:packaged-providers && npm run verify:playwright",
+    "build:portable": "npm run build:desktop-bridge && npm run build:cua-driver && npm run build:playwright && npm run bundle:opencode-provider && npm run bundle:review && npm run bundle:call-avatar && npm run bundle:tts && npm run bundle:voice && npm run bundle:intelligent-ui && node scripts/write-build-manifest.cjs && electron-builder --win portable --publish never && node scripts/stamp-update-feed.cjs && npm run update:manifest && npm run verify:packaged-runtime && npm run verify:packaged-providers",
     "build:desktop-bridge": "node scripts/build-desktop-bridge.cjs",
     "build:playwright": "node scripts/build-playwright-runtime.cjs",
     "verify:playwright": "node test/playwright-mcp.e2e.cjs && node test/playwright-connection.e2e.cjs",
     "build:cua-driver": "node scripts/build-cua-driver.cjs",
-    "bundle:intelligent-ui": "node scripts/build-intelligent-ui.cjs"
+    "bundle:intelligent-ui": "node scripts/build-intelligent-ui.cjs",
+    "bundle:tts": "node scripts/build-tts-bundle.cjs",
+    "update:delta": "node scripts/prepare-update-delta.cjs",
+    "test:smoke": "node --test --test-concurrency=4 test/yan-core.test.cjs test/yan-core-recovery.test.cjs test/session-format-version.test.cjs test/session-fork.test.cjs test/connections.test.cjs test/attachment-policy.test.cjs test/shell-command-risk.test.cjs test/shell-permission-guard.test.cjs test/file-observation-gate.test.cjs test/workspace-isolation.test.cjs test/run-orchestrator.test.cjs test/kernel-v2-instructions.test.cjs test/kernel-v2-resources.test.cjs test/nested-sessions.test.cjs test/agent-presets.test.cjs test/plugins.test.cjs test/update-differential.test.cjs test/storage-cleanup.test.cjs test/voice-input.test.cjs test/provider-adapter-routing.test.cjs",
+    "test:desktop": "node test/smoke-desktop.e2e.cjs"
   },
   "author": "",
   "license": "MIT",
@@ -36,11 +43,13 @@
     "@deepseek-ai/dsh-timeout": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "3.18.3",
     "@fontsource/source-serif-4": "5.2.5",
+    "@openuidev/react-lang": "1.0.1",
+    "@openuidev/react-ui": "0.18.1",
     "@shikijs/langs": "^4.3.1",
     "@tanstack/react-virtual": "^3.14.9",
     "anser": "^2.3.5",
     "clsx": "^2.1.1",
-    "electron": "44.4.5",
+    "electron": "44.10.2",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.25.9",
     "katex": "^0.16.47",
@@ -84,6 +93,7 @@
       "main.js",
       "preload.js",
       "quick-input-preload.js",
+      "voice-call-preload.js",
       "tokens.css",
       ".pets/**/*",
       "lib/**/*",
@@ -95,15 +105,18 @@
       "scripts/webui-additions.cjs",
       "scripts/webui-models.cjs",
       "node_modules/monaco-editor/min/**/*",
-      "vendor/opencode/**/*",
+      "vendor/opencode-v2/**/*",
       "!lib/native/**/*.cs",
       "!lib/**/__pycache__/**/*",
       "!lib/**/*.pyc",
-      "!node_modules/@colbymchenry/codegraph-win32-x64/**/*",
       "!node_modules/opencode-ai/**/*",
-      "!node_modules/opencode-windows-*-baseline/**/*"
+      "!node_modules/opencode-windows-*-baseline/**/*",
+      "!lib/opencode-sidecar.js",
+      "!lib/opencode-runtime.js"
     ],
     "asarUnpack": [
+      "node_modules/@openuidev/lang-core/**/*",
+      "node_modules/ci-info/**/*",
       "renderer/assets/logo-light.ico",
       "renderer/assets/logo-light.png",
       "renderer/assets/logo-dark.ico",
@@ -122,21 +135,35 @@
       "node_modules/@ai-sdk/provider/**/*",
       "node_modules/@ai-sdk/provider-utils/**/*",
       "node_modules/@standard-schema/spec/**/*",
+      "node_modules/@silvia-odwyer/photon-node/**/*",
       "node_modules/eventsource-parser/**/*",
       "node_modules/json-schema/**/*",
       "node_modules/zod/**/*",
       "node_modules/skills/**/*",
       "node_modules/yaml/**/*",
-      "node_modules/opencode-windows-x64/**/*",
       "node_modules/@officecli/officecli/**/*",
       "node_modules/sherpa-onnx-node/**/*",
-      "node_modules/sherpa-onnx-win-x64/**/*"
+      "node_modules/sherpa-onnx-win-x64/**/*",
+      "vendor/opencode-v2/node-runtime/**/*",
+      "vendor/opencode-v2/runtime.json",
+      "vendor/opencode-v2/node_modules/**/*",
+      "node_modules/turndown/**/*",
+      "node_modules/@mixmark-io/domino/**/*",
+      "node_modules/html-to-text/**/*",
+      "node_modules/@selderee/plugin-htmlparser2/**/*",
+      "node_modules/domelementtype/**/*",
+      "node_modules/domhandler/**/*",
+      "node_modules/deepmerge-ts/**/*",
+      "node_modules/dom-serializer/**/*",
+      "node_modules/entities/**/*",
+      "node_modules/htmlparser2/**/*",
+      "node_modules/domutils/**/*",
+      "node_modules/selderee/**/*",
+      "node_modules/parseley/**/*",
+      "node_modules/leac/**/*",
+      "node_modules/peberminta/**/*"
     ],
     "extraResources": [
-      {
-        "from": "node_modules/@colbymchenry/codegraph-win32-x64",
-        "to": "codegraph-runtime"
-      },
       {
         "from": "node_modules/@officecli/officecli/vendor",
         "to": "officecli-runtime"
@@ -147,6 +174,13 @@
         "filter": [
           "**/*",
           "!browsers/**/*"
+        ]
+      },
+      {
+        "from": "vendor/opencode-v2/node_modules",
+        "to": "app.asar.unpacked/vendor/opencode-v2/node_modules",
+        "filter": [
+          "**/*"
         ]
       }
     ],
@@ -177,27 +211,24 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Yan Agent",
-      "artifactName": "Yan.Agent.Setup.v1.7.0.${ext}"
+      "artifactName": "Yan.Agent.Setup.v1.8.0.Beta3-RC1.${ext}"
     },
     "portable": {
-      "artifactName": "Yan.Agent.Portable.v1.7.0.${ext}"
+      "artifactName": "Yan.Agent.Portable.v1.8.0.Beta3-RC1.${ext}"
     }
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.42",
     "@ai-sdk/openai": "3.0.112",
     "@ai-sdk/openai-compatible": "2.0.41",
-    "@colbymchenry/codegraph": "1.5.0",
     "@modelcontextprotocol/sdk": "1.30.1",
     "@officecli/officecli": "1.0.138",
-    "@opencode-ai/sdk": "1.18.11",
-    "@openuidev/lang-core": "0.3.0",
-    "@openuidev/react-lang": "0.3.0",
+    "@openuidev/lang-core": "1.0.1",
+    "@silvia-odwyer/photon-node": "0.3.4",
     "diff": "^7.0.0",
+    "html-to-text": "^10.0.1",
     "monaco-editor": "0.56.0",
-    "msedge-tts": "^2.0.7",
-    "opencode-ai": "1.18.11",
-    "opencode-windows-x64": "1.18.11",
+    "msedge-tts": "^2.1.0",
     "sherpa-onnx-node": "1.13.8",
     "skills": "1.5.21",
     "tree-sitter-c": "^0.24.1",
@@ -208,7 +239,9 @@
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-rust": "^0.24.0",
     "tree-sitter-typescript": "^0.23.2",
+    "turndown": "^7.2.4",
     "web-tree-sitter": "^0.27.0",
     "zod": "4.4.3"
-  }
+  },
+  "displayVersion": "1.8.0 Beta3-RC1"
 }

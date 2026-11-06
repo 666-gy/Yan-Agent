@@ -1,203 +1,118 @@
-/* Session-scoped Bash UI. Main process owns all execution state. */
+/* Background-only, session-scoped command manager. */
 window.YanBackgroundBash = (() => {
   const jobs = new Map(), expanded = new Set(), outputs = new Map(), rows = new Map();
-  let open = false, refreshVersion = 0, lastSession = '', refreshing = false, quickOpen = false;
+  let open = false, refreshVersion = 0, lastSession = '', refreshing = false;
   const panel = document.querySelector('#bashStatusPanel');
+  document.body.append(panel);
   const list = document.querySelector('#bashStatusDetails');
-  const quickList = document.querySelector('#taskBashQuick');
-  const quickToggle = document.querySelector('#taskBashToggleBtn');
-  const sessionId = () => String(state.currentSession?.id || '');
-  function el(tag, className, text) {
-    const node = document.createElement(tag); node.className = className;
-    if (text != null) node.textContent = text; return node;
-  }
+  const pill = document.querySelector('#bashPill');
+  const sessionId = () => String(window.yan?.nestedWindowSessionId || state.currentSession?.id || '');
+  const visibleJobs = () => [...jobs.values()].filter(job => job.sessionId === sessionId() && job.background === true).reverse();
   function clock(ms) {
-    const total = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
-    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+    return (h ? h + 'h ' : '') + (m ? m + 'm ' : '') + s + 's';
   }
-  function chevronIcon() {
-    // Same down/right paths as the sidebar project expand/collapse control.
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
-    svg.append(document.createElementNS('http://www.w3.org/2000/svg', 'path'));
-    return svg;
-  }
-  function visibleJobs() { return [...jobs.values()].filter(job => job.sessionId === sessionId()).reverse(); }
-  function toggleQuick() {
-    quickOpen = !quickOpen;
-    renderQuick();
-    if (quickOpen) void refresh();
-  }
-  // Compact inline panel under the Bash row: only currently running jobs, with
-  // elapsed time and a stop control. Open in the capsule, never in the composer.
-  function renderQuick() {
-    if (!quickList) return;
-    quickList.classList.toggle('hidden', !quickOpen);
-    quickList.setAttribute('aria-hidden', String(!quickOpen));
-    if (quickToggle) {
-      quickToggle.setAttribute('aria-expanded', String(quickOpen));
-      const title = quickOpen ? '收起运行中的 Bash 任务' : '展开运行中的 Bash 任务';
-      quickToggle.title = title; quickToggle.setAttribute('aria-label', title);
-      quickToggle.querySelector('path')?.setAttribute('d', quickOpen ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9');
-    }
-    if (!quickOpen) { quickList.replaceChildren(); return; }
-    const running = visibleJobs().filter(job => job.status === 'running');
-    const now = Date.now();
-    quickList.replaceChildren(...(running.length ? running.map(job => {
-      const item = el('div', 'bash-quick-job'); item.dataset.job = job.id;
-      const target = el('button', 'bash-quick-open'); target.type = 'button';
-      const command = el('code', 'bash-quick-command', job.command); command.title = job.command;
-      const time = el('span', 'bash-quick-time', clock(now - (job.startedAt || now)));
-      time.dataset.bashQuickTime = job.id;
-      target.append(command, time);
-      target.addEventListener('click', () => openQuickJob(job.id));
-      const stop = el('button', 'bash-quick-stop'); stop.type = 'button';
-      stop.title = '停止'; stop.setAttribute('aria-label', '停止');
-      stop.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>';
-      stop.addEventListener('click', async () => {
-        stop.disabled = true;
-        try {
-          const result = await api.bashControl({ id: job.id, sessionId: job.sessionId, action: 'cancel' });
-          jobs.set(result.id, result); render();
-        } catch (error) { toast(error.message || 'Bash 操作失败'); }
-        finally { stop.disabled = false; }
-      });
-      item.append(target, stop);
-      return item;
-    }) : [el('p', 'bash-quick-empty', '没有正在运行的命令')]));
-  }
-  function openQuickJob(jobId) {
-    const job = jobs.get(jobId);
-    if (job) expanded.add(jobId);
-    quickOpen = false;
-    toggle(true);
-    if (job) void readOutput(job).then(render).catch(() => {});
-  }
-  function tickQuickTimes() {
-    if (!quickOpen || !quickList) return;
-    const now = Date.now();
-    for (const node of quickList.querySelectorAll('[data-bash-quick-time]')) {
-      const job = jobs.get(node.dataset.bashQuickTime);
-      if (job) node.textContent = clock(now - (job.startedAt || now));
+  function tickTimes() {
+    for (const [id, view] of rows) {
+      const job = jobs.get(id);
+      if (job) view.time.textContent = clock((job.endedAt || Date.now()) - job.startedAt);
     }
   }
   function toggle(value) {
-    open = value; panel.classList.toggle('hidden', !open); panel.setAttribute('aria-hidden', String(!open));
-    if (open) { closeTaskGitPanel(); void refresh(); }
-  }
-  function createRow(job) {
-    const row = el('article', 'bash-job'); row.dataset.job = job.id;
-    const heading = el('div', 'bash-job-row');
-    const command = el('code', 'bash-job-command');
-    const cwd = el('small', 'bash-job-cwd');
-    const error = el('small', 'bash-job-wake-error');
-    const outputWrap = el('div', 'bash-job-output-wrap'); outputWrap.hidden = true;
-    const output = el('pre', 'bash-job-output'); output.id = 'bash-output-' + job.id;
-    const actions = el('div', 'bash-job-actions');
-    const view = { row, command, cwd, error, outputWrap, output, actions, scrollTop: 0, scrollLeft: 0 };
-    const action = (name, label, className, handler) => {
-      const control = el('button', className, label); control.type = 'button'; control.dataset.bashAction = name;
-      control.addEventListener('click', async () => {
-        control.disabled = true;
-        try { await handler(control); render(); }
-        catch (error) { toast(error.message || 'Bash 操作失败'); }
-        finally { control.disabled = false; }
-      });
-      return control;
-    };
-    view.toggle = action('output', '', 'bash-job-output-toggle', async () => {
-      if (expanded.has(job.id)) {
-        view.scrollTop = output.scrollTop; view.scrollLeft = output.scrollLeft;
-        expanded.delete(job.id);
-      } else {
-        await readOutput(jobs.get(job.id) || job);
-        expanded.add(job.id);
-      }
-    });
-    view.toggle.append(chevronIcon()); view.toggle.setAttribute('aria-controls', output.id);
-    const controlJob = async name => {
-      const result = await api.bashControl({ id: job.id, sessionId: job.sessionId, action: name });
-      jobs.set(result.id, result);
-    };
-    view.background = action('background', '转后台', '', () => controlJob('background'));
-    view.copy = action('copy', '', 'bash-job-copy', async () => {
-      await navigator.clipboard.writeText(outputs.get(job.id) || jobs.get(job.id)?.error || '');
-      toast('已复制');
-    });
-    view.copy.title = '复制输出'; view.copy.setAttribute('aria-label', '复制输出');
-    view.copy.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8V6C8 4.34315 9.34315 3 11 3H18C19.6569 3 21 4.34315 21 6V13C21 14.6569 19.6569 16 18 16H16"/><path d="M6 8H13C14.6569 8 16 9.34315 16 11V18C16 19.6569 14.6569 21 13 21H6C4.34315 21 3 19.6569 3 18V11C3 9.34315 4.34315 8 6 8Z"/></svg>';
-    heading.append(command, view.toggle, cwd, actions); actions.append(view.background);
-    outputWrap.append(view.copy, output); row.append(heading, error, outputWrap);
-    return view;
+    if (value && visibleJobs().length) { if (!panel.open) panel.showModal(); open = true; void refresh(); }
+    else { panel.close(); open = false; }
+    pill.setAttribute('aria-expanded', String(open));
   }
   function render() {
-    const selected = visibleJobs(); const running = selected.filter(job => job.status === 'running').length;
-    document.querySelector('#taskBashCount').textContent = running ? running + ' 运行中' : String(selected.length);
-    document.querySelector('#bashStatusSummary').textContent = running ? running + ' 个运行中' : '无运行中的命令';
-    renderQuick();
-    if (!open) return;
-    const scroll = list.scrollTop, ids = new Set(selected.map(job => job.id));
+    const selected = visibleJobs();
+    window.syncTaskCapsuleBashRow?.(selected.length);
+    document.querySelector('#bashPillHost').classList.toggle('hidden', !sessionId() || !selected.length);
+    document.querySelector('#bashPillCount').textContent = selected.length;
+    document.querySelector('#bashStatusSummary').textContent = selected.length;
+    if (!selected.length && open) toggle(false);
+    const ids = new Set(selected.map(job => job.id));
     for (const [id, view] of rows) if (!ids.has(id)) { view.row.remove(); rows.delete(id); }
-    if (!selected.length) {
-      if (!list.querySelector('.bash-status-empty')) list.append(el('p', 'bash-status-empty', '当前任务还没有 Bash 命令'));
-      return;
-    }
-    list.querySelector('.bash-status-empty')?.remove();
+    if (!open) return;
     selected.forEach((job, index) => {
+      const phase = job.status === 'running' ? 'running' : ['cancelled', 'interrupted'].includes(job.status) ? 'interrupted' : 'done';
+      const ok = phase === 'done' ? job.status === 'succeeded' : null;
+      const output = outputs.get(job.id) || job.error || '';
+      const signature = JSON.stringify([job.command, job.status, output, job.exit]);
       let view = rows.get(job.id);
-      if (!view) { view = createRow(job); rows.set(job.id, view); }
-      const { row, command, cwd, toggle, actions, background, error, outputWrap, output, copy } = view;
-      if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
-      row.dataset.status = job.status;
-      if (command.textContent !== job.command) command.textContent = job.command;
-      command.title = job.command;
-      if (cwd.textContent !== job.cwd) cwd.textContent = job.cwd;
-      cwd.title = job.cwd;
-      const show = expanded.has(job.id), wasHidden = outputWrap.hidden;
-      toggle.title = show ? '收起输出' : '查看输出'; toggle.setAttribute('aria-label', toggle.title);
-      toggle.setAttribute('aria-expanded', String(show));
-      toggle.querySelector('path').setAttribute('d', show ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9');
-      actions.hidden = job.status !== 'running';
-      background.hidden = job.background || job.status !== 'running';
-      error.hidden = !job.wakeError; error.textContent = job.wakeError ? '唤醒待重试：' + job.wakeError : '';
-      outputWrap.hidden = !show;
-      if (show) {
-        const text = outputs.get(job.id) || job.error || '';
-        const top = wasHidden ? view.scrollTop : output.scrollTop;
-        const left = wasHidden ? view.scrollLeft : output.scrollLeft;
-        // Keep the output element and scroll position across polls.
-        if (output.textContent !== (text || '暂无输出')) output.textContent = text || '暂无输出';
-        output.scrollTop = top; output.scrollLeft = left; copy.disabled = !text;
+      if (!view) {
+        const row = buildToolStepElement('bash', { command: job.command }, '', ok, phase);
+        row.open = false;
+        row.dataset.job = job.id;
+        const time = document.createElement('span'); time.className = 'bash-elapsed';
+        const stop = document.createElement('button');
+        stop.type = 'button'; stop.className = 'bash-job-stop'; stop.textContent = '停止';
+        stop.title = '停止此后台命令'; stop.setAttribute('aria-label', '停止此后台命令');
+        stop.addEventListener('click', async event => {
+          event.preventDefault(); event.stopPropagation();
+          if (stop.disabled || stop.dataset.stopping === 'true') return;
+          stop.dataset.stopping = 'true'; stop.disabled = true; stop.textContent = '停止中…';
+          try { await api.bashControl({ id: job.id, sessionId: job.sessionId, action: 'cancel' }); }
+          catch (error) { stop.dataset.stopping = 'false'; stop.disabled = false; stop.textContent = '停止'; toast(error.message || '停止失败'); }
+        });
+        row.querySelector('summary')?.append(time, stop);
+        view = { row, time, stop }; rows.set(job.id, view);
+        row.addEventListener('toggle', () => {
+          if (!row.isConnected || rows.get(job.id)?.row !== row) return;
+          if (row.open) { expanded.add(job.id); void readOutput(jobs.get(job.id)).then(render).catch(error => toast(error.message)); }
+          else expanded.delete(job.id);
+        });
       }
+      if (job.status !== 'running') {
+        view.stop.hidden = true;
+        if (view.stop.dataset.stopping !== 'true') { view.stop.disabled = false; view.stop.textContent = '停止'; }
+      } else if (view.stop.dataset.stopping !== 'true') {
+        view.stop.hidden = false;
+      }
+      if (view.signature !== signature) {
+        view.signature = signature;
+        const {row} = view;
+        const toolState = phase === 'running' ? 'running' : phase === 'interrupted' ? 'interrupted' : ok ? 'completed' : 'error';
+        row.className = 'tool-step is-' + toolState; row.dataset.toolState = toolState;
+        const name = row.querySelector('.tc-name');
+        name.textContent = job.status === 'failed' ? '运行中出错' : phase === 'running' ? '正在运行' : phase === 'interrupted' ? '已停止' : '已运行';
+        name.classList.toggle('tool-state-shine', phase === 'running'); name.dataset.toolState = toolState;
+        row.querySelector('.tc-command-failure')?.remove();
+        const result = output + (job.exit != null ? '\nCommand exited with code ' + job.exit + '.' : '');
+        setToolStepDetails(row, { toolName:'bash', args:{command:job.command}, resultRaw:result, ok, phase });
+        renderToolStepDetails(row);
+      }
+      if (list.children[index] !== view.row) list.insertBefore(view.row, list.children[index] || null);
     });
-    list.scrollTop = scroll;
+    tickTimes();
   }
   async function readOutput(job) {
-    const detail = await api.bashControl({ id: job.id, sessionId: job.sessionId, action: 'output' });
-    if (job.sessionId !== sessionId()) return;
-    outputs.set(job.id, (detail.output || detail.error || '') + (detail.truncated ? '\n[输出超过捕获上限，已截断]' : ''));
+    if (!job) return;
+    const version = refreshVersion;
+    const detail = await api.bashControl({id:job.id, sessionId:job.sessionId, action:'output'});
+    if (version !== refreshVersion || job.sessionId !== sessionId()) return;
+    outputs.set(job.id, (detail.output || detail.error || '') + (detail.truncated ? '\n[输出已截断]' : ''));
   }
   async function refresh() {
-    if (!api.bashList) return;
     const id = sessionId(), version = ++refreshVersion;
-    if (lastSession !== id) { lastSession = id; expanded.clear(); outputs.clear(); render(); }
+    if (lastSession !== id) { toggle(false); lastSession = id; expanded.clear(); outputs.clear(); rows.forEach(view=>view.row.remove()); rows.clear(); }
+    render();
+    if (!id || !api.bashList) return;
     try {
       const result = await api.bashList(id);
       if (version !== refreshVersion || id !== sessionId()) return;
       for (const [key, job] of jobs) if (job.sessionId === id) jobs.delete(key);
       for (const job of result || []) jobs.set(job.id, job);
       render();
-    } catch (error) { if (open) document.querySelector('#bashStatusSummary').textContent = '读取失败：' + error.message; }
+    } catch(error) { if(open) toast(error.message); }
   }
-  quickToggle?.addEventListener('click', toggleQuick);
-  document.querySelector('#bashStatusClose').addEventListener('click', () => { toggle(false); document.querySelector('#taskGitHubBtn')?.focus(); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && open) toggle(false); });
+  pill.addEventListener('click', () => toggle(true));
+  document.querySelector('#bashStatusClose').addEventListener('click', () => toggle(false));
+  panel.addEventListener('close', () => {open=false; pill.setAttribute('aria-expanded','false');});
+  panel.addEventListener('click', event => { if(event.target !== panel)return; const r=panel.getBoundingClientRect(); if(event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom)toggle(false); });
   api.onBashChanged?.(job => {
-    jobs.set(job.id, job);
-    if (jobs.size > 256) for (const [id, item] of jobs) { if (jobs.size <= 256) break; if (item.status !== 'running') jobs.delete(id); }
-    render();
-    if (expanded.has(job.id) && job.status !== 'running') void readOutput(job).then(render).catch(() => {});
+    jobs.set(job.id,job); render();
+    if(open && expanded.has(job.id))void readOutput(job).then(render).catch(()=>{});
   });
   const wakes = new Map(); let reconciling = false;
   api.onBashWake?.(detail => { wakes.set(detail.runId, detail.sessionId); });
@@ -217,7 +132,7 @@ window.YanBackgroundBash = (() => {
       } catch (error) { console.warn('[bash] resume reconciliation failed:', error); }
       finally { reconciling = false; }
     }
-    tickQuickTimes();
+    tickTimes();
     if (open && !refreshing) {
       refreshing = true;
       try {
@@ -228,5 +143,5 @@ window.YanBackgroundBash = (() => {
     }
   }, 1000);
   void refresh();
-  return { refresh };
+  return { refresh, open: () => toggle(true) };
 })();

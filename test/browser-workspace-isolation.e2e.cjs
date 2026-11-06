@@ -144,7 +144,93 @@ async function command(page, runId, action, params = {}) {
     assert.equal(handoff.again.tabId, handoff.b.tabId);
     assert.equal(handoff.aStillCleaning, true);
     assert.equal(handoff.missing.code, 'BROWSER_NOT_OPEN');
-    console.log(JSON.stringify({ ok: true, result, concurrent }));
+    const reuse = await page.evaluate(async fixtureUrl => {
+      const workspace = 'C:/YanWorkspace/reuse';
+      const scope = { yan_workspace: workspace, yan_session_id: state.currentSession.id };
+      const open = (id, extra = {}) => executeBrowserAgentCommand({ action: 'open', params: {
+        ...scope, yan_run_id: id, ...extra } });
+      const release = id => executeBrowserAgentCommand({ action: 'release', params: { yan_run_id: id } });
+      const first = await open('reuse-a', { target_type: 'url', url_or_path: fixtureUrl + '?owner=first' });
+      await release('reuse-a');
+      const listed = await executeBrowserAgentCommand({ action: 'list_tabs', params: { ...scope, yan_run_id: 'reuse-b' } });
+      const attached = await open('reuse-b', { tab_id: first.tabId });
+      const attachedStatus = await executeBrowserAgentCommand({ action: 'status', params: { ...scope, yan_run_id: 'reuse-b' } });
+      const hijack = await open('reuse-y', { tab_id: first.tabId });
+      const foreign = await open('reuse-z', { tab_id: first.tabId, yan_workspace: 'C:/YanWorkspace/workspace-b' });
+      const otherSession = await open('reuse-other-session', { tab_id: first.tabId, yan_session_id: 'other-session' });
+      const missing = await open('reuse-m', { tab_id: 'browser-does-not-exist' });
+      await release('reuse-b');
+      const scoped = await open('reuse-c', { reuse: 'scope', target_type: 'url', url_or_path: fixtureUrl + '?owner=third' });
+      const scopedStatus = await executeBrowserAgentCommand({ action: 'status', params: { ...scope, yan_run_id: 'reuse-c' } });
+      await release('reuse-c');
+      return { first, listed, attached, attachedStatus, hijack, foreign, otherSession, missing, scoped, scopedStatus };
+    }, fixture);
+    assert.equal(reuse.first.ok, true);
+    assert.equal(reuse.listed.ok, true);
+    assert.equal(reuse.listed.tabs.length, 1);
+    assert.equal(reuse.listed.tabs[0].tabId, reuse.first.tabId);
+    assert.equal(reuse.listed.tabs[0].reusable, true);
+    assert.equal(reuse.attached.ok, true);
+    assert.equal(reuse.attached.tabId, reuse.first.tabId);
+    assert.equal(reuse.attached.reused, true);
+    assert.equal(reuse.attached.attached, true);
+    assert.match(reuse.attachedStatus.url, /owner=first/);
+    assert.equal(reuse.hijack.code, 'BROWSER_TAB_OWNED');
+    assert.equal(reuse.foreign.code, 'BROWSER_TAB_SCOPE_MISMATCH');
+    assert.equal(reuse.otherSession.code, 'BROWSER_TAB_SCOPE_MISMATCH');
+    assert.equal(reuse.missing.code, 'BROWSER_TAB_NOT_FOUND');
+    assert.equal(reuse.scoped.ok, true);
+    assert.equal(reuse.scoped.tabId, reuse.first.tabId);
+    assert.equal(reuse.scoped.reused, true);
+    assert.match(reuse.scopedStatus.url, /owner=third/);
+    // Reproduce the real user path: a manually opened page must be discoverable
+    // and attachable without navigation, even while another session is selected.
+    const manual = await page.evaluate(async fixtureUrl => {
+      state.currentSession.workspace = 'C:/YanWorkspace/manual';
+      const sessionId = state.currentSession.id;
+      const scope = { yan_workspace: state.currentSession.workspace, yan_session_id: sessionId };
+      const tab = createRightSidebarTab('browser');
+      activateRightSidebarTab(tab.id);
+      const controller = browserTabControllers.get(tab.id);
+      await controller.navigate(fixtureUrl, { waitForLoad: true });
+      await controller.webview.executeJavaScript('window.reuseMarker = "preserved"');
+      const command = (run, action, extra = {}) => executeBrowserAgentCommand({ action, params: { ...scope, yan_run_id: run, ...extra } });
+      const listed = await command('manual-a', 'list_tabs');
+      const foreignList = await command('manual-foreign', 'list_tabs', { yan_session_id: 'other-session' });
+      const foreignAttach = await command('manual-foreign', 'open', { yan_session_id: 'other-session', tab_id: tab.id });
+      const attached = await command('manual-a', 'open', { tab_id: tab.id });
+      const read = await command('manual-a', 'read_page');
+      const hijack = await command('manual-b', 'open', { tab_id: tab.id });
+      const original = controller.agent.releaseActions.bind(controller.agent);
+      let finish;
+      const gate = new Promise(resolve => { finish = resolve; });
+      controller.agent.releaseActions = async () => { await gate; return original(); };
+      const release = command('manual-a', 'release');
+      const releasing = await command('manual-b', 'open', { tab_id: tab.id });
+      finish();
+      await release;
+      controller.agent.releaseActions = original;
+      // Run identity must govern access; the foreground session cannot substitute for it.
+      state.currentSession = { ...state.currentSession, id: 'other-session' };
+      const next = await command('manual-b', 'open', { reuse: 'scope' });
+      const marker = await controller.webview.executeJavaScript('window.reuseMarker');
+      await command('manual-b', 'release');
+      state.currentSession = { ...state.currentSession, id: sessionId };
+      return { tabId: tab.id, listed, foreignList, foreignAttach, attached, read, hijack, releasing, next, marker };
+    }, fixture);
+    assert.equal(manual.listed.tabs.length, 1);
+    assert.equal(manual.listed.tabs[0].agentOwned, false);
+    assert.equal(manual.listed.tabs[0].reusable, true);
+    assert.equal(manual.listed.tabs[0].active, true);
+    assert.deepEqual(manual.foreignList.tabs, []);
+    assert.equal(manual.foreignAttach.code, 'BROWSER_TAB_SCOPE_MISMATCH');
+    assert.equal(manual.attached.tabId, manual.tabId);
+    assert.equal(manual.read.ok, true);
+    assert.equal(manual.hijack.code, 'BROWSER_TAB_OWNED');
+    assert.equal(manual.releasing.code, 'BROWSER_TAB_RELEASING');
+    assert.equal(manual.next.tabId, manual.tabId);
+    assert.equal(manual.marker, 'preserved');
+    console.log(JSON.stringify({ ok: true, result, concurrent, manual, reuse: { listed: reuse.listed, attached: reuse.attached, hijack: reuse.hijack, foreign: reuse.foreign, scoped: reuse.scoped } }));
   } finally {
     await application?.close().catch(() => {});
     try { fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (error) { if (!['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(error.code)) throw error; }

@@ -19,6 +19,19 @@
     return ROLE_ALIASES[key] || key;
   };
   const iconFor = role => ICONS[roleFor(role)] || icon;
+  // Visual identity is independent of task role and activation. Match Codex's
+  // stable ID hash; theme switching is CSS-only and does not remount the panel.
+  function avatarIndex(record) {
+    const seed = String(record?.agentID || record?.childSessionID || record?.subagentId || record?.id || 'subagent');
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) % 2147483647;
+    return hash % 28;
+  }
+  function avatarFor(record) {
+    const index = avatarIndex(record);
+    const asset = `assets/subagent-avatars/${String(index).padStart(2, '0')}`;
+    return `<span class="subagent-avatar" data-agent-avatar="${index}" aria-hidden="true"><img class="subagent-avatar-light" src="${asset}-light.svg" width="16" height="16" alt="" draggable="false"><img class="subagent-avatar-dark" src="${asset}-dark.svg" width="16" height="16" alt="" draggable="false"></span>`;
+  }
   const planIcon = ICONS.reviewer.replace('data-agent-icon="reviewer"', 'data-agent-icon="bug"');
   const W = window.YanSubagentWorkflow;
   const nameFor = role => `${W.name(roleFor(role)) || 'Sub'} Agent`;
@@ -52,46 +65,41 @@
       if (last?.type === 'thinking') return '正在思考';
       return last?.content?.replace(/\s+/g, ' ').trim().slice(0, 140) || '已开始工作';
     }
-    function agentName(record) {
-      return nameFor(record.role);
-    }
-    function taskSummary(record) {
-      const source = String(record.description || record.title || record.prompt || activity(record) || '当前任务');
-      const concise = source
+    // One display contract for every dispatch: the short title names the row and
+    // the first task line explains it. Keeping them in one helper means a row
+    // can never show the same text twice, even when the model sends a thin
+    // description or none at all.
+    function concise(value, limit = 42) {
+      const source = String(value || '')
+        .split(/\r?\n/)
+        .filter(line => !/^\s*yan-plan:/i.test(line))
+        .join(' ')
+        .replace(/^\s*#+\s*/g, '')
         .replace(/^\s*调用\s+\S+\s*/u, '')
         .replace(/\s*[（(]\s*(?:任务\s*)?(?:id|ID|编号)[\s\S]*$/u, '')
         .replace(/\s+/g, ' ')
         .trim();
-      if (concise.length <= 42) return concise;
-      const clipped = concise.slice(0, 42).replace(/[，、：:；;\s]+[^\w\u4e00-\u9fff]*$/u, '').trim();
-      return `${clipped || concise.slice(0, 42).trim()}…`;
+      if (source.length <= limit) return source;
+      const clipped = source.slice(0, limit).replace(/[，、：:；;\s]+[^\w\u4e00-\u9fff]*$/u, '').trim();
+      return `${clipped || source.slice(0, limit).trim()}…`;
     }
-    function statusLabel(record) {
-      if (record.status === 'completed') return '已完成';
-      if (record.status === 'error') return '失败';
-      if (record.status === 'interrupted') return '已中止';
-      if (record.status === 'incomplete') return '待确认';
-      return '工作中';
+    function taskTitle(record) {
+      const title = concise(record.title, 48);
+      if (title) return title;
+      return ICONS[roleFor(record.role)] ? nameFor(record.role) : (concise(record.role, 48) || '子代理');
     }
-    // Delegation plan (yan-plan marker parsed by workflow-state): show the
-    // dependency graph once two or more tasks declare ids, so parallel
-    // builder fan-out and its ordering stay legible.
-    function planGraphHtml(all) {
-      const planned = all.filter(record => record.plan?.id);
-      if (planned.length < 2) return '';
-      const known = new Set(planned.map(record => record.plan.id));
-      return `<section class="subagent-plan-graph"><h5>${planIcon}<span>委派计划</span></h5>${planned.map(record => {
-        const deps = (record.plan.dependsOn || []);
-        const depsText = deps.length
-          ? `依赖 ${deps.map(dep => known.has(dep) ? dep : `${dep}（未声明）`).join('、')}`
-          : '无前置依赖';
-        return `<div class="subagent-plan-entry is-${escapeHtml(record.status)}">
-          <div class="subagent-plan-heading"><strong>${escapeHtml(record.plan.id)}</strong><span class="subagent-plan-status">${escapeHtml(statusLabel(record))}</span></div>
-          <span class="subagent-plan-dependencies">${escapeHtml(depsText)}</span>
-          ${record.plan.acceptance ? `<small class="subagent-plan-acceptance"><span>验收</span>${escapeHtml(record.plan.acceptance)}</small>` : ''}
-        </div>`;
-      }).join('')}</section>`;
+    function taskOverview(record) {
+      const name = taskTitle(record);
+      const firstLine = String(record.prompt || '').split(/\r?\n/).map(line => line.trim())
+        .find(line => line && !/^yan-plan:/i.test(line));
+      for (const candidate of [firstLine, record.title, record.description, activity(record)]) {
+        const text = concise(candidate);
+        if (text && text !== name) return text;
+      }
+      return concise(activity(record)) || '当前任务';
     }
+    
+    
     function planStripHtml(plan) {
       if (!plan?.id) return '';
       const deps = (plan.dependsOn || []);
@@ -107,33 +115,38 @@
       const all = records();
       const count = query('[data-subagents-count]');
       const running = all.filter(record => record.status === 'running').length;
-      const countLabel = `已开启·${all.length}`;
-      count.textContent = countLabel;
-      const signature = JSON.stringify(all.map(record => [record.id, record.role, record.status, taskSummary(record), elapsed(record), record.plan || null]));
+      count.textContent = `已开启 · ${running}`;
+      const signature = JSON.stringify(all.map(record => [record.id, avatarIndex(record), record.role, record.status, taskTitle(record), taskOverview(record), elapsed(record)]));
       if (signature !== rowsSignature) {
         rowsSignature = signature;
         const focusId = document.activeElement?.closest('[data-subagent-ui-id]')?.dataset.subagentUiId;
-        const planGraph = planGraphHtml(all);
-        query('[data-subagents-list]').innerHTML = all.length ? `${planGraph}${all.map(record => {
-          const planChip = record.plan?.id ? `<em class="subagent-plan-chip" title="委派计划 id">${planIcon}${escapeHtml(record.plan.id)}</em>` : '';
-          return `<button type="button" class="subagent-ui-row is-${escapeHtml(record.status)}" data-subagent-ui-id="${escapeHtml(record.id)}">
-          <span class="subagent-ui-icon" data-agent-role="${escapeHtml(record.role)}">${iconFor(record.role)}</span><span class="subagent-ui-main"><strong>${escapeHtml(agentName(record))}</strong><small>${escapeHtml(taskSummary(record))}</small>${planChip}</span><span class="subagent-ui-meta"><strong>${escapeHtml(elapsed(record))}</strong><small>${escapeHtml(statusLabel(record))}</small></span>
-        </button>`;
-        }).join('')}` : '<div class="subagents-empty">当前任务尚未调用子代理</div>';
-        if (focusId) [...query('[data-subagents-list]').children].find(row => row.dataset.subagentUiId === focusId)?.focus({ preventScroll: true });
+        const row = record => {
+          const title = taskTitle(record);
+          const overview = taskOverview(record);
+          return `<button type="button" class="subagent-ui-row is-${escapeHtml(record.status)}" data-subagent-ui-id="${escapeHtml(record.id)}" title="${escapeHtml(overview)}">
+          <span class="subagent-ui-icon">${avatarFor(record)}</span><span class="subagent-ui-main"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(overview)}</small></span><span class="subagent-ui-meta"><strong>${escapeHtml(elapsed(record))}</strong></span></button>`;
+        };
+        const active = all.filter(record => record.status === 'running');
+        const completed = all.filter(record => record.status !== 'running');
+        query('[data-subagents-list]').innerHTML = `<section data-subagents-active>${active.map(row).join('') || '<div class="subagents-empty">没有已开启的子代理</div>'}</section><section data-subagents-completed><h3 class="subagents-section-label">已完成 · ${completed.length}</h3>${completed.map(row).join('')}</section>`;
+        if (focusId) [...query('[data-subagents-list]').querySelectorAll('[data-subagent-ui-id]')].find(row => row.dataset.subagentUiId === focusId)?.focus({ preventScroll: true });
       }
       const detail = all.find(record => record.id === selected);
       query('[data-subagents-view="root"]').classList.toggle('hidden', !!detail);
       query('[data-subagents-view="detail"]').classList.toggle('hidden', !detail);
       if (detail) {
         const title = query('[data-subagents-detail-name]');
-        title.textContent = agentName(detail);
+        title.textContent = taskTitle(detail);
         title.title = title.textContent;
+        const model = query('[data-subagents-detail-model]');
+        const levels = { none: '无', minimal: '最低', low: '轻度', medium: '中', high: '高', xhigh: '极高', max: '最高' };
+        model.textContent = [detail.modelName || detail.modelId || '', levels[detail.reasoningMode] || detail.reasoningMode || ''].filter(Boolean).join(' · ');
+        model.title = model.textContent;
         const detailIcon = query('[data-subagents-detail-icon]');
-        detailIcon.dataset.agentRole = String(detail.role || '').toLowerCase();
-        if (detailIcon.dataset.iconRole !== detail.role) {
-          detailIcon.innerHTML = iconFor(detail.role);
-          detailIcon.dataset.iconRole = detail.role;
+        const avatar = String(avatarIndex(detail));
+        if (detailIcon.dataset.avatarIndex !== avatar) {
+          detailIcon.innerHTML = avatarFor(detail);
+          detailIcon.dataset.avatarIndex = avatar;
         }
         const planStrip = query('[data-subagents-detail-plan]');
         if (planStrip) {
@@ -181,16 +194,16 @@
         const previous = selected;
         selected = '';
         render();
-        [...query('[data-subagents-list]').children].find(row => row.dataset.subagentUiId === previous)?.focus({ preventScroll: true });
+        [...query('[data-subagents-list]').querySelectorAll('[data-subagent-ui-id]')].find(row => row.dataset.subagentUiId === previous)?.focus({ preventScroll: true });
       }
     });
     function openRoot(id = '') {
       open();
-      const row = [...query('[data-subagents-list]').children].find(row => row.dataset.subagentUiId === id);
+      const row = [...query('[data-subagents-list]').querySelectorAll('[data-subagent-ui-id]')].find(row => row.dataset.subagentUiId === id);
       row?.scrollIntoView({ block: 'nearest' });
       row?.focus({ preventScroll: true });
     }
     return { render, schedule, open, openRoot };
   }
-  window.YanSubagentPanel = { icon, iconFor, nameFor, roleFor, create };
+  window.YanSubagentPanel = { icon, iconFor, avatarFor, avatarIndex, nameFor, roleFor, create };
 })();

@@ -1,5 +1,0 @@
-# Mistral AI Inspired Design System Analysis
-
-Design system details have been moved to: https://getdesign.md/mistral.ai/design-md
-
-You can also view previews, dark mode examples, and download options on getdesign.md.

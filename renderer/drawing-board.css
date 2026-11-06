@@ -1,6 +1,6 @@
 .drawing-action-icon { display: flex; flex: 0 0 20px; color: #23cbb5; }
 .drawing-action-icon svg { width: 20px; height: 20px; }
-.drawing-board.image-editor { position: fixed; inset: 20px 28px; margin: auto; width: calc(100vw - 56px); height: calc(100vh - 40px); max-width: 1500px; max-height: none; border: 1px solid #d0d0d0; border-radius: 28px; background: white; container-type: normal;
+.drawing-board.image-editor { position: fixed; inset: 0; margin: auto; width: min(calc(100vw - 80px), 1080px); height: min(calc(100vh - 80px), 720px); border: 1px solid #d0d0d0; border-radius: 28px; background: white; container-type: normal;
   --ie-paper: #fff; --ie-ink: #242628; --ie-muted: #77797c; --ie-line: #d5d5d5; --ie-hover: #f3f3f3; --ie-focus: #2868d4; --ie-shadow: 0 1px 3px #0000000c; }
 .drawing-board::backdrop { background: #00000024; }
 .drawing-board .image-editor-stage { display: grid; place-items: center; overflow: hidden; background: white; }

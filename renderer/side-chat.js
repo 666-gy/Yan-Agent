@@ -86,7 +86,7 @@ function syncInterjectionSendButton() {
   });
 }
 
-function updateInterjectionSendState() { syncInterjectionSendButton(); }
+
 
 function buildInterjectionSnapshot(runCtx) {
   return {

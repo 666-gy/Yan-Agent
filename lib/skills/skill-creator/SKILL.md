@@ -14,9 +14,9 @@ This skill provides guidance for creating effective skills for Yan Agent.
 This copy is bundled with Yan Agent. Treat Yan Agent's own Skill store as the only
 authority for Skill installation, discovery, invocation, and deletion.
 
-- Never read from or write to Codex's `.codex/skills`, an external `.agents/skills`, or another application's Skill directory.
-- Use Yan Agent's Skill MCP and its configured `YAN_SKILLS_ROOT` when a Skill must be installed or updated. The runtime supplies that path; do not guess it from the host machine.
-- The scripts and references shipped beside this file are reusable resources for the bundled Skill. A newly created Skill belongs in Yan Agent's managed Skill root, not in the user's workspace, unless the user explicitly asks for an export there.
+- Never create, edit, or delete Skills in Codex's `.codex/skills`, an external `.agents/skills`, or another application's Skill directory. Read-only inspection of one named external Skill is allowed only when the user explicitly asks to use or adapt it in this turn; keep every new or updated Skill in Yan Agent's managed Skill root.
+- Use Yan Agent's Skill MCP and its configured official Skill store when a Skill must be installed or updated. For a standalone document, call `create_skill` with `id`, `name`, `description`, and `prompt`. For a complete package, prepare a folder inside the current task's working directory containing `SKILL.md` with name/description frontmatter and any needed `scripts/`, `references/`, and `assets/`; check its instructions and resources, then call `create_skill` with `id`, `source_directory`, and the current `task_id`. The tool copies the full package into the official store, rejects symbolic links, and returns the installed directory and file counts. Pass `replace_existing: true` only when updating an existing Skill; its previous version is quarantined. The runtime supplies the managed path; do not guess it from the host machine.
+- The scripts and references shipped beside this file are reusable resources for the bundled Skill. A working folder is staging only; finish installation with `create_skill` so the skill appears in Yan's skill catalog, and report the returned result rather than treating a local folder as an installed skill.
 - Installation is a Skill-store operation and remains available in a blank conversation; it does not require a workspace.
 
 ## About Skills
@@ -299,33 +299,11 @@ At this point, it is time to actually create the skill.
 
 Skip this step only if the skill being developed already exists. In this case, continue to the next step.
 
-Before running `init_skill.py`, ask where the user wants the skill created. If they do not specify a location, use the Yan Agent-managed Skill root supplied by the runtime (`YAN_SKILLS_ROOT`). Never fall back to a Codex or external-agent directory. When the runtime path is unavailable, use Yan Agent's Skill MCP/store instead of inventing a host path.
+When the draft is complete, validate its frontmatter and call the Yan Skills MCP `create_skill` tool so it is written to the official managed Skill directory and appears in the catalog immediately. Do not use a workspace file tool or an external agent directory as the installation target.
 
-When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
+For a document-only skill, the MCP writes `SKILL.md` and managed metadata. For a multi-file skill, prepare the complete folder in the task's working directory and pass `source_directory` plus `task_id`; the MCP copies scripts, references, assets and optional metadata together. Validate the package before publishing it.
 
-Usage:
-
-```bash
-scripts/init_skill.py <skill-name> --path <output-directory> [--resources scripts,references,assets] [--examples]
-```
-
-Examples:
-
-```bash
-scripts/init_skill.py my-skill --path "$YAN_SKILLS_ROOT"
-scripts/init_skill.py my-skill --path "$YAN_SKILLS_ROOT" --resources scripts,references
-scripts/init_skill.py my-skill --path ~/work/skills --resources scripts --examples
-```
-
-The script:
-
-- Creates the skill directory at the specified path
-- Generates a SKILL.md template with proper frontmatter and TODO placeholders
-- Creates `agents/openai.yaml` using agent-generated `display_name`, `short_description`, and `default_prompt` passed via `--interface key=value`
-- Optionally creates resource directories based on `--resources`
-- Optionally adds example files when `--examples` is set
-
-After initialization, customize the SKILL.md and add resources as needed. If you used `--examples`, replace or delete placeholder files.
+After `create_skill` succeeds, the user can refresh the Skill page to see it. For a requested revision, republish the complete updated folder with `replace_existing: true` so its resources remain included.
 
 Generate `display_name`, `short_description`, and `default_prompt` by reading the skill, then pass them as `--interface key=value` to `init_skill.py` or regenerate with:
 
@@ -378,6 +356,8 @@ scripts/quick_validate.py <path/to/skill-folder>
 ```
 
 The validation script checks YAML frontmatter format, required fields, and naming rules. If validation fails, fix the reported issues and run the command again.
+
+After validation, install the complete working folder with `create_skill({ id, source_directory, task_id })`. For an update use `replace_existing: true`. Re-read the installed skill with `read_skill` and check its resource list before reporting completion. Do not replace a multi-file package with a prompt-only call, which would discard its resources.
 
 ### Step 6: Iterate
 

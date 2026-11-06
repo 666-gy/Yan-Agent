@@ -1,0 +1,6 @@
+{
+  "name": "yan-v2-lifecycle-probe",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.js" }
+}

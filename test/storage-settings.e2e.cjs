@@ -26,6 +26,18 @@ fs.writeFileSync(path.join(dataDir, 'sessions', 'storage-test.json'), JSON.strin
     assert.equal(await page.locator('#settingsSectionTitle').textContent(), '存储空间');
     assert.equal(await page.locator('#settingsSectionTitle svg[data-keyline-icon="hard-drive"]').count(), 1);
     assert.equal(await page.locator('#storageStatus').count(), 0);
+    assert.equal(await page.locator('#storagePath').count(), 0);
+    assert.equal(await page.locator('#storageOpenDir + #storageRefresh').count(), 1);
+    assert.equal(await page.locator('#storageOpenDir img[src="assets/windows-explorer.png"]').count(), 1);
+    assert.equal(await page.locator('#storageOpenDir').isEnabled(), true);
+    const iconChrome = () => page.locator('#storageOpenDir').evaluate(el => {
+      const style = getComputedStyle(el);
+      return { border: style.borderTopWidth, background: style.backgroundColor, shadow: style.boxShadow };
+    });
+    assert.deepEqual(await iconChrome(), { border: '0px', background: 'rgba(0, 0, 0, 0)', shadow: 'none' });
+    await page.locator('#storageOpenDir').hover();
+    assert.deepEqual(await iconChrome(), { border: '0px', background: 'rgba(0, 0, 0, 0)', shadow: 'none' });
+    await page.mouse.move(0, 0);
     assert.equal(await page.locator('#storageCleanup').isEnabled(), true);
     assert.equal(await page.locator('#settings-tab-configuration + #settings-tab-storage').count(), 1);
     const first = await page.evaluate(() => api.storageStats());

@@ -142,7 +142,7 @@ window.YanWebConversation = (() => {
       let part;
       if (item.type === 'thinking') {
         part = buildWorkImageContent(textOf(item.content), desktop.buildThinkingElement);
-        part.querySelector('.thinking-label').textContent = item.summary || '思考过程';
+        part.querySelector('.thinking-label').textContent = '思考';
         if (item.summary) part.classList.add('has-progress-summary');
         // If the outer summary repeats the full content, keep only the outer text.
         if (item.summary && proseKey(item.summary) === proseKey(item.content)) {
@@ -211,7 +211,10 @@ window.YanWebConversation = (() => {
         const prose=document.createElement('span');prose.innerHTML=desktop.renderInlineEmphasis(escapeHtml(content));body.append(prose);
       }
       else {
-        if (run?.status === 'working' && !content) {
+        const hasResponse = content || run?.responseStartedAt || run?.executionStartedAt || (run?.timeline || []).some(item =>
+          ['subagent_status', 'tool_call', 'tool_result'].includes(item?.type)
+          || (['text', 'thinking'].includes(item?.type) && textOf(item.content).trim()));
+        if (run?.status === 'working' && !hasResponse) {
           const status = document.createElement('div'); status.className = 'web-run-status';
           status.setAttribute('role','status'); status.setAttribute('aria-label','Yan Agent is Starting up');
           const gear = document.createElement('i'); gear.dataset.lucide = 'settings'; gear.className = 'web-run-gear';

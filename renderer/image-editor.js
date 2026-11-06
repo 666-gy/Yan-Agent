@@ -244,6 +244,16 @@
     if (menuAction?.startsWith('zoom:')) { zoom(menuAction.slice(5)); closeMenu(); button('zoom').focus(); }
     if (menuAction?.startsWith('resize:')) void perform('resize', token => resize(menuAction.slice(7), token));
   });
+  // Entry points used by the image preview toolbar: open the editor and land
+  // directly in the requested tool instead of asking the user to click again.
+  function activate(action) {
+    if (!ready || working) return;
+    if (action === 'annotate') { closeMenu(); message(''); eraser.reset(); annotations.enter(); return; }
+    if (action === 'erase') { closeMenu(); message(''); annotations.exit(); eraser.enter(); return; }
+    if (action === 'comment') return void perform('comment', addComment);
+    if (action === 'background') return void perform('background', token => sendImagePrompt(BACKGROUND_PROMPT, token));
+    if (action === 'resize') return showMenu('resize');
+  }
   document.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !menuAnchor?.contains(event.target)) closeMenu(); });
   panel.addEventListener('keydown', event => {
     if (eraser.state().enabled && menu.hidden && !working) {
@@ -277,7 +287,7 @@
     ++version; ready = working = false; current = attachment = annotatedAttachment = null; eraser.reset(); annotations.reset();
     image.hidden = true; image.removeAttribute('src'); closeMenu(); availability(); message('');
   }
-  async function open(source) {
+  async function open(source, options = {}) {
     reset();
     const token = version;
     const tab = createRightSidebarTab('image-editor');
@@ -296,6 +306,12 @@
       if (token !== version) return;
       image.alt = current.name; image.hidden = false;
       ready = true; fit = true; layout(); stage.scrollLeft = stage.scrollTop = 0; availability(); message('');
+      if (options?.action) {
+        const requested = options.action;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (token === version && ready) activate(requested);
+        }));
+      }
     } catch (error) { if (token === version) message(`无法打开图片：${error.message}`, true, false); }
   }
   window.YanImageEditor = { open, reset, hasEdits: () => annotations.state().hasEdits, confirmClose: () => annotations.requestClose() };

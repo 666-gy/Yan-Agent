@@ -26,17 +26,6 @@ const providers = Object.freeze([
   ['hunyuan', 'Hunyuan'],
   ['siliconflow', 'SiliconFlow']
 ]);
-const executable = path.resolve(process.env.YAN_OPENCODE_EXECUTABLE || path.join(
-  appRoot,
-  'dist',
-  'win-unpacked',
-  'resources',
-  'app.asar.unpacked',
-  'node_modules',
-  `opencode-windows-${process.arch}`,
-  'bin',
-  process.platform === 'win32' ? 'opencode.exe' : 'opencode'
-));
 const providerModule = path.resolve(process.env.YAN_PROVIDER_MODULE_PATH || path.join(
   appRoot,
   'dist',
@@ -69,13 +58,14 @@ for (const dependency of providerDependencies) {
   assert.equal(fs.existsSync(manifest), true, `Packaged provider dependency is missing: ${dependency} (${manifest})`);
 }
 
+const { runtimePaths } = require('../lib/kernel-v2/runtime');
+assert.equal(fs.existsSync(runtimePaths(packagedAppRoot, appRoot).executable), true, 'Packaged V2 Node runtime missing');
 const results = [];
 for (const [providerId, providerName] of providers) {
   const result = spawnSync(process.execPath, [path.join(__dirname, 'provider-runtime.e2e.cjs')], {
     cwd: appRoot,
     env: {
       ...process.env,
-      YAN_OPENCODE_EXECUTABLE: executable,
       YAN_PROVIDER_MODULE_PATH: providerModule,
       YAN_PACKAGED_APP_ROOT: packagedAppRoot,
       YAN_TEST_PROVIDER_ID: providerId,
@@ -93,7 +83,7 @@ for (const [providerId, providerName] of providers) {
 
 console.log(JSON.stringify({
   ok: true,
-  executable,
+  runtime: 'node-v2',
   providerModule,
   packagedAppRoot,
   providers: results

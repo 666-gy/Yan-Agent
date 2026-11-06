@@ -3,16 +3,37 @@ const test=require('node:test'); const assert=require('node:assert/strict');
 const {registerAppSnapshotIpc}=require('../lib/main/app-snapshot');
 const { normalize: normalizeSnapshotSettings } = require('../lib/app-snapshot-settings');
 function setup(captureText = async handle => `Window: ${handle}\n  0 Window fixture`) {
- const handlers=new Map(), sent=[], life=new Map(); let callbacks, stored={appSnapshot:{shortcut:'Alt+Alt',destination:'auto',sound:false}}, stopped=false;
+ const handlers=new Map(), sent=[], life=new Map(), enumerations=[]; let callbacks, stored={appSnapshot:{shortcut:'Alt+Alt',destination:'auto',sound:false}}, stopped=false;
  const image={isEmpty:()=>false,toPNG:()=>Buffer.from('png'),toDataURL:()=> 'data:image/png;base64,cG5n',resize(){return this;}};
  const sources=[{id:'window:9:0',name:'Yan Agent',thumbnail:image},{id:'window:1:0',name:'QQ',thumbnail:image,appIcon:image},{id:'window:2:0',name:'Browser',thumbnail:image}];
  const contents={mainFrame:{},send:(channel,data)=>sent.push({channel,data})};
  const win={webContents:contents,isDestroyed:()=>false,getMediaSourceId:()=> 'window:9:0',isMinimized:()=>false,show(){},focus(){}};
- registerAppSnapshotIpc({ipcMain:{handle:(k,v)=>handlers.set(k,v)},windows:{getMainWindow:()=>win},BrowserWindow:{getAllWindows:()=>[win]},app:{whenReady:()=>Promise.resolve(),once:(k,v)=>life.set(k,v)},config:{load:()=>structuredClone(stored),save:v=>{stored=v;}}},{getSources:async()=>sources},{captureText,createMonitor:cb=>{callbacks=cb;return{start(){cb.onState(true);},stop(){stopped=true;}};}});
+ registerAppSnapshotIpc({ipcMain:{handle:(k,v)=>handlers.set(k,v)},windows:{getMainWindow:()=>win},BrowserWindow:{getAllWindows:()=>[win]},app:{whenReady:()=>Promise.resolve(),once:(k,v)=>life.set(k,v)},config:{load:()=>structuredClone(stored),save:v=>{stored=v;}}},{getSources:async options=>{enumerations.push(options);return sources;}},{captureText,createMonitor:cb=>{callbacks=cb;return{start(){cb.onState(true);},stop(){stopped=true;}};}});
  const event={sender:contents,senderFrame:contents.mainFrame};
- return {call:(name,...args)=>handlers.get('app-snapshot:'+name)(event,...args),handlers,event,sources,sent,cb:()=>callbacks,life,get stopped(){return stopped;}};
+ return {call:(name,...args)=>handlers.get('app-snapshot:'+name)(event,...args),handlers,event,sources,sent,enumerations,cb:()=>callbacks,life,get stopped(){return stopped;}};
 }
 const target=(handle,name)=>({handle,name,pid:98765});
+
+test('idle target changes do not enumerate; menus refresh changes only and stop on close', async()=>{
+ const c=setup(); await Promise.resolve();
+ c.cb().onTargets([target('1','QQ')]); c.cb().onTargets([target('2','Browser')]);
+ assert.equal(c.enumerations.length,0);
+ assert.equal((await c.call('target')).name,'Browser');
+ assert.equal(c.enumerations.length,1);
+ c.cb().onTargets([target('2','Browser')]);
+ assert.equal(c.enumerations.length,1);
+ c.cb().onTargets([target('1','QQ')]); await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(c.enumerations.length,2);
+ await c.call('target',{active:false});
+ c.cb().onTargets([target('2','Browser')]);
+ assert.equal(c.enumerations.length,2);
+ assert.equal((await c.call('capture','2')).snapshot.name,'Browser');
+ c.cb().onTargets([target('1','QQ')]);
+ assert.equal(c.enumerations.length,3,'capture must not restart menu polling');
+ await c.cb().onGesture('Alt+Alt');
+ assert.equal(c.enumerations.length,4);
+ assert.equal(c.enumerations.at(-1).thumbnailSize.width,2560);
+});
 
 test('snapshot sound is locked to the ding tone and volume is clamped', () => {
  for (const id of ['bell','chime','drop','custom','none','old-bell',undefined]) assert.equal(normalizeSnapshotSettings({soundId:id}).soundId,'ding');

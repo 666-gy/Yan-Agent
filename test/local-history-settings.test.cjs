@@ -69,3 +69,23 @@ test('real Windows compression preserves bytes and subsequent JSON writes', { sk
   fs.writeFileSync(original.file, JSON.stringify(record));
   assert.deepEqual(JSON.parse(fs.readFileSync(original.file, 'utf8')), record);
 });
+
+test('auto archive respects age, never, pinned, active and newly updated sessions', async t => {
+  const archived = [];
+  const old = Date.now() - 8 * 86400000;
+  const records = [
+    {id:'sess_old',updatedAt:old}, {id:'sess_recent',updatedAt:Date.now()},
+    {id:'sess_pinned',updatedAt:old,pinned:true}, {id:'sess_running',updatedAt:old},
+    {id:'sess_changed',updatedAt:old}
+  ];
+  const f = fixture(t, {sessionStore:{
+    listSessionSummaries:async()=>records,
+    readSessionRecord:async id=>id==='sess_changed'?{id,updatedAt:Date.now()}:records.find(s=>s.id===id),
+    setSessionArchivedRecord:(ids,value)=>{assert.equal(value,true);archived.push(...ids);}
+  }});
+  await f.service.archiveInactive(); assert.deepEqual(archived,[]);
+  f.config().general.autoArchiveDays=7;
+  await f.service.archiveInactive(); assert.deepEqual(archived,['sess_old']);
+  f.config().general.autoArchiveDays=90;
+  await f.service.archiveInactive(); assert.deepEqual(archived,['sess_old']);
+});

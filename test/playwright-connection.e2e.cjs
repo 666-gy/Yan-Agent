@@ -17,7 +17,7 @@ const root=path.resolve(__dirname,'..');
   Object.assign(env,{PATH:path.join(process.env.SystemRoot,'System32'),YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:profile,npm_config_offline:'true',npm_config_cache:path.join(profile,'empty-npm-cache')});
   let app;
   try {
-    app=await _electron.launch({executablePath:source?require('electron'):path.join(path.resolve(process.env.YAN_PACKAGED_APP_DIR||path.join(root,'dist/win-unpacked')),'Yan Agent.exe'),args:source?[root]:[],cwd:path.join(process.env.SystemRoot,'System32'),env});
+    app=await _electron.launch({executablePath:source?require('electron'):path.join(path.resolve(process.env.YAN_PACKAGED_APP_DIR||path.join(root,'dist/win-unpacked')),`${require('../package.json').build.productName}.exe`),args:source?[root]:[],cwd:path.join(process.env.SystemRoot,'System32'),env});
     const page=await app.firstWindow();await page.waitForFunction(()=>window.__YAN_APP_READY__);
     const result=await page.evaluate(async()=>{
       const config=(await window.yan.mcpList()).find(s=>s.id==='mcp_default_playwright');

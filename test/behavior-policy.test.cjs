@@ -1,26 +1,25 @@
 'use strict';
 
 const test = require('node:test');
+
 const assert = require('node:assert/strict');
+
 const fs = require('node:fs');
+
 const os = require('node:os');
+
 const path = require('node:path');
+
 const {
   derivePolicyControls,
   hasAnySearchRoute,
-  policyPermissionDecision,
   authoritativePolicySystem,
-  anySearchOutputFailed,
-  anySearchOutputInsufficient
 } = require('../lib/behavior-policy');
+
 const {
   ContinualHarnessStore
 } = require('../lib/continual-harness');
-const {
-  combineSystem,
-  observeBehaviorPolicyTool,
-  permissionForRun
-} = require('../lib/opencode-sidecar');
+const { combineSystem, permissionForRun } = require('../lib/kernel-policy');
 
 function policy(content = '以后搜索优先使用 AnySearch，只有不可用时才回退内置浏览器。') {
   return {
@@ -52,95 +51,11 @@ test('AnySearch routing does not require the user to name a browser and covers s
   assert.equal(hasAnySearchRoute([current], { prompt: '打开 https://example.com 并查询页面内容' }), false);
 });
 
-test('search policy blocks browser permissions until AnySearch settles', () => {
-  const current = policy();
-  const before = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: {},
-    permission: 'yan_browser_open_builtin_browser'
-  });
-  assert.equal(before.reply, 'reject');
 
-  const after = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: { anySearchFailed: true },
-    permission: 'yan_browser_open_builtin_browser'
-  });
-  assert.equal(after.reply, 'once');
-});
 
-test('search policy also gates network-capable Bash commands', () => {
-  const current = policy();
-  const local = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: {},
-    permission: 'bash',
-    patterns: ['Get-Content -Raw README.md']
-  });
-  assert.equal(local.reply, 'once');
-  const bypass = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: {},
-    permission: 'bash',
-    patterns: ['Invoke-WebRequest https://example.com']
-  });
-  assert.equal(bypass.reply, 'reject');
-  const inlineBypass = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: {},
-    permission: 'bash',
-    patterns: ["node -e \"require('https').get('example.com')\""]
-  });
-  assert.equal(inlineBypass.reply, 'reject');
-  const unknownScript = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: {},
-    permission: 'bash',
-    patterns: ['node local-script.js']
-  });
-  assert.equal(unknownScript.reply, 'reject');
-  const fallback = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: { anySearchFailed: true },
-    permission: 'bash',
-    patterns: ['Invoke-WebRequest https://example.com']
-  });
-  assert.equal(fallback.reply, 'once');
-});
 
-test('a successful AnySearch result does not authorize unrelated browser fallback', () => {
-  const current = policy();
-  const blocked = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra 模型介绍' },
-    state: { anySearchSucceeded: true },
-    permission: 'websearch'
-  });
-  assert.equal(blocked.reply, 'reject');
-  const pageFollowUp = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra 官网，然后打开页面核对截图' },
-    state: { anySearchSucceeded: true },
-    permission: 'yan_browser_open_builtin_browser'
-  });
-  assert.equal(pageFollowUp.reply, 'once');
-  const emptyResult = policyPermissionDecision({
-    policies: [current],
-    request: { prompt: '搜索 Astra' },
-    state: { anySearchSucceeded: true, anySearchFallbackEligible: true },
-    permission: 'websearch'
-  });
-  assert.equal(emptyResult.reply, 'once');
-  assert.equal(anySearchOutputInsufficient('{"results":[]}'), true);
-  assert.equal(anySearchOutputInsufficient('{"results":[{"title":"Astra"}]}'), false);
-});
+
+
 
 test('active policies are placed in the authoritative system layer', () => {
   const system = combineSystem({
@@ -171,33 +86,7 @@ test('session permissions turn on the application gate for a relevant search tas
   assert.equal(permissions.websearch, 'ask');
 });
 
-test('a completed AnySearch command releases the fallback gate', () => {
-  const run = {
-    request: { prompt: '搜索 Astra', behaviorPolicies: [policy()] },
-    policyState: { anySearchAttempted: false, anySearchSucceeded: false, anySearchFailed: false }
-  };
-  observeBehaviorPolicyTool(run, {
-    type: 'message.part.updated',
-    properties: {
-      part: {
-        type: 'tool',
-        tool: 'bash',
-        state: {
-          status: 'completed',
-          input: { command: 'node "C:\\Yan\\anysearch_cli.js" search Astra' }
-        }
-      }
-    }
-  });
-  assert.equal(run.policyState.anySearchAttempted, true);
-  assert.equal(run.policyState.anySearchSucceeded, true);
-});
 
-test('AnySearch completed output with a nonzero result remains a failure', () => {
-  assert.equal(anySearchOutputFailed('{"ok":false,"error":"network unavailable"}'), true);
-  assert.equal(anySearchOutputFailed('exit code: 1\nnetwork unavailable'), true);
-  assert.equal(anySearchOutputFailed('{"ok":true,"results":[{"title":"Astra"}]}'), false);
-});
 
 test('explicit policies and legacy rejected refinements are durable in the Harness', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-policy-'));

@@ -27,7 +27,6 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-work-process-larg
     const page = await application.firstWindow();
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.waitForFunction(() => typeof quickInputHandlerReady !== 'undefined' && quickInputHandlerReady);
-    await page.locator('#taskBar:not(.hidden)').waitFor();
 
     const state = await page.evaluate(async () => {
       if (!state.currentSession) await newSession();
@@ -75,14 +74,15 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-work-process-larg
       toggle.click();
       const closedPanels = message.querySelectorAll('.tool-result-panel').length;
       const firstTool = message.querySelector('.tool-step');
-      firstTool.closest('.tool-activity-group').open = true;
       firstTool.querySelector('summary').click();
       await new Promise(resolve => setTimeout(resolve, 0));
+      const historyEl = message.querySelector('.agent-work-history');
       return {
         closedPanels,
         toggleLabel: toggle.textContent,
-        renderedParts: message.querySelectorAll('.agent-activity-body > [data-agent-part-key]').length,
-        hasTrimNotice: message.textContent.includes('早期工作过程已折叠'),
+        historySteps: historyEl ? historyEl.querySelectorAll('.tool-step').length : 0,
+        historyText: historyEl?.textContent || '',
+        hasTrimNotice: message.textContent.includes('项工作过程已自动折叠'),
         hasOutputLimitNotice: message.textContent.includes('工具输出已截断'),
         primitiveOutputOk: parseToolOutputOk('200\r\n')
       };
@@ -90,7 +90,9 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-work-process-larg
 
     assert.equal(state.toggleLabel, '隐藏工作过程');
     assert.equal(state.closedPanels, 0, 'closed tools should defer their output panels');
-    assert.ok(state.renderedParts <= 241, `rendered parts: ${state.renderedParts}`);
+    assert.ok(state.historySteps > 0 && state.historySteps <= 241, `history steps: ${state.historySteps}`);
+    assert.equal(state.historyText.includes('file-0.js'), false, 'oldest tool calls stay folded');
+    assert.equal(state.historyText.includes('file-359.js'), true, 'recent tool calls stay visible');
     assert.equal(state.hasTrimNotice, true);
     assert.equal(state.hasOutputLimitNotice, true);
     assert.equal(state.primitiveOutputOk, true);

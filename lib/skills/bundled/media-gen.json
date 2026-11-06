@@ -1,0 +1,12 @@
+{
+  "id": "media-gen",
+  "name": "Media Gen",
+  "desc": "Generate or revise video using Yan’s configured video model. Use for text-to-video and revisions of prior Yan video generations.",
+  "tags": [
+    "office-assist"
+  ],
+  "source": "bundled",
+  "version": 1,
+  "promptFile": "../media-gen/SKILL.md",
+  "logo": "assets/skill-logos/media-gen.svg"
+}

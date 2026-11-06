@@ -51,6 +51,8 @@
     let enabled = false, locked = false, objects = [], selectedId = null, tool = initialTool, color = initialColor, brushSize = 4, eraserSize = 32;
     let history = [], future = [], gesture = null, nextId = 1, nextEraseId = 1, revision = 0, styleBefore = null, frame = 0;
     let editingText = null, textSize = 24;
+    // One annotation can be copied and pasted as a new object.
+    let copiedObject = null;
     let fullscreen = standalone || document.querySelector('#app').classList.contains('browser-focus-mode');
     const discardDialog = window.createImageDiscardDialog(panel);
     const selected = () => objects.find(object => object.id === selectedId);
@@ -68,6 +70,28 @@
       future = []; ++revision; onChange(state());
     }
     function finishStyle() { if (styleBefore) { const before = styleBefore; styleBefore = null; record(before); } }
+    function removeSelected() {
+      const object = selected();
+      if (!object) return;
+      const before = clone(objects);
+      objects = objects.filter(item => item.id !== object.id);
+      selectedId = null;
+      record(before); render();
+    }
+    function pasteCopiedObject() {
+      if (!copiedObject || locked) return;
+      finishGesture(); finishText(); finishStyle();
+      const before = clone(objects);
+      const copy = clone([copiedObject])[0];
+      copy.id = nextId++;
+      if (Array.isArray(copy.erasures)) copy.erasures = copy.erasures.map(stroke => ({ ...clone([stroke])[0], id: nextEraseId++ }));
+      // Each paste steps away from the previous copy so repeats stay visible.
+      G.translate(copy, 14, 14);
+      copiedObject = clone([copy])[0];
+      objects = [...objects, copy];
+      tool = 'select'; selectedId = copy.id;
+      record(before); render();
+    }
     function render() {
       cancelAnimationFrame(frame); frame = 0;
       masks.replaceChildren();
@@ -353,8 +377,18 @@
         else void requestClose();
       } else if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
         event.preventDefault(); event.stopPropagation(); undo(event.shiftKey || event.key.toLowerCase() === 'y');
+      } else if ((event.ctrlKey || event.metaKey) && !event.altKey && ['c', 'x', 'v'].includes(event.key.toLowerCase())) {
+        const key = event.key.toLowerCase();
+        if (key === 'v') {
+          if (!copiedObject) return;
+          event.preventDefault(); event.stopPropagation(); pasteCopiedObject(); return;
+        }
+        if (!selected()) return;
+        event.preventDefault(); event.stopPropagation();
+        copiedObject = clone([selected()])[0];
+        if (key === 'x') removeSelected();
       } else if (['Delete', 'Backspace'].includes(event.key) && selected()) {
-        event.preventDefault(); const before = clone(objects); objects = objects.filter(object => object.id !== selectedId); selectedId = null; record(before); render();
+        event.preventDefault(); removeSelected();
       }
     });
     stage.addEventListener('scroll', () => { cursor.hidden = true; });

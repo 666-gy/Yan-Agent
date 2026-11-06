@@ -1,0 +1,44 @@
+diff --git a/packages/core/src/session/compaction.ts b/packages/core/src/session/compaction.ts
+index 7afb5a4..5856e9d 100644
+--- a/packages/core/src/session/compaction.ts
++++ b/packages/core/src/session/compaction.ts
+@@ -202,6 +202,20 @@ export const layer = Layer.effect(
+       }),
+     })
+ 
++    // Keep the public auto/manual protocol compatible while preserving the
++    // actual trigger and the same token estimate used by the threshold gate.
++    const diagnostics = (trigger: Trigger) => ({
++      yanContext: {
++        reason: trigger.reason,
++        beforeTokens: estimateContext(trigger.context),
++        ...estimatePrompt(trigger.context),
++        threshold: Number.isFinite(calculateCeiling(trigger.context.model.limit, state.get().buffer))
++          ? calculateCeiling(trigger.context.model.limit, state.get().buffer)
++          : 0,
++        contextWindow: trigger.context.model.limit.input || trigger.context.model.limit.context,
++      },
++    })
++
+     const compact = Effect.fn("SessionCompaction.compact")(function* (trigger: Trigger): Effect.fn.Return<Outcome> {
+       const settings = state.get()
+       const context = trigger.context
+@@ -391,7 +405,8 @@ export const layer = Layer.effect(
+       const context = trigger.context
+       // The runner opened the manual compaction's message when it delivered the `/compact` item.
+       if (trigger.reason !== "manual") {
+-        yield* bus.publish(SessionEvent.Compaction.Started, { sessionID: context.session.id, reason: "auto", recent })
++        yield* bus.publish(SessionEvent.Compaction.Started, { sessionID: context.session.id, reason: "auto", recent },
++          { metadata: diagnostics(trigger) })
+       }
+       if (prepared.event.result) return yield* fromHook(context, prepared.event.result, recent)
+ 
+@@ -652,7 +667,7 @@ export const layer = Layer.effect(
+           recent: outcome.recent,
+           ...usage,
+         },
+-        { metadata: outcome.metadata },
++        { metadata: { ...outcome.metadata, ...diagnostics(trigger) } },
+       )
+       return { status: "completed" }
+     })

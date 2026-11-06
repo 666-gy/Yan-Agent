@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { combineSystem } = require('../lib/opencode-sidecar');
+const { combineSystem } = require('../lib/kernel-policy');
 
 test('English runs carry a user-facing English response contract', () => {
   const system = combineSystem({ language: 'en', providerId: 'test', modelId: 'test' });

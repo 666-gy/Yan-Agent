@@ -56,6 +56,10 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-background-task-'
       await frames();
       const flushedOnScreen = runCtx.openCodeStreamAccumulators.size === 0;
 
+      // Exercise the real stream path, including a frame queued before leaving.
+      runCtx.openCodePartTypes.set('live-tail', 'text');
+      appendOpenCodeStreamDelta(runCtx, { type: 'part', id: 'live-tail', kind: 'text' }, 'queued-before-switch ');
+
       // Off screen: leave the buffer alone and no frame loop is scheduled.
       const previousSession = state.currentSession;
       state.currentSession = { id: 'other-task', workspace: '' };
@@ -66,21 +70,37 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-background-task-'
       const bufferedOffScreen = runCtx.openCodeStreamAccumulators.size;
       const headerCollapsed = assistantEl.querySelector('.agent-run-header')?.classList.contains('agent-work-collapsed') === true;
 
+      for (let i = 0; i < 3; i++) {
+        applyOpenCodeEventBatch(runCtx, [{ type: 'message.part.delta', data: {
+          partID: 'live-tail', field: 'text', delta: `background-${i} `
+        } }]);
+        await frames();
+      }
+      const liveTailBuffered = runCtx.openCodeStreamAccumulators.get('part:live-tail')?.chunks.join('') || '';
+      const backgroundCallbacks = !!(runCtx.openCodeRenderFrame || runCtx.openCodeRenderTimer
+        || runCtx.openCodeStreamFlushFrame || runCtx.openCodeStreamFlushTimer);
+
       // Returning to the task shows the tail that arrived while it was away.
       state.currentSession = previousSession;
       bindActiveRunUi(taskA.id);
       const text = String(runCtx.activeAgentRun?.timeline?.map(item => item.content || '').join('') || '');
       const sawOffScreenTail = text.includes('off-screen');
+      const sawLiveTail = text.includes('queued-before-switch background-0 background-1 background-2');
       const reOpenedCollapsed = assistantEl.querySelector('.agent-run-header')?.classList.contains('agent-work-collapsed') === true;
       window.hiddenRunProbe = { runCtx, taskId: taskA.id };
-      return { flushedOnScreen, bufferedOffScreen, headerCollapsed, sawOffScreenTail, reOpenedCollapsed };
+      return { flushedOnScreen, bufferedOffScreen, headerCollapsed, sawOffScreenTail, reOpenedCollapsed,
+        liveTailBuffered, backgroundCallbacks, sawLiveTail };
     });
 
     assert.equal(probe.flushedOnScreen, true, 'an on-screen run still flushes and renders');
-    assert.equal(probe.bufferedOffScreen, 1, 'an off-screen run leaves its stream buffered instead of flushing every frame');
+    assert.equal(probe.bufferedOffScreen, 2, 'an off-screen run leaves its stream buffered instead of flushing every frame');
     assert.equal(probe.headerCollapsed, true, 'leaving a running task collapses its work log');
     assert.equal(probe.sawOffScreenTail, true, 'returning to the task renders the tail buffered while it was away');
     assert.equal(probe.reOpenedCollapsed, true, 'the hidden work log stays collapsed when the task is reopened');
+    assert.equal(probe.liveTailBuffered, 'queued-before-switch background-0 background-1 background-2 ',
+      'real background deltas stay buffered, including a flush queued before switching');
+    assert.equal(probe.backgroundCallbacks, false, 'background streams must not schedule render or parsing callbacks');
+    assert.equal(probe.sawLiveTail, true, 'returning flushes every real stream delta in order');
     // Playwright forces captured pages visible. Native visibility/freeze is
     // verified separately without that emulation in browser-freeze-native.cjs.
     await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); });

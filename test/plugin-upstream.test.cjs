@@ -18,16 +18,15 @@ function setup(t) {
     files: Object.entries(files).map(([file, text]) => ({ path: file, size: Buffer.byteLength(text), sha: crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex') })) };
   return { root, store: createPluginStore(path.join(root, 'data')), entry, files };
 }
-test('remote catalog has six pinned upstream packages and only real remote services require OAuth', () => {
-  assert.deepEqual(entries.map(entry => entry.id), ['figma', 'canva', 'game-studio', 'circleci', 'build-ios-apps', 'build-macos-apps']);
+test('remote catalog has two pinned upstream packages and only real remote services require OAuth', () => {
+  assert.deepEqual(entries.map(entry => entry.id), ['figma', 'canva']);
   for (const entry of entries) {
     assert.match(entry.revision, /^[a-f0-9]{40}$/); assert.ok(entry.files.length > 10);
     assert.ok(entry.manifest.skills.length >= 3);
     assert.ok(entry.files.some(file => file.path === '.codex-plugin/plugin.json'));
-    assert.equal(entry.manifest.mcpServers.length, ['figma', 'canva', 'build-ios-apps'].includes(entry.id) ? 1 : 0);
+    assert.equal(entry.manifest.mcpServers.length, 1);
     for (const server of entry.manifest.mcpServers) {
-      if (server.type === 'remote') { assert.equal(server.auth, 'oauth'); assert.match(server.url, /^https:\/\//); }
-      else { assert.equal(entry.id, 'build-ios-apps'); assert.equal(server.auth, undefined); assert.deepEqual(server.args, ['-y', 'xcodebuildmcp@2.7.0', 'mcp']); }
+      assert.equal(server.type, 'remote'); assert.equal(server.auth, 'oauth'); assert.match(server.url, /^https:\/\//);
     }
   }
 });

@@ -218,7 +218,7 @@ test('loadConfig defaults the relay selection to empty and preserves a saved one
 });
 
 // --- sidecar/renderer no longer carry the switch -----------------------------
-const sidecarSrc = fs.readFileSync('lib/opencode-sidecar.js', 'utf8');
+const sidecarSrc = fs.readFileSync('lib/kernel-v2/adapter.js', 'utf8');
 assert.ok(!sidecarSrc.includes('visionRelayEnabled'), 'sidecar must not reference the removed switch');
 
 console.log('vision relay selection checks: all pass');

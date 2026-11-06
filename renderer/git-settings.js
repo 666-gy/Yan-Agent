@@ -35,27 +35,7 @@ function bindGitPreferences() {
   });
 }
 
-async function startGitPrMonitor(button) {
-  if (button.disabled) return;
-  const number = Number(button.dataset.taskGitPrMonitor);
-  const workspace = currentGitWorkspace();
-  const selection = normalizeModelSelectionSnapshot(getAgentModelSelection());
-  if (!workspace || !Number.isSafeInteger(number) || number < 1) return;
-  if (selection.modelType !== 'text') { toast('请先切换到文本模型'); return; }
-  button.disabled = true;
-  try {
-    closeTaskGitPanel();
-    // A dedicated task keeps monitoring independent of the current chat/draft.
-    const previousSessionId = state.currentSession?.id;
-    await newSession({ forceNew: true });
-    if (!state.currentSession || state.currentSession.id === previousSessionId) throw new Error('未能创建监控聊天');
-    state.currentSession.workspace = workspace;
-    state.currentSession.title = `监控 PR #${number}`;
-    await saveCurrentSession();
-    await submitMessage(`/monitor-pr ${number}`, [], [], { modelSelection: selection, subagentRoles: [] });
-  } catch (error) { toast(`无法启动 PR 监控：${error.message}`); }
-  finally { button.disabled = false; }
-}
+
 
 async function generateGitPrDescription() {
   const button = $('#taskGitPrGenerateBtn');
@@ -106,17 +86,4 @@ async function startGitReview(command) {
   await submitMessage(reviewPrompt, attachments, [], { modelSelection: selection, subagentRoles: [] });
 }
 
-async function mergeGitPullRequest(button) {
-  if (button.disabled) return;
-  const workspace = currentGitWorkspace();
-  const number = Number(button.dataset.taskGitPrMerge);
-  const label = state.config?.git?.mergeMethod === 'squash' ? '压缩合并' : '合并';
-  button.disabled = true;
-  try {
-    if (!await requestGenericConfirmation({ title: `${label} PR #${number}？`, description: '此操作将把 Pull Request 合并到远程目标分支。', confirmLabel: label })) return;
-    const result = await api.ghPrMerge(workspace, number);
-    if (!result?.ok) throw new Error(result?.error || '合并失败');
-    toast(`已合并 PR #${number}`);
-  } catch (error) { toast(error.message); }
-  finally { button.disabled = false; }
-}
+

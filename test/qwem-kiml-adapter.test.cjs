@@ -9,7 +9,7 @@ const test = require('node:test');
 const qwenProfile = require('../lib/qwen-model-profile');
 const kimiProfile = require('../lib/kimi-model-profile');
 const alias = require('../lib/provider-tool-alias');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 
 let qwenShaping;
 let kimiShaping;
@@ -209,4 +209,26 @@ test('sidecar wiring: qwen/kimi presets select their adapters with reasoning rep
     apiKey: 'k', baseUrl: 'https://relay.example.com/v1'
   });
   assert.doesNotMatch(foreign.provider['conn-x'].npm, /opencode-qwem-provider\.mjs$/);
+});
+
+test('kimi sends a stable per-conversation prompt_cache_key', async () => {
+  const bodies = [];
+  const provider = kimlBundle.createYanKimlProvider({
+    name: 'conn-kiml', apiKey: 'k', baseURL: 'https://api.moonshot.ai/v1',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return Response.json({ id: 'cache', model: 'kimi-k3',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 } });
+    }
+  });
+  const model = provider('kimi-k3');
+  const run = text => model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text }] }] });
+  await run('same conversation');
+  await run('same conversation');
+  await run('other conversation');
+  assert.match(bodies[0].prompt_cache_key, /^yan-[0-9a-f]{48}$/u);
+  assert.equal(bodies[1].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.notEqual(bodies[2].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.doesNotMatch(bodies[0].prompt_cache_key, /same conversation|^k$/u);
 });

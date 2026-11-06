@@ -18,6 +18,12 @@ const resourcesRoot = process.argv[2]
   : path.join(appRoot, 'dist', 'win-unpacked', 'resources');
 const archive = path.join(resourcesRoot, 'app.asar');
 const unpackedRoot = path.join(resourcesRoot, 'app.asar.unpacked');
+require('node:child_process').execFileSync(process.execPath,
+  [path.join(__dirname, 'verify-packaged-web.cjs'), unpackedRoot],
+  { stdio: 'inherit', windowsHide: true });
+require('node:child_process').execFileSync(process.execPath,
+  [path.join(__dirname, 'verify-packaged-session.cjs'), unpackedRoot],
+  { stdio: 'inherit', windowsHide: true });
 
 if (!fs.existsSync(archive)) {
   console.error(`[verify-packaged-runtime] app.asar not found: ${archive}`);
@@ -87,8 +93,7 @@ const required = [
   'renderer/assets/logo-light.png',
   'renderer/assets/logo-dark.ico',
   'renderer/assets/logo-dark.png',
-  'lib/subagent/workflow-state.js',
-  'lib/subagent/event-bridge.js',
+  'renderer/subagent-workflow.js',
   'lib/external-agents/worker.js',
   'lib/external-agents/desktop.js',
   'lib/external-agents/launch.js',
@@ -96,6 +101,7 @@ const required = [
   'lib/external-agents/journal.js',
   'lib/external-agents/detect-desktop.ps1',
   'lib/native/yan-desktop-bridge.exe',
+  'lib/native/yan-shell-job.exe',
   'lib/yan-computer-mcp.js',
   'lib/cua-driver-runtime.js',
   'lib/plugins/mcp-client.js',
@@ -109,9 +115,9 @@ const required = [
   'lib/main/app-snapshot.js',
   'lib/main/voice-input.js',
   'lib/voice-input.js',
-  'lib/vendor/dsh-voice/lib/provider.mjs',
-  'lib/vendor/dsh-voice/lib/worker.js',
-  'lib/vendor/dsh-voice/runtime/assets.json',
+  'lib/vendor/voice-runtime/lib/provider.mjs',
+  'lib/vendor/voice-runtime/lib/worker.js',
+  'lib/vendor/voice-runtime/runtime/assets.json',
   'node_modules/sherpa-onnx-node/package.json',
   'node_modules/sherpa-onnx-win-x64/package.json',
   'node_modules/sherpa-onnx-win-x64/sherpa-onnx.node',
@@ -123,7 +129,6 @@ const required = [
   'lib/app-snapshot-settings.js',
   'renderer/app-snapshot.js',
   'renderer/app-snapshot.css',
-  'renderer/notify-sounds.js',
   'lib/main/snapshot-monitor.cs',
   'lib/main/snapshot-monitor.ps1',
   'lib/plugins/catalog/index.json',
@@ -132,10 +137,36 @@ const required = [
 ];
 
 const missing = [];
+const v2Manifest = require('../vendor/opencode-v2/runtime.json');
+const v2Root = 'vendor/opencode-v2';
+const v2ManifestPath = `${v2Root}/runtime.json`;
+if (!headerNode(v2ManifestPath)?.unpacked || !fs.existsSync(unpackedPath(v2ManifestPath))) {
+  missing.push(`${v2ManifestPath} (V2 manifest must be physically unpacked)`);
+} else if (JSON.stringify(JSON.parse(fs.readFileSync(unpackedPath(v2ManifestPath), 'utf8'))) !== JSON.stringify(v2Manifest)) {
+  missing.push(`${v2ManifestPath} (V2 manifest mismatch)`);
+}
+for (const [relative, expected] of Object.entries(v2Manifest.files)) {
+  const rel = `${v2Root}/node-runtime/${relative.replaceAll('\\', '/')}`;
+  const full = unpackedPath(rel);
+  if (!headerNode(rel)?.unpacked || !fs.existsSync(full)) missing.push(`${rel} (V2 runtime must be physically unpacked)`);
+  else if (crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex') !== expected) missing.push(`${rel} (V2 runtime hash mismatch)`);
+}
+const v2ClientPackage = `${v2Root}/node_modules/@opencode/client/package.json`;
+try {
+  if (!fs.existsSync(unpackedPath(v2ClientPackage))) throw new Error('V2 client must be physically unpacked');
+  const client = JSON.parse(fs.readFileSync(unpackedPath(v2ClientPackage), 'utf8'));
+  if (client.version !== v2Manifest.version) throw new Error('V2 client version mismatch');
+} catch (error) { missing.push(`${v2ClientPackage} (${error.message})`); }
+for (const legacy of ['vendor/opencode/runtime-patch.json', 'vendor/opencode/all-file-tools.patch',
+  'lib/opencode-runtime.js', 'node_modules/opencode-windows-x64/bin/opencode.exe']) {
+  if (exists(legacy)) missing.push(`${legacy} (obsolete kernel patch/runtime still packaged)`);
+}
 // Font URLs are relative to the bundled stylesheet, not node_modules.
 const katexStylesheet = 'renderer/vendor/katex/katex.min.css';
 if (exists(katexStylesheet)) {
-  const css = readAsarText(katexStylesheet);
+  const css = headerNode(katexStylesheet)?.unpacked
+    ? fs.readFileSync(unpackedPath(katexStylesheet), 'utf8')
+    : readAsarText(katexStylesheet);
   for (const match of css.matchAll(/url\((?:["'])?(fonts\/[^\s)"']+)/g)) {
     const font = `renderer/vendor/katex/${match[1]}`;
     if (!exists(font)) missing.push(`${font} (required KaTeX font)`);
@@ -155,9 +186,9 @@ for (const rel of ['lib/main/snapshot-monitor.ps1', 'lib/main/snapshot-monitor.c
 }
 
 for (const rel of [
-  'lib/vendor/dsh-voice/lib/provider.mjs',
-  'lib/vendor/dsh-voice/lib/worker.js',
-  'lib/vendor/dsh-voice/runtime/assets.json',
+  'lib/vendor/voice-runtime/lib/provider.mjs',
+  'lib/vendor/voice-runtime/lib/worker.js',
+  'lib/vendor/voice-runtime/runtime/assets.json',
   'node_modules/sherpa-onnx-node/sherpa-onnx.js',
   'node_modules/sherpa-onnx-win-x64/package.json',
   'node_modules/sherpa-onnx-win-x64/sherpa-onnx.node',
@@ -179,6 +210,7 @@ const builderIgnoredNames = new Set(['.git', '.hg', '.svn', 'node_modules', '__p
   'package-lock.json', 'yarn.lock', '.github', '.idea', '.vs']);
 function ignored(rel, name) {
   return builderIgnoredNames.has(name)
+    || ['lib/opencode-sidecar.js', 'lib/opencode-runtime.js'].includes(rel)
     || /\.(?:iml|hprof|orig|pyc|pyo|rbc|swp|csproj|sln|suo|xproj|cc|d\.ts|mk|a|o|forge-meta|pdb)$/.test(name)
     || /^lib\/native\/.*\.cs$/.test(rel);
 }
@@ -201,7 +233,7 @@ function verifySource(full, rel) {
   applicationFiles++;
 }
 for (const rel of ['main.js', 'preload.js', 'quick-input-preload.js', 'tokens.css']) verifySource(path.join(appRoot, rel), rel);
-for (const rel of ['lib', 'renderer', '.pets', 'vendor/opencode', 'node_modules/monaco-editor/min']) {
+for (const rel of ['lib', 'renderer', '.pets', 'vendor/opencode-v2', 'node_modules/monaco-editor/min']) {
   walk(path.join(appRoot, rel), verifySource, `${rel}/`, true);
 }
 let unpackedFiles = 0;
@@ -274,7 +306,7 @@ const thumbnailNames = Object.keys(wallpaperNode?.files?.thumbs?.files || {}).so
 if (JSON.stringify(thumbnailNames) !== JSON.stringify(['night-sky.jpg', 'rainy-architecture.jpg'])) missing.push('wallpapers (unexpected or missing thumbnails)');
 const packagedPackage = JSON.parse(readAsarText('package.json'));
 if (packagedPackage.version !== sourcePackage.version) missing.push('package.json (version mismatch)');
-const displayVersion = sourcePackage.version.replace(/-beta\.(\d+)(-rc(?:\.(\d+))?)?$/, (_, beta, rc, candidate) => ` Beta${beta}${rc ? `-RC${candidate || ''}` : ''}`);
+const displayVersion = sourcePackage.displayVersion || sourcePackage.version.replace(/-beta\.(\d+)(-rc(?:\.(\d+))?)?$/, (_, beta, rc, candidate) => ` Beta${beta}${rc ? `-RC${candidate || ''}` : ''}`);
 if (!html.includes(`Yan Agent v${displayVersion}`)) missing.push('renderer/index.html (About version mismatch)');
 const releaseContext = { window: {} };
 vm.runInNewContext(readAsarText('renderer/release-notes.js'), releaseContext, { timeout: 1000 });

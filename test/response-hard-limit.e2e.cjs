@@ -23,8 +23,9 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-response-cap-'));
       env: { ...process.env, YAN_E2E_MODE: '1', YAN_E2E_USER_DATA_DIR: userDataDir }
     });
     const page = await application.firstWindow();
-    await page.waitForFunction(() => typeof armResponseWatchdog === 'function' && typeof state === 'object');
-    await page.locator('#taskBar:not(.hidden)').waitFor();
+    await page.waitForFunction(() => window.__YAN_APP_READY__ && typeof armResponseWatchdog === 'function' && typeof state === 'object');
+    await page.evaluate(() => window.YanStartupHello?.skip?.());
+    await page.evaluate(() => document.querySelectorAll('[inert]').forEach(el => { el.inert = false; }));
 
     const probe = await page.evaluate(async () => {
       window.YAN_RESPONSE_HARD_LIMIT_MS = 700;
@@ -49,8 +50,28 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-response-cap-'));
       const stalledResult = {
         aborted: stalled.shouldAbort === true,
         status: stalled.agentState?.status || '',
+        reason: stalled.interruptionReason || '',
         toast: toastEl?.textContent || '',
-        toastError: toastEl?.classList.contains('toast-error') === true
+        toastError: toastEl?.classList.contains('toast-error') === true,
+        errorText: document.querySelector('.agent-run-error')?.innerText || ''
+      };
+      // The kernel acknowledges the cancellation after the watchdog has fired.
+      // Its generic user-cancel outcome must not overwrite the timeout card.
+      stalled.activeAgentRun ||= { timeline: [] };
+      const settled = openCodeResultToAgentRun({ status: 'interrupted', interruptionReason: 'user_cancel', error: '用户中止输出' }, stalled);
+      const restored = JSON.parse(JSON.stringify(settled));
+      const body = state.activeRuns.get(sessionId).assistantEl.querySelector('.msg-body');
+      renderAgentRunBody(body, restored);
+      stalledResult.settledReason = restored.interruptionReason;
+      stalledResult.settledError = restored.error;
+      stalledResult.restoredText = body.innerText;
+      state.activeRuns.delete(sessionId);
+
+      const manual = setup();
+      abortSessionById(sessionId, { silent: true });
+      const manualResult = {
+        reason: manual.interruptionReason,
+        text: document.querySelector('.agent-run-error')?.innerText || ''
       };
       state.activeRuns.delete(sessionId);
 
@@ -63,12 +84,21 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-response-cap-'));
       const answeredResult = { aborted: answered.shouldAbort === true, armed: !!answered.responseWatchdog };
       state.activeRuns.delete(sessionId);
       state.currentSession.messages = [];
-      return { stalledResult, answeredResult };
+      return { stalledResult, answeredResult, manualResult };
     });
 
     assert.equal(probe.stalledResult.aborted, true, 'a stalled run is auto-aborted');
-    assert.match(probe.stalledResult.toast, /两分钟内未成功回包/, 'the abort reason is shown');
+    assert.match(probe.stalledResult.toast, /1 分钟内未成功回包/, 'the abort reason is shown');
     assert.equal(probe.stalledResult.toastError, true, 'the abort reason is an error pill, not a neutral one');
+    assert.equal(probe.stalledResult.reason, 'response_timeout', 'a stalled run is not recorded as a user cancel');
+    assert.match(probe.stalledResult.errorText, /未成功回包/, 'the transcript explains the timeout');
+    assert.doesNotMatch(probe.stalledResult.errorText, /用户手动中止/, 'the transcript must not blame the user');
+    assert.equal(probe.stalledResult.settledReason, 'response_timeout');
+    assert.match(probe.stalledResult.settledError, /未成功回包/);
+    assert.match(probe.stalledResult.restoredText, /未成功回包/);
+    assert.doesNotMatch(probe.stalledResult.restoredText, /用户.*中止输出/);
+    assert.equal(probe.manualResult.reason, 'user_cancel');
+    assert.match(probe.manualResult.text, /用户手动中止输出/);
 
     const shot = path.join(appRoot, '.yanagent', 'evidence', 'response-hard-limit-error-pill.png');
     fs.mkdirSync(path.dirname(shot), { recursive: true });

@@ -7,7 +7,7 @@
 // byte-stable, and no more numerous than the API accepts.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 
 const prompt = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
 const tool = name => ({ type: 'function', name, inputSchema: { type: 'object', properties: {} } });
@@ -254,4 +254,44 @@ test('routing sends anthropic connections to antl rather than a bare SDK import'
     const next = buildOpenCodeConfig({ providerId: 'custom', modelId: model, baseUrl: 'https://api.anthropic.com/v1', apiFormat: 'anthropic' });
     assert.match(next.provider.custom.npm, /opencode-antl-provider/, model);
   }
+});
+
+test('ANTL carries a stable per-conversation metadata.user_id for relay affinity', async () => {
+  const { provider, seen } = await providerWith();
+  const model = provider('claude-opus-5');
+  const run = text => model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text }] }] });
+  await run('same conversation');
+  await run('same conversation');
+  await run('other conversation');
+  assert.match(seen.calls[0].metadata.user_id, /^yan-[0-9a-f]{48}$/u);
+  assert.equal(seen.calls[1].metadata.user_id, seen.calls[0].metadata.user_id);
+  assert.notEqual(seen.calls[2].metadata.user_id, seen.calls[0].metadata.user_id);
+  assert.doesNotMatch(seen.calls[0].metadata.user_id, /fixture|same conversation/u);
+});
+
+test('ANTL drops metadata.user_id once when the relay rejects it', async () => {
+  const module = await import('../lib/opencode-antl-provider.bundle.mjs');
+  const seen = [];
+  let rejections = 0;
+  const provider = module.createYanAntlProvider({
+    name: 'antl', baseURL: 'https://api.anthropic.com/v1', apiKey: 'fixture',
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      seen.push(body.metadata?.user_id ?? null);
+      if (body.metadata?.user_id) {
+        rejections++;
+        return Response.json({ type: 'error', error: {
+          type: 'invalid_request_error', message: 'metadata: Extra inputs are not permitted'
+        } }, { status: 400 });
+      }
+      return Response.json({ id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5',
+        content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 } });
+    }
+  });
+  const model = provider('claude-opus-5');
+  assert.equal((await model.doGenerate({ prompt })).content[0].text, 'ok');
+  assert.equal((await model.doGenerate({ prompt })).content[0].text, 'ok');
+  assert.equal(rejections, 1);
+  assert.deepEqual(seen, [seen[0], null, null]);
 });

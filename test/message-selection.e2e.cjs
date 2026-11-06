@@ -4,10 +4,9 @@
 //   1. selecting text in an Agent/user message pops a floating
 //      "添加到对话 / 复制选中" toolbar;
 //   2. user message text is directly selectable with the mouse;
-//   3. withdrawing a user turn is limited to the latest round AND only when the
-//      user stopped that turn: completed, errored and restart-recovered turns
-//      hide the withdraw button, and an earlier round can never delete the
-//      rounds that came after it.
+//   3. withdrawing a user turn is limited to the latest user message regardless
+//      of how the previous turn ended; an earlier round can never delete the
+//      rounds that came after it, and withdrawn attachments return to the composer.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -25,13 +24,15 @@ const scenarioMessages = () => [
   { role: 'assistant', content: 'SECOND ROUND ANSWER', ts: 4 }
 ];
 
-// The same conversation, but with the last turn stopped by the user, so the
-// withdraw button is available on the final user message.
+// The same conversation, but the last turn completed normally, proving the
+// withdraw button is available on the final user message regardless of outcome.
 const resendScenarioMessages = () => [
   { role: 'user', content: 'FIRST ROUND QUESTION', ts: 1 },
   { role: 'assistant', content: 'FIRST ROUND ANSWER', ts: 2, agentRun: { status: 'done' } },
-  { role: 'user', content: 'SECOND ROUND QUESTION', ts: 3 },
-  { role: 'assistant', content: 'SECOND ROUND ANSWER', ts: 4, agentRun: { status: 'interrupted' } }
+  { role: 'user', content: 'SECOND ROUND QUESTION', ts: 3, attachments: [
+    { name: 'second-round.txt', path: 'C:/yan-e2e/second-round.txt', size: 12, kind: 'file', mimeType: 'text/plain' }
+  ] },
+  { role: 'assistant', content: 'SECOND ROUND ANSWER', ts: 4, agentRun: { status: 'done' } }
 ];
 
 (async () => {
@@ -53,6 +54,8 @@ const resendScenarioMessages = () => [
       && !!document.querySelector('#composerInput')
       && quickInputHandlerReady === true
     ));
+    await page.evaluate(() => window.YanStartupHello?.skip?.());
+    await page.waitForFunction(() => !document.querySelector('#yanStartupHello'));
 
     await page.evaluate(async (messages) => {
       await newSession();
@@ -100,7 +103,11 @@ const resendScenarioMessages = () => [
         selected,
         visible: !!bar && !bar.classList.contains('hidden'),
         label: bar?.textContent || '',
-        captured: typeof selectionToolbarText === 'string' ? selectionToolbarText : ''
+        captured: typeof selectionToolbarText === 'string' ? selectionToolbarText : '',
+        barRadius: bar ? parseFloat(getComputedStyle(bar).borderRadius) || 0 : 0,
+        actionRadii: bar ? [...bar.querySelectorAll('.text-selection-action')].map(button => parseFloat(getComputedStyle(button).borderRadius) || 0) : [],
+        quotePath: bar?.querySelector('[data-selection-action="quote"] svg path')?.getAttribute('d') || '',
+        sideChatPath: bar?.querySelector('[data-selection-action="side-chat"] svg path')?.getAttribute('d') || ''
       };
     });
     assert.match(shown.selected, /FIRST ROUND ANSWER/);
@@ -109,6 +116,12 @@ const resendScenarioMessages = () => [
     assert.match(shown.label, /复制选中/);
     assert.match(shown.label, /在侧边聊天中提问/);
     assert.match(shown.captured, /FIRST ROUND ANSWER/);
+    assert.ok(shown.barRadius >= 14, 'selection toolbar must be pill shaped');
+    assert.equal(shown.actionRadii.length, 3);
+    assert.ok(shown.actionRadii.every(radius => radius >= 14), 'each selection action must be pill shaped');
+    assert.match(shown.quotePath, /M4\.5686 16\.353/, 'add-to-conversation must use keyline message-plus');
+    assert.match(shown.sideChatPath, /M4\.5686 16\.353/, 'side chat must use a message bubble');
+    assert.match(shown.sideChatPath, /M10\.4 8\.6/, 'side chat must use keyline message-question');
 
     // Auto-follow scrolling must not dismiss the toolbar; it follows the selection.
     const scrolled = await page.evaluate(async () => {
@@ -179,12 +192,12 @@ const resendScenarioMessages = () => [
     ];
     assert.deepEqual(await penVisibility(withRun({ status: 'interrupted' })), [false, true],
       'the latest user-stopped turn keeps the withdraw button');
-    assert.deepEqual(await penVisibility(withRun({ status: 'done' })), [false, false],
-      'a completed turn must not be resendable');
-    assert.deepEqual(await penVisibility(withRun({ status: 'error', error: 'boom' })), [false, false],
-      'an errored turn must not be resendable');
-    assert.deepEqual(await penVisibility(withRun({ status: 'interrupted', recoveredAfterRestart: true })), [false, false],
-      'a restart-recovered interruption must not be resendable');
+    assert.deepEqual(await penVisibility(withRun({ status: 'done' })), [false, true],
+      'the latest completed turn is resendable');
+    assert.deepEqual(await penVisibility(withRun({ status: 'error', error: 'boom' })), [false, true],
+      'the latest errored turn is resendable');
+    assert.deepEqual(await penVisibility(withRun({ status: 'interrupted', recoveredAfterRestart: true })), [false, true],
+      'the latest restart-recovered turn is resendable');
     assert.deepEqual(await penVisibility([
       { role: 'user', content: 'ROUND ONE', ts: 1 },
       { role: 'assistant', content: 'ANSWER ONE', ts: 2, agentRun: { status: 'done' } },
@@ -202,21 +215,26 @@ const resendScenarioMessages = () => [
       return { count: state.currentSession.messages.length, toast: document.querySelector('#toast').textContent };
     });
     assert.equal(blocked.count, 4, 'an earlier round must not be withdrawn');
-    assert.match(blocked.toast, /用户中止/, 'the blocked round must explain the rule');
+    assert.match(blocked.toast, /最后一条用户消息/, 'the blocked round must explain the rule');
 
-    // The latest user-stopped round still withdraws normally.
+    // The latest user message still withdraws normally.
     await page.evaluate(() => {
       document.querySelectorAll('#messages .msg.user')[1].querySelector('.msg-action-btn[data-act="edit"]').click();
     });
     await page.waitForFunction(() => state.currentSession.messages.length === 2);
-    assert.equal(
-      await page.evaluate(() => document.querySelector('#composerInput').textContent.includes('SECOND ROUND QUESTION')),
-      true,
-      'the withdrawn round content returns to the composer'
-    );
+    const restored = await page.evaluate(() => ({
+      text: document.querySelector('#composerInput').textContent,
+      attachments: state.attachments.map(attachment => ({ name: attachment.name, path: attachment.path })),
+      chips: [...document.querySelectorAll('#attachments .attachment-chip')].map(element => element.textContent.trim())
+    }));
+    assert.match(restored.text, /SECOND ROUND QUESTION/, 'the withdrawn round content returns to the composer');
+    assert.deepEqual(restored.attachments, [{ name: 'second-round.txt', path: 'C:/yan-e2e/second-round.txt' }],
+      'the withdrawn round attachments return to the composer state');
+    assert.equal(restored.chips.length, 1, 'the withdrawn attachment is visible in the composer');
+    assert.match(restored.chips[0], /second-round\.txt/, 'the visible chip names the restored attachment');
 
     assert.equal(errors.length, 0, errors.join('; '));
-    console.log(JSON.stringify({ ok: true, copied, composed, blocked, pen: 'user-stopped-only' }));
+    console.log(JSON.stringify({ ok: true, copied, composed, blocked, restored, pen: 'latest-message' }));
   } finally {
     await application?.close();
     fs.rmSync(userDataDir, { recursive: true, force: true });

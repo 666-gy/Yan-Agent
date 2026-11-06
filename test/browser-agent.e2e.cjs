@@ -108,7 +108,7 @@ async function guestState(page, tabId) {
     assert.equal(kernel.name, 'Yan Kernel');
     assert.equal(kernel.version, require('../package.json').version);
     assert.equal(kernel.engine, 'opencode');
-    assert.equal(kernel.engineVersion, '1.18.11');
+    assert.equal(kernel.engineVersion, require('../vendor/opencode-v2/runtime.json').version);
 
     const computerControlIntegration = await page.evaluate(async () => {
       const [config, servers, installedSkills, marketSkills] = await Promise.all([
@@ -255,7 +255,9 @@ async function guestState(page, tabId) {
     assert.equal(selected.pageState.target.value, 'advanced');
     const checked = await command(page, runId, 'check', { ref: freshRef('Enable feature'), checked: true });
     assert.equal(checked.pageState.target.checked, true);
-    await command(page, runId, 'hover', { ref: freshRef('Hover target') });
+    const hovered = await command(page, runId, 'hover', { ref: freshRef('Hover target') });
+    assert.equal(hovered.ok, true, JSON.stringify(hovered));
+    assert.equal((await guestState(page, agentTabId)).hover, 'hover complete');
     await command(page, runId, 'drag', { from_ref: freshRef('Drag source'), to_ref: freshRef('Drop target') });
     await page.evaluate(id => {
       const agent = browserTabControllers.get(id).agent;

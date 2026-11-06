@@ -12,12 +12,14 @@ const entries = [
   ['opencode-gptl-provider.mjs', 'opencode-gptl-provider.bundle.mjs'],
   ['opencode-qwem-provider.mjs', 'opencode-qwem-provider.bundle.mjs'],
   ['opencode-kiml-provider.mjs', 'opencode-kiml-provider.bundle.mjs'],
+  ['opencode-jiyuan-provider.mjs', 'opencode-jiyuan-provider.bundle.mjs'],
   ['opencode-agnl-provider.mjs', 'opencode-agnl-provider.bundle.mjs'],
   ['opencode-geml-provider.mjs', 'opencode-geml-provider.bundle.mjs'],
   ['opencode-grol-provider.mjs', 'opencode-grol-provider.bundle.mjs'],
   ['opencode-antl-provider.mjs', 'opencode-antl-provider.bundle.mjs']
 ];
 
+require('./build-mcp-catalogs.cjs');
 for (const [source, target] of entries) {
   const outfile = path.join(appRoot, 'lib', target);
   buildSync({

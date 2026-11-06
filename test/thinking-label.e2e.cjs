@@ -28,6 +28,21 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-thinking-label-')
     const probe = await page.evaluate(async () => {
       if (!state.currentSession) await newSession();
       state.currentSession.messages = [];
+      const live = buildThinkingElement('');
+      document.body.append(live);
+      for (const presentationMode of ['standard', 'gpt-action-progress']) {
+        live.open = false;
+        updateAgentTimelinePartElement(live, { type: 'thinking', content: 'First\nsecond', streaming: true }, null, null, presentationMode);
+        if (live.open || live.querySelector('.thinking-preview').textContent !== 'First second') throw new Error('Thinking must start collapsed with inline preview');
+        live.querySelector('.thinking-preview').click();
+        if (!live.open) throw new Error('Clicking the preview must expand thinking');
+        updateAgentTimelinePartElement(live, { type: 'thinking', content: 'First\nsecond done', streaming: false }, null, null, presentationMode);
+        if (!live.open || live.querySelector('.thinking-label').textContent !== '思考已结束') throw new Error('Completion must preserve disclosure and the finished label');
+        live.querySelector('summary').click();
+        if (live.open) throw new Error('Clicking the row must collapse thinking');
+      }
+      live.remove();
+      if (document.querySelector('#generalExpandThinking')) throw new Error('Retired thinking setting is still visible');
       const renderCase = (timeline, times = 1, presentationMode = 'standard') => {
         clearMessages();
         setEmptyState(false);
@@ -43,6 +58,10 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-thinking-label-')
         for (let i = 0; i < times; i += 1) {
           renderAgentRunBody(assistantEl.querySelector('.msg-body'), agentRun, '');
         }
+        // Inspect raw thinking presentation separately from active disclosure gating.
+        const activity = assistantEl.querySelector('.agent-activity-body');
+        activity.replaceChildren();
+        syncAgentTimelineParts(activity, normalizeDeliveryAgreementTimeline(agentRun.timeline), agentRun.status, '', false, true, presentationMode);
         return {
           labels: [...assistantEl.querySelectorAll('.thinking-label')].map(el => el.textContent),
           block: assistantEl.querySelector('.thinking-block'),
@@ -113,7 +132,7 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-thinking-label-')
       const twoSegments = renderCase([
         thinking(),
         step('c3', 'read'),
-        thinking(),
+        { ...thinking(), content: '已读取配置，继续检查端口。' },
         { type: 'text', stage: 'work', content: '改好了。', streaming: false }
       ]);
       const capped = renderCase([
@@ -140,7 +159,7 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-thinking-label-')
       ], 1, 'gpt-action-progress');
       const pending = renderCase([{...thinking(), summaryStatus: 'pending'}]);
       const failed = renderCase([{...thinking(), summaryStatus: 'failed'}]);
-      const boundary = renderCase([thinking(), thinking(), {type:'text', content:'意图：只属于第二段', streaming:false}]);
+      const boundary = renderCase([thinking(), { ...thinking(), content: '第二段思考' }, {type:'text', content:'意图：只属于第二段', streaming:false}]);
       const ctx = createRunCtx(state.currentSession.id, true, '');
       initOpenCodeRunState(ctx);
       applyOpenCodeEvent(ctx, {type:'message.part.updated', data:{part:{id:'r1',type:'reasoning',text:'本段思考',time:{end:1}}}});

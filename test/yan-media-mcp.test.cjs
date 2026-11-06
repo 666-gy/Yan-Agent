@@ -11,44 +11,14 @@ const test = require('node:test');
 const appRoot = path.resolve(__dirname, '..');
 
 function createClient(runtime, dataDir, registryPath = '') {
-  const child = spawn(process.execPath, [path.join(appRoot, 'lib', 'yan-media-mcp.js')], {
-    cwd: appRoot,
-    env: {
-      ...process.env,
-      YAN_MEDIA_DATA_DIR: dataDir,
-      YAN_MEDIA_RUNTIME: Buffer.from(JSON.stringify(runtime), 'utf8').toString('base64'),
-      ...(registryPath ? { YAN_MEDIA_WORKSPACE_REGISTRY: registryPath } : {})
-    },
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-  let buffer = '';
-  const pending = new Map();
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', chunk => {
-    buffer += chunk;
-    let newline = buffer.indexOf('\n');
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) {
-        const message = JSON.parse(line);
-        pending.get(message.id)?.(message);
-        pending.delete(message.id);
-      }
-      newline = buffer.indexOf('\n');
-    }
-  });
-  let nextId = 1;
-  const request = (method, params = {}) => new Promise((resolve, reject) => {
-    const id = nextId++;
-    const timer = setTimeout(() => reject(new Error(`MCP request timed out: ${method}`)), 5000);
-    pending.set(id, message => {
-      clearTimeout(timer);
-      resolve(message);
-    });
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
-  });
-  return { child, request };
+ const media = require('../lib/media-tools-runtime').createMediaRuntime({ YAN_MEDIA_DATA_DIR: dataDir,
+  YAN_MEDIA_RUNTIME: Buffer.from(JSON.stringify(runtime)).toString('base64'), YAN_MEDIA_WORKSPACE_REGISTRY: registryPath });
+ return { child: { kill() {} }, async request(method, params = {}) {
+  if (method === 'tools/list') return { result: { tools: media.toolDefinitions() } };
+  try { const result = await media.execute(params.name, params.arguments || {}, new AbortController().signal);
+   return { result: { structuredContent: result, isError: false } };
+  } catch (error) { return { result: { structuredContent: { ok: false, error: error.message, code: error.code, status: error.status }, isError: true } }; }
+ } };
 }
 
 test('Yan Media exposes read_image by default and reports missing visual relay configuration', async t => {
@@ -111,16 +81,16 @@ test('read_image prefers configured GLM models before falling back to Agnes', as
       const payload = JSON.parse(body);
       requests.push({ model: payload.model, maxTokens: payload.max_tokens });
       if (payload.model === 'glm-5v-turbo') {
-        response.writeHead(502, { 'Content-Type': 'application/json' });
+        response.writeHead(502, { 'Content-Type': 'application/json', Connection: 'close' });
         response.end(JSON.stringify({ error: { message: 'temporary gateway failure' } }));
         return;
       }
       if (payload.model === 'glm-4.6v-flash') {
-        response.writeHead(429, { 'Content-Type': 'application/json' });
+        response.writeHead(429, { 'Content-Type': 'application/json', Connection: 'close' });
         response.end(JSON.stringify({ error: { message: 'rate limited' } }));
         return;
       }
-      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
       response.end(JSON.stringify({ choices: [{ message: { content: 'Agnes 后备模型已读取图片。' } }] }));
     });
   });
@@ -161,7 +131,7 @@ test('read_image prefers configured GLM models before falling back to Agnes', as
     name: 'read_image',
     arguments: { path: imagePath, prompt: '读取测试图片' }
   });
-  assert.equal(called.result.isError, false);
+  assert.equal(called.result.isError, false, JSON.stringify(called.result.structuredContent));
   assert.equal(called.result.structuredContent.message, '已读取图片');
   assert.equal(called.result.structuredContent.report, 'Agnes 后备模型已读取图片。');
   assert.equal(called.result.structuredContent.meta.observerProvider, 'agnes');
@@ -183,7 +153,7 @@ test('read_image uses the configured relay model list in order', async t => {
   const server = http.createServer((request, response) => {
     request.resume();
     request.on('end', () => {
-      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
       response.end(JSON.stringify({ choices: [{ message: { content: 'Yan 图片可见。' } }] }));
     });
   });
@@ -207,7 +177,7 @@ test('read_image uses the configured relay model list in order', async t => {
     name: 'read_image',
     arguments: { path: imagePath }
   });
-  assert.equal(called.result.isError, false);
+  assert.equal(called.result.isError, false, JSON.stringify(called.result.structuredContent));
   assert.equal(called.result.structuredContent.report, 'Yan 图片可见。');
 });
 
@@ -281,7 +251,7 @@ test('generate_image edits uploaded annotations through the image endpoint and p
     const chunks = []; request.on('data', chunk => chunks.push(chunk));
     request.on('end', () => {
       requests.push({ url: request.url, type: request.headers['content-type'], body: Buffer.concat(chunks) });
-      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
       response.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }));
     });
   });
@@ -334,7 +304,7 @@ test('generate_image normalizes SenseNova dimensions inside Yan Media', async t 
     request.on('data', chunk => { body += chunk; });
     request.on('end', () => {
       requests.push(JSON.parse(body));
-      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
       response.end(JSON.stringify({
         data: [{ b64_json: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64') }]
       }));
@@ -362,7 +332,7 @@ test('generate_image normalizes SenseNova dimensions inside Yan Media', async t 
     name: 'generate_image',
     arguments: { prompt: '读取测试提示词', aspect_ratio: '16:9' }
   });
-  assert.equal(called.result.isError, false);
+  assert.equal(called.result.isError, false, JSON.stringify(called.result.structuredContent));
   assert.equal(called.result.structuredContent.ok, true);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].size, '2752x1536');

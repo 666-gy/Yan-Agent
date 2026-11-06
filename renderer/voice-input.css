@@ -47,3 +47,5 @@
   .voice-setting-row .appearance-picker, .voice-setting-row select { max-width: 100%; }
   .voice-recording-row canvas { width: 64px; }
 }
+
+#voiceCallButton:disabled { color: var(--text-dim); opacity: .45; cursor: not-allowed; background: transparent; }

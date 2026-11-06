@@ -26,7 +26,12 @@
       open.addEventListener('click', () => openAttachmentPreview(attachment));
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'composer-snapshot-remove';
       remove.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>'; remove.setAttribute('aria-label', translate('移除应用快照'));
-      remove.addEventListener('click', () => { state.attachments.splice(index, 1); renderAttachments(); updateSendState(); });
+      remove.addEventListener('click', () => {
+        const [removed] = state.attachments.splice(index, 1);
+        window.yanImageOverlay?.removeSource?.(removed?.path);
+        renderAttachments();
+        updateSendState();
+      });
       card.append(open, remove); host.append(card);
     });
     host.classList.toggle('hidden', !host.children.length);
@@ -104,6 +109,8 @@
   const originalIcon = action.querySelector('svg');
   const appIcon = document.createElement('img'); appIcon.className = 'snapshot-action-icon'; appIcon.alt = ''; appIcon.hidden = true; action.prepend(appIcon);
   let target = { available: false }, capturing = false, request = 0;
+  const menu = document.querySelector('#attachmentMenu');
+  const menuOpen = () => !menu.classList.contains('hidden');
   function paintTarget(next) {
     target = next || { available: false };
     action.disabled = capturing || !target.available;
@@ -115,12 +122,23 @@
     appIcon.src = /^data:image\//.test(target.icon || '') ? target.icon : 'assets/app-window.svg';
   }
   async function refreshTarget() {
+    if (!menuOpen()) return;
     const version = ++request;
     try { const next = await api.getAppSnapshotTarget(); if (version === request) paintTarget(next); }
     catch { if (version === request) paintTarget({ available: false }); }
   }
-  api.onAppSnapshotTarget(next => { ++request; paintTarget(next); });
-  document.querySelector('#attachBtn').addEventListener('click', () => { void refreshTarget(); });
+  api.onAppSnapshotTarget(next => { if (menuOpen()) { ++request; paintTarget(next); } });
+  let watching = false;
+  new MutationObserver(() => {
+    const open = menuOpen();
+    if (watching === open) return;
+    watching = open;
+    if (open) void refreshTarget();
+    else {
+      ++request;
+      void api.getAppSnapshotTarget({ active: false }).catch(() => {});
+    }
+  }).observe(menu, { attributes: true, attributeFilter: ['class'] });
   action.addEventListener('click', async () => {
     if (capturing || !target.available) return;
     capturing = true; action.disabled = true; action.setAttribute('aria-busy', 'true');
@@ -134,5 +152,6 @@
     } catch (error) { toast(translate(error.message)); }
     finally { capturing = false; action.setAttribute('aria-busy', 'false'); void refreshTarget(); }
   });
-  paintTarget(target); void refreshTarget();
+  paintTarget(target);
+  void api.getAppSnapshotTarget({ active: false }).catch(() => {});
 })();

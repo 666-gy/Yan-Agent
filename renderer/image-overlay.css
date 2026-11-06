@@ -8,68 +8,383 @@
   margin: 0;
   padding: 0;
   border: 0;
-  background: transparent;
+  background: rgba(0, 0, 0, .94);
   color: #ededed;
   overflow: hidden;
   -webkit-app-region: no-drag;
+  /* Height of the live composer block at the bottom of the window. The stage,
+     gallery controls and text panel yield this space so the input stays
+     usable while the preview is open. */
+  --preview-composer-inset: 0px;
+  /* The preview toolbar replaces the app title bar while open, so it owns the
+     true top edge of the window, including the window controls. */
+  --preview-bar-height: 56px;
+  z-index: 100;
 }
-.image-overlay::backdrop { background: rgba(0, 0, 0, .88); }
-.image-overlay-actions { position: absolute; top: 44px; right: 20px; display: flex; gap: 10px; }
-.image-overlay button {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: #f5f5f5;
-  color: #343638;
-  cursor: pointer;
+.image-overlay::backdrop { background: rgba(0, 0, 0, .94); }
+/* The preview and the composer share one layer: the preview is not modal and
+   lives inside the app layout, while the composer block is lifted just above
+   it. Everything else stays under the dimmed preview surface. */
+body.image-preview-open .app > .layout { z-index: 120; }
+body.image-preview-open .composer-wrap { position: relative; z-index: 101; }
+/* A preview is a focused viewing surface: keep only the composer itself and
+   its attachments. Todo/edited-file pills, usage readouts and the "recent
+   message" dock all step out of the way. */
+body.image-preview-open #todoProgressHost,
+body.image-preview-open #composerUsageWrap,
+body.image-preview-open #browserFocusConversationDock,
+body.image-preview-open #bashPillHost,
+body.image-preview-open #queuedTurnHost,
+body.image-preview-open #newTaskWorkspace,
+body.image-preview-open #nestedStartGate,
+body.image-preview-open #emptyHeader { display: none !important; }
+/* The composer is centered in the window, not in the chat column, so it lines
+   up with the preview instead of the sidebar-shifted conversation area. */
+body.image-preview-open #composerStage {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0 var(--chat-pad-x) 7px;
+  z-index: 101;
+  pointer-events: none;
 }
-.image-overlay button:hover { background: #dedede; }
-.image-overlay [hidden] { display: none !important; }
-.image-overlay button[data-action="text"] { width: auto; min-width: 90px; padding: 0 16px; border-radius: 20px; font: 14px/1.2 system-ui, sans-serif; }
-.image-overlay button[data-action="text"][aria-pressed="true"] { background: #0784ff; color: white; }
-.image-overlay-text { position: absolute; inset: 120px max(24px, 15vw) 84px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d6d6d6; border-radius: 8px; background: #fff; color: #111; }
-.image-overlay-text header { flex: none; padding: 16px 24px; border-bottom: 1px solid #d6d6d6; background: #f3f3f3; color: #606060; font: 15px/1.4 system-ui, sans-serif; }
-.image-overlay-text pre { flex: 1; min-height: 0; margin: 0; padding: 20px 24px; overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.7 Consolas, 'Microsoft YaHei', monospace; user-select: text; }
-@media (max-height: 480px) { .image-overlay-text { top: 62px; bottom: 24px; } }
-.image-overlay button:focus-visible { outline: 2px solid white; outline-offset: 4px; }
-.image-overlay button:disabled { opacity: .4; cursor: default; }
-.image-overlay button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.image-overlay-stage {
+body.image-preview-open .app.full-agent-chat #composerStage {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: auto;
+  min-height: 1px;
+  padding: 0 var(--chat-pad-x) 7px;
+}
+body.image-preview-open .app.full-agent-chat .composer-stage,
+body.image-preview-open .app.full-agent-chat #pageChat.empty .composer-stage {
+  display: flex !important;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+  z-index: 101;
+}
+body.image-preview-open #composerStage .composer-wrap {
+  width: 100%;
+  max-width: var(--chat-max-w);
+  margin-inline: auto;
+  pointer-events: auto;
+}
+/* Focus/panel modes already float the composer above the page, and #pageChat
+   carries a higher stacking context there, so the preview stays underneath it. */
+.app:is(.browser-focus-mode, .panel-composer-mode) .image-overlay { z-index: 30; }
+body.image-preview-open .browser-focus-conversation-dock { display: none !important; }
+
+/* ---------- Top bar: replaces the title bar while the preview is open ---------- */
+.image-overlay-bar {
   position: absolute;
-  inset: 94px 0 84px;
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: #777 #252525;
-  scrollbar-width: auto;
+  inset: 0 0 auto;
+  height: var(--preview-bar-height);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 14px;
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  background: #151515;
+  -webkit-app-region: drag;
 }
-.image-overlay-stage::-webkit-scrollbar { width: 12px; height: 12px; }
-.image-overlay-stage::-webkit-scrollbar-track, .image-overlay-stage::-webkit-scrollbar-corner { background: #252525; }
-.image-overlay-stage::-webkit-scrollbar-thumb { background: #777; border: 3px solid #252525; border-radius: 8px; }
-.image-overlay-canvas { display: grid; place-items: center; min-width: 100%; min-height: 100%; }
-.image-overlay-image { display: block; max-width: none; max-height: none; border-radius: 8px; user-select: none; }
-.image-overlay-image[hidden] { display: none; }
-.image-overlay-zoom {
-  position: absolute;
-  bottom: 28px;
-  left: 50%;
-  transform: translateX(-50%);
+.image-overlay-bar-left,
+.image-overlay-bar-right {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px;
-  border-radius: 28px;
-  background: #f5f5f5;
-  color: #343638;
+  min-width: 0;
 }
-.image-overlay-zoom button { width: 36px; height: 36px; background: #dedede; }
-.image-overlay-zoom output { min-width: 54px; text-align: center; font: 13px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-.image-overlay-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 80%; text-align: center; }
+.image-overlay-bar-left { flex: 1 1 auto; overflow: hidden; }
+.image-overlay-bar-right { flex: none; margin-left: auto; }
+.image-overlay-bar button {
+  -webkit-app-region: no-drag;
+  font: inherit;
+  color: inherit;
+}
+.image-overlay-bar svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.image-overlay [hidden] { display: none !important; }
+
+.image-overlay-title-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 999px;
+  background: #232323;
+  color: #e7e7e7;
+  font: 12.5px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.image-overlay-title-pill svg { color: #cfcfcf; }
+
+.image-overlay-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 999px;
+  background: #232323;
+  color: #d6d6d6;
+  font: 12.5px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.image-overlay-pill:hover:not(:disabled) { background: #2e2e2e; color: #fff; }
+.image-overlay-pill:disabled { opacity: .38; cursor: default; }
+.image-overlay-zoom-label { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.image-overlay-chevron { width: 12px !important; height: 12px !important; opacity: .72; }
+.image-overlay-text-toggle[aria-pressed="true"] { background: #2f6fd0; border-color: #2f6fd0; color: #fff; }
+
+.image-overlay-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 999px;
+  background: #232323;
+}
+.image-overlay-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #c9c9c9;
+  font: 12.5px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.image-overlay-tools button:hover:not(:disabled) { background: rgba(255, 255, 255, .09); color: #fff; }
+.image-overlay-tools button:disabled { opacity: .38; cursor: default; }
+
+.image-overlay-open {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 999px;
+  background: #232323;
+}
+.image-overlay-open button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.image-overlay-open button:hover:not(:disabled) { background: rgba(255, 255, 255, .09); }
+.image-overlay-open button:disabled { opacity: .34; cursor: default; }
+.image-overlay-open img { display: block; width: 18px; height: 18px; }
+
+.image-overlay-round {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 50%;
+  background: #232323;
+  color: #d6d6d6;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.image-overlay-round:hover:not(:disabled) { background: #2e2e2e; color: #fff; }
+.image-overlay-round:disabled { opacity: .38; cursor: default; }
+.image-overlay-close:hover { background: #c42b1c; border-color: #c42b1c; color: #fff; }
+
+.image-overlay-panel { padding: 0 14px; }
+.image-overlay-panel svg { width: 15px; height: 15px; }
+
+.image-overlay-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, .1);
+}
+.image-overlay-window-controls button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c9c9c9;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.image-overlay-window-controls button:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.image-overlay-window-controls [data-window="close"]:hover { background: #c42b1c; color: #fff; }
+.image-overlay-window-controls svg { width: 11px; height: 11px; }
+
+.image-overlay-bar button:focus-visible,
+.image-overlay-menu button:focus-visible { outline: 2px solid #4c9aff; outline-offset: 2px; }
+
+/* ---------- Zoom menu ---------- */
+.image-overlay-menu {
+  position: absolute;
+  z-index: 6;
+  min-width: 176px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 14px;
+  background: #242424;
+  color: #e7e7e7;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .55);
+  -webkit-app-region: no-drag;
+}
+.image-overlay-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: 12.5px/1.2 system-ui, sans-serif;
+  cursor: pointer;
+}
+.image-overlay-menu button:hover { background: rgba(255, 255, 255, .08); }
+.image-overlay-menu button span { color: #9a9a9a; }
+.image-overlay-menu hr { margin: 5px 8px; border: 0; border-top: 1px solid rgba(255, 255, 255, .1); }
+
+/* ---------- Stage, gallery and text ---------- */
+.image-overlay-stage {
+  position: absolute;
+  inset: calc(var(--preview-bar-height) + 8px) 0 calc(var(--preview-composer-inset, 0px) + 84px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.image-overlay-stage::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.image-overlay-canvas { display: grid; place-items: center; min-width: 100%; min-height: 100%; }
+.image-overlay-image { display: block; max-width: none; max-height: none; border-radius: 8px; user-select: none; }
+.image-overlay-image[hidden] { display: none; }
+
+/* Gallery navigation stays out of the image's hit area except for its two
+   circular buttons. It is only shown when the current preview has siblings. */
+.image-overlay-nav {
+  position: absolute;
+  inset: calc(var(--preview-bar-height) + 8px) 0 calc(var(--preview-composer-inset, 0px) + 84px);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  pointer-events: none;
+}
+.image-overlay-nav button {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 50%;
+  background: rgba(20, 20, 20, .58);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.image-overlay-nav button:hover { background: rgba(20, 20, 20, .88); }
+.image-overlay-nav button:disabled { opacity: .24; }
+.image-overlay-nav svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.image-overlay-text {
+  position: absolute;
+  inset: calc(var(--preview-bar-height) + 16px) max(24px, 15vw) calc(var(--preview-composer-inset, 0px) + 84px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #d6d6d6;
+  border-radius: 8px;
+  background: #fff;
+  color: #111;
+}
+.image-overlay-text header { flex: none; padding: 16px 24px; border-bottom: 1px solid #d6d6d6; background: #f3f3f3; color: #606060; font: 15px/1.4 system-ui, sans-serif; }
+.image-overlay-text pre { flex: 1; min-height: 0; margin: 0; padding: 20px 24px; overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.7 Consolas, 'Microsoft YaHei', monospace; user-select: text; }
+.image-overlay-status {
+  position: absolute;
+  top: calc(50% - var(--preview-composer-inset, 0px) / 2 + var(--preview-bar-height) / 2);
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 80%;
+  text-align: center;
+}
+
+/* Fit the entire video, including native controls, inside the preview stage. */
+.image-overlay.is-video .image-overlay-stage { overflow: hidden; }
+.image-overlay.is-video .image-overlay-canvas { width: 100%; height: 100%; min-width: 0; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.image-overlay-video { display: block; width: auto; height: auto; max-width: calc(100% - 64px); max-height: calc(100% - 48px); object-fit: contain; border-radius: 8px; }
+
+/* ---------- Compact bar ---------- */
+@media (max-width: 1120px) {
+  .image-overlay-tools button { padding: 0 8px; font-size: 0; gap: 0; }
+  .image-overlay-tools svg { width: 17px; height: 17px; }
+}
+@media (max-width: 1000px) {
+  .image-overlay-panel span { display: none; }
+  .image-overlay-panel { padding: 0 10px; }
+}
+@media (max-width: 900px) {
+  .image-overlay-bar { gap: 6px; padding: 0 8px; }
+  .image-overlay-bar-left, .image-overlay-bar-right { gap: 6px; }
+  .image-overlay-title-pill { padding: 0 10px; }
+  .image-overlay-title-pill span { display: none; }
+  .image-overlay-window-controls { padding-left: 4px; }
+  .image-overlay-window-controls button { width: 34px; }
+}
 @media (max-height: 480px) {
-  .image-overlay-actions { top: 12px; }
-  .image-overlay-stage { top: 62px; bottom: 68px; }
-  .image-overlay-zoom { bottom: 12px; }
+  .image-overlay { --preview-bar-height: 48px; }
+  .image-overlay-text { top: calc(var(--preview-bar-height) + 12px); bottom: calc(var(--preview-composer-inset, 0px) + 24px); }
+  .image-overlay-stage, .image-overlay-nav { top: calc(var(--preview-bar-height) + 6px); bottom: calc(var(--preview-composer-inset, 0px) + 68px); }
+  .image-overlay-nav { padding: 0 10px; }
 }

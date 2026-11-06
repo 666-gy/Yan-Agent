@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "office",
+  "name": "Office",
+  "version": "1.0.0",
+  "description": "创建、编辑和检查 Word、Excel 与 PowerPoint 文档。按需安装，首次使用时准备 Office CLI。",
+  "author": "Yan",
+  "instructions": "instructions.md",
+  "skills": [
+    {
+      "id": "office",
+      "name": "Office",
+      "description": "创建、编辑和检查 Word、Excel 与 PowerPoint 文档。按需安装，首次使用时准备 Office CLI。",
+      "path": "skills/office/SKILL.md"
+    }
+  ],
+  "resources": [],
+  "mcpServers": [],
+  "configuration": {},
+  "environment": [],
+  "requiredCommands": [
+    "node"
+  ]
+}

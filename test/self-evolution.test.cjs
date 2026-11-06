@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { combineTurnPrompt } = require('../lib/opencode-sidecar');
+const { combineTurnPrompt } = require('../lib/kernel-policy');
 
 test('Self-Evolution is a distinct work mode; other modes keep the Build prompt', () => {
   const base = { providerId: 'deepseek', modelId: 'deepseek-v4-flash', prompt: 'Do the work.' };

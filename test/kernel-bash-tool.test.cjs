@@ -25,6 +25,61 @@ test.after(() => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test('Git Bash pipeline preserves upstream failure', async () => {
+  const { runBashCommand, resolveBashShell } = await load();
+  const shell = resolveBashShell();
+  if (!/bash/i.test(shell.command)) return;
+  const result = await runBashCommand({ command: 'exit 7 | cat', shell, cwd: directory, timeout: 5000 });
+  assert.equal(result.exit, 7);
+});
+
+test('Windows supervisor kills descendants when its desktop pipe disappears', async () => {
+  if (process.platform !== 'win32') return;
+  const { spawn } = require('node:child_process');
+  const marker = path.join(directory, 'host-crash-leak.txt');
+  const sleeper = writeScript('host-crash-child.cjs', `setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(marker)},'leak'),2500);`);
+  const host = writeScript('host-crash.mjs', `import {runBashCommand} from ${JSON.stringify(require('node:url').pathToFileURL(modPath).href)};await runBashCommand({command:${JSON.stringify(`node "${sleeper}"`)},background:true});console.log('READY');setInterval(()=>{},1000);`);
+  const child = spawn(process.execPath, [host], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error('host startup timeout')), 5000);
+      child.once('error', reject);
+      child.stdout.on('data', data => { if (String(data).includes('READY')) { clearTimeout(timer); resolve(); } });
+    });
+    await new Promise(r => setTimeout(r, 400));
+    child.kill();
+    await new Promise(r => setTimeout(r, 2800));
+    assert.equal(fs.existsSync(marker), false);
+  } finally { child.kill(); }
+});
+
+test('output capture retains latest progress after reaching its memory cap', async () => {
+  const { runBashCommand, BASH_MAX_CAPTURE_BYTES } = await load();
+  const source = writeScript('large-output.cjs', `process.stdout.write('x'.repeat(${2 * 1048576})+'LATEST_PROGRESS');`);
+  const result = await runBashCommand({ command: `node "${source}"`, timeout: 5000 });
+  assert.equal(result.exit, 0); assert.equal(result.truncated, true);
+  assert.equal(Buffer.byteLength(result.output), BASH_MAX_CAPTURE_BYTES);
+  assert.match(result.output, /LATEST_PROGRESS$/);
+});
+
+test('supervised Windows descendants cannot survive explicit cancellation', async () => {
+  if (process.platform !== 'win32') return;
+  const { runBashCommand } = await load();
+  const marker = path.join(directory, 'cancelled-grandchild.txt');
+  const source = writeScript('cancel-tree.cjs', `const {spawn}=require('node:child_process');spawn(process.execPath,['-e',${JSON.stringify("setTimeout(()=>require('fs').writeFileSync(process.argv[1],'leak'),2500)")},process.argv[2]],{stdio:'ignore',detached:true}); console.log('CHILD_STARTED');setInterval(()=>{},1000);`);
+  const controller = new AbortController();
+  let completion;
+  const done = new Promise(resolve => { completion = resolve; });
+  await runBashCommand({ command: `node "${source}" "${marker}"`, cwd: directory, background: true,
+    signal: controller.signal, onBackgroundComplete: completion });
+  await new Promise(resolve => setTimeout(resolve, 600));
+  controller.abort();
+  const result = await done;
+  assert.equal(result.cancelled, true);
+  await new Promise(resolve => setTimeout(resolve, 2700));
+  assert.equal(fs.existsSync(marker), false);
+});
+
 test('resolveBashTimeout applies the documented default and ceiling', async () => {
   const { resolveBashTimeout, BASH_DEFAULT_TIMEOUT_MS, BASH_MAX_TIMEOUT_MS } = await load();
   assert.equal(resolveBashTimeout(undefined), BASH_DEFAULT_TIMEOUT_MS);
@@ -32,30 +87,6 @@ test('resolveBashTimeout applies the documented default and ceiling', async () =
   assert.equal(resolveBashTimeout(-5), BASH_DEFAULT_TIMEOUT_MS);
   assert.equal(resolveBashTimeout('2500'), 2500);
   assert.equal(resolveBashTimeout(900000), BASH_MAX_TIMEOUT_MS);
-});
-
-test('Git Bash direct entry gets utilities before concurrent first calls', { skip: process.platform !== 'win32' }, async t => {
-  const { resolveBashShell, buildBashEnvironment } = await load();
-  const { spawn } = require('node:child_process');
-  const shell = resolveBashShell();
-  if (shell.kind !== 'posix') return t.skip('Git Bash not installed');
-  const bin = path.dirname(shell.command);
-  const root = path.basename(path.dirname(bin)).toLowerCase() === 'usr' ? path.resolve(bin, '../..') : path.resolve(bin, '..');
-  const direct = { ...shell, command: path.join(root, 'usr/bin/bash.exe') };
-  if (!fs.existsSync(direct.command)) return t.skip('Git Bash direct entry not installed');
-  const source = { SystemRoot: process.env.SystemRoot, PATH: path.join(process.env.SystemRoot, 'System32'), Path: 'C:/custom-tools', YAN_BASH_BRIDGE_TOKEN: 'private' };
-  const env = buildBashEnvironment(direct, source);
-  assert.equal(env.Path, undefined);
-  assert.equal(env.YAN_BASH_BRIDGE_TOKEN, undefined);
-  assert.ok(env.PATH.includes('C:/custom-tools'));
-  await Promise.all(Array.from({ length: 10 }, () => new Promise((resolve, reject) => {
-    const child = spawn(direct.command, ['-c', 'command -v head && command -v tail && command -v mkdir && command -v grep'], { env, windowsHide: true });
-    let output = '';
-    child.stdout.on('data', chunk => { output += chunk; });
-    child.stderr.on('data', chunk => { output += chunk; });
-    child.on('error', reject);
-    child.on('close', code => { try { assert.equal(code, 0, output); resolve(); } catch (error) { reject(error); } });
-  })));
 });
 
 test('formatBashOutput reports exit, timeout and truncation', async () => {
@@ -126,6 +157,25 @@ test('resolveBashShell honors an explicit shell and platform defaults', async ()
   const posix = resolveBashShell({ SHELL: '/bin/zsh' }, 'linux');
   assert.deepEqual([posix.kind, posix.command], ['posix', '/bin/zsh']);
   assert.equal(resolveBashShell({}, 'linux').command, '/bin/sh');
+});
+
+test('shell PATH exposes the OpenCode ripgrep binary when present', async () => {
+  const { shellPathWithRipgrep } = await load();
+  const cache = path.join(directory, 'cache');
+  const bin = path.join(cache, 'opencode', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, process.platform === 'win32' ? 'rg.exe' : 'rg'), '');
+  const result = shellPathWithRipgrep({ XDG_CACHE_HOME: cache, PATH: 'base-path' });
+  assert.equal(result, [bin, 'base-path'].join(path.delimiter));
+});
+
+test('system prompt never assumes PowerShell on Windows', () => {
+  const { combineSystem } = require('../lib/kernel-policy');
+  const system = combineSystem({ terminalShell: 'git-bash' });
+  assert.match(system, /user selected Git Bash \(POSIX bash\)/);
+  assert.match(system, /never assume PowerShell on Windows/);
+  assert.match(system, /Select-Object/);
+  assert.match(combineSystem({ terminalShell: 'pwsh' }), /user selected PowerShell 7\+/);
 });
 
 test('buildShellInvocation builds a PowerShell command and quotes a cmd command', async () => {

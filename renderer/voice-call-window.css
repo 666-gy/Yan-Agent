@@ -1,0 +1,107 @@
+:root { --bg-elev: #222; --bg-elev2: #292929; --bg-hover: #353535; --text: #f1f1f1; --text-dim: #aaa; --border: #ffffff12; --accent: #9bbcff; --font-ui: "Segoe UI", "Microsoft YaHei", sans-serif; color-scheme: dark; }
+:root[data-theme="light"] { --bg-elev: #fff; --bg-elev2: #f5f5f4; --bg-hover: #eee; --text: #252525; --text-dim: #737373; --border: #00000012; --accent: #466ed4; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; font-family: var(--font-ui); user-select: none; }
+.voice-call-panel { position: absolute; inset: 12px; margin: 0; width: calc(100% - 24px); height: calc(100% - 24px); display: flex; flex-direction: column; align-items: center; -webkit-app-region: drag; box-shadow: 0 4px 12px #0003; }
+.voice-call-panel[hidden], .voice-call-mini[hidden] { display: none; }
+.voice-call-mini { position: absolute; inset: 12px; margin: 0; width: calc(100% - 24px); height: calc(100% - 24px); max-width: none; justify-content: space-between; padding: 8px; gap: 2px; box-shadow: 0 3px 10px #0003; -webkit-app-region: drag; }
+.call-control { -webkit-app-region: no-drag; }
+.call-mini-drag { -webkit-app-region: drag; }
+.voice-call-mini .call-control { width: 36px; height: 36px; }
+.call-mini-separator { margin: 0 2px; }
+
+/* Compact desktop panel: 280 x 370 DIP surface, plus transparent window gutters. */
+.voice-call-panel { padding: 18px 18px 20px; border-radius: 20px; }
+.voice-call-panel .call-top-pill { gap: 8px; padding: 5px 12px; }
+.voice-call-panel .call-top-pill .call-control { width: 32px; height: 32px; }
+.voice-call-panel .call-control svg { width: 18px; height: 18px; }
+.voice-call-panel #callAvatar { width: 120px; height: 120px; }
+.voice-call-panel #callTitle { font-size: 18px; letter-spacing: -.2px; }
+.voice-call-panel #callStatus { font-size: 12px; margin: 8px 0 24px; }
+.voice-call-panel .call-bottom-controls { gap: 20px; }
+.voice-call-panel .call-bottom-controls .call-control { width: 38px; height: 38px; }
+/* Shared geometry makes the avatar and controls travel together on both transitions. */
+.voice-call-panel { overflow: hidden; }
+.voice-call-panel .call-top-pill { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); transition: transform 320ms cubic-bezier(.2,.7,.2,1); }
+.voice-call-panel .call-persona { position: absolute; top: 90px; left: 50%; width: 120px; height: 120px; min-height: 0; transform: translateX(-50%); transform-origin: top left; transition: top 320ms cubic-bezier(.2,.7,.2,1), transform 320ms cubic-bezier(.2,.7,.2,1); }
+.voice-call-panel #callTitle { position: absolute; top: 244px; transition: opacity 180ms, transform 320ms; }
+.voice-call-panel #callStatus { position: absolute; top: 268px; margin: 0; transition: opacity 180ms, transform 320ms; }
+.voice-call-panel .call-bottom-controls { position: absolute; bottom: 20px; }
+.voice-call-panel.captions-visible .call-top-pill { transform: translateX(calc(-50% + 24px)); }
+.voice-call-panel.captions-visible .call-persona { top: 22px; transform: translateX(-98px) scale(.3); }
+.voice-call-panel.captions-visible #callTitle, .voice-call-panel.captions-visible #callStatus { opacity: 0; transform: translateY(-18px); pointer-events: none; }
+#callCaptions[aria-pressed="true"], #miniCallCaptions[aria-pressed="true"] { color: var(--text); }
+.call-transcript { position: absolute; top: 88px; bottom: 82px; left: 18px; right: 18px; overflow: auto; scrollbar-width: thin; opacity: 0; visibility: hidden; transform: translateY(16px); transition: opacity 220ms, transform 320ms, visibility 320ms; text-align: left; -webkit-app-region: no-drag; user-select: text; overflow-wrap: anywhere; }
+.captions-visible .call-transcript { opacity: 1; visibility: visible; transform: none; }
+.call-transcript-empty { color: var(--text-dim); text-align: center; font-size: 12px; margin-top: 80px; }
+.call-user { display: block; width: fit-content; max-width: 100%; margin: 8px 0 24px auto; padding: 10px 16px; border-radius: 22px; background: var(--bg-elev2); color: var(--text); font: inherit; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.call-user[data-streaming="true"]::after { content: '▏'; color: var(--text-dim); }
+.call-reply { margin: 0 0 28px; }
+.call-reply-text { font-size: 14px; line-height: 1.8; margin: 0 0 12px; white-space: normal; }
+.call-reply footer { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 10px; }
+.call-copy, .call-copy:hover, .call-copy:active { display: inline-flex; justify-content: center; align-items: center; background: transparent; border: 0; box-shadow: none; padding: 4px; color: var(--text-dim); cursor: pointer; }
+.call-copy:hover { color: var(--text); }
+.call-copy:focus-visible { outline: 1px solid var(--accent); border-radius: 4px; }
+.call-copy svg { width: 14px; height: 14px; }
+@media (prefers-reduced-motion: reduce) { .voice-call-panel *, .voice-call-panel .call-persona, .voice-call-panel .call-top-pill { transition: none; } }
+
+:root { --call-sharing-blue: #79b8ff; }
+:root[data-theme="light"] { --call-sharing-blue: #1769cc; }
+#callShare[aria-pressed="true"], #miniCallShare[aria-pressed="true"] { color: var(--call-sharing-blue); }
+
+.call-state-pill { position: absolute; top: 244px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; max-width: calc(100% - 36px); padding: 10px 18px; border-radius: 999px; background: var(--bg-hover); color: var(--text-dim); transition: top 320ms, bottom 320ms; }
+.voice-call-panel .call-state-pill #callTitle, .voice-call-panel .call-state-pill #callStatus { position: static; margin: 0; opacity: 1; transform: none; pointer-events: auto; }
+.voice-call-panel .call-state-pill #callStatus { font-size: 13px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-state-pill[data-phase="welcome"] #callTitle { order: 1; }
+.call-wave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 20px; }
+.call-wave i { display: block; width: 2px; height: 6px; border-radius: 1px; background: currentColor; transition: height 100ms ease-out; }
+.call-wave i:nth-child(2), .call-wave i:nth-child(4) { height: 10px; }
+.call-wave i:nth-child(3) { height: 14px; }
+.call-wave[data-level="1"] i { height: 10px; }
+.call-wave[data-level="2"] i { height: 15px; }
+.call-wave[data-level="3"] i { height: 20px; }
+.call-wave[data-level] i:nth-child(2), .call-wave[data-level] i:nth-child(4) { transform: scaleY(.65); }
+.call-wave[data-level] i:nth-child(1), .call-wave[data-level] i:nth-child(5) { transform: scaleY(.45); }
+#callInterrupt { border: 0; padding: 0; color: var(--text); background: transparent; font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; -webkit-app-region: no-drag; }
+.call-state-pill:has(#callInterrupt:not([hidden])) { -webkit-app-region: no-drag; padding: 0; }
+.call-state-pill #callInterrupt { padding: 10px 22px; border-radius: 999px; }
+#callInterrupt[hidden], #callTitle[hidden], #callStatus[hidden] { display: none; }
+#callInterrupt:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.captions-visible .call-state-pill { top: auto; bottom: 70px; z-index: 2; }
+.captions-visible .call-transcript { bottom: 120px; }
+@media (prefers-reduced-motion: reduce) { .call-wave i, .call-state-pill { transition: none; } }
+
+.captions-visible .call-state-pill:has(#callInterrupt[hidden]) { display: none; }
+.captions-visible .call-transcript { bottom: 82px; }
+.captions-visible:has(#callInterrupt:not([hidden])) .call-transcript { bottom: 120px; }
+.call-reply footer[hidden] { display: none; }
+.call-transcript { scrollbar-color: transparent transparent; }
+.call-transcript.scrollbar-visible:hover { scrollbar-color: var(--text-dim) transparent; }
+.call-transcript::-webkit-scrollbar { width: 5px; height: 5px; }
+.call-transcript::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+.call-transcript.scrollbar-visible:hover::-webkit-scrollbar-thumb { background: var(--text-dim); }
+.call-reply-text { --border-soft: var(--border); --bg-code: var(--bg-elev2); }
+
+.call-starting #voiceCallPanel { display: none; }
+.call-starting #voiceCallMini { display: flex; }
+#callStartupText { display: none; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.call-starting #callStartupText { display: block; margin-right: auto; }
+.call-starting #voiceCallMini > button:not(#miniCallHangup), .call-starting .call-mini-separator { display: none; }
+.call-transcript { scrollbar-width: none; }
+.call-transcript::-webkit-scrollbar { display: none; }
+#callScrollTrack { position: absolute; right: 5px; top: 88px; bottom: 82px; width: 4px; opacity: 0; pointer-events: none; -webkit-app-region: no-drag; transition: opacity 150ms; }
+#callScrollThumb { position: absolute; width: 4px; min-height: 20px; border-radius: 4px; background: var(--text-dim); }
+.captions-visible:has(.scrollbar-visible) #callScrollTrack { opacity: .65; }
+.captions-visible:has(#callInterrupt:not([hidden])) #callScrollTrack { bottom: 120px; }
+
+.call-starting #miniCallHangup { order: 3; flex: 0 0 36px; margin-left: auto; }
+.call-starting #callStartupText { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.call-starting #callMiniDrag { flex-shrink: 0; }
+
+.call-speaking-bubble { position: absolute; right: -10px; top: -5px; z-index: 1; display: flex; align-items: center; gap: 3px; padding: 12px 10px; border-radius: 14px 14px 14px 3px; background: var(--bg-elev); box-shadow: 0 1px 8px #0001; }
+.call-speaking-bubble[hidden] { display: none; }
+.call-speaking-bubble i { width: 4px; height: 7px; background: var(--accent); border-radius: 3px; animation: call-speaking-dot 900ms ease-in-out infinite; }
+.call-speaking-bubble i:nth-child(2) { animation-delay: 120ms; }
+.call-speaking-bubble i:nth-child(3) { animation-delay: 240ms; }
+@keyframes call-speaking-dot { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .call-speaking-bubble i { animation: none; } }

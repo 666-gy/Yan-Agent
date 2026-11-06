@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createComputerAdapter } = require('../lib/yan-computer-mcp');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 const { createPluginStore } = require('../lib/plugins/store');
 const { createPluginCatalog } = require('../lib/plugins/catalog');
 const { ensureInstalled, PLUGIN_ID } = require('../lib/plugins/computer-use');
@@ -92,6 +92,21 @@ test('plugin capability comes from the same user setting as provider image modal
       capabilities: { imageInput: supported } });
     assert.equal(new URL(config.plugin[0]).searchParams.get('yanComputerImageInput'), String(supported));
     assert.equal(config.provider.deepseek.models['deepseek-text-name'].modalities.input.includes('image'), supported);
+    const native = require('../lib/kernel-v2/config').translateConfig(config);
+    const env = require('../lib/kernel-v2/runtime').environment({}, '', native, { YAN_COMPUTER_IMAGE_INPUT: String(!supported) });
+    assert.equal(env.YAN_COMPUTER_IMAGE_INPUT, String(supported));
+  }
+});
+
+test('V2 image declarations reach screenshot blocks including vision alias and model changes', async t => {
+  for (const capabilities of [{ imageInput: true }, { vision: true }, { imageInput: false }]) {
+    const config = require('../lib/kernel-v2/config').translateConfig(buildOpenCodeConfig({ providerId: 'custom', modelId: 'family/model', capabilities }));
+    const env = require('../lib/kernel-v2/runtime').environment({}, '', config, { YAN_COMPUTER_IMAGE_INPUT: 'true' });
+    const supported = !!(capabilities.imageInput || capabilities.vision);
+    const f = fixture(t, env.YAN_COMPUTER_IMAGE_INPUT === 'true');
+    const result = await f.adapter.call(1, 'get_window_state', { pid: 1 });
+    assert.equal(result.content.some(block => block.type === 'image'), supported);
+    if (supported) assert.doesNotMatch(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), /configured model is text-only/);
   }
 });
 

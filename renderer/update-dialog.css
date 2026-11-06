@@ -1,0 +1,33 @@
+:is(#yan-update-dialog, #pluginMarketHelpDialog){--bg:var(--settings-canvas,#fff);--text:var(--settings-text,#242424);--muted:var(--settings-text-secondary,#777);--line:var(--settings-border,#e7e7e7);--soft:var(--settings-surface,#f5f5f5);--ink:var(--settings-text,#242424);--on:var(--settings-canvas,#fff);font:14px/1.65 var(--font-sans,"Segoe UI",sans-serif)}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) button{font:inherit;cursor:pointer}:is(#yan-update-dialog, #pluginMarketHelpDialog) button:focus-visible{outline:2px solid var(--settings-accent,#087bea);outline-offset:3px}
+:is(#yan-update-dialog, #pluginMarketHelpDialog){position:fixed;inset:0;margin:auto;padding:0;width:min(510px,calc(100vw - 32px));max-height:calc(100vh - 32px);border:1px solid #00000018;border-radius:16px;background:var(--bg);color:var(--text);box-shadow:0 24px 80px #0000002b;overflow:auto}
+:is(#yan-update-dialog, #pluginMarketHelpDialog)::backdrop{background:#00000026}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .titlebar{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 22px;border-bottom:1px solid var(--line);user-select:none}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .titlebar h2{font-size:14px;font-weight:600;margin:0}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .close{border:0;background:transparent;color:var(--muted);height:32px;width:32px;display:grid;place-items:center;border-radius:7px;font-size:23px;line-height:1}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .close{border-radius:50%}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .close:hover{background:var(--soft);color:var(--text)}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .close:active{background:var(--line)}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .body{padding:30px 30px 18px}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .body p{font-size:16px;line-height:1.9;margin:0;max-width:430px;text-align:center}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .footer{display:flex;justify-content:flex-end;padding:14px 26px 26px}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .install{border:0;border-radius:999px;background:var(--ink);color:var(--on);padding:11px 23px;font-size:14px;font-weight:500}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .install:hover{opacity:.85}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid{height:160px;margin:0 0 24px;border-radius:12px;overflow:hidden;position:relative;background:#cbd8e9;isolation:isolate}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid::before{content:"";position:absolute;inset:-65%;background:conic-gradient(from 35deg at 48% 52%,#e4eff7 0deg,#a9bddd 55deg,#657cb0 100deg,#c4b9da 147deg,#f2d9cd 190deg,#f7eee0 225deg,#9cbcc9 275deg,#e4eff7 360deg);transform:rotate(-24deg) scaleY(.64);border-radius:43% 57% 62% 38%;filter:blur(12px)}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid::after{content:"";position:absolute;width:115%;height:170%;left:15%;top:-59%;border-radius:48% 52% 62% 38%;transform:rotate(-29deg);background:linear-gradient(145deg,#f6f5eced 5%,#dce8efb3 30%,#a6bedb55 55%,#768bb240 75%);box-shadow:-12px 20px 32px #f7e8da85,0 35px 42px #536d9a3d,inset 0 -14px 28px #eef4fa99}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid-brand{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;gap:13px;padding:20px;color:#202631;font-size:19px;font-weight:600;letter-spacing:-.4px;text-shadow:0 1px 12px #ffffff60}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid-brand img{width:44px;height:44px;object-fit:contain;mix-blend-mode:multiply;flex-shrink:0}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid-brand span{line-height:1.4}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .progress{flex:1;min-width:0;margin-right:22px;align-self:center}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .progress[hidden]{display:none}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .progress-label{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-bottom:7px}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .progress-track{height:5px;border-radius:99px;background:var(--line);overflow:hidden}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .progress-fill{height:100%;width:0;background:var(--text);border-radius:99px;transition:width .25s ease}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .install:disabled{opacity:.5;cursor:wait}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .footer{align-items:center}
+:is(#yan-update-dialog, #pluginMarketHelpDialog) .install{flex-shrink:0}
+@media(max-width:480px){:is(#yan-update-dialog, #pluginMarketHelpDialog) .footer{flex-wrap:wrap;gap:16px}:is(#yan-update-dialog, #pluginMarketHelpDialog) .progress{flex-basis:100%;margin-right:0}:is(#yan-update-dialog, #pluginMarketHelpDialog) .install{margin-left:auto}:is(#yan-update-dialog, #pluginMarketHelpDialog) .fluid-brand{font-size:15px}}
+
+#pluginMarketHelpDialog .fluid-brand{font-size:17px;letter-spacing:0}
+#pluginMarketHelpDialog .plugin-name-examples{display:grid;gap:8px;line-height:1.4;text-align:center;overflow-wrap:anywhere}

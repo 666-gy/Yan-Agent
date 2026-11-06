@@ -13,7 +13,7 @@ function createRunContext(t) {
   let resolveTask, rejectTask, resolveIdle;
   const task = new Promise((resolve, reject) => { resolveTask = resolve; rejectTask = reject; });
   const idle = new Promise(resolve => { resolveIdle = resolve; });
-  const config = { api: {}, agent: { workMode: 'normal' }, permissions: {}, workspace: '' };
+  const config = { api: {}, agent: { workMode: 'normal' }, memory: { enabled: false }, permissions: {}, workspace: '' };
   const core = {
     startTurn: request => { calls.core.push(request); return { configSnapshotId: 'snapshot-1' }; },
     completeTurn: (id, result) => { calls.completed.push({ id, result }); }
@@ -26,6 +26,8 @@ function createRunContext(t) {
     skillsRuntime: { getNoWorkspaceAgentDirectory: () => directory, selectedRunSkills: async () => ({ skills: [] }) },
     harnessPolicy: {}, longTermMemory: { query: () => ({ context: '' }) },
     harnessBridge: {
+      registerHarnessRunContext: () => {},
+      registerHarnessUsage: () => {},
       pendingHarnessRequestPath: id => path.join(directory, `${id}.json`),
       removeHarnessRunContext: () => {}
     },

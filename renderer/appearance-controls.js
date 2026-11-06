@@ -103,14 +103,14 @@
       panel.append(search);
     }
     panel.append(list);
-    document.querySelector('#settingsOverlay').append(panel);
+    (select.closest('dialog') || document.querySelector('#settingsOverlay')).append(panel);
     trigger.setAttribute('aria-controls', list.id);
     trigger.setAttribute('aria-expanded', 'true');
     function position() {
       const rect = trigger.getBoundingClientRect();
       const minimumWidth = detailed ? 300 : select.id === 'snapshotShortcut' ? 240 : select.id === 'generalTerminalShell'
         ? 250
-        : ['generalLanguage', 'generalCompletionNotification', 'configurationAccessMode', 'configurationVerbosity', 'configurationReasoningSummary', 'ttsVoice', 'contextMetric'].includes(select.id)
+        : ['generalLanguage', 'generalCompletionNotification', 'configurationAccessMode', 'configurationVerbosity', 'configurationReasoningSummary', 'contextMetric'].includes(select.id)
           ? 200
           : 132;
       const width = Math.min(searchable ? Math.max(rect.width, 240) : Math.max(rect.width, minimumWidth), innerWidth - 16);
@@ -165,6 +165,9 @@
   }
 
   function sync() {
+    for (const [select, control] of controls) {
+      if (!select.isConnected) { control.trigger.remove(); controls.delete(select); }
+    }
     document.querySelectorAll('.appearance-page select, select[data-settings-picker]').forEach(select => {
       let control = controls.get(select);
       if (!control) {

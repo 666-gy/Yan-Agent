@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { isolateWorkMode, sessionModeMatches } = require('../lib/work-mode-isolation');
-const { combineSystem, combineTurnPrompt, permissionForRun } = require('../lib/opencode-sidecar');
+const { combineSystem, combineTurnPrompt, permissionForRun } = require('../lib/kernel-policy');
 const { LongTermMemoryStore } = require('../lib/long-term-memory');
 
 const polluted = { reasoningSidepath: { required: true }, longHorizonContext: 'LONG_MARKER',
@@ -16,6 +16,7 @@ test('normal/plan/goal never inject AGI even with stale request fields', () => {
   for (const workMode of ['normal', 'plan', 'goal']) {
     const request = { ...polluted, workMode, prompt: 'fix code', accessMode: 'full' };
     const clean = isolateWorkMode(request);
+    assert.equal(clean.workMode, workMode === 'goal' ? 'normal' : workMode);
     assert.equal(clean.reasoningSidepath, undefined);
     assert.equal(clean.escalation, undefined);
     const text = combineSystem(request) + combineTurnPrompt(request, request.prompt, false);

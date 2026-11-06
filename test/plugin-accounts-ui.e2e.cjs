@@ -68,7 +68,7 @@ for (const id of ['figma', 'canva']) {
     await page.waitForFunction(() => document.getElementById('pagePluginPackages').getAttribute('aria-busy') === 'false');
     await assertPill('connect');
     await page.locator('[data-plugin-action="back"]').click();
-    await page.locator('[data-plugin-open="game-studio"]').click();
+    await page.locator('[data-plugin-open="remotion"]').click();
     assert.equal(await page.locator('[data-plugin-action="connect"]').count(), 0);
     assert.equal(await page.locator('#pluginDetailContent .plugin-skill-row').count(), 5);
     await page.locator('[data-plugin-action="back"]').click();
@@ -78,7 +78,7 @@ for (const id of ['figma', 'canva']) {
     await page.locator('[data-plugin-action="expand"]').click();
     assert.equal(await page.locator('#pluginDetailContent .plugin-skills-section .plugin-skill-row').count(), 12);
     assert.deepEqual(errors, []);
-    console.log('PASS: real Electron account details, system-browser official login fallback, pending state, narrow layout, and Game Studio without a login requirement.');
+    console.log('PASS: real Electron account details, system-browser official login fallback, pending state, narrow layout, and Remotion without a login requirement.');
   } finally {
     await app?.close().catch(() => {});
     assert.equal(path.dirname(userData), path.resolve(os.tmpdir())); fs.rmSync(userData, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });

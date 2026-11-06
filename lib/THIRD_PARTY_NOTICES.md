@@ -1,9 +1,23 @@
 # Third-Party Notices
 
+## Attachment image normalization
+
+`@silvia-odwyer/photon-node` 0.3.4 by Silvia O'Dwyer is bundled under Apache-2.0.
+Source: https://github.com/silvia-odwyer/photon. Its original license is retained
+in `node_modules/@silvia-odwyer/photon-node/LICENSE.md`. Yan uses it in a worker
+to produce bounded PNG/JPEG visual copies while retaining original attachments.
+
+## Confetti
+
+js-confetti 0.13.1 by Denis Sidorov (MIT) is vendored at
+`renderer/vendor/confetti.browser.js`, with its full license in
+`renderer/vendor/confetti.LICENSE`. Source: https://github.com/loonywizard/js-confetti.
+Yan's integration is independently implemented; no Codex application code is bundled.
+
 ## Local Voice Input
 
 DeepSeek Harness's SenseVoice provider, recording module and WAV validator are
-vendored under MIT at `lib/vendor/dsh-voice`, pinned to commit
+vendored under MIT at `lib/vendor/voice-runtime`, pinned to commit
 639ed015397290b3745d163aafe02ffee4aa3f84. The license and source mapping are
 retained in that directory. Source: https://github.com/deepseek-ai/deepseek-harness.
 Its bundled utility dependencies are @deepseek-ai/schemastery and dsh-timeout
@@ -13,7 +27,7 @@ Runtime (MIT). SenseVoiceSmall model weights are governed by the FunASR Model
 Open Source License Agreement, version 1.1, copyright Alibaba Group, as linked
 by https://huggingface.co/FunAudioLLM/SenseVoiceSmall. This is distinct from the
 MIT license of the SenseVoice source code. The full model agreement is retained
-in `lib/vendor/dsh-voice/licenses/SenseVoice-MODEL_LICENSE`; source:
+in `lib/vendor/voice-runtime/licenses/SenseVoice-MODEL_LICENSE`; source:
 https://github.com/modelscope/FunASR/blob/58830eca4012644aac0c3218c3ccc7d98f003fda/MODEL_LICENSE.
 SenseVoiceSmall (FunAudioLLM/FunASR, Alibaba Group) and Silero VAD (MIT) model
 files are downloaded separately on explicit user request from the upstream
@@ -60,32 +74,11 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
-## Edge text-to-speech engine
+## Edge text-to-speech
 
-`lib/tts-msedge.bundle.cjs` bundles the msedge-tts client and its runtime
-dependencies so the packaged app stays self-contained. All bundled components
-are MIT licensed, with copyright held by their respective authors:
-
-- msedge-tts, copyright Migushthe2nd — https://github.com/Migushthe2nd/MsEdgeTTS
-- ws, copyright 2011 Einar Otto Stangvik and contributors — https://github.com/websockets/ws
-- axios, copyright 2014-present Matt Zabriskie and contributors — https://github.com/axios/axios
-- isomorphic-ws — https://github.com/hemanth/isomorphic-ws
-- stream-browserify — https://github.com/browserify/stream-browserify
-- buffer, copyright Feross Aboukhadijeh — https://github.com/feross/buffer
-- follow-redirects — https://github.com/follow-redirects/follow-redirects
-- form-data — https://github.com/form-data/form-data
-- proxy-from-env — https://github.com/Rob--W/proxy-from-env
-
-The MIT License terms reproduced above apply to these components under their
-respective copyright notices.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The msedge-tts client (Migushthe2nd, MIT) and its dependencies are bundled in
+`lib/tts-msedge.bundle.cjs`, retaining inline license notices.
+Source: https://github.com/Migushthe2nd/MsEdgeTTS
 
 ## Agent role icons
 
@@ -114,6 +107,7 @@ The Explore and Build icons are adapted from Phosphor Icons (`flower-lotus` and
 https://github.com/phosphor-icons/core
 
 ### Keyline Icons
+
 
 The Storage settings navigation uses the original `hard-drive` SVG paths from https://keylineicons.com/icons?search=storage&icon=hard-drive (retrieved October 11, 2026), under the MIT license included in `renderer/assets/Keyline-LICENSE.txt`.
 
@@ -154,7 +148,7 @@ copies or substantial portions of the Software.
 
 ## Intelligent UI OpenUI runtime
 
-- @openuidev/lang-core and @openuidev/react-lang 0.3.0: MIT, Copyright (c) 2011-2024 Thesys Inc.; source https://github.com/thesysdev/openui. Locally bundled with React, React DOM, Scheduler, Zod and OpenUI runtime dependencies. Full license texts: renderer/vendor/openui/LICENSES.txt.
+- @openuidev/lang-core and @openuidev/react-lang 1.0.1, @openuidev/react-ui 0.18.1: MIT, Copyright (c) 2011-2024 Thesys Inc.; source https://github.com/thesysdev/openui. Locally bundled with React, React DOM, Scheduler, Zod and OpenUI runtime dependencies. Full license texts: renderer/vendor/openui/LICENSES.txt.
 - Yan implements the Trip, Budget and Choice adapters and sandbox integration. The separate open-intelligent-ui travel demo is not copied into this runtime. No Thesys Gateway is used.
 
 ## Settings appearance assets (continued)

@@ -272,42 +272,6 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
       };
       relayEl.remove();
 
-      const policyRunCtx = createRunCtx(`${session.id}-policy-acceptance`, true, session.workspace || '');
-      policyRunCtx.activeAgentRun = {
-        runId: policyRunCtx.runId,
-        status: 'working',
-        timeline: []
-      };
-      const policyEl = appendMessage('assistant', '');
-      applyOpenCodeEvent(policyRunCtx, {
-        type: 'yan.policy.acceptance.started',
-        data: {
-          callID: 'policy-acceptance:e2e',
-          tool: 'yan_policy_acceptance',
-          input: { policyCount: 1, policies: ['prompt-search-routing'] }
-        }
-      }, { deferEffects: true });
-      applyOpenCodeEvent(policyRunCtx, {
-        type: 'yan.policy.acceptance.passed',
-        data: {
-          callID: 'policy-acceptance:e2e',
-          tool: 'yan_policy_acceptance',
-          output: { ok: true, policyCount: 1, findings: [] }
-        }
-      }, { deferEffects: true });
-      renderAgentRunBody(policyEl.querySelector('.msg-body'), policyRunCtx.activeAgentRun);
-      const policyStep = policyEl.querySelector('.tool-step[data-tool="yan_policy_acceptance"]');
-      const policyAcceptance = {
-        callCount: policyRunCtx.activeAgentRun.timeline.filter(item => item.type === 'tool_call').length,
-        resultCount: policyRunCtx.activeAgentRun.timeline.filter(item => item.type === 'tool_result').length,
-        textCount: policyRunCtx.activeAgentRun.timeline.filter(item => item.type === 'text').length,
-        label: policyStep?.querySelector('.tc-name')?.textContent,
-        icon: policyStep?.querySelector('.tc-icon-svg')?.dataset.icon,
-        state: policyStep?.dataset.toolState,
-        ok: policyStep?.dataset.ok
-      };
-      policyEl.remove();
-
       const reconnectRunCtx = createRunCtx(`${session.id}-stream-reconnect`, true, session.workspace || '');
       reconnectRunCtx.activeAgentRun = {
         runId: reconnectRunCtx.runId,
@@ -785,11 +749,10 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
         ['question', 'message-plus'],
         ['todowrite', 'circle-more-horizontal'],
         ['task', 'square-more-horizontal'],
-        ['yan_skills_find_skills', 'eye'],
-        ['yan_skills_install_skill', 'download'],
-        ['yan_skills_list_installed_skills', 'filter'],
+        ['yan_skills_find_skills', 'book-open-2'],
+        ['yan_skills_install_skill', 'book-plus'],
         ['yan_skills_read_skill_resource', 'file'],
-        ['yan_skills_remove_skill', 'bin'],
+        ['yan_skills_remove_skill', 'book-minus'],
         ['yan_media_read_image', 'image-check'],
         ['mcp__yan_media__generate_image', 'image-plus'],
         ['yan_media_generate_video', 'list-video'],
@@ -847,7 +810,6 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
         compressionCompleted,
         relayRunning,
         relayCompleted,
-        policyAcceptance,
         reconnectRunning,
         reconnectExpanded,
         reconnectUpdated,
@@ -901,12 +863,12 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
       legacyBadgeCount: 0
     });
     assert.deepEqual(states.thinking, {
-      label: '思考中',
+      label: '思考',
       completedLabel: '思考已结束',
       iconColor: 'rgb(43, 176, 243)',
       iconPaths: [
-        'M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z',
-        'M12 7.60279L12.4521 10.5685M15.9543 7L16.4064 9.96574'
+        'M16.005 15.108a5.041 6.52 28.25 00-8.008-6.217 5.041 6.52 28.25 008.008 6.217A11.884 7.288-60.76 014.029 7.001',
+        'M17 21h.01', 'M7 3h.01', 'M7.997 8.891a11.885 7.288-60.756 0111.977 8.107'
       ],
       iconViewBox: '0 0 24 24'
     });
@@ -1128,15 +1090,6 @@ const genericPanelScreenshotPath = path.join(screenshotDir, 'tool-result-panel-d
     for (const iconCase of states.iconCases) {
       assert.equal(iconCase.actual, iconCase.expected, iconCase.tool);
     }
-    assert.deepEqual(states.policyAcceptance, {
-      callCount: 1,
-      resultCount: 1,
-      textCount: 0,
-      label: '策略验收',
-      icon: 'badge-check',
-      state: 'completed',
-      ok: 'true'
-    });
     assert.deepEqual(states.iconCatalog, { count: 31, invalid: [] });
     for (const displayNameCase of states.displayNameCases) {
       assert.equal(displayNameCase.actual, displayNameCase.expected, displayNameCase.tool);

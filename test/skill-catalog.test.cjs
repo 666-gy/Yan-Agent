@@ -18,12 +18,8 @@ const requiredVisibleIds = [
   'hallmark',
   'hyperframes',
   'market-anysearch',
-  'officecli',
   'remotion-best-practices',
-  'yan-codegraph',
   'yan-prompt-optimizer',
-  'yan-serena',
-  'yan-uiverse'
 ].sort();
 const requiredInternalIds = [
   'gsap',
@@ -32,7 +28,7 @@ const requiredInternalIds = [
   'website-to-hyperframes'
 ].sort();
 const removedUiSkillIds = [
-  'emil-motion', 'animate', 'apple-design', 'find-animation-opportunities', 'review-animations',
+  'yan-codegraph', 'emil-motion', 'animate', 'apple-design', 'find-animation-opportunities', 'review-animations',
   'greensock-gsap', 'gsap-core', 'gsap-frameworks', 'gsap-performance', 'gsap-plugins',
   'gsap-react', 'gsap-scrolltrigger', 'gsap-timeline', 'gsap-utils',
   'ui-ux-pro-max', 'liquid-glass-react', 'yan-react-bits'

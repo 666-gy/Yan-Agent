@@ -47,17 +47,17 @@ fs.mkdirSync(evidence, { recursive: true });
     assert.equal(await page.locator('#composerSkillAction').count(), 1);
     assert.equal(await input.getAttribute('data-placeholder'), '与 Yan Agent 协作（按/选择配置，按$选择技能）');
     assert.equal(await page.locator('#composerSubagentAction, #composerSubagentView').count(), 0);
-    assert.deepEqual(await page.locator('#composerAddMainView [data-work-mode]').evaluateAll(nodes => nodes.map(node => node.dataset.workMode)), ['goal', 'plan']);
+    assert.deepEqual(await page.locator('#composerAddMainView [data-work-mode]').evaluateAll(nodes => nodes.map(node => node.dataset.workMode)), ['plan']);
     await page.screenshot({ path: path.join(evidence, 'add-panel.png') });
-    await page.locator('#composerAddMainView [data-work-mode="goal"]').click();
-    await page.waitForFunction(() => getCurrentWorkMode() === 'goal');
+    await page.locator('#composerAddMainView [data-work-mode="plan"]').click();
+    await page.waitForFunction(() => getCurrentWorkMode() === 'plan');
     await add.click();
-    assert.equal(await page.locator('#composerAddMainView [data-work-mode="goal"]').getAttribute('aria-checked'), 'true');
-    await page.locator('#composerAddMainView [data-work-mode="goal"]').click();
+    assert.equal(await page.locator('#composerAddMainView [data-work-mode="plan"]').getAttribute('aria-checked'), 'true');
+    await page.locator('#composerAddMainView [data-work-mode="plan"]').click();
     await page.waitForFunction(() => getCurrentWorkMode() === 'normal');
     await config();
     const names = await page.locator('#composerConfigList .composer-add-action-name').allTextContents();
-    assert.deepEqual(names, ['MCP', '侧边会话', '归档', '推理', '新聊天', '模型', '目标', '绘图', '置顶聊天', '虚拟宠物', '计划模式', '记忆', '重命名', '技能']);
+    assert.deepEqual(names, ['MCP', '侧边会话', '归档', '推理', '新聊天', '模型', '绘图', '置顶聊天', '虚拟宠物', '计划模式', '记忆', '重命名', '技能']);
     for (const [id, icon] of [['model', 'bot-droplet'], ['side', 'message-plus'], ['reasoning', 'lightbulb-on']]) {
       assert.equal(await command(id).locator('svg').getAttribute('data-keyline-icon'), icon);
     }
@@ -68,7 +68,28 @@ fs.mkdirSync(evidence, { recursive: true });
     const headerBefore = await page.locator('#composerConfigBack').boundingBox();
     await page.locator('#composerConfigList').evaluate(node => { node.scrollTop = node.scrollHeight; });
     assert.deepEqual(await page.locator('#composerConfigBack').boundingBox(), headerBefore);
-    assert.ok(await page.locator('#composerConfigBack').evaluate(node => parseFloat(getComputedStyle(node).borderRadius) >= 14));
+    const backChrome = await page.locator('#composerConfigBack').evaluate(node => {
+      const style = getComputedStyle(node);
+      return { radius: parseFloat(style.borderRadius), height: node.getBoundingClientRect().height, border: parseFloat(style.borderTopWidth), background: style.backgroundColor };
+    });
+    assert.ok(backChrome.radius >= backChrome.height / 2 - 0.5, 'back control hover fill is a pill');
+    assert.equal(backChrome.border, 0, 'back control has no outline chrome');
+    assert.match(backChrome.background, /rgba\(0, 0, 0, 0\)|transparent/, 'back control has no backing plate');
+    const rowGeometry = await page.evaluate(() => {
+      const list = document.getElementById('composerConfigList');
+      const row = list.querySelector('button');
+      const listRect = list.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      return {
+        left: rowRect.left - listRect.left,
+        right: listRect.right - rowRect.right,
+        scrollbar: list.offsetWidth - list.clientWidth,
+        radius: getComputedStyle(row).borderRadius
+      };
+    });
+    assert.ok(Math.abs(rowGeometry.left) <= 1, 'row highlight starts at the list edge');
+    assert.ok(Math.abs(rowGeometry.right - rowGeometry.scrollbar) <= 1, 'row highlight ends at the list edge');
+    assert.equal(rowGeometry.radius, '0px', 'row highlight is a strict rectangle');
     await page.locator('#composerConfigList').evaluate(node => { node.scrollTop = 0; });
     await page.screenshot({ path: path.join(evidence, 'config-dark.png') });
     await page.locator('#composerConfigBack').click();
@@ -224,12 +245,12 @@ fs.mkdirSync(evidence, { recursive: true });
     await page.setViewportSize({ width: 1400, height: 950 });
     await page.evaluate(() => switchSidebarNav('bot'));
     await config();
-    assert.equal(await command('goal').isDisabled(), true);
+    assert.equal(await command('plan').isDisabled(), true);
     await command('skills').click();
     await page.locator('[data-composer-config^="skill:"]').first().click();
     assert.equal(await page.evaluate(() => state.selectedSkills.length), 1);
     assert.deepEqual(errors, []);
-    console.log('Composer configuration passed: compact menus, fixed pill header, removed commands and subagent triggers, modes, slash skills, routes, persistence and responsive layouts.');
+    console.log('Composer configuration passed: compact menus, inline back header, removed commands and subagent triggers, modes, slash skills, routes, persistence and responsive layouts.');
   } finally {
     await app?.close();
     try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }

@@ -103,11 +103,13 @@ test('a failed copy is logged, never thrown', () => {
 });
 
 test('the kernel env pins GH_CONFIG_DIR so gh does not follow its XDG_CONFIG_HOME', () => {
-  const source = fs.readFileSync(path.join(appRoot, 'lib', 'opencode-sidecar.js'), 'utf8');
-  const envAt = source.indexOf('XDG_CONFIG_HOME: path.join(runtimeRoot, \'config\')');
-  assert.ok(envAt > 0, 'kernel env block not found');
-  const block = source.slice(envAt, source.indexOf('};', envAt));
-  assert.match(block, /GH_CONFIG_DIR:\s*resolveGhConfigDir\(\)/);
+  const { runtimePaths, environment } = require('../lib/kernel-v2/runtime');
+  const paths = runtimePaths(path.resolve(appRoot), path.resolve(os.tmpdir(), 'yan-gh-v2'));
+  const ghDirectory = path.resolve(os.tmpdir(), 'yan-gh-shared');
+  const env = environment(paths, 'fixture', {}, { GH_CONFIG_DIR: ghDirectory });
+  assert.equal(env.GH_CONFIG_DIR, ghDirectory);
+  assert.equal(env.XDG_CONFIG_HOME, paths.config);
+  assert.notEqual(env.GH_CONFIG_DIR, path.join(env.XDG_CONFIG_HOME, 'gh'));
 });
 
 test('main.js pins GH_CONFIG_DIR before any gh or kernel spawn is wired up', () => {

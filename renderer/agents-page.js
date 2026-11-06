@@ -9,7 +9,7 @@
   const versions = new Map();
   let versionRequest = null;
   page.append(header);
-  page.insertAdjacentHTML('beforeend', '<div class="page-body capability-page-body"><section id="agentMarketOverview" class="skill-workbench"><div class="skill-group-grid" id="agentMarketGrid"></div></section><section id="agentDetailView" class="skill-detail-view hidden" aria-labelledby="agentDetailTitle"><div id="agentDetailContent" class="skill-detail-content"></div></section></div>');
+  page.insertAdjacentHTML('beforeend', '<div class="page-body capability-page-body"><section id="agentMarketOverview" class="skill-workbench"><div class="skill-installed-list" id="agentMarketGrid"></div></section><section id="agentDetailView" class="skill-detail-view hidden" aria-labelledby="agentDetailTitle"><div id="agentDetailContent" class="skill-detail-content"></div></section></div>');
   const el = id => document.getElementById(id);
   function render() {
     header.classList.toggle('hidden', !!selected);

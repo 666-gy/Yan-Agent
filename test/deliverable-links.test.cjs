@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { combineSystem } = require('../lib/opencode-sidecar');
+const { combineSystem } = require('../lib/kernel-policy');
 
 function renderer(file, workspace = 'C:/work/My Project') {
   const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');

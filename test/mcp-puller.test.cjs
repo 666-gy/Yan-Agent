@@ -72,7 +72,7 @@ test('install writes config.json and preserves unrelated and encrypted fields', 
     api: { apiKey: 'enc:v1:KEEP-ME' },
     theme: 'dark',
     mcpServers: [
-      { id: 'mcp_default_codegraph', name: 'CodeGraph', builtin: true, command: 'codegraph', args: ['serve', '--mcp'], enabled: true }
+      { id: 'mcp_default_fixture', name: 'Fixture MCP', builtin: true, command: 'fixture-mcp', args: ['serve', '--mcp'], enabled: true }
     ]
   });
 
@@ -85,7 +85,7 @@ test('install writes config.json and preserves unrelated and encrypted fields', 
   assert.equal(roundTrip.config.api.apiKey, 'enc:v1:KEEP-ME');
   assert.equal(roundTrip.config.theme, 'dark');
   assert.equal(roundTrip.config.mcpServers.length, 2);
-  assert.equal(roundTrip.config.mcpServers[0].id, 'mcp_default_codegraph');
+  assert.equal(roundTrip.config.mcpServers[0].id, 'mcp_default_fixture');
 
   const again = addMcpServerToConfig(configPath, { name: 'Demo MCP', command: 'npx', args: ['-y', 'demo'] });
   assert.equal(again.ok, true);
@@ -95,10 +95,10 @@ test('install writes config.json and preserves unrelated and encrypted fields', 
 
   const list = listMcpServersFromConfig(configPath);
   assert.equal(list.ok, true);
-  assert.deepEqual(list.servers.map(server => server.id).sort(), ['mcp_1700000000000', 'mcp_default_codegraph']);
-  assert.equal(list.servers.find(server => server.id === 'mcp_default_codegraph').builtin, true);
+  assert.deepEqual(list.servers.map(server => server.id).sort(), ['mcp_1700000000000', 'mcp_default_fixture']);
+  assert.equal(list.servers.find(server => server.id === 'mcp_default_fixture').builtin, true);
 
-  const removeBuiltin = removeMcpServerFromConfig(configPath, { id: 'mcp_default_codegraph' });
+  const removeBuiltin = removeMcpServerFromConfig(configPath, { id: 'mcp_default_fixture' });
   assert.equal(removeBuiltin.ok, false);
   const removed = removeMcpServerFromConfig(configPath, { name: 'Demo MCP' });
   assert.equal(removed.ok, true);
@@ -108,8 +108,8 @@ test('install writes config.json and preserves unrelated and encrypted fields', 
 
 test('install refuses to overwrite a built-in server name', () => {
   const planned = planMcpInstall({
-    mcpServers: [{ id: 'mcp_default_codegraph', name: 'CodeGraph', builtin: true, command: 'codegraph' }]
-  }, { name: 'CodeGraph', command: 'npx', args: ['-y', 'x'] });
+    mcpServers: [{ id: 'mcp_default_fixture', name: 'Fixture MCP', builtin: true, command: 'fixture-mcp' }]
+  }, { name: 'Fixture MCP', command: 'npx', args: ['-y', 'x'] });
   assert.equal(planned.ok, false);
   assert.match(planned.error, /内置/);
 });
@@ -398,6 +398,7 @@ test('bundled MCP-Puller Skill is installed and listed by the real load path', a
   const electronStub = {
     app: {
       getPath: () => stubDataDir,
+      setPath: () => {},
       getName: () => 'yan-agent',
       getVersion: () => '1.7.0',
       getLocale: () => 'zh',
@@ -466,18 +467,18 @@ test('bundled MCP-Puller Skill is installed and listed by the real load path', a
   const configuredCfg = {
     mcpServers: [
       { id: 'mcp_1790004857986', name: 'ReactBits MCP', command: 'npx', args: ['-y', 'react-bits-mcp-server'], enabled: true },
-      { id: 'mcp_default_codegraph', name: 'CodeGraph', command: 'codegraph', runtime: 'codegraph', enabled: true }
+      { id: 'mcp_default_fixture', name: 'Fixture MCP', command: 'fixture-mcp', runtime: 'fixture-mcp', enabled: true }
     ]
   };
   const configured = main.__test.getOpenCodeMcpServers(configuredCfg, { workspace: '', workMode: 'normal' });
-  for (const id of ['mcp_1790004857986', 'mcp_default_codegraph']) {
+  for (const id of ['mcp_1790004857986', 'mcp_default_fixture']) {
     const server = configured.find(item => item.id === id);
     assert.equal(server?.deferred, true, `${id} must be deferred (never connected at kernel boot)`);
   }
-  const { buildOpenCodeConfig } = require(path.join(appRoot, 'lib', 'opencode-sidecar.js'));
+  const { buildOpenCodeConfig } = require(path.join(appRoot, 'lib', 'kernel-policy.js'));
   const kernelConfig = buildOpenCodeConfig({ providerId: 'p', modelId: 'm', mcpServers: configured });
   assert.equal(kernelConfig.mcp.mcp_1790004857986.enabled, false);
-  assert.equal(kernelConfig.mcp.mcp_default_codegraph.enabled, false);
+  assert.equal(kernelConfig.mcp.mcp_default_fixture.enabled, false);
   assert.equal(kernelConfig.mcp.yan_mcp.enabled, true);
 });
 
@@ -534,7 +535,7 @@ test('selectedRunSkills leaves MCP-Puller on demand and honors explicit selectio
 });
 
 test('an auto-loaded Skill never turns an ordinary run into a Skill read-only run', () => {
-  const { isSelectedSkillReadOnlyRequest } = require(path.join(appRoot, 'lib', 'opencode-sidecar.js'));
+  const { isSelectedSkillReadOnlyRequest } = require(path.join(appRoot, 'lib', 'kernel-policy.js'));
   const prompt = '读取这个 skill，不要做其他';
   assert.equal(
     isSelectedSkillReadOnlyRequest({ prompt, selectedSkills: [{ id: 'mcp-puller', prompt: 'POLICY', autoLoaded: true }] }),
@@ -547,7 +548,7 @@ test('an auto-loaded Skill never turns an ordinary run into a Skill read-only ru
 });
 
 test('Blank runs may install an MCP server without a workspace', () => {
-  const sidecar = require(path.join(appRoot, 'lib', 'opencode-sidecar.js'));
+  const sidecar = require(path.join(appRoot, 'lib', 'kernel-policy.js'));
   const blankSystem = sidecar.workspaceSystem({ hasUserWorkspace: false });
   assert.match(blankSystem, /yan_mcp_install_mcp_server/);
   assert.match(blankSystem, /never ask the user for a workspace just to install an MCP server/);
@@ -571,7 +572,7 @@ test('Blank runs may install an MCP server without a workspace', () => {
 });
 
 test('deferred MCP is registered disabled so the kernel never connects it at boot', () => {
-  const { buildOpenCodeConfig } = require(path.join(appRoot, 'lib', 'opencode-sidecar.js'));
+  const { buildOpenCodeConfig } = require(path.join(appRoot, 'lib', 'kernel-policy.js'));
   const config = buildOpenCodeConfig({
     providerId: 'yan-provider',
     modelId: 'test-model',

@@ -48,20 +48,36 @@ fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({
     const page = await application.firstWindow();
     await page.setViewportSize({ width: 1600, height: 1000 });
     await page.waitForFunction(() => document.readyState === 'complete' && typeof switchSidebarNav === 'function');
+    // First-run handwriting overlay would otherwise intercept every click.
+    await page.evaluate(() => window.YanStartupHello?.skip?.());
     const servers = await page.evaluate(() => window.yan.mcpList());
     assert.ok(servers.length >= 1);
 
     await page.locator('.app-rail-button[data-nav="plugins"]').click();
     await page.locator('#pluginsMcpTab').click();
     await page.locator('#pageMcp:not(.hidden)').waitFor();
-    await page.waitForFunction(count => document.querySelectorAll('#mcpPageList .mcp-market-card').length === count, servers.length);
+    const systemCount = servers.filter(server => server.builtin || server.systemManaged).length;
+    await page.waitForFunction(count => document.querySelectorAll('#mcpPageList .mcp-market-card').length === count, systemCount);
     assert.equal(await page.locator('#mcpPageList .mgmt-row').count(), 0);
-    assert.equal(await page.locator('#mcpPageList .mcp-market-card').count(), servers.length);
+    assert.equal(await page.locator('#mcpPageList .mcp-market-card').count(), systemCount);
     assert.equal(await page.locator('#mcpFilterMenu, #mcpFilterToggle, #mcpSearchToggle, #mcpMarketSearch').count(), 0);
     assert.equal(await page.locator('#mcpOpenCreateBtn').count(), 1);
     assert.equal(await page.locator('#mcpPageList .mcp-test-btn, #mcpPageList .mcp-switch, #mcpPageList [data-mcp-act="delete"]').count(), 0);
-    assert.equal(await page.locator('#mcpPageList .skill-market-group').count(), 3);
-    assert.equal(await page.locator('#mcpPageList .mcp-open-btn').count(), servers.length);
+    assert.deepEqual(
+      await page.locator('#mcpSourceSwitch [data-mcp-source]').allTextContents(),
+      ['个人', '系统'],
+      'MCP services are filtered by the plugin-style pill switch'
+    );
+    assert.equal(await page.locator('#mcpSourceSwitch [aria-selected="true"]').textContent(), '系统');
+    assert.equal(await page.locator('#mcpPageList .skill-market-group').count(), 0);
+    assert.equal(await page.locator('#mcpPageList > .skill-installed-list').count(), 1);
+    assert.equal(await page.locator('#mcpPageList .mcp-open-btn').count(), systemCount);
+    assert.equal(await page.locator('#mcpPageList [data-id="e2e-local-mcp"]').count(), 0, 'personal service stays out of the system view');
+    await page.locator('#mcpSourceSwitch [data-mcp-source="personal"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#mcpPageList .mcp-market-card').length === 1);
+    assert.equal(await page.locator('#mcpPageList .mcp-market-card').getAttribute('data-id'), 'e2e-local-mcp');
+    await page.locator('#mcpSourceSwitch [data-mcp-source="system"]').click();
+    await page.waitForFunction(count => document.querySelectorAll('#mcpPageList .mcp-market-card').length === count, systemCount);
     assert.equal(await page.locator('#mcpPageList .mcp-card-state').count(), 0, 'no cards show enable/disable status');
 
     await page.locator('#mcpPageList [data-id="yan_analysis"] .skill-card-desc').click();

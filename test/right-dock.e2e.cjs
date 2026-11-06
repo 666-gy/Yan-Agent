@@ -1,9 +1,7 @@
 'use strict';
 
-// Right-dock acceptance: the floating expand/close toggle and the sidebar
-// welcome launcher are gone; a right-center dock replaces them with the panel
-// tools joined in a pill plus a circular close button that only shows
-// while the panel holds an explicit tab.
+// Right-panel launcher acceptance: the launcher now lives in the task bar,
+// immediately right of the "more" button with a short divider between them.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -12,8 +10,8 @@ const { _electron: electron } = require('playwright');
 
 const appRoot = path.resolve(__dirname, '..');
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-right-dock-e2e-'));
-const outputDir = path.join(appRoot, 'output', 'playwright');
-fs.mkdirSync(outputDir, { recursive: true });
+const evidenceDir = path.join(appRoot, '.yanagent', 'evidence');
+fs.mkdirSync(evidenceDir, { recursive: true });
 
 (async () => {
   let application;
@@ -27,66 +25,130 @@ fs.mkdirSync(outputDir, { recursive: true });
     const page = await application.firstWindow();
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
-    await page.waitForFunction(() => typeof syncRightDock === 'function'
-      && typeof openRightSidebarTool === 'function'
-      && document.querySelector('#rightDock')
-      && state.currentSession);
+    await page.waitForFunction(() => window.__YAN_APP_READY__
+      && !!state.currentSession
+      && typeof syncRightDock === 'function'
+      && !!document.querySelector('#rightDockLaunch'));
+    await page.waitForFunction(() => document.querySelector('#yanStartupHello'));
+    await page.evaluate(async () => {
+      const layer = document.querySelector('#yanStartupHello');
+      const enter = layer?.querySelector('.hello-enter');
+      if (enter) { enter.disabled = false; enter.click(); }
+      for (let index = 0; index < 60 && document.querySelector('#yanStartupHello'); index += 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      document.querySelector('#yanStartupHello')?.remove();
+      const app = document.getElementById('app');
+      if (app) app.inert = false;
+    });
 
-    assert.equal(await page.locator('#rightSidebarToggleBtn').count(), 0, 'floating toggle must be deleted');
-    assert.equal(await page.locator('#rightSidebarLauncher').count(), 0, 'launcher panel must be deleted');
-    assert.equal(await page.locator('#rightDock .rs-dock-btn').count(), 3, 'dock must hold the three tools');
-
-    const dockGeometry = await page.evaluate(() => {
-      const column = document.querySelector('.chat-main-column').getBoundingClientRect();
-      const dock = document.querySelector('#rightDock').getBoundingClientRect();
-      const nav = document.querySelector('#turnScaleNav')?.getBoundingClientRect();
+    const geometry = await page.evaluate(async () => {
+      const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      document.querySelector('#pageChat')?.classList.remove('empty');
+      document.querySelector('#chatMainColumn')?.classList.remove('empty');
+      document.querySelector('#app')?.classList.add('rs-hidden');
+      if (!openRightSidebarTabs.length) createRightSidebarTab('review');
+      activeRightSidebarTab = openRightSidebarTabs[0].id;
+      syncRightDock();
+      await settle();
+      const rect = selector => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const r = element.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+      };
+      const launch = document.querySelector('#rightDockLaunch');
       return {
-        columnCenterY: column.top + column.height / 2,
-        dockCenterY: dock.top + dock.height / 2,
-        dockRightGap: column.right - dock.right,
-        dockLeftGap: dock.left - column.left,
-        navLeftGap: nav ? nav.left - column.left : null,
-        closeHidden: document.querySelector('#rightDockClose').classList.contains('hidden')
+        legacyDock: !!document.querySelector('#rightDock'),
+        parentClass: launch?.parentElement?.className || '',
+        more: rect('#taskBarMoreBtn'),
+        divider: rect('#taskBarSidePanelDivider'),
+        launch: rect('#rightDockLaunch'),
+        launchTitle: launch?.title || ''
       };
     });
-    assert.ok(Math.abs(dockGeometry.columnCenterY - dockGeometry.dockCenterY) <= 2,
-      `dock must be vertically centered, got ${JSON.stringify(dockGeometry)}`);
-    assert.ok(dockGeometry.dockRightGap >= 12 && dockGeometry.dockRightGap <= 40,
-      `dock must sit slightly inside the chat column's right edge, got ${JSON.stringify(dockGeometry)}`);
-    assert.equal(dockGeometry.closeHidden, true, 'close button must stay hidden without a tab');
-    assert.equal(await page.locator('#app').evaluate(node => node.classList.contains('rs-hidden')), true);
-    const dockShot = path.join(outputDir, 'right-dock-idle.png');
-    await page.screenshot({ path: dockShot });
 
-    await page.locator('#rightDock [data-rs-dock-tool="interjection"]').click();
-    await page.locator('#rs-interjection.active').waitFor({ timeout: 15_000 });
+    assert.equal(geometry.legacyDock, false, 'the floating right dock must be gone');
+    assert.equal(geometry.parentClass, 'task-bar-side-panel-slot', 'the launcher must live in the task bar slot');
+    assert.ok(geometry.more && geometry.divider && geometry.launch, 'more, divider and launcher must exist');
+    assert.ok(geometry.more.right <= geometry.divider.left, 'the divider follows the more button');
+    assert.ok(geometry.divider.right <= geometry.launch.left, 'the launcher sits right of the divider');
+    assert.equal(geometry.launch.width, 30, 'launcher matches the task-bar icon button');
+    assert.equal(geometry.launch.height, 30);
+    assert.equal(geometry.divider.height, 16, 'divider stays short');
+
+    await page.click('#rightDockLaunch');
     await page.waitForFunction(() => !document.querySelector('#app').classList.contains('rs-hidden'));
-    assert.equal(await page.locator('#rightDockClose').isVisible(), true, 'close button must appear with an open tab');
-    assert.equal(await page.locator('#rightDock [data-rs-dock-tool="interjection"]').getAttribute('aria-pressed'), 'true');
-    const openShot = path.join(outputDir, 'right-dock-panel-open.png');
-    await page.screenshot({ path: openShot });
+    const openState = await page.evaluate(() => {
+      const launch = document.querySelector('#rightDockLaunch');
+      const focus = document.querySelector('#rightSidebarFocusBtn');
+      return {
+        parentIsTabbar: launch.parentElement === focus.parentElement && launch.parentElement.classList.contains('rs-tabbar'),
+        previousIsFocus: launch.previousElementSibling === focus,
+        title: launch.title,
+        expanded: launch.getAttribute('aria-expanded'),
+        iconPaths: [...launch.querySelectorAll('path')].map(path => path.getAttribute('d')),
+        taskSlotHidden: document.querySelector('#taskBarSidePanelSlot').classList.contains('hidden'),
+        dividerHidden: document.querySelector('#taskBarSidePanelDivider').classList.contains('hidden')
+      };
+    });
+    assert.equal(openState.parentIsTabbar, true, 'open panel button joins the tab bar');
+    assert.equal(openState.previousIsFocus, true, 'panel button sits right of the fullscreen button');
+    assert.equal(openState.title, '隐藏侧边面板');
+    assert.equal(openState.expanded, 'true');
+    assert.deepEqual(openState.iconPaths, ['M12 3v18'], 'open state uses the columns-2 divider path');
+    assert.equal(openState.taskSlotHidden, true, 'task-bar slot collapses while the button is in the tab bar');
+    assert.equal(openState.dividerHidden, true, 'task-bar divider hides with the moved button');
+    await page.locator('#rightSidebarTabbar').screenshot({ path: path.join(evidenceDir, 'right-panel-open-button.png') });
 
-    await page.locator('#rightDockClose').click();
+    // Fullscreen: first click leaves fullscreen, the next click hides the panel.
+    await page.click('#rightSidebarFocusBtn');
+    await page.waitForFunction(() => document.querySelector('#app').classList.contains('browser-focus-mode'));
+    assert.equal(await page.locator('#rightDockLaunch').getAttribute('title'), '退出全屏');
+    await page.click('#rightDockLaunch');
+    await page.waitForFunction(() => !document.querySelector('#app').classList.contains('browser-focus-mode'));
+    assert.equal(await page.locator('#app').evaluate(node => node.classList.contains('rs-hidden')), false,
+      'leaving fullscreen keeps the panel open');
+    await page.click('#rightDockLaunch');
     await page.waitForFunction(() => document.querySelector('#app').classList.contains('rs-hidden'));
-    assert.equal(await page.locator('#rightDockClose').isVisible(), false);
-    assert.equal(await page.locator('#rightDock [data-rs-dock-tool="interjection"]').getAttribute('aria-pressed'), 'false');
+    assert.match(await page.locator('#rightDockLaunch').getAttribute('title'), /^打开侧边面板/);
+    const closedState = await page.evaluate(() => ({
+      inTaskSlot: document.querySelector('#rightDockLaunch').parentElement.id === 'taskBarSidePanelSlot',
+      dividerHidden: document.querySelector('#taskBarSidePanelDivider').classList.contains('hidden')
+    }));
+    assert.equal(closedState.inTaskSlot, true, 'closing the panel returns the button to the task bar');
+    assert.equal(closedState.dividerHidden, false, 'the task-bar divider returns with the button');
 
-    await page.locator('#rightDock [data-rs-dock-tool="review"]').click();
-    await page.locator('#rs-review.active').waitFor();
-    await page.locator('#rightDock [data-rs-dock-tool="review"]').click();
-    await page.waitForFunction(() => document.querySelector('#app').classList.contains('rs-hidden'));
+    const countState = await page.evaluate(async () => {
+      const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      openRightSidebarTabs.splice(0, openRightSidebarTabs.length);
+      createRightSidebarTab('files');
+      const agent = createRightSidebarTab('browser', { agentRunId: 'run-1', agentOwned: true });
+      const agentController = getBrowserTabController(agent.id);
+      if (agentController) agentController.currentUrl = 'https://example.com/agent';
+      const web = createRightSidebarTab('browser');
+      const webController = getBrowserTabController(web.id);
+      if (webController) webController.currentUrl = 'https://www.bing.com';
+      const blank = createRightSidebarTab('browser');
+      document.querySelector('#app').classList.add('rs-hidden');
+      renderRightSidebarTabs();
+      syncRightDock();
+      await settle();
+      const launch = document.querySelector('#rightDockLaunch');
+      return {
+        text: launch.querySelector('text')?.textContent || '',
+        title: launch.title,
+        tabs: openRightSidebarTabs.length,
+        blankHasUrl: !!getBrowserTabController(blank.id)?.currentUrl
+      };
+    });
+    assert.equal(countState.text, '2', 'files + loaded page count; agent and blank tabs do not');
+    assert.equal(countState.title, '打开侧边面板（2 个标签页）');
+    assert.equal(countState.blankHasUrl, false);
 
-    await page.locator('#rightDock [data-rs-dock-tool="interjection"]').click();
-    await page.locator('#rs-interjection.active').waitFor();
-    while (await page.locator('.rs-tab-unit').count()) {
-      await page.locator('.rs-tab-unit .rs-work-tab-close').first().click();
-    }
-    await page.waitForFunction(() => document.querySelector('#app').classList.contains('rs-hidden'));
-    assert.equal(await page.locator('.rs-tab-unit').count(), 0, 'closing the last tab must leave no open tabs');
-    assert.equal(await page.locator('#rightDockClose').isVisible(), false);
-
+    await page.locator('#taskBar').screenshot({ path: path.join(evidenceDir, 'right-dock-launcher.png') });
     assert.deepEqual(pageErrors, []);
-    console.log(JSON.stringify({ ok: true, dockGeometry, dockShot, openShot }));
+    console.log(JSON.stringify({ ok: true, geometry, countState }));
   } finally {
     await application?.close().catch(() => {});
     fs.rmSync(userDataDir, { recursive: true, force: true });

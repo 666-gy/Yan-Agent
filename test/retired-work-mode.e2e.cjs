@@ -27,7 +27,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-retired-mode-'));
     });
     assert.equal(result.savedMode, 'normal');
     assert.equal(result.uiMode, 'normal');
-    assert.ok(result.modes.includes('goal') && result.modes.includes('plan'));
+    assert.ok(!result.modes.includes('goal') && result.modes.includes('plan'));
     assert.ok(result.created);
     assert.match(result.message, /普通聊天仍然可用/);
     assert.deepEqual(result.runs, []);

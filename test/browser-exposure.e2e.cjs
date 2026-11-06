@@ -50,7 +50,13 @@ assert.equal(after.ok,true,JSON.stringify(after));
 assert.notEqual(after.image.data,capture.image.data,'Screenshot must reflect the latest click');
 assert.equal(await page.locator('.browser-background-render').count(),0);
 assert.equal(await page.evaluate(()=>document.getElementById('app').classList.contains('rs-hidden')),true);
-const resumed=await page.evaluate(async()=>{releaseBrowserAgentControl('exposure-test');const result=await executeBrowserAgentCommand({action:'status',params:{yan_run_id:'exposure-resumed'}});return {result,hidden:document.getElementById('app').classList.contains('rs-hidden')};});assert.equal(resumed.hidden,true);
+const resumed=await page.evaluate(async tabId=>{
+ await executeBrowserAgentCommand({action:'release',params:{yan_run_id:'exposure-test'}});
+ const unbound=await executeBrowserAgentCommand({action:'status',params:{yan_run_id:'exposure-resumed'}});
+ const result=await executeBrowserAgentCommand({action:'open',params:{yan_run_id:'exposure-resumed',tab_id:tabId}});
+ return {unbound,result,hidden:document.getElementById('app').classList.contains('rs-hidden')};
+},result.opened.tabId);
+assert.equal(resumed.unbound.code,'BROWSER_NOT_OPEN');assert.equal(resumed.result.ok,true);assert.equal(resumed.result.tabId,result.opened.tabId);assert.equal(resumed.hidden,true);
 await page.evaluate(url=>openBrowserUrlInNewTab(url),`${url}?user-tab`);
 const selectedPanel=await page.locator('.rs-panel.active').getAttribute('id');
 const inactiveCapture=await page.evaluate(()=>executeBrowserAgentCommand({action:'screenshot',params:{yan_run_id:'exposure-resumed'}}));

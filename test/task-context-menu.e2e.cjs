@@ -17,6 +17,8 @@ fs.mkdirSync(workspace);
     const page = await app.firstWindow();
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(() => window.__YAN_APP_READY__ && !!state.currentSession);
+    await page.evaluate(() => window.YanStartupHello?.skip());
+    await page.locator('#yanStartupHello').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
     const ids = await page.evaluate(async workspace => {
       const blank = state.currentSession.id;
       const session = await api.createSession(true, workspace);
@@ -40,8 +42,25 @@ fs.mkdirSync(workspace);
       throw new Error('Copy did not finish');
     }
     await open();
-    assert.deepEqual(await menu.locator('button span').allTextContents(), ['重命名', '置顶', '标记为未读', '归档', '永久删除', '复制', '导出 JSON', '打开方式']);
-    await button('重命名').click();
+    assert.deepEqual(await menu.locator('button span').allTextContents(), ['重命名', '置顶', '标记为未读', '复制', '导出 JSON', '打开方式', '归档', '永久删除']);
+    assert.deepEqual(await menu.evaluate(node => [...node.children].map(child =>
+      child.classList.contains('task-context-separator') ? '---' : child.querySelector('span')?.textContent)),
+    ['重命名', '置顶', '标记为未读', '---', '复制', '导出 JSON', '---', '打开方式', '---', '归档', '永久删除']);
+    const squareHover = nodes => [...new Set(nodes.map(node => getComputedStyle(node).borderRadius))];
+    // The hover fill spans the whole menu width; only the 1px menu border remains.
+    const edgeGaps = node => {
+      const m = node.getBoundingClientRect(), r = node.querySelector('.sidebar-context-menu-item').getBoundingClientRect();
+      return { left: Math.round(r.left - m.left), right: Math.round(m.right - r.right) };
+    };
+    assert.deepEqual(await menu.locator('.sidebar-context-menu-item').evaluateAll(squareHover), ['0px']);
+    assert.deepEqual(await menu.evaluate(edgeGaps), { left: 1, right: 1 });
+    await button('复制').hover();
+    const submenu = page.locator('.task-context-menu').last();
+    assert.equal(await submenu.locator('.sidebar-context-menu-item').count(), 3);
+    assert.deepEqual(await submenu.locator('.sidebar-context-menu-item').evaluateAll(squareHover), ['0px']);
+    assert.deepEqual(await submenu.evaluate(edgeGaps), { left: 1, right: 1 });
+    await page.keyboard.press('Escape');
+    await open(); await button('重命名').click();
     await page.locator('#renameTaskInput').fill('改名后的任务');
     await page.locator('#renameTaskConfirm').click();
     await page.waitForFunction(id => state.sessions.find(s => s.id === id)?.title === '改名后的任务', ids.target);
@@ -101,13 +120,25 @@ fs.mkdirSync(workspace);
     }
     await page.locator(`.session-item[data-id="${ids.target}"]`).first().click();
     await page.waitForFunction(id => state.currentSession.id === id, ids.target);
+    await page.waitForFunction(id => !document.querySelector(`.session-item[data-id="${id}"].is-unread`), ids.target);
     assert.equal(await page.locator(`.session-item[data-id="${ids.target}"].is-unread`).count(), 0);
+    // The project "…" menu uses the same rectangular hover fill.
+    await page.locator('.workspace-more-btn').first().click();
+    const workspaceMenu = page.locator('.workspace-context-menu');
+    assert.equal(await workspaceMenu.evaluate(node => node.classList.contains('rect-hover-menu')), true);
+    assert.deepEqual(await workspaceMenu.locator('.sidebar-context-menu-item').evaluateAll(squareHover), ['0px']);
+    assert.deepEqual(await workspaceMenu.evaluate(edgeGaps), { left: 1, right: 1 });
+    await workspaceMenu.getByRole('menuitem').first().hover();
+    await page.screenshot({ path: path.join(root, 'output', 'playwright', 'task-workspace-menu-dark.png') });
+    await page.locator('#composerInput').click();
     // The taskbar reuses the same actions with the compact Codex-style menu.
     const toolbar = page.locator('#taskBarMoreBtn');
     await toolbar.click();
     assert.deepEqual(await page.locator('#taskActionsMenu button span').allTextContents(), ['重命名任务', '取消置顶任务', '复制', '新建侧边会话', '打开方式', '导出 JSON', '归档本任务']);
     assert.equal(await page.locator('#taskActionsMenu kbd, #taskActionsMenu [aria-keyshortcuts]').count(), 0);
     assert.equal(await page.locator('#taskActionsMenu').evaluate(node => parseFloat(getComputedStyle(node).width)), 176);
+    assert.deepEqual(await page.locator('#taskActionsMenu .sidebar-context-menu-item').evaluateAll(squareHover), ['0px']);
+    assert.deepEqual(await page.locator('#taskActionsMenu').evaluate(edgeGaps), { left: 1, right: 1 });
     await button('取消置顶任务').click();
     await page.waitForFunction(id => !state.sessions.find(s => s.id === id)?.pinned, ids.target);
     await page.keyboard.press('Control+Alt+KeyP');

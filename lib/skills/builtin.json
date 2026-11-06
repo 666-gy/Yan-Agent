@@ -2,25 +2,6 @@
   "version": 2,
   "skills": [
     {
-      "id": "yan-uiverse",
-      "name": "Uiverse Web UI",
-      "desc": "调用 Yan Agent 预装的 Uiverse HTML/CSS 片段，为网页加入可直接落地的按钮、卡片、导航与页面区块",
-      "prompt": "请使用 Yan Agent 预装的 Uiverse 模式完成网页任务。先调用 list_ui_kit(kit=uiverse) 查看可用模式，再用 read_ui_kit 读取所需片段，按现有页面结构与视觉规范整合进 HTML/CSS 并验证。不要从网站重复下载片段。任务：\n\n{{cursor}}",
-      "tags": [
-        "web-design"
-      ],
-      "triggers": [
-        "Uiverse",
-        "Universe UI",
-        "静态网页",
-        "HTML 页面",
-        "网页组件"
-      ],
-      "tier": "builtin",
-      "version": 2,
-      "updatedAt": 1785945600000
-    },
-    {
       "id": "market-anysearch",
       "name": "AnySearch Search Engine",
       "desc": "通过统一搜索运行时完成实时检索、并行搜索与 URL 内容提取，为 Agent 提供可核验的外部信息",
@@ -39,6 +20,22 @@
       "tier": "builtin",
       "version": 2,
       "updatedAt": 1785945600000
+    },
+    {
+      "id": "plugin-creator",
+      "name": "Plugin Creator",
+      "desc": "创建原生 Yan 插件包，校验技能、资源和可选 MCP 工具；不安装。",
+      "prompt": "# Yan Plugin Creator\r\n\r\nCreate native Yan plugin packages when the user asks to create a plugin. Do not create a custom Agent or merely install a third-party plugin.\r\n\r\n## Workflow\r\n\r\nClarify only missing requirements. Choose skills/resources for reusable workflows, scripts for helpers, and an MCP server only when actual callable tools are needed. Use current file tools to author a dedicated subdirectory of the task workspace. Never edit YanData/plugins or the application catalog.\r\n\r\nThe package root must contain yan-plugin.json. Only Yan schemaVersion 1 is supported. Codex/Claude manifests are not proof of compatibility: do not silently convert or claim their hooks, UI extensions, or Agent definitions work in Yan.\r\n\r\nMinimal package:\r\n\r\n```json\r\n{\r\n  \"schemaVersion\": 1,\r\n  \"id\": \"my-plugin\",\r\n  \"version\": \"1.0.0\",\r\n  \"name\": \"My Plugin\",\r\n  \"description\": \"Describe the capability and when to use it\",\r\n  \"instructions\": \"instructions.md\",\r\n  \"skills\": [{\"id\":\"example\",\"name\":\"Example\",\"description\":\"Use this workflow for ...\",\"path\":\"skills/example/SKILL.md\"}]\r\n}\r\n```\r\n\r\nWrite the referenced instructions.md and SKILL.md with the actual requested workflow. Skill documents include YAML name and description. Optional manifest fields: author, license, resources ([{id,name,path}]), configuration ({key:{label,description?,required?,default?}}), environment ([{name,description,required}]), platforms ([win32,darwin,linux]), requiredCommands (program names), mcpServers. Do not invent extra manifest fields; unknown fields fail validation. IDs start with a lowercase letter and contain lowercase letters, digits or hyphens, maximum 48 characters. Versions use major.minor.patch.\r\n\r\nAll resource paths are package-relative using forward slashes. No symlinks, absolute paths, directory traversal, install hooks or automatic dependency installation. Limit packages to 4000 files and 64 MB. node_modules, .git and __pycache__ are excluded from the package; do not rely on them being shipped.\r\n\r\n## Callable tools (optional)\r\n\r\nLocal MCP declaration: {\"id\":\"service\",\"type\":\"local\",\"command\":\"$node\",\"args\":[\"${pluginRoot}/server.cjs\"]}. Remote MCP declaration: {\"id\":\"service\",\"type\":\"remote\",\"url\":\"https://example.com/mcp\"}. Implement the real MCP tools/list and tools/call protocol, not just a script returning JSON. Local servers must be runnable without excluded node_modules (bundle dependencies when necessary). Use $node for Yan's Node runtime. Local processes do not run through a shell; do not use cmd/bat/ps1 entrypoints.\r\n\r\nSupported placeholders in args/env/url/headers: ${pluginRoot}, ${workspace}, ${config.KEY}, ${env.KEY}. Declare config/environment keys in the manifest. Never embed credentials. configuration is plain text, environment refers to runtime variables. Package directories are immutable after installation; runtime output belongs in the workspace.\r\n\r\n## Deliver\r\n\r\nCall yan_skills_create_plugin with source_directory and the current task_id. It validates and copies the authored directory into a separate .yan-plugin directory in the task workspace. A failed call is not a completed package: fix the reported issue and retry. On success link the exact returned path and state whether execution was actually verified.\r\n\r\nCreation does not automatically install, register or enable plugins. Installation is available only through the validated Yan Plugin installer. Do not route around validation using scripts, marketplace sources or registry edits. A compatible manifest is not evidence that external dependencies, accounts or tools work. Report declared requirements separately from runtime verification.",
+      "tags": [
+        "agent-rules"
+      ],
+      "triggers": [
+        "创建插件",
+        "新插件",
+        "Create a new plugin"
+      ],
+      "tier": "builtin",
+      "version": 1
     }
   ]
 }

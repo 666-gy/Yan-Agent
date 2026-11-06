@@ -24,7 +24,7 @@ test('Agent dispatch takes Git preferences from saved config, not a stale render
 test('all Git instructions reach generation/monitoring and auto-merge changes the real dispatched workflow', async t => {
   const { createRunContext } = require('./helpers/run-context.cjs');
   const { startRun } = require('../lib/run-orchestrator');
-  const { combineSystem } = require('../lib/opencode-sidecar');
+  const { combineSystem } = require('../lib/kernel-policy');
   for (const autoMerge of [false, true]) {
     const fixture = createRunContext(t);
     fixture.config.memory = { enabled: false };
@@ -43,12 +43,24 @@ test('all Git instructions reach generation/monitoring and auto-merge changes th
   assert.throws(() => preferences.expandGitWorkflowPrompt('/monitor-pr 0', {}));
 });
 
+test('oversized Git instruction fields are capped before they reach the durable policy', () => {
+  const long = 'x'.repeat(900000);
+  const prefs = preferences.normalizeGitPreferences({
+    monitorInstructions: long, commitInstructions: long, prInstructions: long, reviewInstructions: long
+  });
+  for (const key of ['reviewInstructions', 'monitorInstructions', 'commitInstructions', 'prInstructions']) {
+    assert.equal(prefs[key].length, preferences.MAX_INSTRUCTION_CHARS, key);
+  }
+  const system = require('../lib/kernel-policy').combineSystem({ gitPreferences: prefs });
+  assert.ok(Buffer.byteLength(JSON.stringify(system), 'utf8') < 256 * 1024, 'capped fields must fit one instruction entry');
+});
+
 test('prefix validation and Agent system preferences', () => {
   assert.equal(preferences.prefixedBranch('feature', {}), 'yan/feature');
   assert.equal(preferences.prefixedBranch('yan/feature', {}), 'yan/feature');
   assert.equal(preferences.prefixedBranch('feature', { branchPrefix: '' }), 'feature');
   for (const prefix of ['../', '-x', 'a//', 'a.lock/', 'a b/', 'a@{b/']) assert.throws(() => preferences.validateBranchPrefix({ branchPrefix: prefix }));
-  const { combineSystem } = require('../lib/opencode-sidecar');
+  const { combineSystem } = require('../lib/kernel-policy');
   const system = combineSystem({ gitPreferences: { branchPrefix: 'team/', forceWithLease: true, mergeMethod: 'squash', draftPr: true } });
   for (const part of ['team/', '--force-with-lease', 'gh pr merge --squash', 'gh pr create --draft']) assert.ok(system.includes(part), part);
 });

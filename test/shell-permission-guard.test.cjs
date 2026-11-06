@@ -4,7 +4,7 @@
 //
 // The gate exists because the renderer is not the only caller that can reach a
 // shell: Full Access configures the kernel to stop asking for `bash`
-// (lib/opencode-sidecar.js permissionForRun), so the renderer's classification
+// (lib/kernel-policy.js permissionForRun), so the renderer's classification
 // is never consulted on that path. The gate is therefore the execution-layer
 // backstop, and it must obey the mode the user chose instead of being stricter
 // than the kernel itself:

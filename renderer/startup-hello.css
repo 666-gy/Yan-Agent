@@ -1,0 +1,30 @@
+#yanStartupHello {
+  position: fixed; inset: 0; z-index: 2147483000;
+  display: grid; place-items: center; background: #000;
+  opacity: 1; transition: opacity 520ms ease;
+}
+#yanStartupHello.leaving { opacity: 0; pointer-events: none; }
+#yanStartupHello .hello-content { position: relative; display: grid; place-items: center; }
+#yanStartupHello svg { width: min(76vw, 760px, 145vh); min-width: 230px; overflow: visible; }
+#yanStartupHello path { fill: none; stroke: url(#yanHelloSpectrum); stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
+#yanStartupHello .hello-action { position: fixed; bottom: max(48px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); opacity: 0; visibility: hidden; transition: opacity 700ms ease, visibility 700ms; }
+#yanStartupHello .hello-action.ready { opacity: 1; visibility: visible; }
+#yanStartupHello .hello-enter { display: flex; justify-content: center; align-items: center; gap: 3px; width: 76px; height: 48px; padding: 0 24px; border: 1px solid #3c3c3c; border-radius: 999px; background: #191919; color: #efefef; font: 14px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif; white-space: nowrap; cursor: pointer; transition: width 180ms ease, background 200ms, border-color 200ms; -webkit-app-region: no-drag; }
+#yanStartupHello .hello-enter:hover { background: #292929; border-color: #666; }
+#yanStartupHello .hello-enter:focus-visible { outline: 2px solid #aaa; outline-offset: 5px; }
+#yanStartupHello .hello-caret { flex: 0 0 1px; height: 15px; background: #ddd; animation: hello-caret-blink 1s step-end infinite; }
+@keyframes hello-caret-blink { 50% { opacity: 0; } }
+#yanStartupHello .hello-drag { position: absolute; inset: 0 0 auto; height: 32px; -webkit-app-region: drag; }
+#yanStartupHello .hello-window-controls { position: absolute; top: 0; right: 0; display: flex; z-index: 1; -webkit-app-region: no-drag; }
+#yanStartupHello .hello-window-controls button { display: grid; place-items: center; width: 46px; height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #bcbcbc; -webkit-app-region: no-drag; }
+#yanStartupHello .hello-window-controls button:hover { background: #252525; color: #fff; }
+#yanStartupHello .hello-window-controls button[data-window="close"]:hover { background: #c42b1c; color: #fff; }
+#yanStartupHello .hello-window-controls button:focus-visible { outline: 1px solid #ddd; outline-offset: -3px; }
+#yanStartupHello .hello-window-controls span { position: relative; display: block; width: 10px; height: 10px; box-sizing: border-box; }
+#yanStartupHello .hello-min-icon::before { content: ''; position: absolute; left: 0; right: 0; top: 5px; border-top: 1px solid currentColor; }
+#yanStartupHello .hello-max-icon { border: 1px solid currentColor; }
+#yanStartupHello .is-maximized .hello-max-icon { width: 8px; height: 8px; margin: 2px 2px 0 0; }
+#yanStartupHello .is-maximized .hello-max-icon::after { content: ''; position: absolute; width: 7px; height: 7px; left: 1px; top: -3px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; }
+#yanStartupHello .hello-close-icon::before, #yanStartupHello .hello-close-icon::after { content: ''; position: absolute; left: 4px; top: -1px; height: 12px; border-left: 1px solid currentColor; transform: rotate(45deg); }
+#yanStartupHello .hello-close-icon::after { transform: rotate(-45deg); }
+@media (prefers-reduced-motion: reduce) { #yanStartupHello, #yanStartupHello .hello-action, #yanStartupHello .hello-enter { transition: none; } #yanStartupHello .hello-caret { animation: none; } }

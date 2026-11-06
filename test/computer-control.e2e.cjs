@@ -29,6 +29,14 @@ const output = path.join(root, 'output/playwright/computer-control');
     const item = store.record(require('electron'), 'Electron'); store.writeExperience(item.id, '# 操作经验\n\n## 经验教训\n操作后读取最新状态。\n\n## 复盘\n验证窗口中的结果。');
     await page.locator('#settings-tab-general').click(); await page.locator('#settings-tab-computer-control').click();
     await page.locator('[data-computer-action="experience"]').waitFor();
+    const downloadPath = path.join(profile, 'experience.md');
+    await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, downloadPath);
+    await page.locator('[data-computer-action="download"]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-computer-action="download"]').disabled);
+    assert.equal(fs.readFileSync(downloadPath, 'utf8'), store.experience(item.id).markdown.trim() + '\n');
+    await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => ({ canceled: true }); });
+    await page.locator('[data-computer-action="download"]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-computer-action="download"]').disabled);
     assert.match(await page.locator('.computer-brand').getAttribute('src'), /skill-logos\/computer-use\.png$/);
     const buttons = await page.locator('#tab-computer-control .icon-btn').evaluateAll(items => items.map(item => {
       const style = getComputedStyle(item); return { border: style.borderTopWidth, radius: style.borderRadius, width: style.width, height: style.height };

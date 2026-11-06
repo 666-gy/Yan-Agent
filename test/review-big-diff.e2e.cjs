@@ -81,7 +81,10 @@ function seedHeavyWorkspace() {
           perFileRows: files.map(file => file.querySelectorAll('.dsh-cr-row').length),
           collapsed: files.map(file => file.classList.contains('yan-file-collapsed')),
           states: files.map(file => file.getAttribute('data-yan-state') || ''),
-          stats: doc.querySelector('.stats')?.textContent || '',
+          stats: {
+            files: files.length,
+            added: files.reduce((sum, file) => sum + Number(file.querySelector('.file-add')?.textContent.replace('+', '') || 0), 0)
+          },
           navPaths: [...doc.querySelectorAll('.navitem')].map(link => link.textContent.trim())
         };
       };
@@ -148,8 +151,8 @@ function seedHeavyWorkspace() {
     assert.equal(result.initial.totalRows, 0, 'no diff row may render before a file is opened');
     assert.deepEqual(result.initial.states, ['pending', 'pending', 'pending']);
     assert.ok(result.initial.collapsed.every(Boolean), 'every file starts collapsed');
-    assert.match(result.initial.stats, /3个文件/);
-    assert.match(result.initial.stats, /\+48\d{3}/, `stats must carry manifest totals, got ${result.initial.stats}`);
+    assert.equal(result.initial.stats.files, 3);
+    assert.ok(result.initial.stats.added >= 48000, `file headers must carry manifest totals, got ${JSON.stringify(result.initial.stats)}`);
     assert.ok(result.openMs < 10_000, `review open took ${Math.round(result.openMs)}ms`);
 
     assert.equal(result.loaded, true, 'clicking a file did not load its rows');

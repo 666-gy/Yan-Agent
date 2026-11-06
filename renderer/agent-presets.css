@@ -1,0 +1,48 @@
+.agent-preset-picker { position: relative; margin-left: auto; flex: 0 0 auto; }
+#agentPresetButton, #agentPresetLabel, .agent-preset-name { font-family: "Microsoft YaHei", "微软雅黑", sans-serif !important; }
+/* Read-only Agent mode shown in the capsule panel. */
+.task-agent-preset-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  max-width: 168px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--r-pill);
+  color: var(--text-dim);
+  font: 400 calc(var(--ui-scale, 14px) * 0.857143)/1 var(--font-sans);
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+}
+.task-agent-preset-pill .agent-preset-icon svg { width: 14px; height: 14px; stroke-width: 1.7; }
+.task-agent-preset-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 560px) {
+  .task-agent-preset-pill { max-width: 104px; padding-inline: 4px; }
+}
+.agent-preset-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }
+.agent-preset-icon svg { width: 15px; height: 15px; stroke-width: 1.6; }
+.agent-preset-menu {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 95;
+  width: min(284px, calc(100vw - 64px)); padding: 0;
+  border: 1px solid var(--border-soft); border-radius: 12px;
+  background: var(--bg-elev); box-shadow: var(--shadow); overflow: hidden;
+}
+.agent-preset-menu > button {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px 10px;
+  border: 0; border-radius: 0; background: transparent; color: var(--text);
+  text-align: left; font: inherit; cursor: pointer;
+}
+.agent-preset-menu > button + button { border-top: 1px solid var(--border-soft); }
+.agent-preset-menu > button:hover, .agent-preset-menu > button:focus-visible { background: var(--bg-hover); }
+.agent-preset-menu > button:focus-visible { outline: 1px solid var(--color-focus); outline-offset: -1px; }
+.agent-preset-menu > button > .agent-preset-icon { margin-top: 1px; }
+.agent-preset-copy { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.agent-preset-name { font-size: 12.5px; line-height: 18px; font-weight: 500; }
+.agent-preset-description { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+.agent-preset-check { visibility: hidden; line-height: 18px; font-size: 12px; }
+[aria-checked="true"] > .agent-preset-check { visibility: visible; }
+@media (max-width: 640px) {
+  .new-task-workspace { gap: 4px !important; }
+  .new-task-workspace .new-task-branch-btn { max-width: 120px; padding-inline: 6px; }
+}

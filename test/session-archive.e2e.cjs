@@ -10,7 +10,7 @@ async function launch() {
  const env={...process.env,YAN_E2E_USER_DATA_DIR:profile,YAN_DISABLE_SINGLE_INSTANCE:'1'};delete env.YAN_E2E_MODE;
  app=await _electron.launch({executablePath:require('electron'),args:[process.cwd()],env});
  let page;for(let i=0;i<100;i++){page=app.windows().find(p=>p.url().includes('/renderer/index.html'));if(page)break;await new Promise(r=>setTimeout(r,200));}
- assert.ok(page);await page.waitForFunction(()=>window.__YAN_APP_READY__);return page;
+ assert.ok(page);await page.waitForFunction(()=>window.__YAN_APP_READY__);await page.evaluate(()=>window.YanStartupHello?.skip());await page.locator('#yanStartupHello').waitFor({state:'detached'});return page;
 }
 (async()=>{try{
  let page=await launch();

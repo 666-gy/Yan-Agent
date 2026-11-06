@@ -14,10 +14,9 @@
   };
   panel.innerHTML = `
     <div class="storage-device-heading"><h2>此设备</h2><p>管理存储在此电脑上的聊天和工作树。</p></div>
-    <div class="storage-summary"><strong id="storageTotal">正在检测存储空间…</strong><button id="storageRefresh" class="storage-button" type="button">刷新</button></div>
-    <div id="storageBar" class="storage-bar" role="img" aria-label="正在检测存储空间"></div>
+    <div class="storage-summary"><strong id="storageTotal">正在检测存储空间…</strong><div class="storage-summary-actions"><button id="storageOpenDir" class="storage-icon-button" type="button" title="在资源管理器中打开存储目录" aria-label="在资源管理器中打开存储目录"><img src="assets/windows-explorer.png" alt="" aria-hidden="true"></button><button id="storageRefresh" class="storage-button" type="button">刷新</button></div></div>
+    <div id="storageBar" class="storage-bar" role="img" aria-label="正在检测存储空间" title="按文件大小统计，包含已登记的工作树。内核数据库及缓存计入其他。"></div>
     <div class="storage-legend">${categories.map(([key, label, color]) => `<div><span class="storage-category"><i style="background:${color}" aria-hidden="true"></i>${label}</span><span id="storageSize-${key}" class="storage-size">—</span></div>`).join('')}</div>
-    <div class="storage-location" title="按文件大小统计，包含已登记的工作树。内核数据库及缓存计入其他。"><span id="storagePath"></span></div>
     <div class="storage-actions">
       <div class="storage-card"><div class="storage-action-row"><div><h3>清理旧聊天</h3><p>永久删除前，检查聊天及其子智能体。</p></div><button id="storageCleanup" class="storage-button" type="button">查看</button></div></div>
       <div class="storage-card">
@@ -56,8 +55,6 @@
             bar.append(segment);
           }
         }
-        panel.querySelector('#storagePath').textContent = result.dataDir;
-        panel.querySelector('#storagePath').title = [result.dataDir, ...result.worktreeRoots].join('\n');
         if (result.partial) toast(`部分文件未能读取或分类（${result.warningCount} 项），统计可能不完整。可刷新重试。`, { error: true });
         else if (announce) toast('存储空间已刷新');
       } catch (error) {
@@ -72,6 +69,12 @@
     try { await pending; } finally { pending = null; }
   }
   refreshButton.addEventListener('click', () => void refresh({ announce: true }));
+  panel.querySelector('#storageOpenDir').addEventListener('click', async () => {
+    try {
+      const result = await api.storageOpenDir();
+      if (!result?.ok) toast(result?.error || '无法打开存储目录', { error: true });
+    } catch (error) { toast(error.message || String(error), { error: true }); }
+  });
   panel.querySelector('#storageCleanup').addEventListener('click', () => window.YanStorageCleanup?.open());
   panel.querySelector('#storageWorktrees').addEventListener('click', () => switchTab('worktrees'));
   panel.querySelector('#storageArchives').addEventListener('click', () => switchTab('archived'));

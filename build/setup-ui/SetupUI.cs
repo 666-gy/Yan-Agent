@@ -14,8 +14,8 @@ using System.Windows.Threading;
 
 [assembly: AssemblyTitle("Yan Agent 安装")]
 [assembly: AssemblyProduct("Yan Agent")]
-[assembly: AssemblyVersion("1.7.0.0")]
-[assembly: AssemblyFileVersion("1.7.0.1")]
+[assembly: AssemblyVersion("1.8.0.0")]
+[assembly: AssemblyFileVersion("1.8.0.0")]
 
 internal sealed class SetupUI {
   [DllImport("kernel32", CharSet = CharSet.Unicode)] static extern uint GetPrivateProfileString(string section, string key, string fallback, StringBuilder value, uint size, string file);
@@ -49,7 +49,7 @@ internal sealed class SetupUI {
     using (var stream = assembly.GetManifestResourceStream("logo.png")) { logo.BeginInit(); logo.CacheOption = BitmapCacheOption.OnLoad; logo.StreamSource = stream; logo.EndInit(); logo.Freeze(); }
     Find<Image>("Logo").Source = logo;
     window.Icon = logo;
-    Find<TextBlock>("Version").Text = "v" + Read("Version", "1.7.0-beta.1-rc").Replace("-beta.", " Beta").Replace("-rc", "-RC");
+    Find<TextBlock>("Version").Text = "v1.8.0 Beta3-RC1";
     Find<TextBox>("InstallDirectory").Text = Read("InstallDir", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Yan Agent"));
     Find<CheckBox>("AddToPath").IsChecked = Read("AddToPath", "1") == "1";
     Find<Grid>("TitleArea").MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { if (e.OriginalSource is Button) return; try { window.DragMove(); } catch (InvalidOperationException) {} };

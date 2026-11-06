@@ -1,0 +1,11 @@
+{
+  "id": "media-use",
+  "name": "Media Use",
+  "desc": "查找、生成、处理并复用图片、配音、音乐、音效与媒体素材。",
+  "tags": [
+    "office-assist"
+  ],
+  "source": "bundled",
+  "version": 1,
+  "promptFile": "../media-use/SKILL.md"
+}

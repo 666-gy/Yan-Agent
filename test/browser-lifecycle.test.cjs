@@ -32,8 +32,15 @@ test('sleep protects edits, media, downloads, Agent and attached debuggers; resu
   await service.sleep(state); assert.equal(attached, false); item.emit('done');
   await service.sleep(state); assert.equal(state.frozen, true);
   await activity({ active: true }); assert.equal(attached, false); assert.deepEqual(commands, ['frozen','active']);
-  const capture = () => handlers.get('browser:capture-page')(event, 1);
+  const capture = (options) => handlers.get('browser:capture-page')(event, 1, options);
   let finishCapture;
+  const frameImage = (width, height) => ({
+    isEmpty: () => false,
+    getSize: () => ({ width, height }),
+    resize: ({ width: w, height: h }) => frameImage(w, h),
+    toPNG: () => Buffer.from(`png-${width}x${height}`),
+    toDataURL: () => 'data:image/png;base64,test'
+  });
   contents.capturePage = async (_rect, options) => {
     assert.deepEqual(options, { stayHidden: true, stayAwake: true });
     return new Promise(resolve => { finishCapture = resolve; });
@@ -41,9 +48,25 @@ test('sleep protects edits, media, downloads, Agent and attached debuggers; resu
   const pending = capture(); await Promise.resolve();
   assert.equal(state.capturing, true);
   await assert.rejects(capture(), /SCREENSHOT_BUSY/);
-  finishCapture({ isEmpty: () => false, toDataURL: () => 'data:image/png;base64,test' });
-  assert.equal(await pending, 'data:image/png;base64,test');
+  finishCapture(frameImage(2560, 1440));
+  const first = await pending;
+  assert.equal(first.unchanged, false);
+  assert.equal(first.width, 1280);
+  assert.equal(first.height, 720);
+  assert.equal(first.downscaled, true);
+  assert.match(first.dataUrl, /^data:image\/png;base64,/);
   assert.equal(state.capturing, false);
+  // An identical frame is reported without transferring the image again.
+  contents.capturePage = async () => frameImage(2560, 1440);
+  const repeated = await capture();
+  assert.equal(repeated.unchanged, true);
+  assert.equal(repeated.dataUrl, undefined);
+  const forced = await capture({ force: true });
+  assert.equal(forced.unchanged, false);
+  assert.match(forced.dataUrl, /^data:image\/png;base64,/);
+  const fullSize = await capture({ force: true, fullSize: true });
+  assert.equal(fullSize.width, 2560);
+  assert.equal(fullSize.downscaled, false);
   contents.capturePage = async () => { throw new Error('capture failed'); };
   await assert.rejects(capture(), /capture failed/);
   assert.equal(state.capturing, false);

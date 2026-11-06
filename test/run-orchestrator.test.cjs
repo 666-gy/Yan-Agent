@@ -233,16 +233,21 @@ test('provider completion and rejection use the current window and release run s
   }
 });
 
-test('host reviews real control after finish, interruption and provider failure without a model refinement call', async t => {
-  for (const outcome of ['done', 'finish', 'interrupted', 'reject']) {
+test('host control reviews respect the memory preference across completion, interruption and failure', async t => {
+  for (const memoryEnabled of [false, true]) for (const outcome of ['done', 'finish', 'interrupted', 'reject']) {
     const fixture = createRunContext(t);
     const queued = [], reviewed = [];
-    fixture.config.memory = { enabled: false };
+    fixture.config.memory = { enabled: memoryEnabled };
+    fixture.ctx.continualHarness = {
+      load: () => ({}),
+      recoverRejectedAgentRefinements: async () => [],
+      evolutionContext: () => ({ entries: [], policies: [], text: '' })
+    };
     fixture.ctx.harnessBridge.registerHarnessRunContext = () => {};
     fixture.ctx.workspaceRuntime = { peekRepoMap: () => '' };
     fixture.ctx.harnessBridge.writeHarnessRefinementRequest = (_runId, request) => queued.push(request);
     fixture.ctx.reviewCompletedRunMemory = async payload => reviewed.push(payload);
-    assert.equal((await startRun(fixture.ctx, { runId: `control-${outcome}`, memoryEnabled: false, utility: outcome === 'interrupted' })).ok, true);
+    assert.equal((await startRun(fixture.ctx, { runId: `control-${outcome}`, memoryEnabled, utility: outcome === 'interrupted' })).ok, true);
     const emit = fixture.calls.provider[0].emit;
     emit({ type: 'message.part.updated', properties: { part: {
       type: 'tool', id: 'part-1', callID: 'call-1', tool: 'yan_computer_click',
@@ -252,7 +257,11 @@ test('host reviews real control after finish, interruption and provider failure 
     if (outcome === 'reject') fixture.fail(new Error('provider disconnected'));
     else fixture.complete({ status: outcome === 'interrupted' ? 'interrupted' : 'done', userRequestedFinish: outcome === 'finish', toolCalls: [], text: '结束' });
     await fixture.idle;
-    assert.equal(queued.length, 1, outcome);
+    assert.equal(queued.length, memoryEnabled ? 1 : 0, outcome);
+    if (!memoryEnabled) {
+      assert.equal(reviewed.length, 0, outcome);
+      continue;
+    }
     assert.equal(reviewed.length, 1, outcome);
     assert.equal(reviewed[0].result.toolCalls.length, 1, outcome);
     assert.equal(queued[0].apps[0].name, '波点音乐', outcome);

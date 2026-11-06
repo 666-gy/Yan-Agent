@@ -1,28 +1,24 @@
 'use strict';
 
 const test = require('node:test');
+
 const assert = require('node:assert/strict');
+
 const fs = require('node:fs');
+
 const os = require('node:os');
+
 const path = require('node:path');
+
 const { fileURLToPath, pathToFileURL } = require('node:url');
+
 const {
   containsDsmlToolCallMarkup,
   recoverDsmlToolCalls,
   recoverGenericToolCalls
 } = require('../lib/dsml-tool-call');
-const {
-  DEFAULT_PROVIDER_CHUNK_TIMEOUT_MS,
-  DEFAULT_PROVIDER_HEADER_TIMEOUT_MS,
-  DEFAULT_PROVIDER_TIMEOUT_MS,
-  buildOpenCodeConfig,
-  permissionRulesForRun,
-  sessionPermissionForRun,
-  openCodeMessageContextTokens,
-  openCodeErrorDetail,
-  stageDeepSeekProviderModule,
-  buildPromptParts
-} = require('../lib/opencode-sidecar');
+const { DEFAULT_PROVIDER_CHUNK_TIMEOUT_MS, DEFAULT_PROVIDER_TIMEOUT_MS, buildOpenCodeConfig, permissionRulesForRun, sessionPermissionForRun, workspaceSystem, openCodeErrorDetail, stageDeepSeekProviderModule } = require('../lib/kernel-policy');
+
 const { resolveModelCapabilities } = require('../lib/model-capabilities');
 
 const providerModule = import('../lib/opencode-dsml-provider.mjs');
@@ -125,17 +121,6 @@ test('recognizes a truncated DSML marker instead of leaking it as final text', (
   assert.deepEqual(result.calls, []);
 });
 
-test('context usage includes cached input and generated output', () => {
-  assert.equal(openCodeMessageContextTokens({
-    tokens: {
-      input: 172,
-      output: 106,
-      reasoning: 252,
-      cache: { read: 36_992, write: 128 }
-    }
-  }), 37_650);
-});
-
 test('workspace runs overwrite stale tool overrides with explicit active permissions', () => {
   const workspacePermission = sessionPermissionForRun({
     hasUserWorkspace: true,
@@ -160,7 +145,24 @@ test('workspace runs overwrite stale tool overrides with explicit active permiss
     permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true }
   });
   assert.equal(blankPermission.some(rule => rule.permission === 'yan_skills_*' && rule.action === 'allow'), true);
-  assert.equal(blankPermission.some(rule => rule.permission === 'edit' && rule.action === 'ask'), true);
+  assert.equal(blankPermission.some(rule => rule.permission === 'edit' && rule.action === 'allow'), true);
+});
+
+test('Blank tasks keep the same disk-write rules as workspace tasks', () => {
+  const base = { permissions: { allowFileRead: true, allowFileWrite: true, allowNetwork: true } };
+  for (const accessMode of ['request', 'full']) {
+    const blank = sessionPermissionForRun({ ...base, accessMode, hasUserWorkspace: false });
+    const workspace = sessionPermissionForRun({ ...base, accessMode, hasUserWorkspace: true });
+    assert.deepEqual(blank, workspace);
+    const expected = accessMode === 'full' ? 'allow' : 'ask';
+    for (const permission of ['edit', 'write', 'apply_patch']) {
+      assert.equal(blank.find(rule => rule.permission === permission).action, expected, `${permission} in ${accessMode}`);
+    }
+  }
+  const prompt = workspaceSystem({ hasUserWorkspace: false });
+  assert.doesNotMatch(prompt, /请先选择工作区后，再执行需要写入磁盘的任务/);
+  assert.doesNotMatch(prompt, /do not call file or shell tools/i);
+  assert.match(prompt, /same disk-write permissions as tasks with a selected workspace/);
 });
 
 test('session permission rules preserve patterned policies and plan restrictions', () => {
@@ -247,81 +249,6 @@ test('normalizes octet-stream file parts before OpenAI-compatible conversion', a
   assert.equal(normalized[0].content[1].mediaType, 'image/png');
   assert.equal(normalized[0].content[2].type, 'text');
   assert.equal(normalized[0].content[2].text.includes('archive.bin'), true);
-});
-
-
-
-
-
-test('turns source attachments into text before creating OpenCode file parts', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-attachment-'));
-  try {
-    const source = path.join(root, 'broken.cpp');
-    const image = path.join(root, 'diagram.png');
-    fs.writeFileSync(source, 'int main() { return 0; }\n', 'utf8');
-    fs.writeFileSync(image, Buffer.from([137, 80, 78, 71]));
-    const parts = buildPromptParts({
-      prompt: '编译并修复附件',
-      attachments: [
-        { path: source, name: 'broken.cpp', mimeType: 'application/octet-stream' },
-        { path: image, name: 'diagram.png', mimeType: 'application/octet-stream' }
-      ]
-    });
-    assert.equal(parts[1].type, 'text');
-    assert.equal(parts[1].text.includes('int main'), true);
-    assert.equal(parts[1].text.includes(`Path: ${source}\n`), true);
-    assert.equal(parts[2].text, `[Attached image: diagram.png]\nPath: ${image}`);
-    assert.equal(parts[3].type, 'file');
-    assert.equal(parts[3].mime, 'image/png');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('attachment paths remain absolute for HTML, truncated text and non-text fallbacks', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-attachment-path-'));
-  try {
-    const fixtures = [
-      ['页面 preview.html', '<html>鹈鹕</html>'],
-      ['large.txt', 'x'.repeat(512 * 1024 + 1)],
-      ['empty.txt', ''],
-      ['invalid.txt', Buffer.from([0, 1, 2])],
-      ['archive.bin', Buffer.from([0, 1, 2])]
-    ];
-    const attachments = fixtures.map(([name, content]) => {
-      const file = path.join(root, name);
-      fs.writeFileSync(file, content);
-      return { name, path: path.relative(process.cwd(), file) };
-    });
-    const parts = buildPromptParts({ prompt: '看看附件', attachments });
-    for (let i = 0; i < fixtures.length; i++) {
-      assert.equal(parts[i + 1].type, 'text');
-      assert.equal(parts[i + 1].text.split('\n')[1], `Path: ${path.join(root, fixtures[i][0])}`);
-    }
-    assert.equal(parts[1].text, `[Attached text file: 页面 preview.html]\nPath: ${path.join(root, fixtures[0][0])}\n\n<html>鹈鹕</html>`);
-    assert.equal(parts[2].text.endsWith('\n[Attachment truncated after 512 KiB]'), true);
-    assert.match(parts[3].text, /not readable as text/);
-    assert.match(parts[4].text, /not readable as text/);
-    assert.match(parts[5].text, /Attached binary file/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('turns a selected directory attachment into a bounded path reference', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-directory-attachment-'));
-  try {
-    const parts = buildPromptParts({
-      prompt: '检查这个文件夹',
-      attachments: [{ path: root, name: '作业文件夹', kind: 'directory' }]
-    });
-    assert.equal(parts[1].type, 'text');
-    assert.equal(parts[1].text.includes('[Attached directory: 作业文件夹]'), true);
-    assert.equal(parts[1].text.includes(`Path: ${root}`), true);
-    assert.equal(parts[1].text.includes('contents are not embedded'), true);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('converts DSML split across stream chunks and preserves normal text', async () => {
@@ -536,8 +463,6 @@ test('factory wraps callable and named language-model entry points', async () =>
   assert.equal(callableModel.modelId, 'deepseek-v4-flash');
 });
 
-
-
 test('uses the optimized local provider for OpenAI-compatible models', () => {
   const deepseek = buildOpenCodeConfig({
     providerId: 'deepseek',
@@ -556,21 +481,6 @@ test('uses the optimized local provider for OpenAI-compatible models', () => {
   assert.equal(qwen.provider.qwen.npm, 'file:///staged/qwem-provider.mjs');
   assert.equal(deepseek.provider.deepseek.options.yanDsmlCompatibility, true);
   assert.equal(qwen.provider.qwen.options.yanQwemCompatibility, true);
-});
-
-test('keeps provider requests alive for slow first-token and streaming models', () => {
-  const config = buildOpenCodeConfig({
-    providerId: 'deepseek',
-    modelId: 'deepseek-v4-flash-vision-exp'
-  });
-  const options = config.provider.deepseek.options;
-  assert.equal(options.timeout, DEFAULT_PROVIDER_TIMEOUT_MS);
-  assert.equal(options.headerTimeout, DEFAULT_PROVIDER_HEADER_TIMEOUT_MS);
-  assert.equal(options.chunkTimeout, DEFAULT_PROVIDER_CHUNK_TIMEOUT_MS);
-  assert.equal(options.timeout, false, 'disable the total request deadline, including for long healthy streams');
-  assert.ok(options.headerTimeout > 10_000);
-  assert.ok(options.chunkTimeout > 15_000);
-  assert.equal('yan' in config, false);
 });
 
 test('always stages the bundled provider outside the application directory', () => {
@@ -1045,7 +955,6 @@ test('provider fetch keeps replay history untouched for non-DeepSeek providers',
   assert.equal('reasoning_content' in bodySeen.messages[0], false);
 });
 
-
 test('malformed parameter markup never dispatches an empty shell call', () => {
   const dsml = '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="bash"><｜｜DSML｜｜parameter name="command" string="true">echo hello</｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>';
   const result = recoverDsmlToolCalls(dsml, new Set(['bash']));
@@ -1054,4 +963,64 @@ test('malformed parameter markup never dispatches an empty shell call', () => {
   const generic = recoverGenericToolCalls('<tool_calls><invoke name="bash"><parameter name="command">echo hello</invoke></tool_calls>', new Set(['bash']));
   assert.equal(generic.calls.length, 0);
   assert.match(generic.error, /incomplete parameter/);
+});
+test('DSML sends a stable per-conversation prompt_cache_key', async () => {
+  const { createYanDsmlProvider } = await providerModule;
+  const bodies = [];
+  const source = `${sseBlock({
+    id: 'cache-route', object: 'chat.completion.chunk',
+    choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }]
+  })}data: [DONE]\n\n`;
+  const provider = createYanDsmlProvider({
+    baseURL: 'https://example.test/v1',
+    apiKey: 'secret-key',
+    name: 'relay',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return fragmentedSseResponse(source, 9);
+    }
+  });
+  const model = provider('deepseek-flash');
+  const run = async text => {
+    const result = await model.doStream({ prompt: [{ role: 'user', content: [{ type: 'text', text }] }] });
+    for await (const _ of result.stream) { /* drain */ }
+  };
+  await run('first conversation');
+  await run('first conversation');
+  await run('another conversation');
+  assert.match(bodies[0].prompt_cache_key, /^yan-[0-9a-f]{48}$/u);
+  assert.equal(bodies[1].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.notEqual(bodies[2].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.doesNotMatch(bodies[0].prompt_cache_key, /secret-key|first conversation/u);
+});
+
+test('DSML retries once without prompt_cache_key when the relay rejects it', async () => {
+  const { createYanProviderFetch } = await providerModule;
+  const { conversationAffinity } = await import('../lib/provider-affinity.mjs');
+  const keys = [];
+  const source = `${sseBlock({
+    id: 'fallback', object: 'chat.completion.chunk',
+    choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }]
+  })}data: [DONE]\n\n`;
+  const fetch = createYanProviderFetch(async (_url, init) => {
+    const body = JSON.parse(init.body);
+    keys.push(body.prompt_cache_key ?? null);
+    if (body.prompt_cache_key) {
+      return Response.json({ error: { param: 'prompt_cache_key', message: 'Unsupported parameter' } }, { status: 400 });
+    }
+    return fragmentedSseResponse(source, 11);
+  }, { affinity: conversationAffinity('secret-key', 'relay') });
+  const call = () => fetch('https://example.test/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'hello' }] })
+  });
+  const first = await call();
+  assert.equal(first.status, 200);
+  await first.text();
+  const second = await call();
+  assert.equal(second.status, 200);
+  await second.text();
+  assert.match(keys[0], /^yan-[0-9a-f]{48}$/u);
+  assert.deepEqual(keys, [keys[0], null, null]);
 });

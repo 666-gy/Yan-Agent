@@ -45,6 +45,8 @@ async function writeRaw(sessionsDir, record) {
   return { file, stat };
 }
 
+
+
 const V1_SESSION = {
   id: 'sess_v1record0001',
   title: '旧会话',
@@ -87,10 +89,11 @@ test('the summary projection is not widened by the version field', async () => {
   await writeRaw(sessionsDir, V1_SESSION);
   const summary = (await store.listSessionSummaries())[0];
   assert.deepEqual(Object.keys(summary).sort(), [
-    'archived', 'archivedAt', 'createdAt', 'hasHandoff', 'id', 'messageCount', 'parentSessionId',
+    'archived', 'archivedAt', 'createdAt', 'deletionPending', 'hasHandoff', 'id', 'messageCount', 'parentSessionId',
     'pinned', 'title', 'updatedAt', 'workspace', 'workspaceMissing'
   ]);
   assert.equal(summary.schemaVersion, undefined);
+  assert.equal(summary.deletionPending, false, 'ordinary history has no pending deletion fence');
 });
 
 test('a live Turn found on disk is closed as a restart interruption', async () => {

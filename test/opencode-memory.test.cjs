@@ -1,16 +1,15 @@
 'use strict';
 
 const test = require('node:test');
+
 const assert = require('node:assert/strict');
+
 const fs = require('node:fs');
+
 const os = require('node:os');
+
 const path = require('node:path');
-const {
-  OpenCodeSidecar,
-  combineSystem,
-  combineTurnPrompt,
-  normalizeMemoryReview
-} = require('../lib/opencode-sidecar');
+const { combineSystem, combineTurnPrompt, normalizeMemoryReview } = require('../lib/kernel-policy');
 
 function completedPayload() {
   return {
@@ -232,101 +231,4 @@ test('normalization keeps a valid workspace work state and drops empty ones', ()
     workState: { done: '', pending: '', nextStep: '', evidence: 'y' }
   }, 'C:\\workspace');
   assert.equal(withoutProgress.workState, null);
-});
-
-test('memory reviewer uses an isolated no-tool session and deletes it after structured output', async t => {
-  const calls = { create: null, prompt: null, deleted: null };
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-memory-reviewer-'));
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const sidecar = new OpenCodeSidecar({ appRoot: process.cwd(), dataDir });
-  sidecar.client = {
-    session: {
-      create: async payload => {
-        calls.create = payload;
-        return { data: { id: 'memory-reviewer' } };
-      },
-      prompt: async payload => {
-        calls.prompt = payload;
-        return { data: { info: { structured: {
-          memories: [{
-            key: 'project.build.command',
-            type: 'project',
-            scope: 'workspace',
-            content: 'The verified project build command is npm run verify.',
-            keywords: ['build', 'verify'],
-            confidence: 0.95,
-            evidence: 'The command completed successfully in this run.',
-            basis: 'successful_outcome',
-            durable: true,
-            verified: true,
-            sensitive: false,
-            transient: false
-          }],
-          skillCandidate: null,
-          harnessCandidates: [],
-          refinementOutcomes: []
-        } } } };
-      },
-      delete: async payload => {
-        calls.deleted = payload;
-        return { data: true };
-      }
-    }
-  };
-
-  const review = await sidecar.reviewMemory(completedPayload());
-  assert.equal(review.memories.length, 1);
-  assert.deepEqual(calls.create.permission, [{ permission: '*', pattern: '*', action: 'deny' }]);
-  assert.deepEqual(calls.prompt.tools, { '*': false });
-  assert.equal(calls.prompt.format.type, 'json_schema');
-  assert.equal(calls.deleted.sessionID, 'memory-reviewer');
-});
-
-test('memory review failure is non-fatal and still cleans up the isolated session', async t => {
-  let deleted = false;
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-memory-reviewer-failed-'));
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const sidecar = new OpenCodeSidecar({
-    appRoot: process.cwd(),
-    dataDir,
-    log: { warn: () => {} }
-  });
-  sidecar.client = {
-    session: {
-      create: async () => ({ data: { id: 'memory-reviewer-failed' } }),
-      prompt: async () => { throw new Error('provider unavailable'); },
-      delete: async () => { deleted = true; return { data: true }; }
-    }
-  };
-
-  const review = await sidecar.reviewMemory(completedPayload());
-  assert.deepEqual(review.memories, []);
-  assert.equal(review.skillCandidate, null);
-  assert.match(review.error, /provider unavailable/i);
-  assert.equal(deleted, true);
-});
-
-test('dirty review content is corrected before durable output is accepted', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-review-repair-'));
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const sidecar = new OpenCodeSidecar({ appRoot: process.cwd(), dataDir });
-  let attempts = 0, correction = '', deleted = false;
-  sidecar.client = { session: {
-    create: async () => ({ data: { id: 'repair' } }),
-    prompt: async payload => {
-      if (payload.noReply) { correction = payload.parts[0].text; return { data: {} }; }
-      attempts++;
-      return { data: { info: { structured: { memories: [{ key: 'music.play', type: 'procedure', scope: 'global',
-        content: attempts === 1 ? '关键回执：原始工具日志' : '## 波点音乐播放验收\n\n核对底部歌曲名、暂停图标和进度推进。',
-        evidence: '最终窗口状态', basis: 'successful_outcome', verified: true, durable: true, sensitive: false, transient: false }],
-        harnessCandidates: [] } } } };
-    },
-    delete: async () => { deleted = true; return { data: true }; }
-  } };
-  const review = await sidecar.reviewMemory(completedPayload());
-  assert.equal(attempts, 2);
-  assert.match(correction, /failed validation/);
-  assert.equal(review.memories.length, 1);
-  assert.doesNotMatch(review.memories[0].content, /关键回执/);
-  assert.equal(deleted, true);
 });

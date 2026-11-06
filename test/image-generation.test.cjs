@@ -120,3 +120,75 @@ test('image editing negotiates multipart options without removing the source ima
   assert.equal(requests[1].prompt, 'edit image');
   assert.equal(requests[1].model, 'gpt-image-1');
 });
+
+const GIF_HEADER_BASE64 = Buffer.concat([
+  Buffer.from('GIF89a', 'ascii'),
+  Buffer.alloc(26, 0)
+]).toString('base64');
+
+test('generateImage requests native GIF output with frame controls', async () => {
+  const requests = [];
+  const result = await generateImage({
+    baseUrl: 'https://example.test/v1',
+    apiKey: 'test-key',
+    providerId: 'conn-weason-image',
+    providerOptions: { adapterKind: 'openai' },
+    model: 'gpt-image-2.6',
+    prompt: 'looping whale girl',
+    aspectRatio: '1:1',
+    outputFormat: 'gif',
+    frameCount: 12,
+    frameDurationMs: 120,
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse({ data: [{ b64_json: GIF_HEADER_BASE64 }] });
+    }
+  });
+
+  assert.equal(result.extension, 'gif');
+  assert.equal(result.outputFormat, 'gif');
+  assert.equal(result.frameCount, 12);
+  assert.equal(result.frameDurationMs, 120);
+  assert.deepEqual(requests[0], {
+    model: 'gpt-image-2.6',
+    prompt: 'looping whale girl',
+    n: 1,
+    output_format: 'gif',
+    frame_count: 12,
+    frame_duration_ms: 120,
+    size: 'auto'
+  });
+});
+
+test('generateImage rejects a still image returned for a GIF request', async () => {
+  await assert.rejects(
+    () => generateImage({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      providerId: 'conn-weason-image',
+      providerOptions: { adapterKind: 'openai' },
+      model: 'gpt-image-2.6',
+      prompt: 'looping whale girl',
+      outputFormat: 'gif',
+      fetchImpl: async () => jsonResponse({ data: [{ b64_json: PNG_HEADER_BASE64 }] })
+    }),
+    /返回的是静态图片/
+  );
+});
+
+test('generateImage rejects GIF combined with a reference image', async () => {
+  await assert.rejects(
+    () => generateImage({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      providerId: 'conn-weason-image',
+      providerOptions: { adapterKind: 'openai' },
+      model: 'gpt-image-2.6',
+      prompt: 'animate this',
+      outputFormat: 'gif',
+      sourceImage: { buffer: Buffer.from(PNG_HEADER_BASE64, 'base64') },
+      fetchImpl: async () => jsonResponse({ data: [{ b64_json: GIF_HEADER_BASE64 }] })
+    }),
+    /只支持新图生成/
+  );
+});

@@ -1,0 +1,77 @@
+{
+  "version": "2.0.27",
+  "sourceCommit": "1f4d07a4a519185955ae8ab2ea3607805509e386",
+  "runtime": "node",
+  "nodeVersion": "26.4.0",
+  "nodeArchiveSha256": "5f87d038c6ec442aa46b9126f8ca170acbd2f3b9b9152ca798cf54596a31e214",
+  "nodeArgs": [
+    "--experimental-ffi",
+    "--use-system-ca",
+    "--disable-warning=ExperimentalWarning"
+  ],
+  "webUI": false,
+  "files": {
+    "node.exe": "3193d7f751b8a07bd4acc70e81946ae9c6efdee83e07ad1c8d0e4089df7c5cef",
+    "NODE-LICENSE": "d9c4eeda951d6d08f4aa1316b61aafcf67e6da5f79b18f8edeb56fa6abdc038c",
+    "assets/@ff-labs/fff-bin-win32-x64/fff_c.dll": "109f968f5cea7fad106ae42018b152bc9317efa74e14809c44a3bb39de18962f",
+    "assets/@lydell/node-pty-win32-x64/LICENSE": "a3d60eaf32d2fb09c9d82ef39f14bd6e2c0f3ca7de30daa827486c0d6f8b6e9f",
+    "assets/@lydell/node-pty-win32-x64/README.md": "0f4b423b7e21f64625c83bc8974eff996678b7187f5de8b3cf96ab9c89386c14",
+    "assets/@lydell/node-pty-win32-x64/lib/conpty_console_list_agent.js": "4a9f51fa5b23be652e965dfe390d7fbe8cc9cd79a480260998c6c101fc944f08",
+    "assets/@lydell/node-pty-win32-x64/lib/eventEmitter2.js": "f1c14613aa90c10def4ca7238329270871997eb26f919f7074dc25533e3e75dd",
+    "assets/@lydell/node-pty-win32-x64/lib/index.js": "c1b82c92c4c63aaa8e8441fc5a291c4727cd3f3550666d2fec7250e0f6d4b173",
+    "assets/@lydell/node-pty-win32-x64/lib/interfaces.js": "56e4173f09aad26173f9d4c79800fda0b808c34424f987ef8d671cc931119a0a",
+    "assets/@lydell/node-pty-win32-x64/lib/shared/conout.js": "6ae3b0532616da11aa2a11b4506bb89b0d40be005a9ea9fb369fb59eefdbda47",
+    "assets/@lydell/node-pty-win32-x64/lib/terminal.js": "5ed5cd66a766afba4a04093284e999f8516d41936501839055800b10eca5d304",
+    "assets/@lydell/node-pty-win32-x64/lib/types.js": "408bf8287717b6322cc380ea66caf1b5e366dcf697707ae2f3cc454e08f3b151",
+    "assets/@lydell/node-pty-win32-x64/lib/utils.js": "6981b69ce5b162393f59f3a541f0e188b9e70bb8300786d1d6be83a231eac7ca",
+    "assets/@lydell/node-pty-win32-x64/lib/windowsConoutConnection.js": "1440f70908fb1f55911ac8e936a1230f68a9c00c03096fcef6788eac6aad9d62",
+    "assets/@lydell/node-pty-win32-x64/lib/windowsPtyAgent.js": "1583dc8d41632d0a571d6b3ac27a7d58d445e359ad7799af042de6b5d50d68d0",
+    "assets/@lydell/node-pty-win32-x64/lib/windowsTerminal.js": "d6bc0912ecfaf2857651965f887a37bfeb04c745c075e8d10b31cbf661d3aef3",
+    "assets/@lydell/node-pty-win32-x64/lib/worker/conoutSocketWorker.js": "3e4bac095ac3870c3248a7302f5d10217de625f30c32b7000fe48a34788e47ac",
+    "assets/@lydell/node-pty-win32-x64/package.json": "b36f18a54608269e2e93c2a6c3b763ac5c784979a9023968e7e4e76e01e82c05",
+    "assets/@lydell/node-pty-win32-x64/prebuilds/win32-x64/conpty.node": "2d1fb89aa74b692ad026807e78f90d970ef4e4b5b4b0254f94854f0f3f442306",
+    "assets/@lydell/node-pty-win32-x64/prebuilds/win32-x64/conpty/OpenConsole.exe": "7f68c840226505004215c0b82d4e502c24b5bc3f4b93c4baaaa19bd679c0def8",
+    "assets/@lydell/node-pty-win32-x64/prebuilds/win32-x64/conpty/conpty.dll": "3319b484b80bb53d1f4d0a9eb0ea60fd0f61da69db7280ca43b84215f19245ff",
+    "assets/@lydell/node-pty-win32-x64/prebuilds/win32-x64/conpty_console_list.node": "4b443e5347883c47220e26eed0d03d35fce6bea8d30bb0d577541202783618e2",
+    "assets/@opencode/ui/audio/bip-bop-01.mp3": "129765d4203f92ecb36ba17553b037ebf4daf28ebb56013b3896d3e7e36f2d74",
+    "assets/@opencode/ui/audio/bip-bop-03.mp3": "82b992e5dc5cfdc4d7206e0cd12d3132fa76ae30f8af51ec4cc216ba15f1afcd",
+    "assets/@opencode/ui/audio/nope-03.mp3": "9832805f84dcdb4a8ccb46a98cc75def72b52509610837938ed8343b2537df0c",
+    "assets/@opencode/ui/audio/staplebops-06.mp3": "eb87d63312ac11b1ceb1a8b348057dfe4d1166d5a85dc79778fe69d458f4c097",
+    "assets/@opencode/ui/audio/yup-01.mp3": "b227d0516dfa1eda3b250635cce19e040af3f9cee443a8bb4b5a80990bca3f58",
+    "assets/@opentui/core-win32-x64/opentui.dll": "fdb66f6bfb2b19f1f85b1b0be65409d4f9ec243ee435cbbc63b8a7479cfc18ff",
+    "assets/@opentui/core/assets/javascript/highlights.scm": "c90e849891a3c8698992e10efdeaff7e7a8f98da47f941489566cb9e60f639b5",
+    "assets/@opentui/core/assets/javascript/tree-sitter-javascript.wasm": "5fb488d0cabb4775a594bab85682de5ad6ce83c0d6ac997a9f82dd084d571240",
+    "assets/@opentui/core/assets/markdown/highlights.scm": "f3b02df1a9213cfecfb6936bce8db2f777edd523fc23ed890695e6cb4552d556",
+    "assets/@opentui/core/assets/markdown/injections.scm": "a2bf8c052454acbe765970a4ad2706c60cad7b62a762b927e28f60af1a0ef516",
+    "assets/@opentui/core/assets/markdown/tree-sitter-markdown.wasm": "3e13182f21373634c40653f170e6f2d2790914eb2c243927086d79023c534f7a",
+    "assets/@opentui/core/assets/markdown_inline/highlights.scm": "ca9a109ddd21c5ffdc6b84f00c0a4b2eeb55ae36a0b8eeb9b02348269c5acd22",
+    "assets/@opentui/core/assets/markdown_inline/tree-sitter-markdown_inline.wasm": "9bbd71a70a23f6d0193bb162a72eecf2a2bd9ce76910d7ad3da9c5f80f122671",
+    "assets/@opentui/core/assets/typescript/highlights.scm": "8e823819058d480c450ca4ef377a05675f6ed6f7c0460a69b972cdbe940c0893",
+    "assets/@opentui/core/assets/typescript/tree-sitter-typescript.wasm": "778025db5a8be0e70f8ccc3671e486dfeddd048c25d9e8a70c26de2e1bf6f97d",
+    "assets/@opentui/core/assets/zig/highlights.scm": "f2232f0fde717543e4541cec871dd8633cb9bc6b5d1686a56b2d469c1dd9e6b6",
+    "assets/@opentui/core/assets/zig/tree-sitter-zig.wasm": "54b3b83dd9c62da5815f06132bc3fc914d9dcc780370b32416446a0b7969e8c6",
+    "assets/@opentui/core/parser.worker.js": "cc39e6ba6470c793fa7de1b81888185c1a152904f116a0bb106b5f15276181d9",
+    "assets/@parcel/watcher-win32-x64/watcher.node": "a8199cf7b6c5102267a5889f80321a4cc92e631d7504c474d32a35b4d440f315",
+    "assets/@silvia-odwyer/photon-node/photon_rs_bg.wasm": "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c",
+    "assets/@yuuang/ffi-rs-win32-x64-msvc/ffi-rs.win32-x64-msvc.node": "015a7d7bb86916f4a01965c48a57afb7586de44d27abaf187f35ca9282e1d496",
+    "assets/app-archive.bin": "921b77cde0911b9af6692f0ad63c30ec6f8485d8319af0c61ae285cebc83f203",
+    "assets/tree-sitter-bash/tree-sitter-bash.wasm": "364f0a2cd385c792239423026ef442dbd073d34c396b7bc9e5932426b8e4aa5d",
+    "assets/tree-sitter-powershell/tree-sitter-powershell.wasm": "1d30b5a21866354aa2eb94845556f1e19126ff00e3335048719a0e6435b1c154",
+    "assets/web-tree-sitter/tree-sitter.wasm": "f38dcc4b43b818f9a0785bc1c6d5611a75ac4cdd428ff3f02757c34ca4e46d7f",
+    "opencode.mjs": "1a05bb3ed89f6a94ffc502753bad10ad867b4119faf4b325fd44e832f21b19a5"
+  },
+  "patches": [
+    {
+      "file": "patches/shell-settlement.patch",
+      "sha256": "e2074ca4a8e25367d626bf45a27ab5472027b4b99d6f313e6b7ee0cbab97d33b"
+    },
+    {
+      "file": "patches/compaction-diagnostics.patch",
+      "sha256": "ad3ec98be351e48b2931edbc92a94d79445b2d9289245a15f16e371d71d6372a"
+    },
+    {
+      "file": "patches/attachment-base64.patch",
+      "sha256": "1e2be783db5b0f2a8b4bd46f7c881445ac537c7fb84c420968d5d9e468b7c755"
+    }
+  ]
+}

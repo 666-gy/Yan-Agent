@@ -26,7 +26,7 @@ const evidence = path.join(appRoot, 'output/playwright/plugin-examples'); fs.mkd
       sendMessage = async () => { window.__exampleSendAttempts++; };
     }, workspace);
     const catalog = (await page.evaluate(() => window.yan.pluginsCatalog())).plugins;
-    assert.deepEqual(catalog.map(item => item.id).sort(), ['build-ios-apps', 'build-macos-apps', 'canva', 'circleci', 'figma', 'game-studio', 'hyperframes', 'remotion']);
+    assert.deepEqual(catalog.map(item => item.id).sort(), ['canva', 'figma', 'hyperframes', 'playwright', 'remotion', 'yan-computer-use']);
     async function open(id) {
       await page.locator('[data-nav="plugins"]').click();
       await page.evaluate(() => window.YanPluginsPage.show());
@@ -103,7 +103,7 @@ const evidence = path.join(appRoot, 'output/playwright/plugin-examples'); fs.mkd
     await page.waitForFunction(() => document.getElementById('toast').textContent.includes('未能创建新任务'));
     assert.deepEqual(await page.evaluate(() => ({ id: state.currentSession.id, text: getComposerText() })), prior);
     await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('session:create'); ipcMain.handle('session:create', global.__exampleCreate); });
-    await open('build-macos-apps');
+    await open('hyperframes');
     await page.locator('#sidebarToggle').click();
     for (const width of [320, 375, 414, 768]) {
       await page.setViewportSize({ width, height: 900 });

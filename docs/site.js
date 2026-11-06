@@ -5,7 +5,21 @@
   const shots = window.YanSiteShots || {};
   const repo = "https://github.com/666-gy/Yan-Agent";
   // Published Windows installer and mirror download destinations.
-  const downloadLinks = { github: "https://github.com/666-gy/Yan-Agent/releases/download/v1.7.0/Yan.Agent.Setup.v1.7.0.exe", baidu: "https://pan.baidu.com/s/1KZIFg29V7Ks89pvEWiY4mw?pwd=code" };
+  const assetBase = repo + "/releases/download/v1.8.0/";
+  const downloadLinks = {
+    github: {
+      windows: assetBase + "Yan.Agent.Setup.v1.8.0.exe",
+      linux: assetBase + "Yan.Agent-1.8.0-linux-x86_64.AppImage",
+      arm64: assetBase + "Yan.Agent-1.8.0-mac-arm64.dmg",
+      x64: assetBase + "Yan.Agent-1.8.0-mac-x64.dmg",
+    },
+    baidu: {
+      windows: "https://pan.baidu.com/s/1nfXPQ8w6_wFD28928HOybQ?pwd=code",
+      linux: "https://pan.baidu.com/s/1FDwSotPBS32mNedC_D2T3w?pwd=code",
+      arm64: "https://pan.baidu.com/s/1EuQgs5NTpmDzeZwd5OL0dw?pwd=code",
+      x64: "https://pan.baidu.com/s/19LEMxeuMEdky7q02uzEsIA?pwd=code",
+    },
+  };
   const page = document.getElementById("page");
   const dialog = document.getElementById("search-dialog");
   const input = document.getElementById("search-input");
@@ -108,7 +122,7 @@
     ];
     const integrations = [
       ["Codex", "codex.svg"], ["Claude", "claude.svg"],
-      ["Reasonix Studio", "reasonix.svg"], ["Computer Use", "computer-use.png"],
+      ["ego lite", "ego-lite.png"], ["Computer Use", "computer-use.png"],
       ["GitHub", "github.svg"], ["Figma", "figma-color.svg"],
       ["Notion", "notion.svg"], ["Canva", "canva.png"],
       ["Gmail", "gmail-color.svg"], ["Outlook", "outlook-color.svg"],
@@ -127,7 +141,7 @@
         ${shot("home-hero", "Yan Agent 桌面应用：项目、任务与模型选择", "hero-product")}
       </section>
       <section class="product-section feature-section" aria-labelledby="feature-title"><h2 id="feature-title">使用智能体进行构建的最佳方式</h2><div class="feature-rows">${features.map(([id, title, description, label, shotId, alt], i) => `<article class="feature-row ${i === 0 ? "workspace-feature" : ""} ${i % 2 ? "reversed" : ""}"><div class="feature-copy"><h3>${title}</h3><p>${description}</p>${i <= 3 ? "" : `<a class="text-link" href="#${id}">${label} <span aria-hidden="true">→</span></a>`}</div><div class="feature-media media-${i}">${shotId === "home-workspace" ? `<div class="workspace-composite"><img class="workspace-review" src="assets/shots/workspace-review.png" alt="Yan Agent 代码差异审阅" loading="lazy" decoding="async"><img class="workspace-chat" src="assets/shots/workspace-chat-detail.png" alt="Yan Agent 任务对话与修复结果" loading="lazy" decoding="async"></div>` : shotId === "home-webui" ? `<div class="webui-phone"><div class="webui-phone-screen"><img src="assets/shots/webui-mobile.jpg" alt="Yan Agent 手机 WebUI 任务与验证结果" loading="lazy" decoding="async"><span class="webui-phone-island" aria-hidden="true"></span></div></div>` : shot(shotId, alt)}</div></article>`).join("")}</div></section>
-      <section class="product-section integrations" aria-labelledby="integration-title"><h2 id="integration-title">将 Yan Agent 直接融入你的工作流</h2><p class="product-intro">连接工具，并通过插件添加专业功能。为 Yan Agent 提供所需的上下文信息和访问权限，使其能够跨应用执行操作，替你完成更多工作。</p><div class="integration-carousel" role="img" aria-label="Codex、Claude、Reasonix Studio、Computer Use、GitHub、Figma、Notion、Canva、Gmail、Outlook">${integrations.slice(0, 5).map((item, index) => `<div class="integration-column" aria-hidden="true"><div class="integration-column-track" style="--roll-delay: ${index * 0.8}s">${[item, integrations[index + 5], item].map(([name, file]) => `<div class="integration-logo"><img src="assets/logos/${file}" alt="" title="${name}" width="52" height="52"></div>`).join("")}</div></div>`).join("")}</div></section>
+      <section class="product-section integrations" aria-labelledby="integration-title"><h2 id="integration-title">将 Yan Agent 直接融入你的工作流</h2><p class="product-intro">连接工具，并通过插件添加专业功能。为 Yan Agent 提供所需的上下文信息和访问权限，使其能够跨应用执行操作，替你完成更多工作。</p><div class="integration-carousel" role="img" aria-label="Codex、Claude、ego lite、Computer Use、GitHub、Figma、Notion、Canva、Gmail、Outlook">${integrations.slice(0, 5).map((item, index) => `<div class="integration-column" aria-hidden="true"><div class="integration-column-track" style="--roll-delay: ${index * 0.8}s">${[item, integrations[index + 5], item].map(([name, file]) => `<div class="integration-logo"><img src="assets/logos/${file}" alt="" title="${name}" width="52" height="52"></div>`).join("")}</div></div>`).join("")}</div></section>
       <section class="product-section guide-section" aria-labelledby="guide-title"><h2 id="guide-title">轻松上手 Yan Agent</h2><p class="product-intro">从理解项目、浏览网页，到扩展能力和审阅结果。</p><div class="guide-grid">${guides.map(([id, title, shotId], i) => `<article class="guide-card"><div class="guide-media media-${i}">${shot(shotId, title + "界面")}</div><h3>${title}</h3><a class="button" href="#${id}">阅读指南 <span aria-hidden="true">→</span></a></article>`).join("")}</div><div class="guide-actions"><a class="button primary" href="#quickstart">查看完整使用指南 <span aria-hidden="true">→</span></a></div></section>
       ${closingCta()}
 
@@ -148,16 +162,28 @@
     }
     unmountPixelBlast = () => cleanups.forEach(cleanup => cleanup());
   }
+  function downloadAction(channel, key, name) {
+    const url = downloadLinks[channel][key];
+    const downloadIcon = '<img src="assets/logos/download.svg" alt="" width="18" height="18">';
+    return url
+      ? `<a class="button download-action" href="${escape(url)}" ${channel === "baidu" ? 'target="_blank" rel="noopener noreferrer"' : ""} aria-label="${escape(name)}下载" title="${escape(name)}下载">${downloadIcon}</a>`
+      : `<button class="button download-action" type="button" disabled aria-label="${escape(name)}下载链接待补充" title="下载链接待补充">${downloadIcon}</button>`;
+  }
   function download() {
     const channels = [
-      ["github", "GitHub 下载", "通过 GitHub 获取 Yan Agent Windows 安装包。"],
-      ["baidu", "百度网盘下载", "通过百度网盘获取 Yan Agent Windows 安装包。"],
+      ["github", "从 Github Release 下载"],
+      ["baidu", "国内源下载"],
     ];
-    const downloadIcon = icon('<path d="M12 3V15M8 11L12 15L16 11M4 19H20"/>');
-    return `<main id="main" class="download-view" tabindex="-1"><div class="resource-page download-page"><header class="download-heading"><h1>下载 Yan Agent</h1><p>选择适合你的下载方式，开始构建。</p><span class="download-version">Yan Agent v${escape(release.label)} · Windows x64</span></header><div class="download-grid">${channels.map(([id, title, description]) => {
-      const url = downloadLinks[id];
-      return `<section class="download-card"><div class="download-card-copy"><h2>${title}</h2><p>${description}</p></div>${url ? `<a class="download-icon-button" href="${escape(url)}" ${id === "github" ? 'download="Yan.Agent.Setup.v1.7.0.exe"' : 'target="_blank" rel="noopener noreferrer"'} aria-label="${title}" title="${title}">${downloadIcon}</a>` : `<button class="download-icon-button" type="button" disabled aria-label="${title}，链接待更新" title="下载链接待更新">${downloadIcon}</button>`}</section>`;
-    }).join("")}</div></div>${closingCta()}</main>`;
+    return `<main id="main" class="download-view" tabindex="-1"><div class="resource-page download-page">
+      <header class="download-heading"><h1>选择适合你系统的 Yan Agent 客户端</h1></header>
+      <div class="download-sources">${channels.map(([channel, title]) => `<section class="download-source" aria-labelledby="source-${channel}"><header><h2 id="source-${channel}">${title}</h2></header><div class="platform-list">
+        <div class="platform-pill"><img class="platform-logo" src="assets/logos/windows.svg" alt="" width="30" height="30"><div class="platform-copy"><h3>Windows</h3><p>x64 · EXE 安装包</p></div>${downloadAction(channel, "windows", "Windows x64")}</div>
+        <div class="platform-pill"><img class="platform-logo" src="assets/logos/linux.svg" alt="" width="30" height="30"><div class="platform-copy"><h3>Linux</h3><p>x64 · AppImage</p></div>${downloadAction(channel, "linux", "Linux x64")}</div>
+        <div class="platform-pill"><img class="platform-logo" src="assets/logos/apple.svg" alt="" width="30" height="30"><div class="platform-copy"><h3>macOS · Apple 芯片</h3><p>arm64 · DMG</p></div>${downloadAction(channel, "arm64", "macOS Apple 芯片")}</div>
+        <div class="platform-pill"><img class="platform-logo" src="assets/logos/apple.svg" alt="" width="30" height="30"><div class="platform-copy"><h3>macOS · Intel</h3><p>x64 · DMG</p></div>${downloadAction(channel, "x64", "macOS Intel")}</div>
+      </div></section>`).join("")}</div>
+      <aside class="platform-notes" aria-labelledby="platform-notes-title"><h2 id="platform-notes-title">安装与使用提示</h2><p><strong>Linux / macOS 测试版：</strong>暂不支持语音识别、计算机控制、应用快照快捷键和自动更新；更新时请重新下载安装包。</p><p><strong>macOS：</strong>请选择对应芯片的安装包，打开 DMG 后将 Yan Agent 拖入「应用程序」。当前版本未经过 Apple Developer ID 签名和公证，系统可能拦截打开，需在「系统设置 → 隐私与安全性」中确认允许。</p><p><strong>Linux：</strong>为 AppImage 添加可执行权限后启动；精简系统若中文显示异常，请安装 Noto CJK 字体。</p><a class="text-link" href="${repo}/releases">查看 Release 与 SHA256 校验文件 <span aria-hidden="true">↗</span></a></aside>
+      </div>${closingCta()}</main>`;
   }
   function resources() {
     return `<main id="main" class="resource-page article" tabindex="-1"><div class="breadcrumb">Yan Agent / 资源</div><h1>资源与开源</h1><p class="lead">查阅源码、获取已发布版本，或把你的问题反馈给项目。</p><div class="home-links">${[
@@ -178,10 +204,10 @@
       )
       .join(
         "",
-      )}</div><section><h2>开源与许可</h2><p>Yan Agent 采用 MIT License。第三方组件、技能与插件各自适用的许可，请查阅仓库中的第三方致谢和对应插件信息。</p></section><aside class="callout">当前开发版本为 <strong>${escape(release.label)}</strong>。可下载的版本以 Releases 中实际发布的安装包为准。</aside></main>`;
+      )}</div><section><h2>开源与许可</h2><p>Yan Agent 采用 MIT License。第三方组件、技能与插件各自适用的许可，请查阅仓库中的第三方致谢和对应插件信息。</p></section><aside class="callout">当前版本为 <strong>${escape(release.label)}</strong>。可下载的版本以 Releases 中实际发布的安装包为准。</aside></main>`;
   }
   const guideIllustrations = {
-    interface: [["help-interface", "Yan Agent 主界面"], ["help-interface-tools", "Yan Agent 对话、输入菜单与右侧浏览器面板"]],
+    interface: [["help-interface", "Yan Agent 主界面"]],
     plugins: [["help-plugins", "Remotion 插件详情与技能开关"]],
     skills: [["help-skills", "Hallmark 技能详情与使用示例"]],
     computer: [["help-computer", "Yan Computer Use 插件与使用示例"], ["help-snapshot", "应用快照设置"]],

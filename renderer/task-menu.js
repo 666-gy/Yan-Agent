@@ -1,6 +1,48 @@
 'use strict';
 
 window.YanTaskMenu = (() => {
+  let forking = false;
+  async function forkChat(session) {
+    if (forking) return;
+    forking = true;
+    try {
+      if (state.activeRuns.has(session.id)) throw new Error('请等待当前任务完成或停止后再创建聊天分支');
+      if (state.currentSession?.id === session.id) await saveCurrentSession();
+      const fork = await api.forkSession(session.id);
+      if (!fork?.id) throw new Error(fork?.error || '创建聊天分支失败');
+      await refreshSessions();
+      switchSidebarNav('tasks');
+      await loadSession(fork.id, { record: fork });
+      toast('已创建聊天分支');
+    } finally { forking = false; }
+  }
+  function renderForkOrigin() {
+    document.querySelectorAll('.chat-fork-origin').forEach(element => element.remove());
+    const session = state.currentSession;
+    const origin = session?.forkOrigin;
+    if (!origin) return;
+    const boundary = origin.messageCount - (Number(session.messagesStart) || 0);
+    if (boundary < 0) return;
+    const elements = [...document.querySelectorAll('#messages > [data-msg-index]')];
+    if (boundary > 0 && elements.length && Number(elements[0].dataset.msgIndex) > boundary) return;
+    const divider = document.createElement('div');
+    divider.className = 'chat-fork-origin';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.title = `返回：${origin.sourceTitle}`;
+    button.innerHTML = `${svg('M6 9v6m0-3h9a3 3 0 0 0 3-3M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm12 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z')}<span>从聊天中继续</span>`;
+    button.addEventListener('click', async () => {
+      try {
+        const source = await api.getSession(origin.sourceId, { messageLimit: 40 });
+        if (!source) { toast('原任务已删除，无法返回'); return; }
+        await loadSession(origin.sourceId, { record: source });
+      } catch (error) { toast(error?.message || '无法返回原任务'); }
+    });
+    divider.append(button);
+    const firstNew = elements.find(element => Number(element.dataset.msgIndex) >= boundary);
+    if (firstNew) firstNew.before(divider);
+    else document.getElementById('messages')?.append(divider);
+  }
   const unreadKey = 'yan-task-unread';
   let unread;
   try { unread = new Set(JSON.parse(localStorage.getItem(unreadKey) || '[]')); }
@@ -11,7 +53,21 @@ window.YanTaskMenu = (() => {
   const arrow = svg('M7 17 17 7M7 7h10v10');
   const chevron = svg('m9 6 6 6-6 6');
   function persistUnread() { localStorage.setItem(unreadKey, JSON.stringify([...unread])); }
-  function markRead(id) { if (unread.delete(id)) persistUnread(); }
+  function markRead(id) {
+    if (!id || !unread.delete(id)) return false;
+    persistUnread();
+    return true;
+  }
+  function markUnread(id) {
+    if (!id || unread.has(id)) return false;
+    unread.add(id);
+    persistUnread();
+    return true;
+  }
+  // A completed task that is not on screen behaves like an unread task. The
+  // caller decides whether the task page is actually focused; this module only
+  // owns the durable unread set so the sidebar and rail dot share one source.
+  function markCompleted(id, focused) { return focused ? markRead(id) : markUnread(id); }
   function closeChild() {
     child?.remove(); child = null;
     childTrigger?.setAttribute('aria-expanded', 'false'); childTrigger = null;
@@ -30,7 +86,7 @@ window.YanTaskMenu = (() => {
   }
   function makeMenu(items, label) {
     const menu = document.createElement('div');
-    menu.className = 'sidebar-context-menu task-context-menu';
+    menu.className = 'sidebar-context-menu task-context-menu rect-hover-menu';
     menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', label);
     for (const item of items) {
       if (item.separator) {
@@ -140,6 +196,11 @@ window.YanTaskMenu = (() => {
       { label: '复制为 Markdown', icon: ICONS.copy, run: () => copyConversation(session.id) }
     ] };
     const exportItem = { label: '导出 JSON', icon: svg('M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4'), run: () => exportJson(session) };
+    const forkItem = {
+      label: '创建聊天分支',
+      icon: svg('M6 9V15C6 13.34315 7.34315 12 9 12H15C16.65685 12 18 10.65685 18 9M6 3C7.65685 3 9 4.34315 9 6C9 7.65685 7.65685 9 6 9C4.34315 9 3 7.65685 3 6C3 4.34315 4.34315 3 6 3ZM18 3C19.6569 3 21 4.34315 21 6C21 7.65685 19.6569 9 18 9C16.3431 9 15 7.65685 15 6C15 4.34315 16.3431 3 18 3ZM6 15C7.65685 15 9 16.3431 9 18C9 19.6569 7.65685 21 6 21C4.34315 21 3 19.6569 3 18C3 16.3431 4.34315 15 6 15Z').replace('<svg ', '<svg data-keyline-icon="git-fork" '),
+      run: () => forkChat(session)
+    };
     const sideChatIcon = svg('M4.57 16.35C2.92 14.88 2 12.97 2 11 2 6.58 6.48 3 12 3s10 3.58 10 8-4.48 8-10 8c-.82 0-1.63-.08-2.42-.24L5 21l-.43-4.65Z');
     const sidebarItems = [
       { label: '重命名', icon: ICONS.edit, run: () => openRenameTaskDialog(session) },
@@ -148,19 +209,22 @@ window.YanTaskMenu = (() => {
         if (unread.has(session.id)) unread.delete(session.id); else unread.add(session.id);
         persistUnread(); renderSessionList();
       } },
-      { label: '归档', icon: window.YanArchiveSettings.icon, run: () => window.YanArchiveSettings.archive([session.id]) },
-      { label: '永久删除', icon: ICONS.trash, run: () => deleteSessionFromSidebar(session.id) },
       { separator: true },
+      forkItem,
       copyItem,
       exportItem,
       { separator: true },
-      openWithItem
+      openWithItem,
+      { separator: true },
+      { label: '归档', icon: window.YanArchiveSettings.icon, run: () => window.YanArchiveSettings.archive([session.id]) },
+      { label: '永久删除', icon: ICONS.trash, run: () => deleteSessionFromSidebar(session.id) }
     ];
-    // 任务栏“更多”菜单：重命名任务 / 置顶任务 ── 复制 / 新建侧边会话 ── 打开方式 / 导出 JSON ── 归档本任务
+    // 任务栏“更多”菜单：重命名任务 / 置顶任务 ── 创建聊天分支 / 复制 / 新建侧边会话 ── 打开方式 / 导出 JSON ── 归档本任务
     const toolbarItems = [
       { label: '重命名任务', icon: ICONS.edit, run: () => openRenameTaskDialog(session) },
       { label: session.pinned ? '取消置顶任务' : '置顶任务', icon: ICONS.pin, run: () => toggleSessionPinnedFromSidebar(session) },
       { separator: true },
+      forkItem,
       copyItem,
       { label: '新建侧边会话', icon: sideChatIcon, run: () => startNewSideChat() },
       { separator: true },
@@ -169,12 +233,23 @@ window.YanTaskMenu = (() => {
       { separator: true },
       { label: '归档本任务', icon: window.YanArchiveSettings.icon, run: () => window.YanArchiveSettings.archive([session.id]) }
     ];
-    root = makeMenu(toolbar ? toolbarItems : sidebarItems, '任务操作');
+    const items = toolbar ? toolbarItems : sidebarItems;
+    root = makeMenu(items, '任务操作');
     if (toolbar) { root.id = 'taskActionsMenu'; root.classList.add('task-toolbar-menu'); }
     document.body.append(root); position(root, anchor);
     anchor.setAttribute('aria-expanded', 'true'); root.querySelector('button')?.focus({ preventScroll: true });
   }
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && root && !event.defaultPrevented) close(); });
   document.getElementById('sessionList')?.addEventListener('scroll', close, true);
-  return Object.freeze({ open, close, closeToolbar: () => { if (root?.id === 'taskActionsMenu') close(); }, isUnread: id => unread.has(id), markRead });
+  return Object.freeze({
+    renderForkOrigin,
+    open,
+    close,
+    closeToolbar: () => { if (root?.id === 'taskActionsMenu') close(); },
+    isUnread: id => unread.has(id),
+    hasUnread: () => unread.size > 0,
+    markRead,
+    markUnread,
+    markCompleted
+  });
 })();

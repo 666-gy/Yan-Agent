@@ -25,11 +25,31 @@ const { _electron } = require('playwright');
     const page = await app.firstWindow();
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(() => window.__YAN_APP_READY__);
+    await page.evaluate(() => window.YanStartupHello?.skip());
+    await page.waitForTimeout(300);
     await page.locator('#settingsBtn').click();
     await page.locator('#settings-tab-usage').click();
     await page.waitForFunction(() => document.querySelector('#tab-usage').getAttribute('aria-busy') === 'false');
     assert.equal(await page.locator('#usageStatus').textContent(), '');
     assert.equal(await page.locator('.usage-card').count(), 2);
+    const usageLayout = await page.evaluate(() => {
+      const rect = s => document.querySelector(s).getBoundingClientRect();
+      const title = document.getElementById('settingsSectionTitle');
+      const icon = title.querySelector('svg');
+      return {
+        headingLeft: rect('.settings-page-heading').left,
+        panelLeft: rect('#tab-usage').left,
+        cardLeft: rect('.usage-card').left,
+        titleText: title.textContent.trim(),
+        iconBefore: title.firstElementChild?.tagName || '',
+        iconWidth: icon ? icon.getBoundingClientRect().width : 0
+      };
+    });
+    assert.ok(Math.abs(usageLayout.headingLeft - usageLayout.panelLeft) <= 1, 'usage heading aligns with the panel');
+    assert.ok(Math.abs(usageLayout.headingLeft - usageLayout.cardLeft) <= 1, 'usage heading aligns with the cards');
+    assert.equal(usageLayout.titleText, '用量显示');
+    assert.equal(usageLayout.iconBefore, 'svg');
+    assert.equal(Math.round(usageLayout.iconWidth), 26);
     assert.equal(await page.locator('#usagePanels script').count(), 0);
     assert.equal(await page.locator('.usage-metrics strong').nth(1).textContent(), '40');
     assert.equal(await page.locator('.usage-metrics strong').nth(2).getAttribute('title'), '268,000');
@@ -44,6 +64,8 @@ const { _electron } = require('playwright');
     fs.mkdirSync('output/playwright/usage', { recursive: true });
     for (const theme of ['dark', 'light']) {
       await page.evaluate(async theme => { state.config = await api.setConfig({ theme }); applyTheme(theme); }, theme);
+      await page.evaluate(() => { document.querySelector('.settings-page-layer .sheet-content').scrollTop = 0; });
+      await page.waitForTimeout(120);
       await page.screenshot({ path: `output/playwright/usage/${theme}.png` });
       await page.locator('.usage-card').nth(1).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `output/playwright/usage/${theme}-models.png` });

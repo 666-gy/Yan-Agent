@@ -32,6 +32,29 @@ require(${JSON.stringify(path.join(root, 'main.js'))});
     assert.match(probe.shows[0].background, /ffffff$/i);
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('/renderer/index.html')).webContents.getBackgroundThrottling()), false);
     const stats = await page.evaluate(() => ({ initMs: performance.getEntriesByName('yan-init')[0].duration, session: state.currentSession.id }));
+    const welcomeControls = page.locator('#yanStartupHello .hello-window-controls');
+    if (await welcomeControls.count()) {
+      const max = welcomeControls.locator('[data-window="maximize"]');
+      const initial = await max.getAttribute('aria-label');
+      await max.click();
+      await page.waitForFunction(label => document.querySelector('.hello-window-controls [data-window="maximize"]').getAttribute('aria-label') !== label, initial);
+      await max.click();
+      await page.waitForFunction(label => document.querySelector('.hello-window-controls [data-window="maximize"]').getAttribute('aria-label') === label, initial);
+      await welcomeControls.locator('[data-window="minimize"]').click();
+      await app.evaluate(async ({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('/renderer/index.html'));
+        for (let i = 0; i < 100 && !win.isMinimized(); i++) await new Promise(r => setTimeout(r, 20));
+        if (!win.isMinimized()) throw new Error('Welcome minimize did not minimize');
+        win.restore();
+      });
+      await welcomeControls.locator('[data-window="close"]').click();
+      await app.evaluate(async ({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('/renderer/index.html'));
+        for (let i = 0; i < 100 && win.isVisible(); i++) await new Promise(r => setTimeout(r, 20));
+        if (win.isVisible()) throw new Error('Welcome close did not hide to tray');
+        win.show();
+      });
+    }
     for (let i = 0; i < 3; i++) {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('/renderer/index.html')).minimize());
       await new Promise(r => setTimeout(r, 120));
@@ -45,6 +68,8 @@ require(${JSON.stringify(path.join(root, 'main.js'))});
       for (let i = 0; i < 100 && !/101011$/i.test(win.getBackgroundColor()); i++) await new Promise(r => setTimeout(r, 10));
     });
     assert.match(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('/renderer/index.html')).getBackgroundColor()), /101011$/i);
+    const welcome = page.locator('#yanStartupHello .hello-enter');
+    if (await welcome.count()) await welcome.click();
     await page.locator('#settingsBtn').click(); await page.locator('#settings-tab-browser').click();
     assert.equal(await page.locator('#browserPreferences > .browser-section-title').allTextContents().then(x => x.includes('密码')), true);
     console.log('First paint ready gate, theme-matched native background, three minimize/restores and password heading passed:', stats);

@@ -22,6 +22,7 @@ window.YanComposerConfig = (() => {
   const sideIcon = keyline('message-plus', '<path d="M4.5686 16.353C2.915 14.8839 2 12.9769 2 11C2 6.5817 6.4772 3 12 3C17.5228 3 22 6.5817 22 11C22 15.4183 17.5228 19 12 19C11.1845 19 10.3721 18.9202 9.5808 18.7624L5 21L4.5686 16.353ZM12 8L12 14M9 11L15 11"/>');
   const reasoningIcon = keyline('lightbulb-on', '<path d="M7.9689 14C7.6605 13.3784 7.5 12.6939 7.5 12C7.5 9.5147 9.5147 7.5 12 7.5C14.4853 7.5 16.5 9.5147 16.5 12C16.5 12.6939 16.3395 13.3784 16.0311 14M10 18L14 18M11 22L13 22M20.5 12L22 12M3.5 12L2 12M12 3.5L12 2M5.9896 5.9896L4.9289 4.9289M18.0104 5.9896L19.0711 4.9289"/>');
 
+  const statusIcon = "<svg data-keyline-icon=\"gauge-high\" xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" class=\"size-12 sm:size-full\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 12C22 17.5228 17.5228 22 12 22C6.4772 22 2 17.5228 2 12C2 6.4772 6.4772 2 12 2C17.5228 2 22 6.4772 22 12ZM12 12L15.5355 8.4645\"/>\n  <path d=\"M14 12C14 13.1046 13.1046 14 12 14C10.8954 14 10 13.1046 10 12C10 10.8954 10.8954 10 12 10C13.1046 10 14 10.8954 14 12ZM7 12C7 12.5523 6.5523 13 6 13C5.4477 13 5 12.5523 5 12C5 11.4477 5.4477 11 6 11C6.5523 11 7 11.4477 7 12ZM8.7574 7.7574C8.7574 8.3096 8.3096 8.7574 7.7574 8.7574C7.2051 8.7574 6.7574 8.3096 6.7574 7.7574C6.7574 7.2051 7.2051 6.7574 7.7574 6.7574C8.3096 6.7574 8.7574 7.2051 8.7574 7.7574ZM13 6C13 6.5523 12.5523 7 12 7C11.4477 7 11 6.5523 11 6C11 5.4477 11.4477 5 12 5C12.5523 5 13 5.4477 13 6ZM19 12C19 12.5523 18.5523 13 18 13C17.4477 13 17 12.5523 17 12C17 11.4477 17.4477 11 18 11C18.5523 11 19 11.4477 19 12Z\" fill=\"currentColor\" stroke=\"none\"/></svg>";
   const sourceIcon = selector => document.querySelector(selector)?.outerHTML || ICONS.file;
   const commands = [
     { id: 'mcp', name: 'MCP', desc: '显示 MCP 服务器状态', icon: () => sourceIcon('#uploadFileAction svg'), route: true },
@@ -30,12 +31,12 @@ window.YanComposerConfig = (() => {
     { id: 'reasoning', name: '推理', desc: () => REASONING_SPEED_UI[getReasoningSpeedMode()].label, icon: () => reasoningIcon, route: true, page: true },
     { id: 'new', name: '新聊天', desc: '在同一工作区中开启空白聊天', icon: () => sourceIcon('#newTaskNavBtn svg') },
     { id: 'model', name: '模型', desc: () => getAgentModelSelection().name || getAgentModelSelection().modelId || '选择模型', icon: () => modelIcon, route: true, page: true },
-    { id: 'goal', name: '目标', desc: '设置要持续追求的目标', icon: () => sourceIcon('#composerAddMainView [data-work-mode="goal"] > svg'), mode: true },
+    { id: 'status', name: '状态', desc: '显示会话信息，上下文用量', icon: () => statusIcon },
     { id: 'draw', name: '绘图', desc: '绘制草图', icon: () => sourceIcon('#drawingAction .drawing-action-icon') },
     { id: 'pin', name: () => state.currentSession?.pinned ? '取消置顶聊天' : '置顶聊天', desc: '将此聊天保留在侧边栏', icon: () => ICONS.pin },
     { id: 'pet', name: '虚拟宠物', desc: () => state.config?.pet?.enabled ? '收起桌面虚拟宠物' : '唤醒桌面虚拟宠物', icon: () => ICONS.user },
     { id: 'plan', name: '计划模式', desc: '开启计划模式', icon: () => sourceIcon('#composerAddMainView [data-work-mode="plan"] > svg'), mode: true },
-    { id: 'memory', name: '记忆', desc: '个性化与记忆设置', icon: () => sourceIcon('#settingsSidebarNav [data-tab="memory"] svg'), route: true },
+    { id: 'memory', name: '记忆', desc: '本会话的记忆设置', icon: () => sourceIcon('#settingsSidebarNav [data-tab="memory"] svg'), route: true },
     { id: 'rename', name: '重命名', desc: '重命名当前聊天', icon: () => ICONS.edit },
     { id: 'skills', name: '技能', desc: '选择本轮使用的技能', icon: () => sourceIcon('#pluginsSkillsTab svg'), route: true, page: true }
   ];
@@ -118,6 +119,7 @@ window.YanComposerConfig = (() => {
     highlight(0);
   }
   function open({ fromSlash = false } = {}) {
+    
     if (menu.classList.contains('hidden')) setAttachmentMenuOpen(true);
     if (menu.classList.contains('hidden')) return;
     window.YanComposerPlugins?.hide();
@@ -135,6 +137,7 @@ window.YanComposerConfig = (() => {
     document.getElementById('composerSkillAction')?.setAttribute('aria-expanded', 'false');
   }
   function refresh(text, caret) {
+    
     const prefix = text.slice(0, caret);
     const matches = prefix.match(/(?:^|\s)([/$])([^\s/$@]*)$/u);
     if (!matches) {
@@ -187,6 +190,7 @@ window.YanComposerConfig = (() => {
       else if (command.model) { await selectTaskModel(command.model); toast(`模型已切换为 ${command.model.name || command.model.id}`); }
       else if (command.reasoning) await selectReasoningSpeed(command.reasoning);
       else if (command.mode) await selectWorkMode(getCurrentWorkMode() === command.id ? 'normal' : command.id);
+      else if (command.id === 'status') setContextRingPanelOpen(true, { refresh: true });
       else if (command.id === 'mcp') { switchSidebarNav('plugins'); document.getElementById('pluginsMcpTab').click(); }
       else if (command.id === 'side') { openRightSidebarTool('interjection'); sideChatElement('composerInput')?.focus({ preventScroll: true }); }
       else if (command.id === 'archive') await window.YanArchiveSettings.archive([state.currentSession.id]);
@@ -194,7 +198,7 @@ window.YanComposerConfig = (() => {
       else if (command.id === 'draw') document.getElementById('drawingAction').click();
       else if (command.id === 'pin') await toggleCurrentTaskPinned();
       else if (command.id === 'pet') updatePetWindowButton(await api.togglePetWindow());
-      else if (command.id === 'memory') openSettings('memory');
+      else if (command.id === 'memory') await window.YanMemorySettings.openSession();
       else if (command.id === 'rename') openRenameTaskDialog();
     } catch (error) { toast(`${value(command.name)}失败：${error.message}`, { error: true }); }
     finally { button.disabled = unavailable(command); button.setAttribute('aria-busy', 'false'); }

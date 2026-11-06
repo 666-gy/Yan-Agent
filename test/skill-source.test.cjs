@@ -11,7 +11,7 @@ const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
 const skillRegistry = require('../lib/skill-registry');
-const skillSource = require('../lib/skill-source');
+const skillSource = require('./fixtures/legacy-skill-source.cjs');
 
 function writeSkill(directory, name, description, body = 'Do the thing.') {
   fs.mkdirSync(directory, { recursive: true });
@@ -231,28 +231,5 @@ test('legacy linked Skills remain outside the catalog and copied packages are pr
     const restored = await skillSource.applyProjectSkillSource({ workspace: fx.workspace, sourcePath: fx.external, mode: 'copy' });
     assert.equal(restored.reused, true);
     assert.equal(restored.entries.length, 2);
-  } finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
-});
-
-test('runtime serializes source changes, preserves current config and forgets every workspace binding', async () => {
-  const fx = makeFixture();
-  try {
-    let cfg = configFor(fx.workspace);
-    const handlers = new Map();
-    const { registerSkillSourceRuntime } = require('../lib/main/skill-source-runtime');
-    registerSkillSourceRuntime({ ipcMain: { handle: (name, fn) => handlers.set(name, fn) }, dialog: {}, state: {},
-      config: { load: () => structuredClone(cfg), save: value => { cfg = value; } }
-    }, { skillsDir: path.join(fx.dataDir, 'skills') });
-    const apply = handlers.get('skills:source-apply');
-    const result = await apply(null, { path: fx.external, mode: 'copy' });
-    assert.equal(result.ok, true);
-    const id = result.state.activeSourceId;
-    await apply(null, { mode: 'official' });
-    fs.renameSync(fx.external, fx.external + '-offline');
-    assert.equal(handlers.get('skills:source-state')().sources[0].available, true);
-    assert.equal((await apply(null, { sourceId: id })).ok, true);
-    cfg.skillSource.active['another-workspace'] = id;
-    await handlers.get('skills:source-forget')(null, id);
-    assert.ok(Object.values(cfg.skillSource.active).every(value => value === 'official'));
   } finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
 });

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 let qwen, kimi, families;
 test.before(async () => {
   qwen = (await import('../lib/qwen-request-shaping.mjs')).shapeQwenRequestBody;

@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { fileURLToPath, pathToFileURL } = require('node:url');
 const gptProfile = require('../lib/gpt-model-profile');
-const { buildOpenCodeConfig, stageGptlProviderModule } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig, stageGptlProviderModule } = require('../lib/kernel-policy');
 
 const appRoot = path.resolve(__dirname, '..');
 const gptlBundle = path.join(appRoot, 'lib', 'opencode-gptl-provider.bundle.mjs');

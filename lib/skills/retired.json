@@ -72,6 +72,17 @@
     "gsap-utils",
     "ui-ux-pro-max",
     "liquid-glass-react",
-    "yan-react-bits"
+    "yan-react-bits",
+    "yan-codegraph",
+    "andrej-karpathy-skills",
+    "codebase-design",
+    "diagnosing-bugs",
+    "ponytail-audit",
+    "ponytail-review",
+    "yan-serena",
+    "awesome-design-md",
+    "yan-uiverse",
+    "protocol-reverse",
+    "officecli"
   ]
 }

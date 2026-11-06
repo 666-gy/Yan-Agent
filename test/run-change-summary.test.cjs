@@ -414,6 +414,52 @@ test('collapses multiple edits into the final per-run file diff', async t => {
   assert.ok(summary.files[0].diff.rows.some(row => row.type === 'add' && row.text.includes('ready')));
 });
 
+test('uses V2 metadata.files for per-file counts and review rows', async t => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-review-v2-files-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const cssBefore = '.button { color: red; }\n.icon { border: 1px solid; }\n';
+  const cssAfter = '.button { color: red; }\n.icon { border: 0; }\n.icon:hover { opacity: .7; }\n';
+  const jsBefore = 'const ready = false;\n';
+  const jsAfter = 'const ready = true;\n';
+  await fs.writeFile(path.join(workspace, 'styles.css'), cssAfter);
+  await fs.writeFile(path.join(workspace, 'app.js'), jsAfter);
+  const messages = [{
+    info: { id: 'assistant-v2', role: 'assistant', time: { created: 500 } },
+    parts: [{
+      type: 'tool', tool: 'edit', state: {
+        status: 'completed',
+        input: { path: path.join(workspace, 'styles.css'), oldString: cssBefore, newString: cssAfter },
+        metadata: {
+          files: [
+            {
+              file: 'styles.css',
+              patch: createTwoFilesPatch('styles.css', 'styles.css', cssBefore, cssAfter),
+              additions: 2, deletions: 1, status: 'modified'
+            },
+            {
+              file: 'app.js',
+              patch: createTwoFilesPatch('app.js', 'app.js', jsBefore, jsAfter),
+              additions: 1, deletions: 1, status: 'modified'
+            }
+          ],
+          yanEnvironment: { mutation: true }
+        }
+      }
+    }]
+  }];
+
+  const diffs = await summarizeOpenCodeToolChanges(workspace, messages);
+  const summary = summarizeOpenCodeDiffs(workspace, diffs, { includeDiff: true });
+  assert.equal(summary.count, 2);
+  assert.equal(summary.additions, 3);
+  assert.equal(summary.deletions, 2);
+  assert.deepEqual(summary.files.map(file => file.path).sort(), ['app.js', 'styles.css']);
+  for (const file of summary.files) {
+    assert.ok(file.additions + file.deletions > 0, `${file.path} keeps non-zero stats`);
+    assert.ok(file.diff.rows.some(row => row.type === 'add'), `${file.path} keeps review rows`);
+  }
+});
+
 test('uses the authoritative tool patch when a live baseline arrives after the edit', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'yan-review-late-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));

@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { combineSystem } = require('../lib/opencode-sidecar');
+const { combineSystem } = require('../lib/kernel-policy');
 
 test('media policy does not make a successful image generation trigger a visual read-back', () => {
   const system = combineSystem({

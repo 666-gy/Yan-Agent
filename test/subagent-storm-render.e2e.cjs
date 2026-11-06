@@ -20,7 +20,8 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-subagent-storm-')
     });
     const page = await application.firstWindow();
     await page.waitForFunction(() => typeof appendMessage === 'function' && typeof state === 'object');
-    await page.locator('#taskBar:not(.hidden)').waitFor();
+    await page.waitForFunction(() => window.__YAN_APP_READY__ === true);
+    await page.evaluate(() => { window.YanStartupHello?.skip(); setEmptyState(false); });
 
     const probe = await page.evaluate(async () => {
       if (!state.currentSession) await newSession();

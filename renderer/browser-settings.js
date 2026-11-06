@@ -6,6 +6,62 @@
   let history = [], range = 'hour', summaryRequest = 0;
   const error = (err, target = $('#browserSettingsError')) => { target.textContent = err?.message || ''; target.hidden = !err; };
   const icon = markup => { const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.innerHTML = markup; return svg; };
+  const acceptancePicker = $('#browserAcceptancePicker');
+  const acceptanceButton = $('#browserAcceptanceButton');
+  const acceptanceMenu = $('#browserAcceptanceMenu');
+  const acceptanceOptions = [...acceptanceMenu.querySelectorAll('[data-acceptance]')];
+  let acceptanceLevel = 'rigorous';
+  function syncAcceptance() {
+    acceptanceLevel = state.config?.browser?.acceptanceLevel === 'quick' ? 'quick' : 'rigorous';
+    for (const option of acceptanceOptions) {
+      const checked = option.dataset.acceptance === acceptanceLevel;
+      option.setAttribute('aria-checked', String(checked));
+      if (checked) {
+        $('#browserAcceptanceLabel').textContent = option.querySelector('.agent-preset-name').textContent;
+        acceptanceButton.querySelector('.agent-preset-icon').innerHTML = option.querySelector('.agent-preset-icon').innerHTML;
+      }
+    }
+  }
+  function closeAcceptance(focus = false) {
+    acceptanceMenu.hidePopover();
+    acceptanceButton.setAttribute('aria-expanded', 'false');
+    if (focus) acceptanceButton.focus();
+  }
+  function openAcceptance() {
+    acceptanceMenu.showPopover();
+    const rect = acceptanceButton.getBoundingClientRect();
+    acceptanceMenu.style.left = `${Math.max(12, Math.min(innerWidth - acceptanceMenu.offsetWidth - 12, rect.right - acceptanceMenu.offsetWidth))}px`;
+    acceptanceMenu.style.top = `${Math.max(12, Math.min(innerHeight - acceptanceMenu.offsetHeight - 12, rect.bottom + 6))}px`;
+    acceptanceButton.setAttribute('aria-expanded', 'true');
+    acceptanceOptions.find(option => option.dataset.acceptance === acceptanceLevel).focus();
+  }
+  acceptanceButton.onclick = () => acceptanceMenu.matches(':popover-open') ? closeAcceptance() : openAcceptance();
+  acceptanceMenu.addEventListener('toggle', () => acceptanceButton.setAttribute('aria-expanded', String(acceptanceMenu.matches(':popover-open'))));
+  for (const option of acceptanceOptions) option.onclick = async () => {
+    closeAcceptance(true);
+    acceptanceButton.disabled = true;
+    try {
+      state.config = await api.setConfig({ browser: { acceptanceLevel: option.dataset.acceptance, acceptanceUpgradeAlways: false } });
+      localStorage.removeItem('yan.browser.acceptanceLevel');
+      error(null);
+    } catch (err) { error(err); }
+    finally { acceptanceButton.disabled = false; syncAcceptance(); }
+  };
+  acceptancePicker.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAcceptance(true); }
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      if (!acceptanceMenu.matches(':popover-open')) { openAcceptance(); return; }
+      const index = acceptanceOptions.indexOf(document.activeElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? acceptanceOptions.length - 1
+        : (index + (event.key === 'ArrowUp' ? -1 : 1) + acceptanceOptions.length) % acceptanceOptions.length;
+      acceptanceOptions[next].focus();
+    }
+  });
+  acceptancePicker.addEventListener('focusout', event => { if (event.relatedTarget && !acceptancePicker.contains(event.relatedTarget)) closeAcceptance(); });
+  settingsOverlay.querySelector('.sheet-content').addEventListener('scroll', () => closeAcceptance());
+  window.addEventListener('resize', () => closeAcceptance());
+  syncAcceptance();
   function showHistory(show) {
     document.querySelector('#browserPasswordsPage').hidden = true;
     $('#browserDownloadsPage').hidden = true;
@@ -16,6 +72,14 @@
     settingsOverlay.querySelector('.sheet-content').scrollTop = 0;
   }
   function sync() {
+    closeAcceptance();
+    const legacyLevel = localStorage.getItem('yan.browser.acceptanceLevel');
+    if (legacyLevel === 'quick' || legacyLevel === 'rigorous') {
+      api.setConfig({ browser: { acceptanceLevel: legacyLevel } }).then(config => {
+        state.config = config; localStorage.removeItem('yan.browser.acceptanceLevel'); syncAcceptance();
+      }).catch(err => error(err));
+    }
+    syncAcceptance();
     const prefs = state.config?.browser || {};
     $('#browserEnabled').checked = prefs.enabled !== false;
     $('#browserAgentExposure').value = prefs.agentExposure || 'always';

@@ -82,5 +82,13 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-dsh-review-e2e-')
     await page.locator('#rightSidebarFocusBtn').click();
 
     assert.ok(reviewFrame, 'review file: frame present');
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; window.dispatchEvent(new Event('yan-appearance-change')); });
+    await page.waitForFunction(() => {
+      const doc = document.querySelector('#yanDshReviewFrame')?.contentDocument;
+      return doc && doc.documentElement.style.getPropertyValue('--dsw-alias-bg-base').trim() === '#ffffff';
+    });
+    assert.equal(await page.locator('#rs-review').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)');
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; window.dispatchEvent(new Event('yan-appearance-change')); });
+
 console.log('PASS review physical clicks normal/fullscreen/after Agent tab');
 }finally{await application?.close();}})().catch(e=>{console.error(e);process.exitCode=1});

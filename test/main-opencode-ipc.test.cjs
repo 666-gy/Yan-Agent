@@ -15,20 +15,25 @@ test('manual compression passes the full runtime config and holds its reservatio
   const config = { api: {} };
   const runtime = { relay: false, provider: { test: {} } };
   const reservations = new Set();
+  const savedSelection = { providerId: 'test', supplierId: 'session-supplier', modelId: 'model' };
+  const selected = { ...savedSelection, modelType: 'text' };
   const starts = [];
   let release;
   const result = new Promise(resolve => { release = resolve; });
   const invoke = register({
     manualContextCompressions: reservations,
-    sessionStore: { isSessionRunActive: () => false, readSessionRecord: async () => ({ openCodeSessionId: 'kernel-session' }) },
+    sessionStore: { isSessionRunActive: () => false, readSessionRecord: async () => ({ openCodeSessionId: 'kernel-session', modelSelection: savedSelection }) },
     withOpenCodeBackgroundLease: fn => fn(),
     configStore: { loadConfig: () => config },
     modelState: { normalizeAgentModelSelection: () => ({ modelType: 'text', providerId: 'test', modelId: 'model' }) },
     skillsRuntime: { getNoWorkspaceAgentDirectory: () => 'C:/isolated-workspace' },
-    mcpRuntimeConfig: { getOpenCodeRuntimeConfig: cfg => { assert.equal(cfg, config); return runtime; } },
+    mcpRuntimeConfig: {
+      resolveRequestedTextSelection: (cfg, wanted) => { assert.equal(cfg, config); assert.equal(wanted, savedSelection); return selected; },
+      getOpenCodeRuntimeConfig: (cfg, options) => { assert.equal(cfg, config); assert.equal(options.selection, selected); return runtime; }
+    },
     ensureOpenCodeSidecar: async cfg => {
       starts.push(cfg);
-      return { compressSession: request => { assert.equal(request.openCodeConfig, runtime); return result; } };
+      return { compressSession: request => { assert.equal(request.openCodeConfig, runtime); assert.equal(request.modelId, selected.modelId); assert.equal(request.providerId, selected.providerId); return result; } };
     }
   });
   const pending = invoke('opencode:compress-session', { yanSessionId: 'sess_test1' });

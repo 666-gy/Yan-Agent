@@ -86,8 +86,7 @@ test('yan analysis mcp answers initialize, tool list and every tool call', async
   const names = list.result.tools.map(tool => tool.name).sort();
   assert.deepEqual(names, [
     'calltree', 'code_outline', 'code_search', 'code_symbol',
-    'crc_probe', 'ghidra_decompile', 'ghidra_status', 'hex_diff', 'hex_dump',
-    'hex_stats', 'history_search', 'pcap_overview', 'repo_map', 'slice'
+    'history_search', 'repo_map', 'slice'
   ].sort());
 
   const map = await server.request('tools/call', { name: 'repo_map', arguments: { root: workspace, budget_tokens: 400 } });
@@ -124,35 +123,15 @@ test('yan analysis mcp answers initialize, tool list and every tool call', async
   assert.equal(historyResult.scanned, 1);
   assert.match(historyResult.hits[0].meta.path, /protocol-notes\.md$/);
 
-  // Round-2 protocol tooling: statistics, differential diff, checksum probe.
-  write(path.join(workspace, 'lab', 'sample-a.bin'), Buffer.from([0xaa, 0x01, 0x10, 0xbb, 0xaa, 0x02, 0x20, 0xcc]));
-  write(path.join(workspace, 'lab', 'sample-b.bin'), Buffer.from([0xaa, 0x09, 0x10, 0xc3, 0xaa, 0x02, 0x20, 0xcc]));
-  const hexStats = await server.request('tools/call', { name: 'hex_stats', arguments: { path: path.join(workspace, 'lab', 'sample-a.bin'), record_length: 4 } });
-  const statsResult = hexStats.result.structuredContent;
-  assert.equal(statsResult.ok, true);
-  assert.equal(statsResult.stride, 4);
-  assert.equal(statsResult.stats[0].classification, 'constant');
-  assert.equal(statsResult.stats[3].classification, 'varying');
-  const inferred = await server.request('tools/call', { name: 'hex_stats', arguments: { path: path.join(workspace, 'lab', 'sample-a.bin') } });
-  assert.equal(inferred.result.structuredContent.stride, 4);
-  const hexDiff = await server.request('tools/call', { name: 'hex_diff', arguments: { left_path: path.join(workspace, 'lab', 'sample-a.bin'), right_path: path.join(workspace, 'lab', 'sample-b.bin') } });
-  const diffResult = hexDiff.result.structuredContent;
-  assert.equal(diffResult.changed, 2);
-  assert.equal(diffResult.firstDivergence, 1);
-  assert.deepEqual(diffResult.changes[0], { offset: 1, left: '0x01', right: '0x09' });
-  const crcProbe = await server.request('tools/call', { name: 'crc_probe', arguments: { path: path.join(workspace, 'lab', 'sample-a.bin'), record_length: 4, trailer_bytes: 1 } });
-  const crcResult = crcProbe.result.structuredContent;
-  assert.equal(crcResult.ok, true);
-  assert.ok(crcResult.candidates.some(candidate => candidate.algorithm === 'sum8'), JSON.stringify(crcResult.candidates));
   const slice = await server.request('tools/call', { name: 'slice', arguments: { path: path.join(workspace, 'src', 'app.js'), symbol: 'boot', variable: 'size' } });
   const sliceResult = slice.result.structuredContent;
   assert.equal(sliceResult.ok, true);
   assert.ok(sliceResult.lines.some(entry => entry.line === 5 && entry.text.includes('const size')));
-  const ghidraStatus = await server.request('tools/call', { name: 'ghidra_status', arguments: {} });
-  const ghidraResult = ghidraStatus.result.structuredContent;
-  // Environment-dependent: Ghidra may or may not be installed on this machine.
-  assert.equal(typeof ghidraResult.ok, 'boolean');
-  assert.ok(ghidraResult.headless || ghidraResult.hint, 'either found or an installation hint');
+  for (const name of ['hex_dump', 'hex_stats', 'hex_diff', 'crc_probe', 'pcap_overview', 'ghidra_status', 'ghidra_decompile']) {
+    const removed = await server.request('tools/call', { name, arguments: {} });
+    assert.equal(removed.result.structuredContent.ok, false);
+    assert.match(removed.result.structuredContent.error, /Unknown tool/);
+  }
 
   const missing = await server.request('tools/call', { name: 'code_symbol', arguments: { path: path.join(workspace, 'src', 'core.js'), name: 'nope' } });
   assert.equal(missing.result.structuredContent.ok, false);
@@ -167,17 +146,9 @@ test('yan analysis mcp answers initialize, tool list and every tool call', async
   }
   const link = path.join(workspace, 'outside');
   fs.symlinkSync(notes, link, process.platform === 'win32' ? 'junction' : 'dir');
-  for (const field of ['left_path', 'right_path']) {
-    for (const outside of [contextPath, path.join(link, path.basename(contextPath))]) {
-      const denied = await server.request('tools/call', { name: 'hex_diff', arguments: {
-        left_path: path.join(workspace, 'lab', 'sample-a.bin'),
-        right_path: path.join(workspace, 'lab', 'sample-b.bin'),
-        [field]: outside
-      } });
-      assert.equal(denied.result.structuredContent.ok, false);
-      assert.match(denied.result.structuredContent.error, /outside the authorized workspace/);
-    }
-  }
+  const outsideSource = await server.request('tools/call', { name: 'code_outline', arguments: { path: path.join(link, path.basename(contextPath)) } });
+  assert.equal(outsideSource.result.structuredContent.ok, false);
+  assert.match(outsideSource.result.structuredContent.error, /outside the authorized workspace/);
   const linked = await server.request('tools/call', { name: 'repo_map', arguments: { root: link } });
   assert.equal(linked.result.structuredContent.ok, false);
   const outsideHistory = await server.request('tools/call', { name: 'history_search', arguments: { query: 'task', notes_dir: notes } });

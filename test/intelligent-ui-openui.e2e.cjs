@@ -6,6 +6,7 @@ const {budget,trip}=require('./fixtures/intelligent-ui-openui.cjs');
 (async()=>{
  let app;const userData=fs.mkdtempSync(path.join(os.tmpdir(),'yan-openui-'));
  try{
+  require('./helpers/intelligent-ui-profile.cjs')(userData);
   app=await _electron.launch({executablePath:require('electron'),args:[process.cwd()],env:{...process.env,YAN_E2E_MODE:'1',YAN_E2E_USER_DATA_DIR:userData}});
   const page=await app.firstWindow();page.on('pageerror',e=>console.log('PAGEERROR',e.message));
   await page.setViewportSize({width:1100,height:900});

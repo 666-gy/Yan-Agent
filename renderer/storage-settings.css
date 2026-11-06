@@ -6,6 +6,12 @@
 .storage-device-heading p { margin: 0; color: var(--text-dim); font-size: 13px; }
 .storage-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 27px 0 15px; }
 .storage-summary strong { font-size: 14px; font-weight: 500; }
+.storage-summary-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.storage-icon-button { width: 28px; height: 32px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.storage-icon-button img { width: 17px; height: 17px; display: block; object-fit: contain; }
+.storage-icon-button:hover { background: transparent; opacity: .72; }
+.storage-icon-button:active { opacity: .55; }
+.storage-icon-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .storage-button { flex-shrink: 0; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--bg-elev2); color: var(--text); padding: 6px 17px; min-height: 32px; font: inherit; font-size: 13px; cursor: pointer; }
 .storage-button:hover:not(:disabled) { background: var(--bg-hover); }
 .storage-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
@@ -16,7 +22,6 @@
 .storage-category { display: flex; align-items: center; gap: 7px; font-size: 12px; white-space: nowrap; }
 .storage-category i { width: 9px; height: 9px; flex-shrink: 0; border-radius: 50%; }
 .storage-size { display: block; padding-left: 16px; margin-top: 8px; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
-.storage-location { display: flex; flex-direction: column; gap: 6px; margin-top: 24px; color: var(--text-dim); font-size: 12px; overflow-wrap: anywhere; }
 .storage-actions { margin-top: 32px; }
 .storage-card { border: 1px solid var(--border); border-radius: 14px; margin-bottom: 24px; overflow: hidden; }
 .storage-action-row { display: flex; align-items: center; justify-content: space-between; padding: 20px; gap: 20px; }

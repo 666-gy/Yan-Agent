@@ -1,7 +1,7 @@
 /* dsh-plugin-notify-sounds compatible presets (nine synthesized sounds + custom). */
 (() => {
-  const SOUND_IDS = ['bell', 'chime', 'ding', 'drop', 'pulse', 'arc', 'coin', 'success', 'knock', 'custom', 'none'];
-  const SOUND_LABELS = { bell: '双音铃', chime: '风铃', ding: '叮', drop: '下落', pulse: '脉冲', arc: '上扬', coin: '硬币', success: '成功', knock: '敲门', custom: '自定义', none: '静音' };
+  const SOUND_IDS = ['bell', 'chime', 'ding', 'drop', 'pulse', 'arc', 'coin', 'success', 'knock', 'ganlu', 'custom', 'none'];
+  const SOUND_LABELS = { bell: '双音铃', chime: '风铃', ding: '叮', drop: '下落', pulse: '脉冲', arc: '上扬', coin: '硬币', success: '成功', knock: '敲门', ganlu: '甘露', custom: '自定义', none: '静音' };
   const PRESETS = {
     bell: [{ f: 987.77, a: 0, d: .55, g: 1 }, { f: 1975.53, a: 0, d: .28, g: .24 }, { f: 1318.51, a: .19, d: .65, g: .9 }, { f: 2637.02, a: .19, d: .3, g: .18 }],
     chime: [{ f: 659.25, a: 0, d: .42, g: .85 }, { f: 830.61, a: .13, d: .46, g: .9 }, { f: 987.77, a: .26, d: .62, g: 1 }],
@@ -14,6 +14,7 @@
     knock: [{ f: 172, a: 0, d: .11, g: .95, to: 148 }, { f: 172, a: .21, d: .13, g: .9, to: 148 }]
   };
   let context; let customSource = ''; let customBuffer;
+  let ganluAudio;
   function engine() { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; return context || (context = new C()); }
   function bytes(base64) { try { const raw = atob(base64); const out = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out.buffer; } catch { return null; } }
   async function setCustom(file) {
@@ -25,6 +26,17 @@
   }
   function play(id, volume = 60, base64 = customSource) {
     if (!id || id === 'none') return;
+    if (id === 'ganlu') {
+      const level = Number(volume);
+      const loud = Math.max(0, Math.min(100, Number.isFinite(level) ? level : 60)) / 100;
+      if (!loud) return;
+      ganluAudio ||= new Audio('assets/sounds/qq-ganlu.mp3');
+      ganluAudio.volume = loud;
+      ganluAudio.currentTime = 0;
+      return ganluAudio.play().catch(error => {
+        console.warn('甘露提示音播放失败', error.message);
+      });
+    }
     const e = engine(); if (!e) return;
     const run = () => {
       const loud = Math.max(0, Math.min(100, Number(volume) || 60)) / 100;

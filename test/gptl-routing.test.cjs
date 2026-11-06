@@ -7,7 +7,7 @@ const { pathToFileURL } = require('node:url');
 const path = require('node:path');
 const { endpointInfo } = require('../lib/api-endpoint');
 const { normalizeConnectionStore, resolveConnectionApiFormat, API_FORMATS } = require('../lib/connection-presets');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 const moduleUrl = pathToFileURL(path.resolve(__dirname, '../lib/opencode-gptl-provider.bundle.mjs')).href;
 
 test('terminal SSE events finish even when a relay leaves HTTP open', { timeout: 4000 }, async () => {

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none">
+  <defs>
+    <linearGradient id="rim" x1="22" y1="12" x2="73" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8C8990"/><stop offset=".48" stop-color="#69666E"/><stop offset="1" stop-color="#77747C"/>
+    </linearGradient>
+    <linearGradient id="face" x1="28" y1="23" x2="65" y2="76" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0EDF2"/><stop offset="1" stop-color="#D4D1D9"/>
+    </linearGradient>
+    <linearGradient id="minute" x1="46" y1="26" x2="51" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF7798"/><stop offset="1" stop-color="#DE4069"/>
+    </linearGradient>
+    <radialGradient id="pin" cx="0" cy="0" r="1" gradientTransform="translate(46 46) rotate(55) scale(8)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BAB6C6"/><stop offset="1" stop-color="#868193"/>
+    </radialGradient>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="1" dy="2" stdDeviation="1.3" flood-color="#46404F" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <circle cx="48" cy="48" r="35" fill="url(#rim)" stroke="#625F67" stroke-width="1.2"/>
+  <circle cx="48" cy="48" r="28.6" fill="#514E58"/>
+  <circle cx="48" cy="49" r="27.2" fill="url(#face)"/>
+  <path d="M23 39A27 27 0 0 1 70 33" stroke="white" stroke-opacity=".45" stroke-width="1.1" stroke-linecap="round"/>
+  <g filter="url(#shadow)" stroke-linecap="round">
+    <path d="M48 48V29" stroke="url(#minute)" stroke-width="5.5"/>
+    <path d="M48 48L35 56" stroke="#51485E" stroke-width="5.5"/>
+    <circle cx="48" cy="48" r="5.2" fill="url(#pin)"/>
+  </g>
+</svg>

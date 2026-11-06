@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: https: file:; media-src 'self' data: blob: https: file:; connect-src 'self' https: http:; frame-src https: http: file: about:;" />
+  <title>浏览器 · Yan Agent</title>
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="browser-window.css" />
+</head>
+<body>
+  <div class="bw-shell">
+    <header class="bw-titlebar">
+      <div class="bw-drag-layer" aria-hidden="true"></div>
+      <div class="bw-titlebar-left">
+        <button id="bwPin" class="bw-title-btn" type="button" title="置顶窗口" aria-label="置顶窗口" aria-pressed="false">
+          <svg class="bw-pin-stroke" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-keyline-icon="pin"><path d="M13.7336 3.293C13.9211 3.1054 14.1754 3.0001 14.4407 3.0001C14.7059 3.0001 14.9602 3.1054 15.1478 3.293L20.707 8.8522C20.8946 9.0398 20.9999 9.2941 20.9999 9.5593C20.9999 9.8246 20.8946 10.0789 20.707 10.2664L19.3319 11.6416C19.1443 11.8292 18.89 11.9345 18.6248 11.9345C18.3595 11.9345 18.1052 11.8292 17.9176 11.6416L16.8814 10.6054L14.5233 12.9635C14.3358 13.151 14.2304 13.4053 14.2304 13.6706C14.2304 13.7692 14.245 13.8672 14.2737 13.9616C14.8295 15.7886 15.1207 17.6858 15.1385 19.5954C15.1386 19.5985 15.1386 19.6017 15.1386 19.6048C15.1386 19.87 15.0332 20.1243 14.8457 20.3119L14.4504 20.7072C14.2629 20.8947 14.0085 21.0001 13.7433 21.0001C13.4781 21.0001 13.2237 20.8947 13.0362 20.7072L3.2928 10.9638C3.1053 10.7763 2.9999 10.5219 2.9999 10.2567C2.9999 9.9915 3.1053 9.7371 3.2928 9.5496L3.6881 9.1543C3.8757 8.9668 4.13 8.8614 4.3952 8.8614C4.3983 8.8614 4.4015 8.8614 4.4046 8.8615C6.3142 8.8793 8.2114 9.1705 10.0384 9.7263C10.1328 9.755 10.2308 9.7696 10.3294 9.7696C10.5947 9.7696 10.849 9.6642 11.0365 9.4767L13.3946 7.1186L12.3584 6.0824C12.1708 5.8948 12.0655 5.6405 12.0655 5.3752C12.0655 5.11 12.1708 4.8557 12.3584 4.6681L13.7336 3.293ZM8.1645 15.8355L3.9804 20.0196"/></svg>
+          <svg class="bw-pin-fill" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" data-keyline-icon="pin"><path d="M13.7336 3.293C13.9211 3.1054 14.1754 3.0001 14.4407 3.0001C14.7059 3.0001 14.9602 3.1054 15.1478 3.293L20.707 8.8522C20.8946 9.0398 20.9999 9.2941 20.9999 9.5593C20.9999 9.8246 20.8946 10.0789 20.707 10.2664L19.3319 11.6416C19.1443 11.8292 18.89 11.9345 18.6248 11.9345C18.3595 11.9345 18.1052 11.8292 17.9176 11.6416L16.8814 10.6054L14.5233 12.9635C14.3358 13.151 14.2304 13.4053 14.2304 13.6706C14.2304 13.7692 14.245 13.8672 14.2737 13.9616C14.8295 15.7886 15.1207 17.6858 15.1385 19.5954C15.1386 19.5985 15.1386 19.6017 15.1386 19.6048C15.1386 19.87 15.0332 20.1243 14.8457 20.3119L14.4504 20.7072C14.2629 20.8947 14.0085 21.0001 13.7433 21.0001C13.4781 21.0001 13.2237 20.8947 13.0362 20.7072L3.2928 10.9638C3.1053 10.7763 2.9999 10.5219 2.9999 10.2567C2.9999 9.9915 3.1053 9.7371 3.2928 9.5496L3.6881 9.1543C3.8757 8.9668 4.13 8.8614 4.3952 8.8614C4.3983 8.8614 4.4015 8.8614 4.4046 8.8615C6.3142 8.8793 8.2114 9.1705 10.0384 9.7263C10.1328 9.755 10.2308 9.7696 10.3294 9.7696C10.5947 9.7696 10.849 9.6642 11.0365 9.4767L13.3946 7.1186L12.3584 6.0824C12.1708 5.8948 12.0655 5.6405 12.0655 5.3752C12.0655 5.11 12.1708 4.8557 12.3584 4.6681L13.7336 3.293Z"/></svg>
+        </button>
+        <button id="bwRestore" class="bw-title-btn" type="button" title="还原到主窗口" aria-label="还原到主窗口">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-keyline-icon="app-window-cursor"><path d="M11 21H6C4.34315 21 3 19.6569 3 18V6C3 4.34315 4.34315 3 6 3H18C19.6569 3 21 4.34315 21 6V11M15.3636 20.7825L13.0152 13.4061C12.9379 13.1634 13.1688 12.9356 13.4104 13.0161L20.7865 15.4719C21.0599 15.5629 21.0736 15.9444 20.8075 16.0548L17.6567 17.362C17.5847 17.3919 17.5265 17.4475 17.4934 17.518L15.9447 20.8204C15.8239 21.0779 15.4499 21.0535 15.3636 20.7825Z"/><path d="M8 7C8 7.5523 7.5523 8 7 8C6.4477 8 6 7.5523 6 7C6 6.4477 6.4477 6 7 6C7.5523 6 8 6.4477 8 7ZM12 7C12 7.5523 11.5523 8 11 8C10.4477 8 10 7.5523 10 7C10 6.4477 10.4477 6 11 6C11.5523 6 12 6.4477 12 7ZM16 7C16 7.5523 15.5523 8 15 8C14.4477 8 14 7.5523 14 7C14 6.4477 14.4477 6 15 6C15.5523 6 16 6.4477 16 7Z" fill="currentColor" stroke="none"/></svg>
+        </button>
+      </div>
+      <div class="bw-tabstrip-shell">
+        <div id="bwTabs" class="bw-tabs" role="tablist" aria-label="浏览器标签页"></div>
+        <button id="bwNewTab" class="bw-newtab" type="button" title="新建标签页" aria-label="新建标签页">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="bw-window-controls">
+        <button id="bwMin" class="bw-win-btn" type="button" title="最小化" aria-label="最小化">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="5.5" width="9" height="1" fill="currentColor"/></svg>
+        </button>
+        <button id="bwMax" class="bw-win-btn" type="button" title="最大化" aria-label="最大化">
+          <svg class="bw-max-icon" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+          <svg class="bw-restore-icon" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><rect x="1.5" y="3.5" width="7" height="7" rx="1.1"/><path d="M3.5 3.5V2.5A1 1 0 0 1 4.5 1.5h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-1"/></svg>
+        </button>
+        <button id="bwClose" class="bw-win-btn bw-win-close" type="button" title="关闭" aria-label="关闭">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="bw-toolbar">
+      <div class="bw-nav" role="group" aria-label="页面导航">
+        <button id="bwBack" class="bw-nav-btn" type="button" title="后退" aria-label="后退">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        </button>
+        <button id="bwForward" class="bw-nav-btn" type="button" title="前进" aria-label="前进">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 5 7 7-7 7"/><path d="M5 12h14"/></svg>
+        </button>
+        <button id="bwReload" class="bw-nav-btn" type="button" title="刷新" aria-label="刷新">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.7883 13.9407C20.929 13.3034 21 12.6527 21 12C21 7.0294 16.9706 3 12 3C9.5169 3 7.1441 4.0259 5.4432 5.8349M4.2857 3L4.7293 6.105C4.7683 6.3784 5.0216 6.5683 5.295 6.5293L8.4 6.0857M3.2117 10.0593C3.071 10.6966 3 11.3473 3 12C3 16.9706 7.0294 21 12 21C14.4831 21 16.8559 19.9741 18.5568 18.1651M19.7143 21L19.2707 17.895C19.2317 17.6216 18.9784 17.4317 18.705 17.4707L15.6 17.9143"/></svg>
+        </button>
+      </div>
+      <div class="bw-address">
+        <input id="bwUrl" type="text" placeholder="搜索或输入网址" aria-label="搜索或输入网址" autocomplete="off" spellcheck="false" />
+        <button id="bwGo" class="bw-go" type="button" title="前往" aria-label="前往">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="bw-zoom-pill" role="group" aria-label="页面缩放">
+        <button type="button" data-bw-zoom="out" title="缩小" aria-label="缩小">−</button>
+        <button type="button" class="bw-zoom-value" data-bw-zoom="reset" title="重置缩放" aria-label="重置缩放"><span id="bwZoomValue">100%</span></button>
+        <button type="button" data-bw-zoom="in" title="放大" aria-label="放大">+</button>
+      </div>
+    </div>
+
+    <main id="bwViewport" class="bw-viewport">
+      <section id="bwStart" class="bw-start" aria-label="新标签页">
+        <div class="bw-start-mark" aria-hidden="true">
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+        </div>
+        <p class="bw-start-hint">在浏览器中输入网址以继续</p>
+      </section>
+      <div id="bwError" class="bw-error hidden" role="alert">
+        <strong>无法打开该页面</strong>
+        <span id="bwErrorText"></span>
+        <button id="bwRetry" type="button">重新加载</button>
+      </div>
+    </main>
+  </div>
+  <script src="browser-window.js"></script>
+</body>
+</html>

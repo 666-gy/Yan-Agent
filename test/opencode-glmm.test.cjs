@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
-const { buildOpenCodeConfig, stageGlmmProviderModule } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig, stageGlmmProviderModule } = require('../lib/kernel-policy');
 const { inferConnectionPreset, resolveConnectionApiFormat } = require('../lib/connection-presets');
 const { resolveReasoningForModel } = require('../lib/reasoning-effort');
 const providerModule = import('../lib/opencode-glmm-provider.mjs');
@@ -273,4 +273,32 @@ test('staging GLMM is content-addressed, self-contained and repairs corrupt cach
     assert.ok(path.basename(directory).startsWith('yan-glmm-stage-'));
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('GLM sends a stable per-conversation prompt_cache_key through GLM shaping', async () => {
+  const { createYanGlmmProvider } = await providerModule;
+  const bodies = [];
+  const provider = createYanGlmmProvider({
+    name: 'glm',
+    apiKey: 'glm-secret',
+    baseURL: 'https://gateway.invalid/v1',
+    fetch: async (_, init) => {
+      bodies.push(JSON.parse(init.body));
+      return Response.json({ id: 'cache-route', created: 1, model: 'glm-5.3',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }] });
+    }
+  });
+  const model = provider('glm-5.3');
+  const run = text => model.doGenerate({
+    prompt: [{ role: 'user', content: [{ type: 'text', text }] }],
+    tools: [{ type: 'function', name: 'write', inputSchema: schema }]
+  });
+  await run('same conversation');
+  await run('same conversation');
+  await run('other conversation');
+  assert.match(bodies[0].prompt_cache_key, /^yan-[0-9a-f]{48}$/u);
+  assert.equal(bodies[1].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.notEqual(bodies[2].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.equal(bodies[0].thinking?.type, 'enabled');
+  assert.doesNotMatch(bodies[0].prompt_cache_key, /glm-secret|same conversation/u);
 });

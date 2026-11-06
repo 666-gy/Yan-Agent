@@ -9,6 +9,24 @@ const { aggregateUsage, tokenUsage, normalizeOptions, readUsageDatabase } = requ
 const now = Date.parse('2026-10-01T15:40:00Z');
 const row = (created, extra = {}) => ({ session_id: 'root', role: 'assistant', model: 'model', provider: 'provider', created: Date.parse(created), tokens: { input: 100, output: 20, reasoning: 5, cache: { read: 200, write: 30 }, total: 355 }, ...extra });
 
+test('V2 statistics read native messages and ignore control events', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-usage-v2-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'v2.db');
+  const db = new DatabaseSync(file);
+  db.exec('CREATE TABLE session_v2(id TEXT, parent_id TEXT); CREATE TABLE session_message(session_id TEXT, time_created INTEGER, type TEXT, data TEXT)');
+  db.exec("INSERT INTO session_v2 VALUES ('v2-root', NULL), ('v2-child', 'v2-root')");
+  const insert = db.prepare('INSERT INTO session_message VALUES (?, ?, ?, ?)');
+  insert.run('v2-child', now - 1, 'assistant', JSON.stringify({ model: { id: 'deepseek', providerID: 'ds' }, tokens: { input: 5, output: 2, reasoning: 3, cache: { read: 10, write: 1 } } }));
+  insert.run('v2-root', now - 1, 'idle', '{}');
+  db.close();
+  const stats = readUsageDatabase([path.join(dir, 'absent.db'), file], {}, now);
+  assert.equal(stats.overview.total, 21);
+  assert.equal(stats.overview.messages, 1);
+  assert.equal(stats.models[0].modelId, 'deepseek');
+  assert.equal(stats.models[0].providerId, 'ds');
+});
+
 test('all token categories counted once; invalid counters never poison totals', () => {
   assert.equal(tokenUsage(row('2026-10-01').tokens).total, 355);
   assert.equal(tokenUsage({ input: -1, output: Infinity, reasoning: '20', cache: { read: NaN, write: 4 } }).total, 4);
@@ -70,4 +88,29 @@ test('read-only SQLite snapshot reflects message updates once and retained archi
   assert.equal(result.models[0].modelId, '<model>');
   assert.equal(db.prepare('SELECT count(*) n FROM message').get().n, 2);
   db.close();
+});
+
+ test('friend scope includes child runs, excludes other friends, supports 90 days and empty scope', () => {
+  const rows = [row('2026-08-01'), row('2026-10-01', { session_id: 'child' }), row('2026-10-01', { session_id: 'other' }), row('2026-06-01')];
+  const sessions = new Map([['child', 'root']]);
+  const scoped = aggregateUsage(rows, sessions, { range: '90d', sessionIds: ['root'] }, now);
+  assert.equal(scoped.overview.total, 710);
+  assert.equal(aggregateUsage(rows, sessions, { range: '7d', sessionIds: ['root'] }, now).overview.total, 355);
+  assert.equal(aggregateUsage(rows, sessions, { sessionIds: [] }, now).overview.total, 0);
+});
+
+
+test('isolated runtime databases count Bot usage once after migration', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-usage-pool-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const {usageDatabaseFiles} = require('../lib/usage-stats');
+  for (const root of [dir,path.join(dir,'opencode-sessions-v2','a'.repeat(64))]) {
+    const file=path.join(root,'opencode-runtime-v2','data','opencode','opencode.db');
+    fs.mkdirSync(path.dirname(file),{recursive:true}); const db=new DatabaseSync(file);
+    db.exec("CREATE TABLE session_v2(id TEXT, parent_id TEXT); CREATE TABLE session_message(session_id TEXT, time_created INTEGER, type TEXT, data TEXT); INSERT INTO session_v2 VALUES ('bot',NULL)");
+    db.prepare('INSERT INTO session_message VALUES (?,?,?,?)').run('bot',now-1,'assistant',JSON.stringify({model:{id:'model',providerID:'provider'},tokens:{input:40,output:20,cache:{read:60}}})); db.close();
+  }
+  const stats=readUsageDatabase(usageDatabaseFiles(dir),{sessionIds:['bot']},now);
+  assert.equal(stats.overview.total,120); assert.equal(stats.models[0].cacheRead,60);
+  assert.equal(readUsageDatabase(usageDatabaseFiles(dir),{sessionIds:['other']},now).models.length,0);
 });

@@ -27,6 +27,19 @@ function setup(t, options = {}) {
   return { service, config, launches, dir, a, b, context: { runId: 'run-a', sessionId: 'session-a', workspace: a, prompt: '用户原始任务' } };
 }
 function request(prompt = 'Investigate bug A', extra = {}) { return { provider: 'codex', request_key: prompt, prompt, ...extra }; }
+
+test('desktop attention interrupts waiting and reports the actionable blocker', { timeout: 2000 }, async () => {
+  const service = Object.create(ExternalAgentService.prototype);
+  service.drain = () => {};
+  service.authorize = () => ({ id: 'draft-blocked', status: 'uncertain', needsAttention: true,
+    error: 'Existing desktop draft', progress: 'Assignment not sent', createdAt: Date.now() });
+  service.now = Date.now;
+  const result = await service.wait({}, ['draft-blocked'], 60000);
+  assert.equal(result.needs_attention, true);
+  assert.equal(result.wait_expired, false);
+  assert.equal(result.jobs[0].error, 'Existing desktop draft');
+  assert.match(result.instruction, /不要继续反复等待/);
+});
 function finish(service, id, status = 'succeeded', output = 'done') {
   const dir = jobDir(service.root, id);
   fs.writeFileSync(path.join(dir, 'result.txt'), output);
@@ -35,12 +48,27 @@ function finish(service, id, status = 'succeeded', output = 'done') {
 
 test('preferences are opt-in; providers and concurrency are normalized', () => {
   assert.equal(normalize().enabled, false);
-  assert.deepEqual(Object.keys(normalize().providers), ['codex', 'claude', 'reasonix']);
+  assert.deepEqual(Object.keys(normalize().providers), ['codex', 'claude']);
   assert.equal(normalize({ maxConcurrent: 100 }).maxConcurrent, 2);
 });
 
+test('removed providers are rejected and legacy jobs never launch', t => {
+  const f = setup(t);
+  assert.deepEqual(Object.keys(normalize({ providers: { reasonix: { enabled: true } } }).providers), ['codex', 'claude']);
+  assert.throws(() => f.service.dispatch(f.context, request('removed', { provider: 'reasonix' })), /仅支持/);
+  assert.throws(() => f.service.historyProviders({ provider: 'reasonix' }), /仅支持/);
+  assert.ok(!JSON.stringify(TOOLS).includes('reasonix'));
+  const id = require('node:crypto').randomUUID();
+  const dir = jobDir(f.service.root, id); fs.mkdirSync(dir);
+  atomic(path.join(dir, 'request.json'), { id, provider: 'reasonix', status: 'queued', createdAt: 1 });
+  atomic(path.join(dir, 'state.json'), { status: 'queued' });
+  f.service.drain();
+  assert.equal(f.service.record(id).status, 'blocked');
+  assert.equal(f.launches.length, 0);
+});
+
 test('collaboration preserves the kernel repetition guard without an invalid config override', () => {
-  const { permissionRulesForRun, combineSystem } = require('../lib/opencode-sidecar');
+  const { permissionRulesForRun, combineSystem } = require('../lib/kernel-policy');
   const rules = permissionRulesForRun({ hasUserWorkspace: true });
   assert.deepEqual(rules.filter(rule => rule.permission === 'doom_loop'), [
     { permission: 'doom_loop', pattern: '*', action: 'ask' }

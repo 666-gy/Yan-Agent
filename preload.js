@@ -1,7 +1,15 @@
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('yan', {
+  nestedWindowSessionId: process.argv.find(arg => arg.startsWith('--yan-nested-session='))?.slice('--yan-nested-session='.length) || '',
+  nestedState: id => ipcRenderer.invoke('nested:state', id),
+  nestedStart: payload => ipcRenderer.invoke('nested:start', payload),
+  nestedPreferences: value => ipcRenderer.invoke('nested:preferences', value),
+  nestedOpen: id => ipcRenderer.invoke('nested:open', id),
+  nestedStop: id => ipcRenderer.invoke('nested:stop', id),
+  onNestedChanged: callback => { const handler = (_event, detail) => callback(detail); ipcRenderer.on('nested:changed', handler); return () => ipcRenderer.removeListener('nested:changed', handler); },
   windowUiReady: () => ipcRenderer.send('win:ui-ready'),
+  onStartupShown: callback => { const handler = () => callback(); ipcRenderer.on('win:startup-shown', handler); return () => ipcRenderer.removeListener('win:startup-shown', handler); },
   onWebuiRequest: cb => { const handler = (_event, request) => cb(request); ipcRenderer.on('webui:request', handler); return () => ipcRenderer.removeListener('webui:request', handler); },
   webuiReply: (id, result) => ipcRenderer.send('webui:reply', { id, result }),
   webuiSnapshots: tasks => ipcRenderer.send('webui:snapshots', tasks),
@@ -12,6 +20,7 @@ contextBridge.exposeInMainWorld('yan', {
   },
   remoteControlInfo: () => ipcRenderer.invoke('remote-control:info'),
   windowBackground: color => ipcRenderer.send('win:background', color),
+  setUnreadTaskCount: count => ipcRenderer.send('win:unread-task-count', count),
   bashList: sessionId => ipcRenderer.invoke('bash:list', sessionId),
   bashControl: params => ipcRenderer.invoke('bash:control', params),
   onBashChanged: cb => { const handler = (_event, job) => cb(job); ipcRenderer.on('bash:changed', handler); return () => ipcRenderer.removeListener('bash:changed', handler); },
@@ -19,6 +28,7 @@ contextBridge.exposeInMainWorld('yan', {
   // Config / API / models / skills
   getConfig: () => ipcRenderer.invoke('config:get'),
   storageStats: () => ipcRenderer.invoke('storage:stats'),
+  storageOpenDir: () => ipcRenderer.invoke('storage:open-dir'),
   storageReview: (options = {}) => ipcRenderer.invoke('storage:review', options),
   getLocalHistorySettings: () => ipcRenderer.invoke('general:local-status'),
   setLocalHistorySetting: (key, enabled) => ipcRenderer.invoke('general:local-update', key, enabled),
@@ -53,7 +63,17 @@ contextBridge.exposeInMainWorld('yan', {
   removeProviderConfig: (providerId, supplierId = '') => ipcRenderer.invoke('provider:remove-config', { providerId, supplierId }),
   browserRecoverNetwork: (url) => ipcRenderer.invoke('browser:recover-network', url),
   browserTabActivity: value => ipcRenderer.invoke('browser:tab-activity', value),
-  browserCapturePage: id => ipcRenderer.invoke('browser:capture-page', id),
+  browserWindowOpen: payload => ipcRenderer.invoke('browser-window:open', payload),
+  browserWindowFocus: tabId => ipcRenderer.invoke('browser-window:focus', tabId),
+  browserWindowRequestRestore: tabId => ipcRenderer.invoke('browser-window:request-restore', tabId),
+  browserWindowCloseTab: tabId => ipcRenderer.invoke('browser-window:close-tab', tabId),
+  onBrowserWindowChanged: callback => {
+    const channels = ['browser-window:closed', 'browser-window:restore', 'browser-window:meta'];
+    const handler = (_event, detail) => callback(detail);
+    channels.forEach(channel => ipcRenderer.on(channel, handler));
+    return () => channels.forEach(channel => ipcRenderer.removeListener(channel, handler));
+  },
+  browserCapturePage: (id, options) => ipcRenderer.invoke('browser:capture-page', id, options),
   browserExportPdf: id => ipcRenderer.invoke('browser:export-pdf', id),
   browserClearData: (type) => ipcRenderer.invoke('browser:clear-data', type),
   browserPasswordList: () => ipcRenderer.invoke('browser:password-list'),
@@ -101,6 +121,7 @@ contextBridge.exposeInMainWorld('yan', {
   listSkills: () => ipcRenderer.invoke('skills:list'),
   getSkillMarket: () => ipcRenderer.invoke('skills:market'),
   getSkillCatalog: () => ipcRenderer.invoke('skills:catalog'),
+  openSkillDocument: (id) => ipcRenderer.invoke('skills:open-document', id),
   openSkillDirectory: (id) => ipcRenderer.invoke('skills:open-directory', id),
   setSkillEnabled: (id, enabled) => ipcRenderer.invoke('skills:set-enabled', { id, enabled }),
   readSkill: (id, taskContext) => ipcRenderer.invoke('skills:read', { id, taskContext }),
@@ -127,7 +148,6 @@ contextBridge.exposeInMainWorld('yan', {
   gitSetRemoteUrl: (workspace, name, url) => ipcRenderer.invoke('git:remote-set-url', { workspace, name, url }),
   gitRemoveRemote: (workspace, name) => ipcRenderer.invoke('git:remote-remove', { workspace, name }),
   gitSetIdentity: (workspace, name, email) => ipcRenderer.invoke('git:identity-set', { workspace, name, email }),
-  gitHistory: (workspace, limit = 40) => ipcRenderer.invoke('git:history', { workspace, limit }),
   gitDiff: (workspace, filePath, staged = false) => ipcRenderer.invoke('git:diff', { workspace, path: filePath, staged }),
   gitReview: (workspace, options = {}) => ipcRenderer.invoke('git:review', { workspace, options }),
   gitReviewDocument: (workspace, filePath, options = {}) => ipcRenderer.invoke('git:review-document', {
@@ -175,7 +195,18 @@ contextBridge.exposeInMainWorld('yan', {
   getSession: (id, options = {}) => ipcRenderer.invoke('session:get', id, options),
   getSessionMessages: (id, offset = 0, limit = 40) => ipcRenderer.invoke('session:messages', { id, offset, limit }),
   createSession: (forceNew = false, workspace = '') => ipcRenderer.invoke('session:create', { forceNew, workspace }),
+  forkSession: id => ipcRenderer.invoke('session:fork', id),
   saveSession: (session) => ipcRenderer.invoke('session:save', session),
+  listScheduledTasks: () => ipcRenderer.invoke('scheduled-tasks:list'),
+  getScheduledTask: (id) => ipcRenderer.invoke('scheduled-tasks:get', id),
+  createScheduledTask: (input) => ipcRenderer.invoke('scheduled-tasks:create', input),
+  updateScheduledTask: (id, patch) => ipcRenderer.invoke('scheduled-tasks:update', { id, patch }),
+  removeScheduledTask: (id) => ipcRenderer.invoke('scheduled-tasks:remove', id),
+  onScheduledTaskRun: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('scheduled-task:run', handler);
+    return () => ipcRenderer.removeListener('scheduled-task:run', handler);
+  },
   exportSessionJson: (payload) => ipcRenderer.invoke('session:export-json', payload),
   renameSession: (id, title) => ipcRenderer.invoke('session:rename', { id, title }),
   setSessionPinned: (id, pinned) => ipcRenderer.invoke('session:set-pinned', { id, pinned }),
@@ -234,10 +265,10 @@ contextBridge.exposeInMainWorld('yan', {
   // Skills
   pluginsList: () => ipcRenderer.invoke('plugins:list'),
   pluginsCatalog: () => ipcRenderer.invoke('plugins:catalog'),
-  pluginsAddMarketplace: payload => ipcRenderer.invoke('plugins:add-marketplace', payload),
-  pluginsMarkets: () => ipcRenderer.invoke('plugins:markets'),
-  pluginsRemoveMarketplace: id => ipcRenderer.invoke('plugins:remove-marketplace', { id }),
+  pluginsOfficialMarketStatus: () => ipcRenderer.invoke('plugins:official-market-status'),
+  pluginsOfficialMarketRefresh: () => ipcRenderer.invoke('plugins:official-market-refresh'),
   pluginsInstallCatalog: id => ipcRenderer.invoke('plugins:install-catalog', { id }),
+  pluginsCheckUpdate: id => ipcRenderer.invoke('plugins:check-update', { id }),
   pluginsConnectAccount: id => ipcRenderer.invoke('plugins:connect-account', { id }),
   pluginsDisconnectAccount: id => ipcRenderer.invoke('plugins:disconnect-account', { id }),
   pluginsUpdate: payload => ipcRenderer.invoke('plugins:update', payload),
@@ -259,16 +290,30 @@ contextBridge.exposeInMainWorld('yan', {
 
   // Files
   chooseOpenDirectory: () => ipcRenderer.invoke('file:choose-directory'),
+  resolveProjectFile: payload => ipcRenderer.invoke('project-files:resolve', payload),
+  listProjectFiles: payload => ipcRenderer.invoke('project-files:list', payload),
+  readProjectFile: payload => ipcRenderer.invoke('project-files:read', payload),
+  projectFileAction: payload => ipcRenderer.invoke('project-files:action', payload),
   getPathForFile: (file) => webUtils.getPathForFile(file),
   inspectAttachmentPath: (filePath) => ipcRenderer.invoke('file:inspect-attachment-path', filePath),
   uploadFile: (name, base64, mimeType) => ipcRenderer.invoke('file:upload', { name, data: base64, mimeType }),
-  getAppSnapshotTarget: () => ipcRenderer.invoke('app-snapshot:target'),
+  uploadFilePath: (name, sourcePath, mimeType, requestId) => ipcRenderer.invoke('file:upload', { name, sourcePath, mimeType, requestId }),
+  beginFileUpload: (name, size, mimeType) => ipcRenderer.invoke('file:upload-begin', { name, size, mimeType }),
+  appendFileUpload: (id, bytes) => ipcRenderer.invoke('file:upload-append', { id, bytes }),
+  finishFileUpload: (id) => ipcRenderer.invoke('file:upload-finish', { id }),
+  cancelFileUpload: (id) => ipcRenderer.invoke('file:upload-cancel', { id }),
+  onUploadProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on('file:upload-progress', listener);
+    return () => ipcRenderer.removeListener('file:upload-progress', listener);
+  },
+  getAppSnapshotTarget: options => ipcRenderer.invoke('app-snapshot:target', options),
   getComputerControlSettings: () => ipcRenderer.invoke('computer-control:settings'),
   updateComputerControlSettings: partial => ipcRenderer.invoke('computer-control:update', partial),
   addComputerControlApp: () => ipcRenderer.invoke('computer-control:add-app'),
   removeComputerControlAllowedApp: id => ipcRenderer.invoke('computer-control:remove-allowed', id),
-  getComputerControlExperience: id => ipcRenderer.invoke('computer-control:experience', id),
   downloadComputerControlExperience: id => ipcRenderer.invoke('computer-control:download-experience', id),
+  getComputerControlExperience: id => ipcRenderer.invoke('computer-control:experience', id),
   recordComputerControlReview: payload => ipcRenderer.invoke('computer-control:record-review', payload),
   deleteComputerControlExperience: id => ipcRenderer.invoke('computer-control:delete-experience', id),
   captureAppSnapshot: handle => ipcRenderer.invoke('app-snapshot:capture', handle),
@@ -292,15 +337,21 @@ contextBridge.exposeInMainWorld('yan', {
   openGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-open', assetId),
   previewImageFile: (filePath) => ipcRenderer.invoke('image:file-open', filePath),
   readImageFile: (filePath) => ipcRenderer.invoke('image:file-read', filePath),
-  downloadImageFile: (filePath) => ipcRenderer.invoke('image:file-download', filePath),
+  downloadImageFile: (filePath, video = false) => ipcRenderer.invoke('image:file-download', filePath, video),
   downloadGeneratedImage: (assetId) => ipcRenderer.invoke('image:generated-download', assetId),
   openImageDefault: (filePath) => ipcRenderer.invoke('image:file-default', filePath),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
+  openWebsite: (url) => ipcRenderer.invoke('app:open-website', url),
 
-  // Text-to-speech (Edge neural voices, read replies aloud)
-  ttsSynthesize: (payload) => ipcRenderer.invoke('tts:synth', payload || {}),
-  ttsListVoices: () => ipcRenderer.invoke('tts:voices'),
-  ttsCancel: (requestId) => ipcRenderer.invoke('tts:cancel', requestId),
+  // Audio output reserved for voice calls; no message read-aloud API.
+  voiceCallOpen: payload => ipcRenderer.invoke('voice-call:open', payload),
+  onVoiceCallSound: cb => { const handler = (_e, sound) => cb(sound); ipcRenderer.on('voice-call:sound', handler); return () => ipcRenderer.removeListener('voice-call:sound', handler); },
+  onVoiceCallWindowState: cb => { const handler = (_e, open) => cb(open); ipcRenderer.on('voice-call:window-state', handler); return () => ipcRenderer.removeListener('voice-call:window-state', handler); },
+  onVoiceCallInterrupt: cb => { const listener = (_e, value) => cb(value); ipcRenderer.on('voice-call:interrupt', listener); return () => ipcRenderer.removeListener('voice-call:interrupt', listener); },
+  onVoiceCallTurn: cb => { const listener = (_e, value) => cb(value); ipcRenderer.on('voice-call:turn', listener); return () => ipcRenderer.removeListener('voice-call:turn', listener); },
+  voiceCallTurnResult: value => ipcRenderer.send('voice-call:turn-result', value),
+  voiceCallSynthesize: payload => ipcRenderer.invoke('voice-call:synthesize', payload || {}),
+  voiceCallCancelSpeech: requestId => ipcRenderer.invoke('voice-call:cancel-speech', requestId),
   voiceStatus: () => ipcRenderer.invoke('voice:status'),
   voiceConfigure: patch => ipcRenderer.invoke('voice:configure', patch),
   voicePrepare: () => ipcRenderer.invoke('voice:prepare'),
@@ -366,11 +417,22 @@ contextBridge.exposeInMainWorld('yan', {
     minimize: () => ipcRenderer.send('win:minimize'),
     toggleMaximize: () => ipcRenderer.send('win:toggle-maximize'),
     close: () => ipcRenderer.send('win:close'),
+    quitApp: () => ipcRenderer.send('win:quit-app'),
     isMaximized: () => ipcRenderer.invoke('win:is-maximized'),
     onMaximizeChange: (cb) => {
       const handler = (_e, v) => cb(v);
       ipcRenderer.on('win:maximize-changed', handler);
       return () => ipcRenderer.removeListener('win:maximize-changed', handler);
+    }
+  },
+
+  // View → 放大 / 缩小: zoom the app frame itself.
+  zoom: {
+    get: () => {
+      try { return webFrame.getZoomFactor(); } catch { return 1; }
+    },
+    set: (factor) => {
+      try { webFrame.setZoomFactor(factor); return webFrame.getZoomFactor(); } catch { return 1; }
     }
   },
 
@@ -422,8 +484,6 @@ contextBridge.exposeInMainWorld('yan', {
   yanCoreDeleteIntent: (intentId, reason = 'user_removed') => ipcRenderer.invoke('yan:core-delete-intent', { intentId, reason }),
   openCodeInterject: (payload) => ipcRenderer.invoke('opencode:interject', payload),
   openCodeCancelInterjection: (payload) => ipcRenderer.invoke('opencode:cancel-interjection', payload),
-  readPlanFile: (targetPath) => ipcRenderer.invoke('plan:read-file', { path: targetPath }),
-  downloadPlanFile: (targetPath) => ipcRenderer.invoke('plan:download-file', { path: targetPath }),
   classifyOpenCodeShellCommand: (command) => ipcRenderer.invoke('opencode:classify-shell-command', command),
   openCodeReplyPermission: (payload) => ipcRenderer.invoke('opencode:permission-reply', payload),
   openCodeReplyQuestion: (payload) => ipcRenderer.invoke('opencode:question-reply', payload),

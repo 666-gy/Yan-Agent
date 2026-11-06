@@ -19,6 +19,20 @@
     }
   },
   {
+    "id": "office",
+    "category": "productivity",
+    "logo": "assets/skill-logos/officecli.png",
+    "source": "https://github.com/iOfficeAI/OfficeCLI",
+    "requirements": "需要 Node.js；按需安装，首次使用时获取 Office CLI，无需 Microsoft Office。",
+    "digest": "c278e3f6a2e8c88398eed39ef0dcadc1c91c3263162da350a2a8ca27485eb1bc",
+    "presentation": {
+      "shortDescription": "创建、编辑和检查 Word、Excel 与 PowerPoint 文档。按需安装，首次使用时准备 Office CLI。",
+      "longDescription": "创建、编辑和检查 Word、Excel 与 PowerPoint 文档。按需安装，首次使用时准备 Office CLI。",
+      "developer": "Yan",
+      "website": "https://github.com/iOfficeAI/OfficeCLI"
+    }
+  },
+  {
     "id": "playwright",
     "category": "developer-tools",
     "logo": "assets/skill-logos/playwright.svg",
@@ -59,5 +73,19 @@
     "repository": "openai/plugins",
     "source": "https://github.com/openai/plugins/tree/1dc195897af4161d039b80d8471ec0a10c9bbc89/plugins/hyperframes",
     "digest": "7cce03814682a6a2576604ce1028a79c6ebf49e8fb15c5d13f98cc4d6ec0a266"
+  },
+  {
+    "id": "serena",
+    "category": "developer-tools",
+    "logo": "assets/skill-logos/github.png",
+    "source": "https://github.com/oraios/serena",
+    "requirements": "需要 uv / uvx 与当前工作区；首次激活时获取 Serena。",
+    "digest": "f29e671cc0ee957ac1799a5f1a7bc18b62fac88eae090ef8e95b7b91da91cc0e",
+    "presentation": {
+      "shortDescription": "通过 LSP 符号、引用、诊断和符号级编辑理解与修改代码。",
+      "longDescription": "通过 LSP 符号、引用、诊断和符号级编辑理解与修改代码。",
+      "developer": "oraios",
+      "website": "https://github.com/oraios/serena"
+    }
   }
 ]

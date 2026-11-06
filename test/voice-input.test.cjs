@@ -10,7 +10,7 @@ const { createVoiceInput, MAX_AUDIO_BYTES } = require('../lib/voice-input');
 const { downloadStreamingAsset } = require('../lib/voice-streaming-models');
 const { normalize } = require('../lib/voice-preferences');
 const root = path.resolve(__dirname, '..');
-const official = () => import('../lib/vendor/dsh-voice/lib/provider.mjs');
+const official = () => import('../lib/vendor/voice-runtime/lib/provider.mjs');
 function wav() {
   const data = Buffer.alloc(32044);
   data.write('RIFF'); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt ', 8);
@@ -19,7 +19,7 @@ function wav() {
   data.write('data', 36); data.writeUInt32LE(data.length - 44, 40); return data;
 }
 test('voice defaults require explicit activation and restrict language/source choices', () => {
-  assert.deepEqual(normalize(), { enabled: false, shortcut: 'Ctrl+Shift+1', language: 'auto', downloadSource: 'auto' });
+  assert.deepEqual(normalize(), { callEnabled: true, enabled: false, shortcut: 'Ctrl+Shift+1', language: 'auto', downloadSource: 'auto' });
   assert.deepEqual(normalize({ enabled: 'true', language: 'unknown', downloadSource: 'http://other.test' }), normalize());
 });
 test('registration defers config migration until runtimes are initialized', async t => {
@@ -34,7 +34,7 @@ test('registration defers config migration until runtimes are initialized', asyn
   assert.equal(reads, 0);
   assert.equal(service.snapshot().ready, false);
   runtimesReady = true;
-  assert.deepEqual((await service.status()).preferences, { enabled: false, shortcut: 'Ctrl+Shift+1', language: 'zh', downloadSource: 'mirror' });
+  assert.deepEqual((await service.status()).preferences, { callEnabled: true, enabled: false, shortcut: 'Ctrl+Shift+1', language: 'zh', downloadSource: 'mirror' });
   await service.status();
   assert.equal(reads, 1);
 });

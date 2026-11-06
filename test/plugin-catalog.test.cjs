@@ -17,7 +17,7 @@ function fixture(t) {
 }
 test('catalog installs verified real workflow packages, keeps resources and persists state', t => {
   const { dataDir, store, catalog } = fixture(t);
-  assert.deepEqual(catalog.list().map(item => item.id), ['yan-computer-use', 'playwright', 'remotion', 'hyperframes', 'figma', 'canva', 'game-studio', 'circleci', 'build-ios-apps', 'build-macos-apps']);
+  assert.deepEqual(catalog.list().map(item => item.id), ['yan-computer-use', 'office', 'playwright', 'remotion', 'hyperframes', 'serena', 'figma', 'canva']);
   assert.throws(() => catalog.install('../example'), /目录/);
   for (const id of ['remotion', 'hyperframes']) {
     const item = catalog.install(id);

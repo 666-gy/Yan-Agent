@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { fileURLToPath, pathToFileURL } = require('node:url');
-const { buildOpenCodeConfig, stageResponsesProviderModule } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig, stageResponsesProviderModule } = require('../lib/kernel-policy');
 
 const appRoot = path.resolve(__dirname, '..');
 const bundlePath = path.join(appRoot, 'lib', 'opencode-openai-responses-provider.bundle.mjs');

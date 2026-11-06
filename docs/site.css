@@ -1174,3 +1174,38 @@ body[data-view="download"] .category-nav { display: none; }
   .download-view .download-card { padding: 18px 20px; }
   .download-view .closing-cta { padding: 20px; }
 }
+
+/* Multi-platform download page (GitHub Release + domestic mirror). */
+.download-view { min-height: calc(100svh - 64px); display: flex; flex-direction: column; }
+.download-view .download-page { width: 100%; margin: 56px auto 40px; }
+.download-view .download-heading { margin-bottom: 36px; text-align: center; }
+.download-view .download-heading h1 { margin-inline: auto; max-width: 900px; font-size: clamp(32px, 4vw, 52px); line-height: 1.25; }
+.download-view .closing-cta { flex: 1; display: grid; place-items: center; margin-top: 0; padding: 24px; }
+.download-view .closing-copy > img { width: 44px; height: 44px; margin-bottom: 12px; }
+.download-view .closing-cta h2 { font-size: clamp(24px, 3vw, 34px); margin-bottom: 18px; }
+.download-view .closing-cta .github-button img { margin-bottom: 0; }
+.download-sources { display: grid; grid-template-columns: 1fr; gap: 32px; align-items: start; }
+.download-source { min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.download-source > header { margin-bottom: 14px; }
+.download-source h2 { margin: 0 0 8px; font-size: 24px; line-height: 1.4; }
+.platform-list { display: grid; grid-template-columns: repeat(4, minmax(0, 250px)); gap: 12px; align-items: start; }
+.platform-pill { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 100%; min-height: 60px; padding: 10px 14px; border: 1px solid var(--color-rule); border-radius: 999px; }
+.platform-logo { flex: 0 0 22px; width: 22px; height: 22px; object-fit: contain; filter: invert(1); }
+.platform-copy { flex: 1; min-width: 0; }
+.platform-copy h3 { margin: 0 0 2px; font: 600 14px/1.3 var(--font-ui); }
+.platform-copy p { margin: 0; color: var(--color-muted); font: 11px/1.4 var(--font-ui); }
+.download-action { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; padding: 7px; }
+.download-action img { width: 18px; height: 18px; filter: invert(1); }
+.download-action:disabled { opacity: .45; cursor: default; }
+.platform-notes { margin-top: 28px; padding: 24px 28px; border-radius: 24px; background: var(--color-surface); border: 1px solid var(--color-rule); }
+.platform-notes h2 { margin: 0 0 14px; font-size: 18px; }
+.platform-notes p { margin: 10px 0; color: var(--color-muted); font: 14px/1.8 var(--font-ui); }
+.platform-notes strong { color: var(--color-ink); font-weight: 500; }
+.platform-notes .text-link { display: inline-block; margin-top: 8px; font-size: 14px; }
+@media (max-width: 1100px) { .platform-list { grid-template-columns: repeat(2, minmax(0, 250px)); } }
+@media (max-width: 640px) {
+  .platform-list { grid-template-columns: minmax(0, 250px); }
+  .platform-pill { gap: 7px; padding: 10px 12px; }
+  .platform-notes { padding: 20px; }
+  .download-view .download-page { margin-top: 24px; margin-bottom: 20px; }
+}

@@ -18,7 +18,7 @@ const {
   deliveryVisualPrompt,
   visualVerdictFromMessages
 } = require('../lib/delivery-policy');
-const { combineTurnPrompt } = require('../lib/opencode-sidecar');
+const { combineTurnPrompt } = require('../lib/kernel-policy');
 
 test('plan mode never receives the delivery contract prompt', () => {
   const planSystem = deliveryQualitySystem({

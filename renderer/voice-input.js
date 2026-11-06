@@ -2,6 +2,8 @@
 (() => {
   const page = document.querySelector('#tab-voice');
   const mic = document.querySelector('#voiceMicButton');
+  const callButton = document.querySelector('#voiceCallButton');
+  const callEnabled = page.querySelector('#voiceCallEnabled');
   const editor = document.querySelector('#composerInput');
   const shortcut = page.querySelector('#voiceShortcut');
   let capturingShortcut = false;
@@ -20,7 +22,7 @@
   mic.append(wave);
   wave.hidden = true;
   const phases = { unprepared: '尚未安装语音模型', checking: '检查模型文件', downloading: '下载模型文件', loading: '加载语音模型', ready: '语音模型已就绪', standby: '语音模型已安装', waking: '唤醒语音模型', cancelling: '正在取消安装', cancelled: '安装已取消', failed: '模型准备失败' };
-  let status, settingsBusy = false, current, generation = 0, pending = '', pendingSession = '', interimTimer = 0;
+  let status, settingsBusy = false, current, generation = 0, interimTimer = 0;
   let revision = 0, lastMarkup = editor.innerHTML, rowWasVisible = false;
   new MutationObserver(() => {
     if (editor.innerHTML !== lastMarkup) { revision++; lastMarkup = editor.innerHTML; }
@@ -28,11 +30,26 @@
   const editingAllowed = () => editor.contentEditable !== 'false' && !promptOptimizationRun;
   const installing = () => ['checking', 'downloading', 'loading', 'cancelling'].includes(status?.preparation?.phase) || status?.streamingPhase === 'downloading';
 
+  function setModelButtonState(button, action, busy) {
+    button.dataset.state = action;
+    button.querySelector('.voice-action-download').toggleAttribute('hidden', action !== 'download');
+    button.querySelector('.voice-action-remove').toggleAttribute('hidden', action !== 'remove');
+    button.querySelector('.voice-action-progress').toggleAttribute('hidden', !busy);
+    button.querySelector('.voice-action-stop').toggleAttribute('hidden', !busy);
+    button.setAttribute('aria-busy', String(busy));
+  }
+
   function render() {
     if (!status) return;
     const rowVisible = !row.classList.contains('hidden');
     if (rowVisible !== rowWasVisible) { rowWasVisible = rowVisible; scheduleComposerGrow(); }
     const prefs = status.preferences, prep = status.preparation;
+    const dailyMode = state.currentSession?.agentPreset === 'daily';
+    callEnabled.checked = prefs.callEnabled !== false;
+    callEnabled.disabled = settingsBusy;
+    callButton.classList.toggle('hidden', !status.ready || prefs.callEnabled === false || !dailyMode);
+    callButton.disabled = !status.ready || prefs.callEnabled === false || !dailyMode;
+    window.YanVoiceCall?.setAvailable(!callButton.disabled);
     shortcut.textContent = capturingShortcut ? '请按下快捷键…' : prefs.shortcut || 'Ctrl+Shift+1';
     shortcut.disabled = settingsBusy;
     language.value = prefs.language; source.value = prefs.downloadSource;
@@ -51,10 +68,7 @@
     else progress.removeAttribute('aria-valuenow');
     progress.setAttribute('aria-valuetext', determinate ? `已下载 ${percent}%` : phases[prep.phase] || '准备中');
     page.querySelector('#voiceModelSize').textContent = `${Math.round(status.modelBytes / 1000000)} MB`;
-    install.dataset.state = action;
-    install.querySelector('.voice-action-download').toggleAttribute('hidden', action !== 'download');
-    install.querySelector('.voice-action-remove').toggleAttribute('hidden', action !== 'remove');
-    install.querySelector('.voice-action-stop').hidden = !busy;
+    setModelButtonState(install, action, busy);
     install.disabled = settingsBusy || !status.supported || prep.phase === 'cancelling' || (action === 'remove' && !!current);
     install.title = busy ? prep.phase === 'cancelling' ? '正在取消安装' : determinate ? `已下载 ${percent}% · 取消安装` : '取消安装'
       : status.installed && status.streamingReady ? '卸载模型' : ['failed', 'cancelled'].includes(prep.phase) || status.streamingPhase === 'failed' ? '重试安装' : '下载并安装';
@@ -95,6 +109,7 @@
     catch (error) { toast(error.message, { error: true }); }
     finally { settingsBusy = false; render(); }
   }
+  callEnabled.addEventListener('change', () => setting('voiceConfigure', { callEnabled: callEnabled.checked }));
   language.addEventListener('change', () => setting('voiceConfigure', { language: language.value }));
   source.addEventListener('change', () => setting('voiceConfigure', { downloadSource: source.value }));
   install.addEventListener('click', () => {
@@ -118,14 +133,12 @@
       void active.recording.dispose().catch(() => {});
       void api.voiceCancel(active.requestId).catch(() => {});
     }
-    pending = ''; pendingSession = '';
     wave.hidden = true;
     row.classList.add('hidden');
     render();
   }
   function feedback(text, transcript = '') {
     row.classList.remove('hidden'); message.textContent = text;
-    pending = transcript; pendingSession = state.currentSession?.id || '';
     wave.hidden = true;
     render();
   }
@@ -208,21 +221,7 @@
       if (active.run === generation) { current = undefined; feedback(error.message || '语音转写失败'); }
     } finally { if (active.run === generation) { current = undefined; render(); } }
   }
-  async function interim(active) {
-    if (current !== active || active.phase !== 'recording') return;
-    try {
-      const audio = await active.recording.snapshot(status.maxDurationSeconds);
-      if (audio.byteLength >= 32044 && active.run === generation) {
-        const result = await call('voiceTranscribe', { requestId: `${active.requestId}-interim-${++active.interim}`, audio });
-        if (current === active && active.run === generation && active.session === state.currentSession?.id && result.text.trim()) {
-          active.interimText = mergePartial(active.interimText, result.text);
-          replaceLiveText(active, active.interimText);
-          message.textContent = active.interimText;
-        }
-      }
-    } catch { /* interim recognition is best effort */ }
-    if (current === active && active.phase === 'recording') interimTimer = setTimeout(() => void interim(active), 1500);
-  }
+  
   async function streamPartial(active) {
     if (current !== active || active.phase !== 'recording') return;
     try {
@@ -270,7 +269,7 @@
     return { permission: '麦克风访问被拒绝，请检查系统麦克风权限', unavailable: '当前设备无法访问麦克风', empty: '录音为空', interrupted: '麦克风连接已中断', cancelled: '录音已取消' }[error.kind] || error.message || '无法开始录音';
   }
   mic.addEventListener('mousedown', event => event.preventDefault());
-  function toggleRecording() { if (!current) void start(); else if (current.phase === 'recording') void finish(); else if (current.phase === 'requesting') cancel(); }
+  function toggleRecording() { if (!current && !status?.ready) { openSettings('voice'); return; } if (!current) void start(); else if (current.phase === 'recording') void finish(); else if (current.phase === 'requesting') cancel(); }
   mic.addEventListener('click', toggleRecording);
   function endShortcutCapture() {
     capturingShortcut = false; shortcut.setAttribute('aria-pressed', 'false'); render();
@@ -304,7 +303,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); });
   window.addEventListener('beforeunload', cancel);
   api.onVoiceChanged(accept);
-  window.YanVoiceInput = { refresh, cancel };
+  window.YanVoiceInput = { refresh, cancel, syncCallAvailability: render };
   window.YanVoiceInput.mergePartial = mergePartial;
   document.addEventListener('DOMContentLoaded', () => { void refresh(); });
 })();

@@ -68,16 +68,29 @@ const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-task-status-'));
       const removedMetrics = host.querySelectorAll('.run-reply-time, .run-throughput, .run-throughput-input').length;
       const cache = host.querySelector('.run-cache-hit')?.textContent || '';
       host.remove();
-      return { waiting, aria, timer, unchanged, waitElapsed, responding, removedMetrics, cache };
+      const actionHost = document.createElement('div');
+      actionHost.innerHTML = buildAssistantActionsHtml({ status: 'done', usage: { input: 100, cacheRead: 400 } }, 1000, Date.now());
+      const actionCopy = actionHost.querySelector('[data-act="copy"]');
+      const actionCache = actionHost.querySelector('.msg-cache-hit');
+      const actionClock = actionHost.querySelector('.msg-response-time');
+      const hoverCache = {
+        text: actionCache?.textContent || '',
+        afterCopy: !!actionCache && actionCopy?.nextElementSibling === actionCache,
+        beforeClock: !!actionCache && actionCache.nextElementSibling === actionClock
+      };
+      return { waiting, aria, timer, unchanged, waitElapsed, responding, removedMetrics, cache, hoverCache };
     });
     assert.equal(header.waiting, 'Yan Agent is starting up');
     assert.equal(header.aria, header.waiting);
     assert.equal(header.timer, null);
     assert.equal(header.unchanged, true);
     assert.equal(header.waitElapsed, 0);
-    assert.equal(header.responding, '已处理');
+    assert.equal(header.responding, '用时');
     assert.equal(header.removedMetrics, 0);
-    assert.match(header.cache, /缓存命中/);
+    assert.equal(header.cache, '', 'run summary no longer carries the cache badge');
+    assert.match(header.hoverCache.text, /缓存命中 80%/);
+    assert.equal(header.hoverCache.afterCopy, true, 'cache badge sits right of copy');
+    assert.equal(header.hoverCache.beforeClock, true, 'cache badge sits left of the time');
     await page.evaluate(() => {
       const message = appendMessage('assistant', '');
       renderAgentRunHeader(message.querySelector('.msg-body'), { status: 'working', startedAt: Date.now() - 5000, timeline: [] });

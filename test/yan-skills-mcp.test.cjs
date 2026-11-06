@@ -10,6 +10,26 @@ const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
 
+test('find_skills searches the local enabled catalog without network and replaces listing', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-local-skill-find-'));
+  const client = createClient(dataDir);
+  t.after(() => { client.child.kill(); fs.rmSync(dataDir, {recursive:true,force:true}); });
+  const dir = path.join(dataDir,'skills','local-needle'); fs.mkdirSync(dir,{recursive:true});
+  fs.writeFileSync(path.join(dir,'SKILL.md'),'---\nname: local-needle\ndescription: uniquevisualneedle workflow\n---\nLocal instructions.');
+  const call = async args => (await client.request('tools/call',{name:'find_skills',arguments:args})).result;
+  const all = await call({}); assert.equal(all.isError,false);
+  assert.ok(all.structuredContent.skills.some(skill=>skill.id==='local-needle'));
+  const found = await call({query:'uniquevisualneedle'});
+  assert.equal(found.structuredContent.count,1);
+  assert.equal(found.structuredContent.skills[0].id,'local-needle');
+  assert.equal((await call({query:'no-such-skill-unique'})).structuredContent.count,0);
+  fs.writeFileSync(path.join(dataDir,'config.json'),JSON.stringify({customSkills:[],disabledSkills:['local-needle']}));
+  assert.equal((await call({query:'uniquevisualneedle'})).structuredContent.count,0);
+  assert.ok(!(await client.request('tools/list')).result.tools.some(tool=>tool.name==='list_installed_skills'));
+});
+
+
+
 function createClient(dataDir, extraEnv = {}) {
   const skillsRoot = path.join(dataDir, 'skills');
   fs.mkdirSync(skillsRoot, { recursive: true });
@@ -87,26 +107,45 @@ test('pet tool exposes functional data binding and installs a widget without art
   assert.ok(webPets.result.structuredContent.pets.some(item => item.id === web.result.structuredContent.pet.id && item.layout === 'web'));
 });
 
+test('read_skill redirects external Skill ids to file tools instead of refusing', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-skills-external-hint-'));
+  const client = createClient(dataDir);
+  t.after(() => {
+    client.child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const result = (await client.request('tools/call', {
+    name: 'read_skill',
+    arguments: { id: 'claude-demo-missing', task_id: 'external-run' }
+  })).result;
+  assert.equal(result.isError, false);
+  assert.equal(result.structuredContent.skipped, true);
+  assert.match(result.structuredContent.error, /read\/glob\/grep/);
+  assert.match(result.structuredContent.skipNotice, /不要因本工具未找到而拒绝/);
+  const tools = await client.request('tools/list');
+  const tool = tools.result.tools.find(item => item.name === 'read_skill');
+  assert.match(tool.description, /cannot load external or other-Agent Skills/);
+});
+
 test('disabling a loaded skill blocks cached instructions and resources until re-enabled', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-skills-disabled-'));
   const client = createClient(dataDir);
   t.after(() => { client.child.kill(); fs.rmSync(dataDir, { recursive: true, force: true }); });
   const call = async (name, extra = {}) => (await client.request('tools/call', {
-    name, arguments: { id: 'yan-uiverse', task_id: 'same-run', ...extra }
+    name, arguments: { id: 'market-anysearch', task_id: 'same-run', ...extra }
   })).result;
   assert.equal((await call('read_skill')).structuredContent.ok, true);
   assert.equal((await call('read_skill_resource', { path: '$instructions' })).structuredContent.ok, true);
-  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [], disabledSkills: ['yan-uiverse', 'awesome-design-md'] }));
-  const list = await call('list_installed_skills');
-  assert.ok(!list.structuredContent.skills.some(skill => skill.id === 'yan-uiverse'));
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [], disabledSkills: ['market-anysearch', 'awesome-design-md'] }));
+  const list = await call('find_skills');
+  assert.ok(!list.structuredContent.skills.some(skill => skill.id === 'market-anysearch'));
   for (const [name, extra] of [
     ['read_skill', {}], ['read_skill_resource', { path: '$instructions' }],
     ['read_skill_resources', { chunks: [{ path: '$instructions', chunk_index: 0 }] }],
-    ['list_design_references', {}], ['read_design_reference', { id: 'apple' }]
   ]) {
     const denied = await call(name, extra);
     assert.equal(denied.isError, true, name);
-    assert.doesNotMatch(JSON.stringify(denied), /Uiverse/);
+    assert.doesNotMatch(JSON.stringify(denied), /AnySearch/);
   }
   fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ customSkills: [], disabledSkills: [] }));
   assert.equal((await call('read_skill')).structuredContent.ok, true);
@@ -144,11 +183,11 @@ test('read_skill returns a structured per-task skip without failing MCP', async 
 
   const available = await client.request('tools/call', {
     name: 'read_skill',
-    arguments: { id: 'yan-uiverse', task_id: 'run-success' }
+    arguments: { id: 'market-anysearch', task_id: 'run-success' }
   });
   assert.equal(available.result.isError, false);
   assert.equal(available.result.structuredContent.ok, true);
-  assert.match(available.result.structuredContent.instructions, /Uiverse/i);
+  assert.match(available.result.structuredContent.instructions, /AnySearch/i);
   assert.equal(available.result.structuredContent.delivery, 'inline');
   assert.equal(available.result.structuredContent.complete, true);
   assert.equal('skillDocument' in available.result.structuredContent, false);
@@ -373,7 +412,7 @@ test('legacy external sources cannot expose Skills to catalog or management MCP 
   fs.mkdirSync(path.join(external, 'example', 'references'), { recursive: true });
   fs.writeFileSync(path.join(external, 'example', 'SKILL.md'), '---\nname: external-example\ndescription: External test\n---\nRead references/detail.md.\n');
   fs.writeFileSync(path.join(external, 'example', 'references', 'detail.md'), 'External resource content');
-  const source = require('../lib/skill-source');
+  const source = require('./fixtures/legacy-skill-source.cjs');
   const registry = require('../lib/skill-registry');
   await source.applyProjectSkillSource({ workspace, sourcePath: external, mode: 'symlink' });
   // The task workspace travels through the harness run context keyed by
@@ -390,7 +429,7 @@ test('legacy external sources cannot expose Skills to catalog or management MCP 
   const read = await client.request('tools/call', { name: 'read_skill', arguments: { id: 'external-example', task_id: 'project-run' } });
   const result = read.result.structuredContent;
   assert.equal(result.ok, false);
-  const listed = await client.request('tools/call', { name: 'list_installed_skills', arguments: { task_id: 'project-run' } });
+  const listed = await client.request('tools/call', { name: 'find_skills', arguments: { task_id: 'project-run' } });
   assert.equal(listed.result.structuredContent.skills.some(skill => skill.id === 'external-example'), false);
   const resource = await client.request('tools/call', { name: 'read_skill_resource', arguments: { id: 'external-example', task_id: 'project-run', path: 'references/detail.md' } });
   assert.equal(resource.result.structuredContent.ok, false);

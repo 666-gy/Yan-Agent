@@ -31,7 +31,7 @@ const ICONS = ${JSON.stringify(icons)};
 const escapeHtml = value => String(value ?? '').replace(/[&<>\"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]));
 const escapeAttr = escapeHtml;
 ${between(js, 'const AGENT_URL_PATTERN', 'function normalizeAgentUrl')}
-${js.match(/const THINKING_BOT_ICON = .*;/)[0]}
+${js.match(/const THINKING_GALAXY_ICON = .*;/)[0]}
 function normalizeAgentImageUrl(value) {
   const url = String(value || '').trim();
   if (/^data:image\\/(?:png|jpe?g|webp|gif);base64,/i.test(url)) return url.length <= 2000000 ? url : '';

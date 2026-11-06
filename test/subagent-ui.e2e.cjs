@@ -19,6 +19,8 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     let page = await app.firstWindow();
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(() => typeof initOpenCodeRunState === 'function' && typeof subagentPanel !== 'undefined' && quickInputHandlerReady);
+    await page.evaluate(() => window.YanStartupHello?.skip());
+    await page.locator('#yanStartupHello').waitFor({ state: 'detached' });
     const sessionId = await page.evaluate(async () => {
       if (!state.currentSession) await newSession();
       const session = state.currentSession;
@@ -45,13 +47,27 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     });
     await page.locator('#rs-subagents.active').waitFor({ state: 'visible' });
     assert.equal(await page.locator('[data-subagent-ui-id]').count(), 1);
+    assert.equal(
+      await page.locator('[data-subagent-ui-id] .subagent-ui-main strong').innerText(),
+      '读取 taste skill 的设计规范',
+      'the root list row names the task'
+    );
+    assert.equal(
+      await page.locator('[data-subagent-ui-id] .subagent-ui-main small').innerText(),
+      'Inspect the assigned files.',
+      'the work overview comes from the task body, not the title'
+    );
     assert.equal(await page.locator('[data-rs-tab="subagents"] .rs-work-tab-label').innerText(), '子代理');
-    assert.equal(await page.locator('[data-subagents-count]').innerText(), '已开启·1');
+    assert.equal(await page.locator('[data-subagents-count]').innerText(), '已开启 · 1');
+    // A delegated child is live activity: its row is visible while the parent
+    // is still working, not only after the run settles.
     assert.equal(await page.locator('#messages .agent-subagent-status').count(), 1);
     assert.equal(await page.locator('#messages .agent-subtask-details, #messages [data-tool="task"]').count(), 0);
-    assert.equal(await page.locator('[data-rs-tab="subagents"] [data-keyline-icon="bot-2"]').count(), 1);
+    assert.equal(await page.locator('[data-rs-tab="subagents"] svg').count(), 1);
     const initial = await page.locator('#messages .agent-subagent-status').innerText();
     assert.equal(initial, 'Explore子代理已开始工作');
+    const childAvatar = await page.locator('[data-subagent-ui-id] [data-agent-avatar]').getAttribute('data-agent-avatar');
+    assert.equal(await page.locator('#messages .agent-subagent-status [data-agent-avatar]').getAttribute('data-agent-avatar'), childAvatar, 'parent and sidebar share the child avatar');
 
     await page.evaluate(() => {
       const ctx = subagentTestCtx;
@@ -67,14 +83,32 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     assert.equal(await page.locator('.subagent-ui-row.is-running').count(), 1);
     await page.locator('[data-subagent-ui-id]').click({ timeout: 5000 });
     await page.locator('[data-subagents-view="detail"]:not(.hidden)').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('[data-subagents-steer], [data-subagents-steer-input]').count(), 0);
     assert.equal(await page.locator('[data-subagents-detail-body] .agent-run-header').count(), 1);
-    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').innerText(), '隐藏工作过程');
-    assert.equal(await page.locator('[data-subagents-detail-body] .tool-activity-group').count(), 1);
-    await page.locator('[data-subagents-detail-body] .agent-work-toggle').click();
-    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').innerText(), '查看工作过程');
-    assert.equal(await page.locator('[data-subagents-detail-body] .tool-activity-group').count(), 1);
-    await page.locator('[data-subagents-detail-body] .agent-work-toggle').click();
-    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').innerText(), '隐藏工作过程');
+    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').count(), 0, 'running children have no work-process button');
+    await page.locator('[data-subagents-detail-body] .agent-work-batch:not([open]) > summary').click();
+    await page.waitForFunction(() => document.querySelector('[data-subagents-detail-body] .agent-work-history .tool-step'));
+    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-history .tool-step').count(), 1);
+    await page.evaluate(() => { window.openChildBatch = document.querySelector('[data-subagents-detail-body] .agent-work-batch[open]'); });
+    async function streamChildUpdates() {
+      for (let i = 0; i < 5; i++) {
+        await page.evaluate(i => {
+          applyOpenCodeEvent(subagentTestCtx, subagentTestChild('a', { type: 'message.part.updated', properties: { part: {
+            id: 'child-text', messageID: 'child-message', type: 'text', text: `已读取 taste skill，核对进度 ${i}。`, time: { end: Date.now() }
+          } } }));
+          renderOpenCodeRunNow(subagentTestCtx);
+          renderSubagentUi();
+        }, i);
+      }
+    }
+    await streamChildUpdates();
+    assert.equal(await page.evaluate(() => openChildBatch.isConnected && openChildBatch.open), true, 'stream updates preserve the expanded batch and its DOM');
+    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').count(), 0);
+    await page.locator('[data-subagents-detail-body] .agent-work-batch[open] > summary').click();
+    await streamChildUpdates();
+    assert.equal(await page.evaluate(() => openChildBatch.isConnected && !openChildBatch.open), true, 'stream updates also preserve a manually collapsed batch');
+    await page.locator('[data-subagents-detail-body] .agent-work-batch:not([open]) > summary').click();
+    await page.waitForFunction(() => document.querySelector('[data-subagents-detail-body] .agent-work-history .tool-step'));
     assert.ok((await page.locator('[data-subagents-detail-body]').innerText()).includes('思考'));
     await page.screenshot({ path: path.join(output, 'subagent-detail-dark.png') });
     await page.locator('[data-subagents-back]').click();
@@ -93,8 +127,13 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     });
     assert.deepEqual(parallel, ['started', 'updated', 'completed']);
     assert.equal(await page.locator('.subagent-ui-row.is-completed').count(), 2);
+    await page.locator('[data-subagent-ui-id]').first().click();
+    await page.locator('[data-subagents-view="detail"]:not(.hidden)').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').innerText(), '查看工作过程', 'the toggle appears once the child finishes');
+    assert.equal(await page.locator('[data-subagents-steer], [data-subagents-steer-input]').count(), 0);
+    await page.locator('[data-subagents-back]').click();
     assert.equal(await page.locator('[data-rs-tab="subagents"] .rs-work-tab-label').innerText(), '子代理');
-    assert.equal(await page.locator('[data-subagents-count]').innerText(), '已开启·2');
+    assert.equal(await page.locator('[data-subagents-count]').innerText(), '已开启 · 0');
     await page.screenshot({ path: path.join(output, 'subagent-root-dark.png') });
 
     await page.evaluate(async () => {
@@ -114,6 +153,12 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
       'a collapsed summary keeps subagent status inside the work process'
     );
     await page.locator('#messages .agent-work-toggle').first().click();
+    const avatarMatches = await page.evaluate(() => [...document.querySelectorAll('#messages .agent-subagent-status')].every(row => {
+      const run = state.currentSession.messages.find(m => m.agentRun?.subagents?.length).agentRun;
+      const record = run.subagents.find(record => record.id === row.dataset.subagentId);
+      return row.querySelector('[data-agent-avatar]')?.dataset.agentAvatar === String(YanSubagentPanel.avatarIndex(record));
+    }));
+    assert.equal(avatarMatches, true, 'saved parent milestones retain each child avatar');
     assert.ok(
       await page.locator('#messages .agent-subagent-status').count() >= 1,
       'expanding the work process reveals the subagent status'
@@ -132,12 +177,16 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
     page = await app.firstWindow();
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(() => typeof subagentPanel !== 'undefined' && quickInputHandlerReady);
+    await page.evaluate(() => window.YanStartupHello?.skip());
+    await page.locator('#yanStartupHello').waitFor({ state: 'detached' });
     await page.evaluate(async id => { await loadSession(id); subagentPanel.open(); }, sessionId);
     assert.equal(await page.locator('.subagent-ui-row.is-completed').count(), 2, 'records survive a full Electron restart');
     await page.locator('[data-subagent-ui-id]').first().click();
     assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-toggle').innerText(), '查看工作过程');
     await page.locator('[data-subagents-detail-body] .agent-work-toggle').click();
-    assert.equal(await page.locator('[data-subagents-detail-body] .tool-activity-group').count(), 1);
+    await page.locator('[data-subagents-detail-body] .agent-work-batch:not([open]) > summary').click();
+    await page.waitForFunction(() => document.querySelector('[data-subagents-detail-body] .agent-work-history .tool-step'));
+    assert.equal(await page.locator('[data-subagents-detail-body] .agent-work-history .tool-step').count(), 1);
     assert.ok((await page.locator('[data-subagents-detail-body]').innerText()).includes('taste skill'));
     await page.evaluate(() => {
       document.documentElement.dataset.theme = 'light';
@@ -154,11 +203,11 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
       const controller = YanSubagentPanel.create({ getSessionId: () => 'perf', getRuns: () => [run],
         renderNative: () => { renders++; }, renderActions: () => {}, openSidebar: () => {}, escapeHtml });
       controller.open('perf-child');
-      const colors = {};
+      const avatars = {};
       for (const role of ['mapper', 'tracer', 'reverser']) {
         record.role = role;
         controller.render();
-        colors[role] = getComputedStyle(document.querySelector('[data-subagents-detail-icon]')).color;
+        avatars[role] = document.querySelector('[data-subagents-detail-icon] [data-agent-avatar]').dataset.agentAvatar;
       }
       const unchanged = renders;
       for (let i = 0; i < 20; i++) controller.render();
@@ -175,9 +224,9 @@ const launch = () => electron.launch({ executablePath: require('electron'), args
       const hiddenStart = renders;
       record.outputRevision++;
       controller.render(); controller.schedule();
-      return { colors, idleRenders, burstRenders, hiddenRenders: renders - hiddenStart };
+      return { avatars, idleRenders, burstRenders, hiddenRenders: renders - hiddenStart };
     });
-    assert.deepEqual(performanceCheck.colors, { mapper: 'rgb(133, 149, 47)', tracer: 'rgb(22, 159, 181)', reverser: 'rgb(212, 85, 152)' });
+    assert.equal(new Set(Object.values(performanceCheck.avatars)).size, 1, 'role changes do not change a child avatar');
     assert.equal(performanceCheck.idleRenders, 0);
     assert.ok(performanceCheck.burstRenders > 0 && performanceCheck.burstRenders <= 5, JSON.stringify(performanceCheck));
     assert.equal(performanceCheck.hiddenRenders, 0);

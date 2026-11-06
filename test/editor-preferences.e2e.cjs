@@ -13,9 +13,7 @@ await page.locator('#generalBlankWorkspaceChange').click();
 await page.waitForFunction(()=>document.querySelector('#generalBlankWorkspacePath').title===state.config.general.blankWorkspace);
 const picks=await app.evaluate(()=>global.pickedOptions);assert.equal(picks[0].defaultPath,previous);assert.equal(picks[1].defaultPath,selected);
 const directory=await page.evaluate(async()=>{const session=await api.createSession(true,'');return api.getSessionDirectory(session.id)});assert.equal(path.dirname(directory),selected);assert.equal(fs.statSync(directory).isDirectory(),true);
-assert.equal(await page.locator('#generalContextUsage').isChecked(),false);
-await page.locator('#generalContextUsage').check();await page.waitForFunction(()=>state.config.general.showContextUsage===true);
-assert.equal(await page.evaluate(()=>document.getElementById('contextRingWrap').classList.contains('hidden')),false);
+assert.equal(await page.locator('#generalContextUsage').count(),0);
 await page.locator('[data-follow-up-mode="guide"]').click();await page.waitForFunction(()=>state.config.general.followUpMode==='guide');
 assert.equal(await page.evaluate(async()=>(await api.getConfig()).general.followUpMode),'guide');
 await page.locator('#appRail [data-nav="tasks"]').click();
@@ -36,5 +34,5 @@ const queued=await page.evaluate(async()=>{
 await page.locator('#settingsBtn').click();
 
 await page.setViewportSize({width:1280,height:1000});fs.mkdirSync(path.join(root,'output/playwright/editor-settings'),{recursive:true});await page.screenshot({path:path.join(root,'output/playwright/editor-settings/general.png')});assert.deepEqual(errors,[]);
-console.log('PASS folder picker current path, persistence, context toggle, guide dispatch, editor UI');
+console.log('PASS folder picker current path, persistence, guide dispatch, editor UI');
 }finally{await app?.close()}})().catch(e=>{console.error(e);process.exitCode=1});

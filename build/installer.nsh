@@ -241,13 +241,6 @@
     Call un.YanRemoveDataPath
     Push "$LOCALAPPDATA\yan-agent-updater"
     Call un.YanRemoveDataPath
-    Push "$TEMP\YanAgent"
-    Call un.YanRemoveDataPath
-    Push "$TEMP\yan-agent-update"
-    Call un.YanRemoveDataPath
-    Push "$TEMP\yan-dsh-code-review"
-    Call un.YanRemoveDataPath
-    Delete "$TEMP\yan-agent-yanxi-code-workspace.json"
 
     ${If} $YanClearDataFailed == "1"
       SetErrorLevel 1

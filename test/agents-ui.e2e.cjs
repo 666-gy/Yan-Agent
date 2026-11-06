@@ -6,9 +6,10 @@ const path = require('node:path');
 const { _electron } = require('playwright');
 const { resolveSelectedPlugins, selectedPluginContext } = require('../lib/plugins/selection');
 const root = path.resolve(__dirname, '..');
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-agents-ui-'));
+fs.mkdirSync(path.join(root, '.yanagent'), { recursive: true });
+const userData = fs.mkdtempSync(path.join(root, '.yanagent', 'agents-ui-'));
 const workspace = path.join(userData, 'workspace A'); fs.mkdirSync(workspace);
-const output = path.join(root, 'output/playwright/agents'); fs.mkdirSync(output, { recursive: true });
+const output = path.join(root, '.yanagent/evidence/agents'); fs.mkdirSync(output, { recursive: true });
 (async () => {
   let app;
   try {
@@ -27,6 +28,8 @@ const output = path.join(root, 'output/playwright/agents'); fs.mkdirSync(output,
     });
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.waitForFunction(() => window.__YAN_APP_READY__ && window.YanAgentsPage);
+    // First-run handwriting overlay would otherwise intercept every click.
+    await page.evaluate(() => window.YanStartupHello?.skip?.());
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(async workspace => {
       const session = await api.createSession(true, workspace); await refreshSessions(); await loadSession(session.id);
@@ -38,21 +41,21 @@ const output = path.join(root, 'output/playwright/agents'); fs.mkdirSync(output,
     assert.equal(await page.locator('#pageAgents h2').textContent(), '智能体');
     assert.equal(await page.locator('#pageAgents .page-sub').textContent(), '委派任务，读取其他智能体的本机历史会话');
     assert.equal(await page.locator('#pluginsAgentsTab [data-keyline-icon="command"]').count(), 1);
-    assert.equal(await page.locator('#agentMarketGrid .skill-card').count(), 3);
+    assert.equal(await page.locator('#agentMarketGrid .skill-card').count(), 2);
     assert.equal(await page.locator('.agent-card-state').count(), 0);
     assert.doesNotMatch(await page.locator('#agentMarketGrid').textContent(), /已关闭|已启用|派发给/);
-    for (const provider of ['codex', 'claude', 'reasonix']) {
+    for (const provider of ['codex', 'claude']) {
       assert.equal(await page.locator(`article[data-agent-open="external-agent:${provider}"] img`).getAttribute('src'), `assets/provider-logos/${provider}.svg`);
     }
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => applyTheme(theme), theme);
       await page.locator('#pagePlugins').screenshot({ path: path.join(output, `cards-${theme}.png`) });
     }
-    for (const provider of ['codex', 'claude', 'reasonix']) {
+    for (const provider of ['codex', 'claude']) {
       await page.locator(`article[data-agent-open="external-agent:${provider}"]`).click();
       assert.equal(await page.locator('#agentDetailContent .plugin-info-section').count(), 1);
       assert.deepEqual(await page.locator('#agentDetailContent dt').allTextContents(), ['开发者', '版本', '网站']);
-      assert.equal(await page.locator('#agentDetailContent dd').first().textContent(), ({codex: 'OpenAI', claude: 'Anthropic', reasonix: 'esengine'})[provider]);
+      assert.equal(await page.locator('#agentDetailContent dd').first().textContent(), ({codex: 'OpenAI', claude: 'Anthropic'})[provider]);
       const summary = await page.locator('#agentDetailContent .plugin-detail-subtitle').textContent();
       assert.equal(summary, await page.locator(`article[data-agent-open="external-agent:${provider}"] .skill-card-desc`).textContent());
       assert.ok((await page.locator('#agentDetailContent .plugin-detail-description').textContent()).length > summary.length);
@@ -71,7 +74,7 @@ const output = path.join(root, 'output/playwright/agents'); fs.mkdirSync(output,
       }
       await page.locator('[data-agent-action="back"]').click();
     }
-    assert.deepEqual(await app.evaluate(() => global.__agentWebsiteVisits), ['https://openai.com/codex/', 'https://claude.com/', 'https://github.com/esengine/DeepSeek-Reasonix']);
+    assert.deepEqual(await app.evaluate(() => global.__agentWebsiteVisits), ['https://openai.com/codex/', 'https://claude.com/']);
     await page.locator('article[data-agent-open="external-agent:codex"]').click();
     const prompt = await page.locator('#agentDetailContent .plugin-example-prompt').first().textContent();
     await page.locator('[data-agent-action="example"]').first().click();
@@ -129,6 +132,10 @@ const output = path.join(root, 'output/playwright/agents'); fs.mkdirSync(output,
     await page.evaluate(() => switchSidebarNav('agents'));
     await page.locator('#sidebarToggle').click();
     await page.setViewportSize({ width: 414, height: 900 });
+    await page.waitForFunction(() => {
+      const el = document.querySelector('#agentDetailContent');
+      return el.clientWidth > 0 && el.scrollWidth <= el.clientWidth;
+    });
     assert.equal(await page.locator('#agentDetailContent').evaluate(el => el.scrollWidth > el.clientWidth), false);
     await page.locator('#pagePlugins').screenshot({ path: path.join(output, 'narrow.png') });
     assert.deepEqual(errors, []);

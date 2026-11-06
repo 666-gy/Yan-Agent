@@ -17,14 +17,14 @@ test('disabled suites stay manageable but disappear from model discovery, aliase
   const child = all.find(skill => skill.parentSkillId === 'hyperframes');
   assert.ok(child);
   assert.equal(registry.readSkill(child.id, '', cfg, appRoot, dataDir).ok, true);
-  cfg.disabledSkills = ['hyperframes', 'yan-uiverse'];
-  for (const id of ['hyperframes', child.id, `hyperframes/${child.id}`, child.name, `skill: ${child.name}`, child.name.replace(/\s+/g, '-'), 'yan-uiverse', ...child.aliases]) {
+  cfg.disabledSkills = ['hyperframes', 'code-simplifier'];
+  for (const id of ['hyperframes', child.id, `hyperframes/${child.id}`, child.name, `skill: ${child.name}`, child.name.replace(/\s+/g, '-'), 'code-simplifier', ...child.aliases]) {
     assert.equal(registry.isSkillEnabled(id, cfg, appRoot, dataDir), false, id);
     assert.equal(registry.readSkill(id, '', cfg, appRoot, dataDir).ok, false, id);
     assert.equal(registry.resolveSkill(id, cfg, appRoot, dataDir), null, id);
   }
-  assert.ok(!registry.getMergedSkillsForList(cfg, appRoot, dataDir).some(skill => ['hyperframes', 'yan-uiverse'].includes(skill.id)));
-  assert.doesNotMatch(registry.formatCatalogForPrompt(cfg, appRoot, dataDir), /HyperFrames|Uiverse/);
+  assert.ok(!registry.getMergedSkillsForList(cfg, appRoot, dataDir).some(skill => ['hyperframes', 'code-simplifier'].includes(skill.id)));
+  assert.doesNotMatch(registry.formatCatalogForPrompt(cfg, appRoot, dataDir), /HyperFrames|Code Simplifier/);
   assert.ok(!registry.suggestSkills(child.name, cfg, appRoot, dataDir).some(skill => skill.id === child.id));
   const disabledCatalog = registry.getAllSkillsForCatalog(cfg, appRoot, dataDir);
   assert.equal(disabledCatalog.length, all.length);
@@ -55,15 +55,15 @@ test('toggle persists separately from bundled bootstrap and excludes selected an
     mcpRuntimeConfig: { selectedSkillIds: skills => new Set(skills.map(s => s.id || s)), unmetSkillRequirements: () => [] }
   });
   const cfg = store.loadConfig(); runtime.ensureBundledAgentSkills(cfg); store.saveConfig(cfg);
-  for (const id of ['yan-uiverse', 'mcp-puller', 'yan-serena']) {
+  for (const id of ['code-simplifier', 'mcp-puller', 'hallmark']) {
     assert.equal(handlers.get('skills:set-enabled')(null, { id, enabled: false }).ok, true);
   }
   assert.equal(handlers.get('skills:set-enabled')(null, { id: '../../missing', enabled: true }).ok, false);
-  assert.equal(handlers.get('skills:set-enabled')(null, { id: 'yan-uiverse', enabled: 'false' }).ok, false);
+  assert.equal(handlers.get('skills:set-enabled')(null, { id: 'code-simplifier', enabled: 'false' }).ok, false);
   const persisted = store.loadConfig();
-  assert.deepEqual(persisted.disabledSkills, ['yan-uiverse', 'mcp-puller', 'yan-serena']);
-  assert.deepEqual(await runtime.selectedRunSkills([{ id: 'yan-uiverse' }, 'yan-serena'], persisted, { workspace: dataDir, workMode: 'goal' }), { skills: [], skippedSkills: [] });
-  assert.deepEqual(await runtime.selectedRunSkills(['yan-serena'], persisted, {}), { skills: [], skippedSkills: [] });
-  assert.equal(handlers.get('skills:set-enabled')(null, { id: 'yan-uiverse', enabled: true }).enabled, true);
-  assert.equal(registry.readSkill('yan-uiverse', '', store.loadConfig(), appRoot, dataDir).ok, true);
+  assert.deepEqual(persisted.disabledSkills, ['code-simplifier', 'mcp-puller', 'hallmark']);
+  assert.deepEqual(await runtime.selectedRunSkills([{ id: 'code-simplifier' }, 'hallmark'], persisted, { workspace: dataDir, workMode: 'goal' }), { skills: [], skippedSkills: [] });
+  assert.deepEqual(await runtime.selectedRunSkills(['hallmark'], persisted, {}), { skills: [], skippedSkills: [] });
+  assert.equal(handlers.get('skills:set-enabled')(null, { id: 'code-simplifier', enabled: true }).enabled, true);
+  assert.equal(registry.readSkill('code-simplifier', '', store.loadConfig(), appRoot, dataDir).ok, true);
 });

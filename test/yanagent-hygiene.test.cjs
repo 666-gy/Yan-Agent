@@ -11,7 +11,7 @@ const { execFileSync } = require('node:child_process');
 const test = require('node:test');
 
 const appRoot = path.resolve(__dirname, '..');
-const sidecarSrc = fs.readFileSync(path.join(appRoot, 'lib', 'opencode-sidecar.js'), 'utf8');
+const sidecarSrc = ['prompts', 'config'].map(name => fs.readFileSync(path.join(appRoot, 'lib', 'kernel-policy', `${name}.js`), 'utf8')).join('\n');
 const deliverySrc = fs.readFileSync(path.join(appRoot, 'lib', 'delivery-policy.js'), 'utf8');
 const { pruneYanagentEvidence, EVIDENCE_TTL_MS } = require('../lib/yanagent-evidence');
 const { registerYanagentStore } = require('../lib/main/yanagent-store');

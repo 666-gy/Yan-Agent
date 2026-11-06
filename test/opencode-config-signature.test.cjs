@@ -20,6 +20,7 @@ const stubDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-main-stub-'));
 const electronStub = {
   app: {
     getPath: () => stubDataDir,
+    setPath: () => {},
     getName: () => 'yan-agent',
     getVersion: () => '1.4.0',
     getLocale: () => 'zh',
@@ -76,7 +77,7 @@ try {
   Module._load = originalLoad;
 }
 
-const sidecar = require(path.join(appRoot, 'lib', 'opencode-sidecar.js'));
+const sidecar = require(path.join(appRoot, 'lib', 'kernel-policy.js'));
 
 function signatureOf(config) {
   return crypto.createHash('sha256').update(JSON.stringify(config)).digest('hex');
@@ -123,13 +124,13 @@ test('real builders: blank task and workspace task share one signature', () => {
 });
 
 test('real builders: a configured MCP set keeps the prewarm and run signatures identical', () => {
-  // Regression: codegraph used to resolve only when the run had a workspace, so
+  // Regression: runtime resolution used to depend on the run workspace, so
   // the kernel prewarmed with no run options never matched and every first turn
   // spawned a fresh kernel. The prewarm builds its servers with NO run options.
   const cfg = {
     mcpServers: [
       { id: 'mcp_default_playwright', name: 'Playwright', command: 'npx', args: ['-y', '@playwright/mcp@latest'], enabled: true },
-      { id: 'mcp_default_codegraph', name: 'CodeGraph', command: 'codegraph', runtime: 'codegraph', enabled: true },
+      { id: 'mcp_default_fixture', name: 'Fixture MCP', command: 'fixture-mcp', runtime: 'fixture-mcp', enabled: true },
       { id: 'mcp_1790004857986', name: 'ReactBits MCP', command: 'npx', args: ['-y', 'react-bits-mcp-server'], enabled: true }
     ]
   };
@@ -149,13 +150,14 @@ test('real builders: switching models applies each model context instead of the 
   const runtimeConfig = modelId => ({
     api: {
       provider: 'conn-context-test',
+      enabledConnections: ['conn-context-test'],
       model: modelId,
       connections: [{
         id: 'conn-context-test', providerId: 'conn-context-test', supplierId: 'official',
         preset: 'openai', customModels: ['model-a', 'model-b'],
         modelFlags: {
-          'model-a': { contextWindow: 100_000, compactionThreshold: 70_000 },
-          'model-b': { contextWindow: 200_000, compactionThreshold: 150_000 }
+          'model-a': { contextWindow: 100_000, compactionThreshold: 70_000, maxOutputTokens: 12_000 },
+          'model-b': { contextWindow: 200_000, compactionThreshold: 150_000, maxOutputTokens: 32_000 }
         }
       }],
       providerActiveSupplierIds: { 'conn-context-test': 'official' },
@@ -185,15 +187,28 @@ test('real builders: switching models applies each model context instead of the 
   assert.equal(first.compaction.threshold, 70_000);
   assert.equal(secondProvider.models['model-b'].limit.context, 200_000);
   assert.equal(second.compaction.threshold, 150_000);
+  assert.equal(firstProvider.models['model-a'].limit.output, 12_000);
+  assert.equal(secondProvider.models['model-b'].limit.output, 32_000);
+  const { translateConfig } = require('../lib/kernel-v2/config');
+  for (const [source, modelId, window, threshold, output] of [
+    [first, 'model-a', 100_000, 70_000, 12_000],
+    [second, 'model-b', 200_000, 150_000, 32_000]
+  ]) {
+    const native = translateConfig(source);
+    const limit = native.providers['conn-context-test'].models[modelId].limit;
+    assert.equal(limit.context, window);
+    assert.equal(limit.input - native.compaction.buffer, threshold);
+    assert.equal(limit.output, output);
+  }
 });
 
-test('media MCP env carries no per-run workspace and points at the registry', () => {
-  const server = main.__test.buildYanMediaMcpServer({}, appRoot, { workspace: 'C:\\should-not-appear' });
+test('native media environment carries no per-run workspace and points at the registry', () => {
+  const server = main.__test.buildYanMediaEnvironment({}, appRoot, { workspace: 'C:\\should-not-appear' });
   assert.ok(server, 'media server not built');
-  assert.ok(server.env.YAN_MEDIA_WORKSPACE_REGISTRY, 'registry env missing');
-  const decoded = JSON.parse(Buffer.from(server.env.YAN_MEDIA_RUNTIME, 'base64').toString('utf8'));
+  assert.ok(server.YAN_MEDIA_WORKSPACE_REGISTRY, 'registry env missing');
+  const decoded = JSON.parse(Buffer.from(server.YAN_MEDIA_RUNTIME, 'base64').toString('utf8'));
   assert.equal(decoded.access.workspace, undefined, 'per-run workspace leaked into media runtime env');
-  assert.equal(JSON.stringify(server.env).includes('should-not-appear'), false);
+  assert.equal(JSON.stringify(server).includes('should-not-appear'), false);
 });
 
 test('a multimodal main model declares native image input; media relay follows the user selection', () => {
@@ -202,6 +217,8 @@ test('a multimodal main model declares native image input; media relay follows t
   const modelId = 'glm-4.6v-flash';
   const cfg = {
     api: {
+      enabledConnections: ['glm-native-test'],
+      connections: [{ id: 'glm-native-test', providerId, supplierId, preset: 'glm' }],
       providerSuppliers: {
         [providerId]: [{
           id: supplierId,
@@ -223,13 +240,13 @@ test('a multimodal main model declares native image input; media relay follows t
   assert.equal(model.attachment, true);
   assert.deepEqual(model.modalities.input, ['text', 'image']);
 
-  const mediaServer = main.__test.buildYanMediaMcpServer(cfg, appRoot);
-  const mediaRuntime = JSON.parse(Buffer.from(mediaServer.env.YAN_MEDIA_RUNTIME, 'base64').toString('utf8'));
+  const mediaServer = main.__test.buildYanMediaEnvironment(cfg, appRoot);
+  const mediaRuntime = JSON.parse(Buffer.from(mediaServer.YAN_MEDIA_RUNTIME, 'base64').toString('utf8'));
   assert.equal(mediaRuntime.vision.enabled, false, 'no relay model is selected yet');
 
   cfg.api.visionRelayModels = [{ providerId, supplierId, modelId }];
   const relayRuntime = JSON.parse(Buffer.from(
-    main.__test.buildYanMediaMcpServer(cfg, appRoot).env.YAN_MEDIA_RUNTIME,
+    main.__test.buildYanMediaEnvironment(cfg, appRoot).YAN_MEDIA_RUNTIME,
     'base64'
   ).toString('utf8'));
   assert.equal(relayRuntime.vision.enabled, true);

@@ -98,14 +98,6 @@ async function launch() {
     assert.equal(routing.separate, routing.inline);
     assert.ok(routing.received[0].text.includes('检查错误处理'));
     assert.equal(routing.received.length, 2);
-    // Verify merge confirmation is visible even though settings are parked.
-    await page.evaluate(() => {
-      const button = document.createElement('button'); button.dataset.taskGitPrMerge = '7';
-      void mergeGitPullRequest(button);
-    });
-    await page.locator('#genericConfirmModal').waitFor({ state: 'visible' });
-    assert.match(await page.locator('#genericConfirmTitle').textContent(), /压缩合并 PR #7/);
-    await page.locator('#genericConfirmCancel').click();
     const generation = await page.evaluate(async workspace => {
       const originalLoop = runOpenCodeLoop, originalSelection = getAgentModelSelection, originalWorkspace = currentGitWorkspace, originalStatus = refreshTaskGitStatus;
       const requests = [];
@@ -126,22 +118,6 @@ async function launch() {
     assert.equal(generation.title, 'Improve Git settings');
     assert.match(generation.body, /Verified persistence/);
     assert.ok(generation.requests[1].includes('Pull Request 说明指引'));
-    const monitoring = await page.evaluate(async workspace => {
-      const originalSubmit = submitMessage, originalWorkspace = currentGitWorkspace, originalSelection = getAgentModelSelection;
-      const oldId = state.currentSession.id;
-      let received;
-      currentGitWorkspace = () => workspace;
-      getAgentModelSelection = () => ({ modelType: 'text', providerId: 'openai', modelId: 'test-model' });
-      submitMessage = async text => { received = { text, id: state.currentSession.id, workspace: state.currentSession.workspace }; };
-      try {
-        const button = document.createElement('button'); button.dataset.taskGitPrMonitor = '7';
-        await startGitPrMonitor(button);
-        return { oldId, received };
-      } finally { submitMessage = originalSubmit; currentGitWorkspace = originalWorkspace; getAgentModelSelection = originalSelection; }
-    }, profile);
-    assert.notEqual(monitoring.oldId, monitoring.received.id);
-    assert.equal(monitoring.received.workspace, profile);
-    assert.equal(monitoring.received.text, '/monitor-pr 7');
-    console.log('PASS normal Electron startup, persisted Git instructions, six-line scrolling, neutral focus, review/monitor routing and commit/PR generation UI');
+    console.log('PASS normal Electron startup, persisted Git instructions, six-line scrolling, neutral focus, review routing and commit/PR generation UI');
   } finally { await app?.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

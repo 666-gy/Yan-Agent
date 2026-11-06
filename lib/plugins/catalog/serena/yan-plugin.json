@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "serena",
+  "name": "Serena",
+  "version": "2.1.0",
+  "description": "通过 LSP 符号、引用、诊断和符号级编辑理解与修改代码。",
+  "author": "oraios",
+  "instructions": "instructions.md",
+  "skills": [],
+  "resources": [],
+  "mcpServers": [
+    {
+      "id": "serena",
+      "type": "local",
+      "command": "uvx",
+      "args": [
+        "--quiet",
+        "--from",
+        "serena-agent==2.1.0",
+        "serena",
+        "start-mcp-server",
+        "--context=codex",
+        "--project",
+        "${workspace}",
+        "--enable-web-dashboard=False",
+        "--open-web-dashboard=False"
+      ],
+      "env": {}
+    }
+  ],
+  "configuration": {},
+  "environment": [],
+  "requiredCommands": [],
+  "license": "MIT"
+}

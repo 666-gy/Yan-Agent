@@ -1,4 +1,5 @@
 'use strict';
+require('./build-shell-job.cjs');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');

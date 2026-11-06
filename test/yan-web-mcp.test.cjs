@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const SERVER = path.resolve(__dirname, '..', 'lib', 'yan-web-mcp.js');
+const SERVER = process.env.YAN_TEST_WEB_SERVER || path.resolve(__dirname, '..', 'lib', 'yan-web-mcp.js');
 
 function makeTempRoot(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -25,7 +25,7 @@ function contextPath(contextDir, taskId) {
 }
 
 function startServer(env = {}, defaultTaskId = 'web-test-task') {
-  const child = spawn(process.execPath, [SERVER], {
+  const child = spawn(process.env.YAN_TEST_WEB_NODE || process.execPath, [SERVER], {
     env: { ...process.env, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
@@ -67,6 +67,72 @@ async function startHttpServer(handler) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return server;
 }
+
+test('unified fetch supports formats and blank tasks download into the task directory', async t => {
+  const contextDir = makeTempRoot('yan-web-formats-');
+  const executionDirectory = makeTempRoot('yan-web-blank-');
+  t.after(() => {
+    fs.rmSync(contextDir, { recursive: true, force: true });
+    fs.rmSync(executionDirectory, { recursive: true, force: true });
+  });
+  write(contextPath(contextDir, 'web-test-task'), JSON.stringify({ runId: 'web-test-task', workspace: '', executionDirectory, allowNetwork: true }));
+  const html = '<html><head><style>.hidden{}</style></head><body><h1>Hello &amp; world</h1><p>A <a href="https://example.test/">link</a>.</p><script>SECRET_SCRIPT</script></body></html>';
+  const server = await startHttpServer((req, res) => {
+    assert.equal(req.headers.cookie, undefined);
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(html);
+  });
+  t.after(() => server.close());
+  const mcp = startServer({ YAN_WEB_CONTEXT_DIR: contextDir });
+  t.after(() => mcp.stop());
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  for (const format of ['markdown', 'text', 'html', 'raw']) {
+    const result = (await mcp.request('tools/call', { name: 'fetch', arguments: { url, format } })).result.structuredContent;
+    assert.equal(result.ok, true);
+    assert.equal(result.format, format);
+    assert.equal(result.bytes, Buffer.byteLength(html));
+    if (['raw', 'html'].includes(format)) assert.equal(result.text, html);
+    else {
+      assert.match(result.text, /Hello & world/);
+      assert.ok(!result.text.includes('SECRET_SCRIPT'));
+      if (format === 'markdown') assert.match(result.text, /\[link\]\(https:\/\/example.test\/\)/);
+      else assert.ok(!result.text.includes('<h1>'));
+    }
+  }
+  const download = await mcp.request('tools/call', { name: 'download_file', arguments: { url, path: 'page.html' } });
+  assert.equal(download.result.structuredContent.ok, true);
+  assert.equal(fs.readFileSync(path.join(executionDirectory, 'page.html'), 'utf8'), html);
+  for (const args of [{ format: 'invalid' }, { timeout: 121 }]) {
+    const result = await mcp.request('tools/call', { name: 'fetch', arguments: { url, ...args } });
+    assert.equal(result.result.isError, true);
+  }
+});
+
+test('large fetch results are truncated before they reach the stdio transport', async t => {
+  const contextDir = makeTempRoot('yan-web-large-');
+  t.after(() => fs.rmSync(contextDir, { recursive: true, force: true }));
+  write(contextPath(contextDir, 'web-test-task'), JSON.stringify({ runId: 'web-test-task', workspace: '', allowNetwork: true }));
+  const body = '<html><body>' + 'A'.repeat(5 * 1024 * 1024) + '</body></html>';
+  const server = await startHttpServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(body);
+  });
+  t.after(() => server.close());
+  const mcp = startServer({ YAN_WEB_CONTEXT_DIR: contextDir });
+  t.after(() => mcp.stop());
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  const result = (await mcp.request('tools/call', {
+    name: 'fetch',
+    arguments: { url, format: 'raw', max_bytes: 8 * 1024 * 1024 }
+  })).result.structuredContent;
+  assert.equal(result.ok, true);
+  assert.equal(result.bytes, Buffer.byteLength(body));
+  assert.equal(result.truncated, true);
+  assert.ok(Buffer.byteLength(result.text) <= 512 * 1024 + 16);
+  assert.match(result.note, /truncated to 524288 bytes/);
+  // A huge result must not take the server down: it still answers.
+  const listed = await mcp.request('tools/list', {});
+  assert.ok(Array.isArray(listed.result.tools));
+});
 
 test('yan web mcp fetches text and downloads assets into the authorized workspace', async t => {
   const workspace = makeTempRoot('yan-web-ws-');
@@ -150,22 +216,22 @@ test('yan web mcp fetches text and downloads assets into the authorized workspac
   assert.equal(init.result.serverInfo.name, 'Yan Web');
 
   const list = await mcp.request('tools/list', {});
-  assert.deepEqual(list.result.tools.map(tool => tool.name).sort(), ['download_file', 'fetch_text', 'list_page_assets']);
+  assert.deepEqual(list.result.tools.map(tool => tool.name).sort(), ['download_file', 'fetch', 'list_page_assets']);
 
-  const page = await mcp.request('tools/call', { name: 'fetch_text', arguments: { url: `${base}/page` } });
+  const page = await mcp.request('tools/call', { name: 'fetch', arguments: { url: `${base}/page`, format: 'raw' } });
   assert.equal(page.result.structuredContent.ok, true);
   assert.match(page.result.structuredContent.text, /<body>ok<\/body>/u);
   assert.equal(page.result.structuredContent.contentType, 'text/html');
 
-  const svgText = await mcp.request('tools/call', { name: 'fetch_text', arguments: { url: `${base}/icon.svg` } });
+  const svgText = await mcp.request('tools/call', { name: 'fetch', arguments: { url: `${base}/icon.svg` } });
   assert.equal(svgText.result.structuredContent.ok, true);
   assert.match(svgText.result.structuredContent.text, /<svg/u);
 
-  const binaryText = await mcp.request('tools/call', { name: 'fetch_text', arguments: { url: `${base}/icon.png` } });
+  const binaryText = await mcp.request('tools/call', { name: 'fetch', arguments: { url: `${base}/icon.png` } });
   assert.equal(binaryText.result.structuredContent.ok, false);
   assert.match(binaryText.result.structuredContent.error, /download_file/u);
 
-  const missing = await mcp.request('tools/call', { name: 'fetch_text', arguments: { url: `${base}/missing` } });
+  const missing = await mcp.request('tools/call', { name: 'fetch', arguments: { url: `${base}/missing` } });
   assert.equal(missing.result.structuredContent.ok, false);
   assert.match(missing.result.structuredContent.error, /404/u);
 
@@ -317,14 +383,14 @@ test('yan web mcp rejects escapes, missing authorization and disabled permission
   assert.match(absolute.result.structuredContent.error, /outside the authorized workspace/u);
 
   const unauthorized = await mcp.request('tools/call', {
-    name: 'fetch_text',
+    name: 'fetch',
     arguments: { url: `${base}/file.txt`, task_id: 'unknown-task' }
   });
   assert.equal(unauthorized.result.structuredContent.ok, false);
   assert.match(unauthorized.result.structuredContent.error, /run context/u);
 
   const offline = await mcp.request('tools/call', {
-    name: 'fetch_text',
+    name: 'fetch',
     arguments: { url: `${base}/file.txt`, task_id: 'offline-task' }
   });
   assert.equal(offline.result.structuredContent.ok, false);
@@ -338,7 +404,7 @@ test('yan web mcp rejects escapes, missing authorization and disabled permission
   assert.match(readonly.result.structuredContent.error, /File writing is disabled/u);
 
   const readonlyFetch = await mcp.request('tools/call', {
-    name: 'fetch_text',
+    name: 'fetch',
     arguments: { url: `${base}/file.txt`, task_id: 'readonly-task' }
   });
   assert.equal(readonlyFetch.result.structuredContent.ok, true);

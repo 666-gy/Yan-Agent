@@ -31,7 +31,7 @@ const prompt = '移除此图像的背景。保持所有前景主体不变且完�
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: output });
     }, path.join(profile, 'saved.png'));
     await page.evaluate(filePath => window.yanImageOverlay.open({ filePath }), filePath);
-    await page.locator('.image-overlay [data-action=edit]').click();
+    await page.locator('.image-overlay [data-action=panel]').click();
     await page.waitForFunction(() => !document.querySelector('#rs-image-editor [data-action=resize]').disabled);
     assert.equal(await page.evaluate(() => browserFocusMode), true);
     assert.equal(await page.locator('[data-rs-tab-type=image-editor]').count(), 1);

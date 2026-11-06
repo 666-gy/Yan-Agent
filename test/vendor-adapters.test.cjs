@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOpenCodeConfig } = require('../lib/opencode-sidecar');
+const { buildOpenCodeConfig } = require('../lib/kernel-policy');
 const prompt = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
 const tools = [{ type: 'function', name: 'mcp.read', inputSchema: { type: 'object', properties: {} } }];
 const chunk = (delta, finish_reason = null) => ({ id: 'test', model: 'fixture', choices: [{ index: 0, delta, finish_reason }] });
@@ -128,4 +128,55 @@ test('vendor selection supports model inference, explicit aliases and protocol o
     const config = buildOpenCodeConfig({ providerId: 'custom', modelId: model, baseUrl: 'https://api.anthropic.com/v1', apiFormat: 'anthropic' });
     assert.match(config.provider.custom.npm, /opencode-antl-provider/, model);
   }
+});
+
+test('Grok carries a stable prompt_cache_key alongside its native conversation header', async () => {
+  const { createYanGrolProvider } = await import('../lib/opencode-grol-provider.bundle.mjs');
+  const bodies = [];
+  const headers = [];
+  const provider = createYanGrolProvider({
+    name: 'grok', apiKey: 'k', baseURL: 'https://local.test/v1',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      headers.push(new Headers(init.headers));
+      return Response.json({ id: 'cache', model: 'grok-4',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 } });
+    }
+  });
+  const model = provider('grok-4');
+  const run = text => model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text }] }] });
+  await run('same conversation');
+  await run('same conversation');
+  await run('other conversation');
+  assert.match(bodies[0].prompt_cache_key, /^yan-[0-9a-f]{48}$/u);
+  assert.equal(bodies[1].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.notEqual(bodies[2].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.match(headers[0].get('x-grok-conv-id'), /^yan-[0-9a-f]{64}$/u);
+  assert.equal(headers[1].get('x-grok-conv-id'), headers[0].get('x-grok-conv-id'));
+});
+
+test('Grok drops prompt_cache_key once when the relay rejects it', async () => {
+  const { createYanGrolProvider } = await import('../lib/opencode-grol-provider.bundle.mjs');
+  const seen = [];
+  let rejections = 0;
+  const provider = createYanGrolProvider({
+    name: 'grok', apiKey: 'k', baseURL: 'https://local.test/v1',
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      seen.push(body.prompt_cache_key ?? null);
+      if (body.prompt_cache_key) {
+        rejections++;
+        return Response.json({ error: { param: 'prompt_cache_key', message: 'Unsupported parameter' } }, { status: 400 });
+      }
+      return Response.json({ id: 'ok', model: 'grok-4',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 } });
+    }
+  });
+  const model = provider('grok-4');
+  assert.equal((await model.doGenerate({ prompt })).content[0].text, 'ok');
+  assert.equal((await model.doGenerate({ prompt })).content[0].text, 'ok');
+  assert.equal(rejections, 1);
+  assert.deepEqual(seen, [seen[0], null, null]);
 });

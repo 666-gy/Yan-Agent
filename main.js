@@ -7,18 +7,16 @@ const { registerBrowserIpc } = require('./lib/main/ipc-browser');
 const { registerConfigIpc } = require('./lib/main/ipc-config');
 const { registerOpenCodeIpc } = require('./lib/main/ipc-opencode');
 const { createHangGuard } = require('./lib/main/hang-guard');
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, nativeTheme, webContents, screen, session, clipboard, globalShortcut, safeStorage, net: electronNet } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, nativeTheme, webContents, screen, session, clipboard, globalShortcut, safeStorage, powerMonitor, net: electronNet } = require('electron');
 const path = require('path');
 
 const fs = require('fs');
-const fsp = require('fs/promises');
 
 const { normalizeRemoteModels } = require('./lib/model-catalog');
 const { buildSelectableModelCatalog } = require('./lib/provider-model-catalog');
 const { decorateModels } = require('./lib/model-capabilities');
 const { DEFAULT_MODEL_ROLES, getModelType } = require('./lib/model-roles');
 
-const { normalizeVoice, normalizeRate } = require('./lib/text-to-speech');
 
 const skillRegistry = require('./lib/skill-registry');
 
@@ -30,7 +28,7 @@ const { extractExplicitPolicyInstruction } = require('./lib/behavior-policy');
 const crypto = require('crypto');
 const workspaceSandbox = require('./lib/workspace-sandbox');
 
-const { DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond } = require('./lib/opencode-sidecar');
+const { DEFAULT_INPUT_TOKENS_PER_SECOND, normalizeInputTokensPerSecond } = require('./lib/kernel-policy');
 
 const { resolveConnectionApiFormat, resolveConnectionPreset } = require('./lib/connection-presets');
 const { OpenCodeEventBatcher } = require('./lib/open-code-stream');
@@ -68,11 +66,13 @@ const { registerBridges } = require('./lib/main/bridges');
 const { createBrowserHelpers } = require('./lib/main/browser-helpers');
 const { registerProviderIpc } = require('./lib/main/provider-ipc');
 const { createSessionStore } = require('./lib/session-store');
+const { createScheduledTasksStore } = require('./lib/scheduled-tasks-store');
+const { registerScheduledTasksIpc } = require('./lib/main/ipc-scheduled-tasks');
+const { createScheduledTaskScheduler } = require('./lib/main/scheduled-task-scheduler');
 const { registerGitIpc } = require('./lib/main/ipc-git');
 const { registerGhIpc } = require('./lib/main/ipc-gh');
 const { registerFilesMediaIpc } = require('./lib/main/ipc-files-media');
 const { registerToolsIpc } = require('./lib/main/ipc-tools');
-const { registerPlanIpc } = require('./lib/main/ipc-plan');
 // Splash removed: the app opens directly to the main window.
 const { registerMainWindow } = require('./lib/main/windows/main-window');
 const { registerQuickInput } = require('./lib/main/windows/quick-input');
@@ -86,6 +86,8 @@ const appRoot = __dirname;
 // is captured below, so Electron, YanData, and Chromium partitions are all
 // isolated together.
 const e2eUserDataDir = String(process.env.YAN_E2E_USER_DATA_DIR || '').trim();
+// Keep the stable user profile across versioned development/package names.
+app.setPath('userData', path.join(app.getPath('appData'), 'yan-agent'));
 if (e2eUserDataDir) {
   fs.mkdirSync(e2eUserDataDir, { recursive: true });
   app.setPath('userData', path.resolve(e2eUserDataDir));
@@ -138,7 +140,7 @@ const openCodeActiveRuns = new Map();
 // record. Keep the target session with that reservation so session deletion
 // cannot race through this short but real window.
 const openCodeRunAdmissions = new Map(); // runId -> yanSessionId
-const MAX_CONCURRENT_AGENT_RUNS = 3;
+const MAX_CONCURRENT_AGENT_RUNS = 10;
 // Idle teardown window. While it holds, the kernel AND its per-directory
 // OpenCode instance stay warm, so a follow-up turn skips the instance
 // bootstrap (config load + git snapshot + MCP connect, ~5s before the first
@@ -216,7 +218,9 @@ const BROWSER_AGENT_BRIDGE_MAX_BYTES = 16 * 1024 * 1024;
 const BROWSER_AGENT_BRIDGE_ACTIONS = new Set([
   'set_viewport',
   'query_history',
+  'request_acceptance_upgrade',
   'open',
+  'list_tabs',
   'snapshot',
   'read_page',
   'click',
@@ -232,6 +236,8 @@ const BROWSER_AGENT_BRIDGE_ACTIONS = new Set([
   'wait',
   'screenshot',
   'inspect_page',
+  'evaluate',
+  'acceptance_sweep',
   'apply_annotation',
   'back',
   'forward',
@@ -255,43 +261,8 @@ let sessionAgentBridgePort = 0;
 // Paths & storage
 // ---------------------------------------------------------------------------
 // 用户数据统一存放在固定目录 YanData，更新/重装后保留会话、配置与记忆。
-// 首次从旧版「按构建隔离」目录（YanData-*）自动迁移。
 const userDataDir = app.getPath('userData');
 const STABLE_DATA_DIR = path.join(userDataDir, 'YanData');
-
-async function migrateLegacyDataDir() {
-  if (fs.existsSync(path.join(STABLE_DATA_DIR, 'config.json'))) return;
-
-  let names = [];
-  try { names = fs.readdirSync(userDataDir); } catch { return; }
-
-  let bestDir = null;
-  let bestMtime = 0;
-  for (const name of names) {
-    if (!name.startsWith('YanData-')) continue;
-    const candidate = path.join(userDataDir, name);
-    const cfg = path.join(candidate, 'config.json');
-    if (!fs.existsSync(cfg)) continue;
-    try {
-      const mtime = fs.statSync(cfg).mtimeMs;
-      if (mtime > bestMtime) {
-        bestMtime = mtime;
-        bestDir = candidate;
-      }
-    } catch { /* skip */ }
-  }
-
-  if (!bestDir) return;
-  try {
-    fs.mkdirSync(STABLE_DATA_DIR, { recursive: true });
-    // 异步拷贝:旧目录可能包含全部会话与上 GB 的图片缓存,同步 cpSync 会让启动
-    // 界面冻结数分钟;await 保证后续启动流程仍在迁移完成后才开始
-    await fsp.cp(bestDir, STABLE_DATA_DIR, { recursive: true, force: true });
-    console.log('[data] migrated legacy data from', path.basename(bestDir), 'to YanData');
-  } catch (e) {
-    console.error('[data] migrate legacy data failed:', e.message);
-  }
-}
 
 const dataDir = STABLE_DATA_DIR;
 
@@ -371,6 +342,7 @@ function initializeYanCore() {
     if (['message.delta', 'reasoning.delta', 'provider.event'].includes(event?.type)) return;
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
     mainWindow.webContents.send('yan:core-event', event);
+    require('./lib/main/windows/session-windows').sendRun(event.turnId, 'yan:core-event', event);
   });
   return yanCore;
 }
@@ -483,8 +455,6 @@ const configStore = createConfigStore({
   writeAtomic,
   normalizeReasoningSpeed,
   reasoningSpeedEnablesThinking,
-  normalizeVoice,
-  normalizeRate
 });
 
 // ---------------------------------------------------------------------------
@@ -571,6 +541,7 @@ const browserHelpers = createBrowserHelpers(getMainContext(), { getMainWindow: (
 // Browser + session agent bridges (lib/main/bridges.js)
 // ---------------------------------------------------------------------------
 const bridges = registerBridges(getMainContext(), {
+  nestedSessions: () => runContext.nestedSessions,
   externalAgents: () => externalAgents,
   queryBrowserHistory: (...args) => browserSettings.queryAgentHistory(...args),
   electronNet,
@@ -613,10 +584,10 @@ const externalAgents = new (require('./lib/external-agents/service').ExternalAge
   workerPath: path.join(providerConfig.getChildReadableAppRoot(), 'lib', 'external-agents', 'worker.js')
 });
 require('./lib/main/external-agents').registerExternalAgents({ ipcMain, dialog, getMainWindow: () => mainWindow, service: externalAgents });
-const voiceInput = require('./lib/main/voice-input').registerVoiceInput({
+(require('./lib/main/voice-input').registerVoiceInput({
   app, ipcMain, getMainWindow: () => mainWindow, configStore,
   appRoot: providerConfig.getChildReadableAppRoot(), dataDir
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Skills runtime (lib/main/skills-runtime.js)
@@ -745,20 +716,26 @@ const sessionStore = createSessionStore({
     }
   },
   deleteCoreThread: id => yanCore?.deleteThread(id, { force: true }),
-  deleteKernelSessions: ({ yanSessionId, sessionIds, directory }) => require('./lib/kernel-session-deletion').deleteKernelConversation({
-    dataDir, yanSessionId, sessionIds,
-    directory: workspaceSandbox.normalizeWorkspace(directory) || skillsRuntime.getNoWorkspaceAgentDirectory(yanSessionId),
-    sidecar: openCodeSidecar, lease: withOpenCodeBackgroundLease
+  deleteKernelSessions: ({ yanSessionId, sessionIds, directory }) => withOpenCodeBackgroundLease(async () => {
+    const sidecar = await ensureOpenCodeSidecar(mcpRuntimeConfig.getOpenCodeRuntimeConfig(configStore.loadConfig()));
+    return sidecar.deleteKernelSessionTrees(sessionIds, workspaceSandbox.normalizeWorkspace(directory), { yanSessionId });
   })
 });
 registerSessionIpc(getMainContext(), sessionStore, skillsRuntime, { onDeleted: id => backgroundBash.cancelSession(id) });
+const scheduledTasksStore = createScheduledTasksStore({ file: path.join(STABLE_DATA_DIR, 'scheduled-tasks.json') });
+const scheduledTaskScheduler = createScheduledTaskScheduler({
+  store: scheduledTasksStore,
+  getMainWindow: () => mainWindow,
+  isRendererReady: () => mainRendererReady
+});
+registerScheduledTasksIpc(getMainContext(), scheduledTasksStore, { onChange: () => scheduledTaskScheduler.refresh() });
+if (process.env.YAN_E2E_MODE === '1') global.__YAN_E2E_SESSION_STORE__ = sessionStore;
 const localHistorySettings = require('./lib/main/local-history-settings').createLocalHistorySettings({
-  app, shell, configStore, sessionsDir, isSessionRunActive: sessionStore.isSessionRunActive
+  app, shell, configStore, sessionsDir, sessionStore, isSessionRunActive: sessionStore.isSessionRunActive
 });
 ipcMain.handle('general:local-status', () => localHistorySettings.status());
 ipcMain.handle('general:local-update', (_event, key, enabled) => localHistorySettings.update(key, enabled));
 ipcMain.handle('general:startup-apps', () => localHistorySettings.openStartupApps());
-app.on('before-quit', () => localHistorySettings.stop());
 require('./lib/main/ipc-usage').registerUsageIpc(getMainContext());
 require('./lib/main/ipc-storage').registerStorageIpc(getMainContext());
 
@@ -814,6 +791,8 @@ const mcpServerBuilders = createMcpServers({
   getBrowserAgentBridgePort: () => browserAgentBridgePort,
   sessionAgentBridgeToken,
   getSessionAgentBridgePort: () => sessionAgentBridgePort,
+  providerBridgeToken: providerIpc.bridgeToken,
+  getProviderBridgePort: () => providerIpc.bridgePort(),
   continualHarnessPath,
   DEFAULT_INPUT_TOKENS_PER_SECOND,
   normalizeInputTokensPerSecond
@@ -890,6 +869,7 @@ const { getOpenCodeSidecar, getOpenCodeProviderAdapter, ensureOpenCodeSidecar, r
 const manualContextCompressions = new Set();
 
 const runContext = {
+  scheduledTasksStore,
   manualContextCompressions,
   configStore,
   modelState,
@@ -924,6 +904,20 @@ const runContext = {
 };
 
 const backgroundBash = require('./lib/main/background-bash').registerBackgroundBash({ ipcMain, getMainWindow: () => mainWindow, runContext });
+runContext.nestedSessions = require('./lib/main/nested-sessions').registerNestedSessions({
+  app, ipcMain, BrowserWindow, screen, appRoot, dataDir: STABLE_DATA_DIR, getMainWindow: () => mainWindow, runContext,
+  configureBrowserGuest: bridges.configureBrowserGuest, windowIconPngPath
+});
+runContext.browserWindows = require('./lib/main/browser-window').registerBrowserWindows(getMainContext(), {
+  appRoot,
+  configStore,
+  getMainWindow: () => mainWindow,
+  configureBrowserGuest: bridges.configureBrowserGuest,
+  applyWindowIcon,
+  windowIconPngPath,
+  nativeTheme,
+  hangGuard
+});
 runContext.backgroundBash = backgroundBash;
 require('./lib/main/webui-bridge').registerWebuiBridge({ ipcMain, getMainWindow: () => mainWindow, dataDir: STABLE_DATA_DIR });
 const remoteControl = require('./lib/main/remote-control').createRemoteControl({ ipcMain, dataDir: STABLE_DATA_DIR, appRoot });
@@ -932,8 +926,6 @@ const remoteControl = require('./lib/main/remote-control').createRemoteControl({
 // persisted into the session. Settling the Core Turn afterwards keeps the next
 // startup from re-running recovery for the same Turn.
 
-// Plan documents (lib/main/ipc-plan.js)
-registerPlanIpc(getMainContext());
 
 registerOpenCodeIpc(getMainContext(), {
   prewarmOpenCodeSidecar,
@@ -1019,6 +1011,8 @@ if (!gotSingleInstanceLock) {
 
 app.whenReady().then(async () => {
   if (e2eOrphanShutdownStarted || !gotSingleInstanceLock) return;
+  scheduledTaskScheduler.start();
+  try { powerMonitor.on('resume', () => scheduledTaskScheduler.refresh()); } catch { /* power monitor unavailable */ }
   try {
     if (taskDeepLinks.registerProtocol() === false) console.warn('[task-link] Protocol registration failed');
   } catch (error) { console.warn('[task-link] Protocol registration failed:', error.message); }
@@ -1026,7 +1020,7 @@ app.whenReady().then(async () => {
   // is a constant per-keystroke cost under CJK IME input — the composer's
   // typing lag. The app is Chinese-first; disable it at the session level.
   try { session.defaultSession.setSpellCheckerEnabled(false); } catch {}
-  await migrateLegacyDataDir();
+  // v1.7.0 legacy data migration removed; YanData is the sole data directory.
   ensureDirs();
   hangGuard.start();
   hangGuard.mark('startup');
@@ -1052,6 +1046,8 @@ app.whenReady().then(async () => {
     await bridges.startBrowserAgentBridge();
     if (e2eOrphanShutdownStarted) return;
     await bridges.startSessionAgentBridge();
+    if (e2eOrphanShutdownStarted) return;
+    await providerIpc.startProviderBridge();
     if (e2eOrphanShutdownStarted) return;
   } catch (error) {
     if (e2eOrphanShutdownStarted) return;
@@ -1091,6 +1087,8 @@ app.on('window-all-closed', (e) => {
 // 真正退出时清理托盘和 MCP 服务器
 app.on('before-quit', () => {
   isQuiting = true;
+  localHistorySettings.stop();
+  scheduledTaskScheduler.stop();
   backgroundBash.close();
   remoteControl.stop();
   // 退出流程里的同步清理可能耗时数秒,不能被记成卡死。
@@ -1117,7 +1115,17 @@ app.on('before-quit', () => {
   skillsRuntime.stopYanSkillWatcher();
   bridges.stopBrowserAgentBridge();
   bridges.stopSessionAgentBridge();
-  openCodeSidecar?.close();
+  providerIpc.stopProviderBridge();
+  // before-quit returns immediately and the process exits with it, so an async
+  // close() would never finish: the kernel would survive the app and keep its
+  // owner.json, blocking the next launch. Terminate synchronously instead.
+  try {
+    if (openCodeSidecar?.killNow && !openCodeSidecar.killNow()) {
+      console.warn('[opencode] kernel still running at exit; ownership retained');
+    }
+  } catch (error) {
+    console.warn('[opencode] shutdown failed:', error.message);
+  }
   openCodeSidecar = null;
   openCodeProviderAdapter = null;
   if (petWindow && !petWindow.isDestroyed()) petWindow.destroy();
@@ -1134,7 +1142,7 @@ if (process.env.YAN_MAIN_TEST_EXPORTS === '1') {
     __test: {
       getOpenCodeMcpServers: mcpRuntimeConfig.getOpenCodeMcpServers,
       getOpenCodeRuntimeConfig: mcpRuntimeConfig.getOpenCodeRuntimeConfig,
-      buildYanMediaMcpServer: mcpServerBuilders.buildYanMediaMcpServer,
+      buildYanMediaEnvironment: mcpServerBuilders.buildYanMediaEnvironment,
       buildYanWebMcpServer: mcpServerBuilders.buildYanWebMcpServer,
       buildYanMcpServer: mcpServerBuilders.buildYanMcpServer,
       configStore,

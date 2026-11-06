@@ -10,7 +10,7 @@ const { createPluginStore } = require('../lib/plugins/store');
 const { createPluginSessions, compactPermissionRules, withPluginSessionPermissions } = require('../lib/plugins/sessions');
 const { createGateway } = require('../lib/plugins/gateway');
 const { manifestSchema } = require('../lib/plugins/manifest');
-const { permissionForRun, sessionPermissionForRun } = require('../lib/opencode-sidecar');
+const { permissionForRun, sessionPermissionForRun } = require('../lib/kernel-policy');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yan-plugins-test-'));
@@ -69,15 +69,18 @@ test('preparation reports missing configuration and environment without exposing
   const prepared = f.store.prepare(f.store.get(p.id), { ...process.env, YAN_PLUGIN_MISSING_KEY_TEST: 'private-secret' });
   assert.equal(prepared.ready, true); assert.ok(!JSON.stringify(prepared).includes('private-secret'));
 });
-test('session activation pins package AND configuration, upgrade does not mix resources', t => {
+test('in-flight revision stays pinned until explicit activation adopts the upgrade', t => {
   const f = fixture(t); f.alter(m => { m.configuration = { label: { label: 'Label' } }; });
   f.install(); f.store.update('yan-text-kit', { enabled: true, configuration: { label: 'old' } });
   const a = createPluginSessions(f.dataDir, f.directory, 'session-a'); const old = a.activate('yan-text-kit');
   f.alter(m => { m.version = '2.0.0'; }); fs.writeFileSync(path.join(f.source, 'instructions.md'), 'VERSION_TWO');
   f.install(); f.store.update('yan-text-kit', { configuration: { label: 'new' } });
-  assert.equal(a.activate('yan-text-kit').digest, old.digest);
-  assert.equal(a.activate('yan-text-kit').configuration.label, 'old');
   assert.ok(!a.resource(old, 'instructions').text.includes('VERSION_TWO'));
+  const upgraded = a.activate('yan-text-kit');
+  assert.notEqual(upgraded.digest, old.digest);
+  assert.equal(upgraded.configuration.label, 'new');
+  assert.ok(a.resource(upgraded, 'instructions').text.includes('VERSION_TWO'));
+  assert.throws(() => a.resource(old, 'instructions'), /撤销/);
   const b = createPluginSessions(f.dataDir, f.directory, 'session-b'); const next = b.activate('yan-text-kit');
   assert.equal(next.version, '2.0.0'); assert.equal(next.configuration.label, 'new');
   assert.notEqual(next.name, old.name); assert.throws(() => b.authorize(old), /当前会话/);

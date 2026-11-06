@@ -8,9 +8,9 @@
   const color = index => colors[index % colors.length];
   const esc = value => escapeHtml(String(value));
   const dateLabel = date => new Date(`${date}T12:00:00Z`).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  const rangeLabels = { all: '全部', '30d': '30 天', '7d': '7 天' };
+  const rangeLabels = { '90d': '90 天', all: '全部', '30d': '30 天', '7d': '7 天' };
   const filters = label => `<div class="usage-filters" role="group" aria-label="${label}时间范围">${['all', '30d', '7d'].map(value => `<button type="button" data-usage-range="${value}" aria-pressed="${value === range}">${rangeLabels[value]}</button>`).join('')}</div>`;
-  const header = label => `<header><h2>${label}</h2>${filters(label)}</header>`;
+  
 
   function heatmap(data) {
     const byDate = new Map(data.days.map(day => [day.date, day]));
@@ -33,7 +33,7 @@
   function chart(data) {
     if (!data.days.length || !data.overview.total) return '<div class="usage-empty">该时间段内没有 Token 用量记录。</div>';
     const last = Date.parse(`${data.today}T00:00:00Z`);
-    const first = range === 'all' ? Date.parse(`${data.days[0].date}T00:00:00Z`) : last - (parseInt(range, 10) - 1) * 86400000;
+    const first = data.range === 'all' ? Date.parse(`${data.days[0].date}T00:00:00Z`) : last - (parseInt(data.range, 10) - 1) * 86400000;
     const span = Math.floor((last - first) / 86400000) + 1;
     const step = Math.max(1, Math.ceil(span / 30));
     const buckets = Array.from({ length: Math.ceil(span / step) }, (_, i) => ({
@@ -56,12 +56,20 @@
     }).join('')}</div></div><p class="usage-chart-caption">${step === 1 ? '每日' : `每 ${step} 天`} Token 用量 · 悬停柱状图查看明细</p>`;
   }
 
-  function render(data) {
+  function renderPanels(data, { showFilters = true } = {}) {
+    const header = label => `<header><h2>${label}</h2>${showFilters ? filters(label) : ''}</header>`;
     const o = data.overview;
     const hour = o.peakHour === null ? '—' : `${String(o.peakHour).padStart(2, '0')}:00`;
     const metrics = [['会话', full(o.sessions)], ['消息', full(o.messages)], ['总 Token', number(o.total)], ['活跃天数', full(o.activeDays)], ['高峰时段', hour], ['常用模型', o.favoriteModel || '—']];
-    page.querySelector('#usagePanels').innerHTML = `<section class="usage-card" aria-label="用量概览">${header('概览')}<div class="usage-metrics">${metrics.map(([label, value]) => `<div><span>${label}</span><strong title="${esc(label === '总 Token' ? full(o.total) : value)}">${esc(value)}</strong></div>`).join('')}</div>${heatmap(data)}</section>
+    const input = o.input + o.cacheRead + o.cacheWrite;
+    metrics.push(['总缓存命中率', input ? `${(o.cacheRead / input * 100).toFixed(1)}%` : '—']);
+    return `<section class="usage-card" aria-label="用量概览">${header('概览')}<div class="usage-metrics">${metrics.map(([label, value]) => `<div><span>${label}</span><strong title="${esc(label === '总 Token' ? full(o.total) : value)}">${esc(value)}</strong></div>`).join('')}</div>${heatmap(data)}</section>
       <section class="usage-card" aria-label="按模型用量">${header('模型')}${chart(data)}<div class="usage-models">${data.models.map((model, i) => `<div class="usage-model-row"><span class="usage-model-name"><i style="background:${color(i)}"></i><span title="${esc(model.modelId)}">${esc(model.modelId)}<small>${esc(model.providerId)}</small></span></span><span class="usage-model-count" title="${esc(`输入：${full(model.input)}；缓存读取：${full(model.cacheRead)}；缓存写入：${full(model.cacheWrite)}；输出：${full(model.output)}；推理：${full(model.reasoning)}`)}">${number(model.input + model.cacheRead + model.cacheWrite)} 输入 · ${number(model.output + model.reasoning)} 输出</span><strong>${(model.share * 100).toFixed(1)}%</strong></div>`).join('')}</div></section>`;
+  }
+
+  function render(data) {
+    const o = data.overview;
+    page.querySelector('#usagePanels').innerHTML = renderPanels(data);
     page.querySelector('#usageScope').textContent = `来自本机保留的聊天记录，包含子智能体与已归档聊天。会话会把子智能体归入其父聊天；消息数统计用户与助手记录；输入包含缓存，输出包含推理。图像 / 视频、视觉中继以及聊天内核之外的调用不计入。${o.unreportedMessages ? `另有 ${full(o.unreportedMessages)} 条助手消息未上报用量。` : ''}`;
   }
 
@@ -86,5 +94,14 @@
     if (button && button.dataset.usageRange !== range) { range = button.dataset.usageRange; void refresh(); }
   });
   page.querySelector('#usageRefresh').addEventListener('click', () => refresh(true));
-  window.YanUsageSettings = { refresh };
+  function renderCacheModels(models) {
+    if (!models.length) return '<div class="usage-empty">暂无用量记录</div>';
+    return models.map((model, i) => {
+      const input = model.input + model.cacheRead + model.cacheWrite;
+      const hit = input ? `${(model.cacheRead / input * 100).toFixed(1)}%` : '—';
+      const provider = getAgentModelConfigName(model.providerId, model.supplierId) || model.providerId;
+      return `<div class="usage-model-row"><span class="usage-model-name"><i style="background:${color(i)}"></i><span title="${esc(model.modelId)}">${esc(model.modelId)}<small>${esc(provider)}</small></span></span><span class="usage-model-count" title="${esc(`输入：${full(input)}；输出：${full(model.output + model.reasoning)}；缓存读取：${full(model.cacheRead)}`)}">${number(input)} 输入 · ${number(model.output + model.reasoning)} 输出</span><strong title="缓存命中率">${hit}</strong></div>`;
+    }).join('');
+  }
+  window.YanUsageSettings = { refresh, renderPanels, renderCacheModels };
 })();
